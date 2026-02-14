@@ -53,6 +53,13 @@ mod tests {
     use super::*;
     use crate::parse::source::SourceFile;
 
+    crate::cop_scenario_fixture_tests!(
+        TrailingEmptyLines, "cops/layout/trailing_empty_lines",
+        missing_newline = "missing_newline.rb",
+        trailing_blank = "trailing_blank.rb",
+        multiple_trailing = "multiple_trailing.rb",
+    );
+
     #[test]
     fn missing_final_newline() {
         let source = SourceFile::from_bytes("test.rb", b"x = 1".to_vec());

@@ -168,3 +168,45 @@ macro_rules! cop_fixture_tests {
         }
     };
 }
+
+/// Generate scenario-based fixture tests for cops that need multiple offense files.
+///
+/// Use when a cop fires at most once per file (e.g., InitialIndentation,
+/// LeadingEmptyLines) or when offenses can't be annotated with `^` markers
+/// (e.g., TrailingEmptyLines). Each scenario file is a separate `.rb` file
+/// in an `offense/` directory.
+///
+/// Usage:
+/// ```ignore
+/// #[cfg(test)]
+/// mod tests {
+///     use super::*;
+///     crate::cop_scenario_fixture_tests!(
+///         CopStruct, "cops/dept/cop_name",
+///         scenario_one = "scenario_one.rb",
+///         scenario_two = "scenario_two.rb",
+///     );
+/// }
+/// ```
+#[macro_export]
+macro_rules! cop_scenario_fixture_tests {
+    ($cop:expr, $path:literal, $($name:ident = $file:literal),+ $(,)?) => {
+        $(
+            #[test]
+            fn $name() {
+                $crate::testutil::assert_cop_offenses_full(
+                    &$cop,
+                    include_bytes!(concat!("../../../testdata/", $path, "/offense/", $file)),
+                );
+            }
+        )+
+
+        #[test]
+        fn no_offense_fixture() {
+            $crate::testutil::assert_cop_no_offenses_full(
+                &$cop,
+                include_bytes!(concat!("../../../testdata/", $path, "/no_offense.rb")),
+            );
+        }
+    };
+}

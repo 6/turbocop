@@ -32,15 +32,12 @@ impl Cop for LeadingEmptyLines {
 mod tests {
     use super::*;
 
-    crate::cop_fixture_tests!(LeadingEmptyLines, "cops/layout/leading_empty_lines");
-
-    #[test]
-    fn multiple_leading_blank_lines() {
-        let source = SourceFile::from_bytes("test.rb", b"\n\nx = 1\n".to_vec());
-        let diags = LeadingEmptyLines.check_lines(&source, &CopConfig::default());
-        assert_eq!(diags.len(), 1);
-        assert_eq!(diags[0].location.line, 1);
-    }
+    crate::cop_scenario_fixture_tests!(
+        LeadingEmptyLines, "cops/layout/leading_empty_lines",
+        single_blank = "single_blank.rb",
+        two_blanks = "two_blanks.rb",
+        three_blanks = "three_blanks.rb",
+    );
 
     #[test]
     fn empty_file() {

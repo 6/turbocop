@@ -53,6 +53,13 @@ mod tests {
     use super::*;
     use crate::parse::source::SourceFile;
 
+    crate::cop_scenario_fixture_tests!(
+        FileName, "cops/naming/file_name",
+        camel_case = "camel_case.rb",
+        bad_name = "bad_name.rb",
+        with_dash = "with_dash.rb",
+    );
+
     #[test]
     fn offense_bad_filename() {
         let source = SourceFile::from_bytes("BadFile.rb", b"x = 1\n".to_vec());

@@ -15,6 +15,14 @@ pub struct ExpectedOffense {
     pub message: String,
 }
 
+/// Result of parsing a fixture file, including source, expected offenses,
+/// and optional directives like `# rblint-filename:`.
+pub struct ParsedFixture {
+    pub source: Vec<u8>,
+    pub expected: Vec<ExpectedOffense>,
+    pub filename: Option<String>,
+}
+
 struct RawAnnotation {
     column: usize,
     cop_name: String,
@@ -64,30 +72,87 @@ fn try_parse_annotation(line: &str) -> Option<RawAnnotation> {
     })
 }
 
-/// Parse fixture content into clean source bytes and expected offenses.
+/// Try to parse a `# rblint-filename: <name>` directive.
 ///
-/// Annotation lines (lines starting with `^^^` markers after optional whitespace)
-/// are stripped from the source. Line numbers in expected offenses refer to the
-/// clean source (1-indexed).
+/// This directive overrides the filename passed to `SourceFile` when running
+/// the cop. Only valid on the very first line of a fixture file.
+fn try_parse_filename_directive(line: &str) -> Option<String> {
+    line.strip_prefix("# rblint-filename: ")
+        .map(|s| s.trim_end().to_string())
+}
+
+/// Try to parse a `# rblint-expect: L:C Department/CopName: Message` annotation.
+///
+/// Unlike `^` annotations (which infer line from position), these specify the
+/// offense location directly. Use for offenses that can't be annotated with `^`
+/// (e.g., trailing blanks, missing newlines).
+fn try_parse_expect_annotation(line: &str) -> Option<ExpectedOffense> {
+    let rest = line.strip_prefix("# rblint-expect: ")?;
+
+    // Parse L:C
+    let space_idx = rest.find(' ')?;
+    let loc_part = &rest[..space_idx];
+    let colon_idx = loc_part.find(':')?;
+    let line_num: usize = loc_part[..colon_idx].parse().ok()?;
+    let column: usize = loc_part[colon_idx + 1..].parse().ok()?;
+
+    // Parse Department/CopName: message
+    let after_loc = rest[space_idx + 1..].trim_end();
+    let colon_space = after_loc.find(": ")?;
+    let cop_name = &after_loc[..colon_space];
+    let message = &after_loc[colon_space + 2..];
+
+    if !cop_name.contains('/') {
+        return None;
+    }
+
+    Some(ExpectedOffense {
+        line: line_num,
+        column,
+        cop_name: cop_name.to_string(),
+        message: message.to_string(),
+    })
+}
+
+/// Parse fixture content into clean source bytes, expected offenses, and directives.
+///
+/// Supports three kinds of special lines (all stripped from the clean source):
+///
+/// - `# rblint-filename: <name>` (first line only) — overrides the test filename
+/// - `# rblint-expect: L:C Department/CopName: Message` — explicit offense location
+/// - `^ Department/CopName: Message` — positional annotation (after the source line)
 ///
 /// # Convention
 ///
-/// Annotations must appear *after* the source line they reference. The annotated
-/// line number is the count of source lines seen so far (i.e., the previous
-/// non-annotation line).
+/// Positional (`^`) annotations must appear *after* the source line they reference.
+/// The annotated line number is the count of source lines seen so far.
 ///
 /// # Panics
 ///
-/// Panics if an annotation appears before any source line, which would produce
-/// an invalid line number of 0.
-pub fn parse_fixture(raw: &[u8]) -> (Vec<u8>, Vec<ExpectedOffense>) {
+/// Panics if a `^` annotation appears before any source line.
+pub fn parse_fixture(raw: &[u8]) -> ParsedFixture {
     let text = std::str::from_utf8(raw).expect("fixture must be valid UTF-8");
     let elements: Vec<&str> = text.split('\n').collect();
 
     let mut source_lines: Vec<&str> = Vec::new();
     let mut expected: Vec<ExpectedOffense> = Vec::new();
+    let mut filename: Option<String> = None;
 
-    for (raw_idx, element) in elements.iter().enumerate() {
+    let mut start_idx = 0;
+    if !elements.is_empty() {
+        if let Some(name) = try_parse_filename_directive(elements[0]) {
+            filename = Some(name);
+            start_idx = 1;
+        }
+    }
+
+    for (raw_idx, element) in elements.iter().enumerate().skip(start_idx) {
+        // Check for # rblint-expect: annotations
+        if let Some(expect) = try_parse_expect_annotation(element) {
+            expected.push(expect);
+            continue;
+        }
+
         if let Some(annotation) = try_parse_annotation(element) {
             assert!(
                 !source_lines.is_empty(),
@@ -111,7 +176,11 @@ pub fn parse_fixture(raw: &[u8]) -> (Vec<u8>, Vec<ExpectedOffense>) {
     }
 
     let clean = source_lines.join("\n");
-    (clean.into_bytes(), expected)
+    ParsedFixture {
+        source: clean.into_bytes(),
+        expected,
+        filename,
+    }
 }
 
 /// Run a cop on raw source bytes and return the diagnostics.
@@ -144,8 +213,10 @@ pub fn assert_cop_offenses(cop: &dyn Cop, fixture_bytes: &[u8]) {
 /// comparison, so annotation order in the fixture doesn't need to match the
 /// cop's emission order.
 pub fn assert_cop_offenses_with_config(cop: &dyn Cop, fixture_bytes: &[u8], config: CopConfig) {
-    let (clean_source, mut expected) = parse_fixture(fixture_bytes);
-    let source = SourceFile::from_bytes("test.rb", clean_source);
+    let parsed = parse_fixture(fixture_bytes);
+    let filename = parsed.filename.as_deref().unwrap_or("test.rb");
+    let mut expected = parsed.expected;
+    let source = SourceFile::from_bytes(filename, parsed.source);
     let mut diagnostics = cop.check_lines(&source, &config);
 
     // Sort both for order-independent comparison
@@ -221,7 +292,17 @@ pub fn run_cop_full_with_config(
     source_bytes: &[u8],
     config: CopConfig,
 ) -> Vec<Diagnostic> {
-    let source = SourceFile::from_bytes("test.rb", source_bytes.to_vec());
+    run_cop_full_internal(cop, source_bytes, config, "test.rb")
+}
+
+/// Internal helper that runs all three cop methods with a configurable filename.
+fn run_cop_full_internal(
+    cop: &dyn Cop,
+    source_bytes: &[u8],
+    config: CopConfig,
+    filename: &str,
+) -> Vec<Diagnostic> {
+    let source = SourceFile::from_bytes(filename, source_bytes.to_vec());
     let parse_result = crate::parse::parse_source(source.as_bytes());
     let code_map = CodeMap::from_parse_result(source.as_bytes(), &parse_result);
 
@@ -258,8 +339,10 @@ pub fn assert_cop_offenses_full_with_config(
     fixture_bytes: &[u8],
     config: CopConfig,
 ) {
-    let (clean_source, mut expected) = parse_fixture(fixture_bytes);
-    let mut diagnostics = run_cop_full_with_config(cop, &clean_source, config);
+    let parsed = parse_fixture(fixture_bytes);
+    let filename = parsed.filename.as_deref().unwrap_or("test.rb");
+    let mut expected = parsed.expected;
+    let mut diagnostics = run_cop_full_internal(cop, &parsed.source, config, filename);
 
     expected.sort_by_key(|e| (e.line, e.column));
     diagnostics.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
@@ -435,74 +518,134 @@ mod tests {
     #[test]
     fn parse_fixture_strips_annotations() {
         let raw = b"x = 1\n     ^^^ Layout/Foo: msg\ny = 2\n";
-        let (clean, expected) = parse_fixture(raw);
-        assert_eq!(clean, b"x = 1\ny = 2\n");
-        assert_eq!(expected.len(), 1);
-        assert_eq!(expected[0].line, 1);
-        assert_eq!(expected[0].column, 5);
-        assert_eq!(expected[0].cop_name, "Layout/Foo");
-        assert_eq!(expected[0].message, "msg");
+        let parsed = parse_fixture(raw);
+        assert_eq!(parsed.source, b"x = 1\ny = 2\n");
+        assert_eq!(parsed.expected.len(), 1);
+        assert_eq!(parsed.expected[0].line, 1);
+        assert_eq!(parsed.expected[0].column, 5);
+        assert_eq!(parsed.expected[0].cop_name, "Layout/Foo");
+        assert_eq!(parsed.expected[0].message, "msg");
+        assert!(parsed.filename.is_none());
     }
 
     #[test]
     fn parse_fixture_multiple_annotations_same_line() {
         let raw = b"line1\n^^^ A/B: m1\n  ^^^ C/D: m2\nline2\n";
-        let (clean, expected) = parse_fixture(raw);
-        assert_eq!(clean, b"line1\nline2\n");
-        assert_eq!(expected.len(), 2);
+        let parsed = parse_fixture(raw);
+        assert_eq!(parsed.source, b"line1\nline2\n");
+        assert_eq!(parsed.expected.len(), 2);
         // Both reference source line 1
-        assert_eq!(expected[0].line, 1);
-        assert_eq!(expected[0].column, 0);
-        assert_eq!(expected[1].line, 1);
-        assert_eq!(expected[1].column, 2);
+        assert_eq!(parsed.expected[0].line, 1);
+        assert_eq!(parsed.expected[0].column, 0);
+        assert_eq!(parsed.expected[1].line, 1);
+        assert_eq!(parsed.expected[1].column, 2);
     }
 
     #[test]
     fn parse_fixture_annotations_on_different_lines() {
         let raw = b"line1\n     ^^^ A/B: m1\nline2\n  ^^^ C/D: m2\n";
-        let (clean, expected) = parse_fixture(raw);
-        assert_eq!(clean, b"line1\nline2\n");
-        assert_eq!(expected.len(), 2);
-        assert_eq!(expected[0].line, 1);
-        assert_eq!(expected[1].line, 2);
+        let parsed = parse_fixture(raw);
+        assert_eq!(parsed.source, b"line1\nline2\n");
+        assert_eq!(parsed.expected.len(), 2);
+        assert_eq!(parsed.expected[0].line, 1);
+        assert_eq!(parsed.expected[1].line, 2);
     }
 
     #[test]
     fn parse_fixture_no_annotations() {
         let raw = b"x = 1\ny = 2\n";
-        let (clean, expected) = parse_fixture(raw);
-        assert_eq!(clean, b"x = 1\ny = 2\n");
-        assert!(expected.is_empty());
+        let parsed = parse_fixture(raw);
+        assert_eq!(parsed.source, b"x = 1\ny = 2\n");
+        assert!(parsed.expected.is_empty());
     }
 
     #[test]
     fn parse_fixture_no_trailing_newline() {
         let raw = b"x = 1\n     ^^^ A/B: m";
-        let (clean, expected) = parse_fixture(raw);
+        let parsed = parse_fixture(raw);
         // Annotation is last, no trailing source line → no trailing newline
-        assert_eq!(clean, b"x = 1");
-        assert_eq!(expected.len(), 1);
-        assert_eq!(expected[0].line, 1);
+        assert_eq!(parsed.source, b"x = 1");
+        assert_eq!(parsed.expected.len(), 1);
+        assert_eq!(parsed.expected[0].line, 1);
     }
 
     #[test]
     fn parse_fixture_preserves_trailing_whitespace_in_source() {
         // Trailing spaces on source line must be preserved in clean output
         let raw = b"x = 1   \n        ^^^ Layout/Foo: msg\n";
-        let (clean, expected) = parse_fixture(raw);
-        assert_eq!(clean, b"x = 1   \n");
-        assert_eq!(expected.len(), 1);
-        assert_eq!(expected[0].column, 8);
+        let parsed = parse_fixture(raw);
+        assert_eq!(parsed.source, b"x = 1   \n");
+        assert_eq!(parsed.expected.len(), 1);
+        assert_eq!(parsed.expected[0].column, 8);
     }
 
     #[test]
     fn parse_fixture_empty_source_lines_preserved() {
         // Empty lines in source (e.g., blank lines) must be kept
         let raw = b"\n^^^ A/B: m\nx = 1\n";
-        let (clean, expected) = parse_fixture(raw);
-        assert_eq!(clean, b"\nx = 1\n");
-        assert_eq!(expected.len(), 1);
-        assert_eq!(expected[0].line, 1); // the empty line
+        let parsed = parse_fixture(raw);
+        assert_eq!(parsed.source, b"\nx = 1\n");
+        assert_eq!(parsed.expected.len(), 1);
+        assert_eq!(parsed.expected[0].line, 1); // the empty line
+    }
+
+    // ---- rblint-filename directive tests ----
+
+    #[test]
+    fn parse_fixture_filename_directive() {
+        let raw = b"# rblint-filename: MyClass.rb\nx = 1\n^ A/B: msg\n";
+        let parsed = parse_fixture(raw);
+        assert_eq!(parsed.filename.as_deref(), Some("MyClass.rb"));
+        assert_eq!(parsed.source, b"x = 1\n");
+        assert_eq!(parsed.expected.len(), 1);
+        assert_eq!(parsed.expected[0].line, 1);
+    }
+
+    #[test]
+    fn parse_fixture_filename_not_on_first_line() {
+        // # rblint-filename: on a non-first line is treated as a source line
+        let raw = b"x = 1\n# rblint-filename: Foo.rb\n";
+        let parsed = parse_fixture(raw);
+        assert!(parsed.filename.is_none());
+        assert_eq!(parsed.source, b"x = 1\n# rblint-filename: Foo.rb\n");
+    }
+
+    // ---- rblint-expect annotation tests ----
+
+    #[test]
+    fn parse_fixture_expect_annotation() {
+        let raw = b"# rblint-expect: 1:0 A/B: msg\nx = 1\n";
+        let parsed = parse_fixture(raw);
+        assert_eq!(parsed.source, b"x = 1\n");
+        assert_eq!(parsed.expected.len(), 1);
+        assert_eq!(parsed.expected[0].line, 1);
+        assert_eq!(parsed.expected[0].column, 0);
+        assert_eq!(parsed.expected[0].cop_name, "A/B");
+        assert_eq!(parsed.expected[0].message, "msg");
+    }
+
+    #[test]
+    fn parse_fixture_expect_and_caret_mixed() {
+        let raw = b"# rblint-expect: 2:0 A/B: m1\nx = 1\n^ C/D: m2\ny = 2\n";
+        let parsed = parse_fixture(raw);
+        assert_eq!(parsed.source, b"x = 1\ny = 2\n");
+        assert_eq!(parsed.expected.len(), 2);
+        // rblint-expect comes first
+        assert_eq!(parsed.expected[0].line, 2);
+        assert_eq!(parsed.expected[0].cop_name, "A/B");
+        // caret annotation
+        assert_eq!(parsed.expected[1].line, 1);
+        assert_eq!(parsed.expected[1].cop_name, "C/D");
+    }
+
+    #[test]
+    fn parse_fixture_filename_and_expect() {
+        let raw = b"# rblint-filename: Bad.rb\n# rblint-expect: 1:0 A/B: msg\nx = 1\n";
+        let parsed = parse_fixture(raw);
+        assert_eq!(parsed.filename.as_deref(), Some("Bad.rb"));
+        assert_eq!(parsed.source, b"x = 1\n");
+        assert_eq!(parsed.expected.len(), 1);
+        assert_eq!(parsed.expected[0].line, 1);
     }
 
     #[test]

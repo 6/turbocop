@@ -34,30 +34,12 @@ mod tests {
     use super::*;
     use crate::parse::source::SourceFile;
 
-    #[test]
-    fn indented_first_line_space() {
-        let source = SourceFile::from_bytes("test.rb", b"  x = 1\n".to_vec());
-        let diags = InitialIndentation.check_lines(&source, &CopConfig::default());
-        assert_eq!(diags.len(), 1);
-        assert_eq!(diags[0].location.line, 1);
-        assert_eq!(diags[0].location.column, 0);
-        assert_eq!(diags[0].message, "Indentation of first line detected.");
-    }
-
-    #[test]
-    fn indented_first_line_tab() {
-        let source = SourceFile::from_bytes("test.rb", b"\tx = 1\n".to_vec());
-        let diags = InitialIndentation.check_lines(&source, &CopConfig::default());
-        assert_eq!(diags.len(), 1);
-        assert_eq!(diags[0].location.line, 1);
-    }
-
-    #[test]
-    fn no_indentation() {
-        let source = SourceFile::from_bytes("test.rb", b"x = 1\n".to_vec());
-        let diags = InitialIndentation.check_lines(&source, &CopConfig::default());
-        assert!(diags.is_empty());
-    }
+    crate::cop_scenario_fixture_tests!(
+        InitialIndentation, "cops/layout/initial_indentation",
+        space_indent = "space_indent.rb",
+        tab_indent = "tab_indent.rb",
+        deep_indent = "deep_indent.rb",
+    );
 
     #[test]
     fn leading_blank_then_indented() {

@@ -59,7 +59,12 @@ fn is_frozen_string_literal_comment(line: &[u8]) -> bool {
 mod tests {
     use super::*;
 
-    crate::cop_fixture_tests!(FrozenStringLiteralComment, "cops/style/frozen_string_literal_comment");
+    crate::cop_scenario_fixture_tests!(
+        FrozenStringLiteralComment, "cops/style/frozen_string_literal_comment",
+        plain_missing = "plain_missing.rb",
+        shebang_missing = "shebang_missing.rb",
+        encoding_missing = "encoding_missing.rb",
+    );
 
     #[test]
     fn missing_comment() {

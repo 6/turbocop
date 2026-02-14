@@ -30,6 +30,8 @@ mod tests {
     use super::*;
     use crate::parse::source::SourceFile;
 
+    crate::cop_fixture_tests!(EndOfLine, "cops/layout/end_of_line");
+
     #[test]
     fn crlf_detected() {
         let source = SourceFile::from_bytes("test.rb", b"x = 1\r\ny = 2\r\n".to_vec());

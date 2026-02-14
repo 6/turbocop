@@ -1002,27 +1002,24 @@ fn to_snake_case(s: &str) -> String {
     result
 }
 
+/// Count annotations in fixture content: both `^` markers and `# rblint-expect:` lines.
+fn count_annotations(content: &str) -> usize {
+    content
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            // Standard ^ annotations
+            (trimmed.starts_with('^') && trimmed.contains(": ") && trimmed.contains('/'))
+            // Explicit expect annotations
+            || line.starts_with("# rblint-expect: ")
+        })
+        .count()
+}
+
 #[test]
 fn all_cops_have_minimum_test_coverage() {
     let testdata = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/cops");
     let registry = CopRegistry::default_registry();
-
-    // Cops exempt from the 3-offense minimum. Only cops whose detection pattern
-    // fundamentally cannot be expressed as 3+ annotated fixture cases.
-    let offense_exemptions: &[&str] = &[
-        "Layout/EndOfLine",          // detects CRLF — can't store CRLF in annotated fixtures
-        "Layout/InitialIndentation", // single pattern: indentation on first line of file
-        "Layout/LeadingEmptyLines",  // single pattern: blank line at start of file
-        "Layout/TrailingEmptyLines", // detects trailing blank lines — can't annotate empty lines
-        "Naming/FileName",           // detects filename, not content — annotations not applicable
-        "Style/FrozenStringLiteralComment", // single pattern: missing magic comment on line 1
-    ];
-
-    // Cops exempt from the 5-line no_offense.rb minimum. Only cops where the
-    // no_offense case is inherently minimal (e.g., empty/single-line files).
-    let no_offense_exemptions: &[&str] = &[
-        "Naming/FileName", // tested via filename not content — 1 line suffices
-    ];
 
     let mut failures = Vec::new();
 
@@ -1041,24 +1038,29 @@ fn all_cops_have_minimum_test_coverage() {
             continue; // all_cops_have_fixture_files covers this
         };
 
-        // Check offense.rb has at least 3 annotated cases.
-        // Count annotation lines: lines where first non-whitespace is '^' followed
-        // by ': ' and '/' (matching the fixture annotation format).
-        if let Ok(offense_content) = fs::read_to_string(effective_dir.join("offense.rb")) {
-            let annotation_count = offense_content
-                .lines()
-                .filter(|line| {
-                    let trimmed = line.trim_start();
-                    trimmed.starts_with('^')
-                        && trimmed.contains(": ")
-                        && trimmed.contains('/')
-                })
-                .count();
-            if annotation_count < 3 && !offense_exemptions.contains(&cop_name) {
-                failures.push(format!(
-                    "{cop_name}: only {annotation_count} offense case(s) in offense.rb, need at least 3"
-                ));
+        // Check offense annotations: either from offense.rb or offense/ directory.
+        let offense_dir = effective_dir.join("offense");
+        let annotation_count = if offense_dir.exists() && offense_dir.is_dir() {
+            // Sum annotations across all .rb files in offense/
+            let mut count = 0;
+            for entry in fs::read_dir(&offense_dir).unwrap() {
+                let entry = entry.unwrap();
+                if entry.path().extension().map_or(false, |e| e == "rb") {
+                    let content = fs::read_to_string(entry.path()).unwrap();
+                    count += count_annotations(&content);
+                }
             }
+            count
+        } else if let Ok(content) = fs::read_to_string(effective_dir.join("offense.rb")) {
+            count_annotations(&content)
+        } else {
+            continue; // all_cops_have_fixture_files covers this
+        };
+
+        if annotation_count < 3 {
+            failures.push(format!(
+                "{cop_name}: only {annotation_count} offense case(s), need at least 3"
+            ));
         }
 
         // Check no_offense.rb has at least 5 non-empty lines
@@ -1067,7 +1069,7 @@ fn all_cops_have_minimum_test_coverage() {
                 .lines()
                 .filter(|l| !l.trim().is_empty())
                 .count();
-            if non_empty < 5 && !no_offense_exemptions.contains(&cop_name) {
+            if non_empty < 5 {
                 failures.push(format!(
                     "{cop_name}: only {non_empty} non-empty line(s) in no_offense.rb, need at least 5"
                 ));
@@ -1106,8 +1108,10 @@ fn all_cops_have_fixture_files() {
             continue;
         };
 
-        if !effective_dir.join("offense.rb").exists() {
-            missing.push(format!("{cop_name}: missing offense.rb"));
+        let has_offense_file = effective_dir.join("offense.rb").exists();
+        let has_offense_dir = effective_dir.join("offense").is_dir();
+        if !has_offense_file && !has_offense_dir {
+            missing.push(format!("{cop_name}: missing offense.rb or offense/ directory"));
         }
         if !effective_dir.join("no_offense.rb").exists() {
             missing.push(format!("{cop_name}: missing no_offense.rb"));

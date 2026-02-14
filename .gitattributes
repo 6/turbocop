@@ -1,2 +1,4 @@
 # Preserve trailing whitespace in test fixtures
 testdata/cops/layout/trailing_whitespace/** -whitespace
+# Preserve CRLF bytes in EndOfLine test fixture
+testdata/cops/layout/end_of_line/offense.rb -text
