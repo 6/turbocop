@@ -154,20 +154,65 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
         .unwrap_or_else(|| Path::new("."))
         .to_path_buf();
 
+    // Load rubocop's own config/default.yml as the lowest-priority base layer.
+    // This provides correct default Enabled states, EnforcedStyle values, etc.
+    let mut base = try_load_rubocop_defaults(&config_dir);
+
     let mut visited = HashSet::new();
-    let layer = load_config_recursive(&config_path, &config_dir, &mut visited)?;
+    let project_layer = load_config_recursive(&config_path, &config_dir, &mut visited)?;
+
+    // Merge project config on top of rubocop defaults
+    merge_layer_into(&mut base, &project_layer, None);
 
     Ok(ResolvedConfig {
-        cop_configs: layer.cop_configs,
-        department_configs: layer.department_configs,
-        global_excludes: layer.global_excludes,
+        cop_configs: base.cop_configs,
+        department_configs: base.department_configs,
+        global_excludes: base.global_excludes,
         config_dir: Some(config_dir),
-        new_cops: match layer.new_cops.as_deref() {
+        new_cops: match base.new_cops.as_deref() {
             Some("enable") => NewCopsPolicy::Enable,
             _ => NewCopsPolicy::Disable,
         },
-        disabled_by_default: layer.disabled_by_default.unwrap_or(false),
+        disabled_by_default: base.disabled_by_default.unwrap_or(false),
     })
+}
+
+/// Try to load rubocop's own `config/default.yml` as the base config layer.
+///
+/// This provides correct default Enabled states (52 cops disabled by default),
+/// EnforcedStyle values, and other option defaults for all cops. Returns an
+/// empty layer if the rubocop gem is not installed or the file can't be parsed.
+fn try_load_rubocop_defaults(working_dir: &Path) -> ConfigLayer {
+    let gem_root = match gem_path::resolve_gem_path("rubocop", working_dir) {
+        Ok(p) => p,
+        Err(_) => return ConfigLayer::empty(),
+    };
+
+    let default_config = gem_root.join("config").join("default.yml");
+    if !default_config.exists() {
+        return ConfigLayer::empty();
+    }
+
+    let contents = match std::fs::read_to_string(&default_config) {
+        Ok(c) => c,
+        Err(_) => return ConfigLayer::empty(),
+    };
+
+    // Strip Ruby-specific YAML tags (e.g., !ruby/regexp) that serde_yml can't handle
+    let contents = contents.replace("!ruby/regexp ", "");
+
+    let raw: Value = match serde_yml::from_str(&contents) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!(
+                "warning: failed to parse rubocop default config {}: {e}",
+                default_config.display()
+            );
+            return ConfigLayer::empty();
+        }
+    };
+
+    parse_config_layer(&raw)
 }
 
 /// Recursively load a config file and all its inherited configs.
