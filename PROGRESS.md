@@ -460,6 +460,160 @@ All files compile, binary runs, produces "0 offenses detected."
 - [x] Include/Exclude path pattern enforcement infrastructure
 - [x] Test coverage guard: `all_cops_have_fixture_files` covers all 251 cops
 
+## Completed: M8 — rubocop-rspec (113 cops)
+
+113 new RSpec department cops (364 total), vendor fixture extraction from rubocop-rspec specs, RSpec DSL utility helpers.
+
+### M8 Infrastructure
+
+- [x] **src/cop/rspec/mod.rs** — New RSpec department with `register_all()` for 113 cops
+- [x] **src/cop/util.rs** — RSpec-specific helpers: `RSPEC_EXAMPLE_GROUPS`, `RSPEC_EXAMPLES`, `RSPEC_HOOKS`, `RSPEC_LETS`, `RSPEC_SUBJECTS`, `RSPEC_FOCUSED_METHODS`, `RSPEC_DEFAULT_INCLUDE`, `is_rspec_example_group()`, `is_rspec_example()`, `is_rspec_hook()`, `is_rspec_focused()`, `has_rspec_focus_metadata()`, `first_positional_arg()`, `block_body_line_count()`
+- [x] **CLAUDE.md** — Documented vendor fixture extraction process
+
+### M8 Cops — RSpec: Simple Matchers (16)
+
+- [x] RSpec/Focus — focused specs (`:focus`, `focus: true`, f-prefixed methods)
+- [x] RSpec/Be — bare `be` matcher without arguments
+- [x] RSpec/BeEmpty — `be_empty` matcher usage
+- [x] RSpec/BeEq — `eq(true/false/nil)` → `be` matchers
+- [x] RSpec/BeEql — `eql(true/false/nil)` → `be` matchers
+- [x] RSpec/BeNil — `be_nil` vs `be(nil)` style
+- [x] RSpec/ContainExactly — `contain_exactly` vs `match_array`
+- [x] RSpec/MatchArray — `match_array` with array literal → `contain_exactly`
+- [x] RSpec/NotToNot — `to_not` → `not_to`
+- [x] RSpec/EmptyMetadata — empty metadata hash `{}`
+- [x] RSpec/Pending — flag `pending` examples
+- [x] RSpec/PendingWithoutReason — `pending`/`skip` without reason
+- [x] RSpec/AnyInstance — `allow_any_instance_of`/`expect_any_instance_of`
+- [x] RSpec/InstanceSpy — `instance_double` + `as_null_object` → `instance_spy`
+- [x] RSpec/MessageChain — `receive_message_chain` usage
+- [x] RSpec/VoidExpect — `expect()` without matcher
+
+### M8 Cops — RSpec: Call Pattern Detection (16)
+
+- [x] RSpec/ExpectActual — literal values as `expect` argument
+- [x] RSpec/ExpectOutput — `$stdout`/`$stderr` in expect
+- [x] RSpec/RemoveConst — `remove_const` in specs
+- [x] RSpec/DescribeMethod — describe with method description convention
+- [x] RSpec/DescribeSymbol — `describe :symbol` usage
+- [x] RSpec/ContextMethod — `context` with method-like description
+- [x] RSpec/ContextWording — context description wording
+- [x] RSpec/EmptyHook — empty before/after/around blocks
+- [x] RSpec/EmptyOutput — empty output matcher
+- [x] RSpec/InstanceVariable — `@ivar` usage in examples
+- [x] RSpec/Eq — `eq` matcher style
+- [x] RSpec/Output — `output` matcher patterns
+- [x] RSpec/ClassCheck — `is_a?` vs `instance_of?` style
+- [x] RSpec/SingleArgumentMessageChain — single-arg `receive_message_chain`
+- [x] RSpec/ReceiveNever — `receive.never` → `not_to receive`
+- [x] RSpec/ReceiveCounts — `receive.once`/`.twice` patterns
+
+### M8 Cops — RSpec: Block Structure (16)
+
+- [x] RSpec/ExampleLength — example block line count
+- [x] RSpec/MultipleExpectations — too many `expect` calls
+- [x] RSpec/NoExpectationExample — example without expectations
+- [x] RSpec/NestedGroups — deeply nested groups
+- [x] RSpec/MultipleMemoizedHelpers — too many `let` declarations
+- [x] RSpec/HooksBeforeExamples — hooks after examples
+- [x] RSpec/LetBeforeExamples — `let` after examples
+- [x] RSpec/EmptyLineAfterExample — missing blank line after examples
+- [x] RSpec/EmptyLineAfterExampleGroup — missing blank line after groups
+- [x] RSpec/EmptyLineAfterFinalLet — missing blank line after last `let`
+- [x] RSpec/EmptyLineAfterHook — missing blank line after hooks
+- [x] RSpec/EmptyLineAfterSubject — missing blank line after subject
+- [x] RSpec/LeadingSubject — subject should come first
+- [x] RSpec/ScatteredLet — `let` should be grouped
+- [x] RSpec/ScatteredSetup — `before` should be grouped
+- [x] RSpec/EmptyExampleGroup — example group with no examples
+
+### M8 Cops — RSpec: Duplication/Ordering (16)
+
+- [x] RSpec/MultipleDescribes — multiple top-level describes
+- [x] RSpec/MultipleSubjects — multiple subject declarations
+- [x] RSpec/DescribeClass — first arg to describe should be a class
+- [x] RSpec/DescribedClass — use `described_class` instead of explicit name
+- [x] RSpec/DescribedClassModuleWrapping — `described_class` in module wrapper
+- [x] RSpec/OverwritingSetup — duplicate `let` names
+- [x] RSpec/RepeatedDescription — duplicate example descriptions
+- [x] RSpec/RepeatedExample — duplicate example bodies
+- [x] RSpec/RepeatedExampleGroupBody — duplicate group bodies
+- [x] RSpec/RepeatedExampleGroupDescription — duplicate group descriptions
+- [x] RSpec/RepeatedIncludeExample — duplicate `include_examples`
+- [x] RSpec/RepeatedSubjectCall — repeated `subject` calls
+- [x] RSpec/LetSetup — `let` only used in hooks
+- [x] RSpec/IncludeExamples — `include_examples` vs `it_behaves_like`
+- [x] RSpec/ItBehavesLike — `it_behaves_like` vs `include_examples`
+- [x] RSpec/SharedContext — shared context naming
+
+### M8 Cops — RSpec: Naming/Expectation (16)
+
+- [x] RSpec/SharedExamples — shared examples naming
+- [x] RSpec/ExampleWithoutDescription — example without description string
+- [x] RSpec/ExampleWording — example wording style ("should" → imperative)
+- [x] RSpec/IndexedLet — `let(:item_1)` indexed names
+- [x] RSpec/SubjectDeclaration — subject declaration style
+- [x] RSpec/VariableDefinition — `let` vs `let!` style
+- [x] RSpec/VariableName — variable naming convention
+- [x] RSpec/IsExpectedSpecify — `is_expected` with `specify`
+- [x] RSpec/ExpectChange — `expect { }.to change` style
+- [x] RSpec/ExpectInHook — `expect` in hooks
+- [x] RSpec/ExpectInLet — `expect` in `let`
+- [x] RSpec/HookArgument — hook scope argument style
+- [x] RSpec/ImplicitBlockExpectation — implicit block expectation
+- [x] RSpec/ImplicitExpect — `is_expected` vs `expect(subject)`
+- [x] RSpec/ImplicitSubject — implicit vs explicit subject
+- [x] RSpec/IteratedExpectation — `expect` inside `.each`
+
+### M8 Cops — RSpec: Mocking/Complex (16)
+
+- [x] RSpec/MessageExpectation — message expectation style
+- [x] RSpec/MessageSpies — spy vs mock style
+- [x] RSpec/ReceiveMessages — multiple `receive` → `receive_messages`
+- [x] RSpec/ReturnFromStub — stub return style
+- [x] RSpec/StubbedMock — stubbed mock pattern
+- [x] RSpec/SubjectStub — stubbing on subject
+- [x] RSpec/VerifiedDoubles — `double` → verified doubles
+- [x] RSpec/VerifiedDoubleReference — string vs constant reference
+- [x] RSpec/PredicateMatcher — predicate matcher style
+- [x] RSpec/RedundantPredicateMatcher — redundant predicate matcher
+- [x] RSpec/RedundantAround — redundant `around` hook
+- [x] RSpec/SkipBlockInsideExample — `skip` with block
+- [x] RSpec/AroundBlock — `around` without yield/run
+- [x] RSpec/BeforeAfterAll — `before(:all)`/`after(:all)`
+- [x] RSpec/LeakyConstantDeclaration — constants in example groups
+- [x] RSpec/LeakyLocalVariable — local variable leaking
+
+### M8 Cops — RSpec: Remaining (17)
+
+- [x] RSpec/UnspecifiedException — `raise_error` without class
+- [x] RSpec/Dialect — non-standard RSpec aliases
+- [x] RSpec/MissingExampleGroupArgument — missing describe/context args
+- [x] RSpec/IdenticalEqualityAssertion — `expect(x).to eq(x)`
+- [x] RSpec/ChangeByZero — `change { }.by(0)`
+- [x] RSpec/UndescriptiveLiteralsDescription — literal descriptions
+- [x] RSpec/ExcessiveDocstringSpacing — excessive whitespace in descriptions
+- [x] RSpec/SpecFilePathFormat — spec path matches described class
+- [x] RSpec/SpecFilePathSuffix — spec files end in `_spec.rb`
+- [x] RSpec/AlignLeftLetBrace — left-align let braces
+- [x] RSpec/AlignRightLetBrace — right-align let braces
+- [x] RSpec/DuplicatedMetadata — duplicate metadata keys
+- [x] RSpec/MetadataStyle — metadata hash vs symbol style
+- [x] RSpec/SortMetadata — sorted metadata
+- [x] RSpec/MissingExpectationTargetMethod — missing `.to`/`.not_to`
+- [x] RSpec/NamedSubject — named subject style
+- [x] RSpec/Yield — yield matcher issues
+
+### M8 Summary
+
+- [x] **src/cop/registry.rs** — `default_registry()` registers all 364 cops
+- [x] **src/cop/rspec/** — 113 new cop source files
+- [x] **testdata/cops/rspec/** — 226+ new fixture files (offense + no_offense for each cop)
+- [x] 971 tests passing (944 unit + 27 integration)
+- [x] RSPEC_DEFAULT_INCLUDE: all RSpec cops default to `**/*_spec.rb` and `**/spec/**/*`
+- [x] Vendor fixture extraction documented in CLAUDE.md
+- [x] Test coverage guard: `all_cops_have_fixture_files` covers all 364 cops
+
 ## Upcoming Milestones
 
 | Milestone | Cops | Status |
@@ -472,4 +626,4 @@ All files compile, binary runs, produces "0 offenses detected."
 | **M5**: Complex core cops | 153 | **Done** |
 | **M6**: rubocop-rails + Include/Exclude | 251 | **Done** |
 | **M7**: Autocorrect | +30 fixes | Pending |
-| **M8**: rubocop-rspec | 80 | Pending |
+| **M8**: rubocop-rspec | 364 | **Done** |

@@ -24,6 +24,7 @@ impl CopRegistry {
         super::naming::register_all(&mut registry);
         super::performance::register_all(&mut registry);
         super::rails::register_all(&mut registry);
+        super::rspec::register_all(&mut registry);
         super::style::register_all(&mut registry);
         registry
     }
@@ -78,7 +79,7 @@ mod tests {
     fn default_registry_has_cops() {
         let reg = CopRegistry::default_registry();
         assert!(!reg.is_empty());
-        assert_eq!(reg.len(), 251);
+        assert_eq!(reg.len(), 364);
         // Spot-check cops from each department
         assert!(reg.get("Layout/TrailingWhitespace").is_some());
         assert!(reg.get("Layout/LineLength").is_some());

@@ -1,0 +1,5 @@
+allow(foo).to receive(:bar)
+allow(foo).to receive(:bar).and_return(:baz)
+expect(foo).to receive(:bar)
+foo.stub(:bar).and_return(:baz)
+allow(foo).to receive(:bar).with(:arg)

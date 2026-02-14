@@ -396,7 +396,9 @@ pub fn assert_cop_no_offenses_full_with_config(
     source_bytes: &[u8],
     config: CopConfig,
 ) {
-    let diagnostics = run_cop_full_with_config(cop, source_bytes, config);
+    let parsed = parse_fixture(source_bytes);
+    let filename = parsed.filename.as_deref().unwrap_or("test.rb");
+    let diagnostics = run_cop_full_internal(cop, &parsed.source, config, filename);
 
     assert!(
         diagnostics.is_empty(),

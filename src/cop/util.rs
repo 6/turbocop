@@ -465,6 +465,159 @@ pub fn as_method_chain3<'a>(node: &ruby_prism::Node<'a>) -> Option<MethodChain3<
     })
 }
 
+// ── RSpec-specific helpers ──────────────────────────────────────────────
+
+/// RSpec example group methods.
+pub const RSPEC_EXAMPLE_GROUPS: &[&str] = &[
+    "describe", "context", "feature", "example_group",
+    "xdescribe", "xcontext", "xfeature",
+    "fdescribe", "fcontext", "ffeature",
+    "shared_examples", "shared_examples_for", "shared_context",
+];
+
+/// RSpec focused (f-prefixed) methods.
+pub const RSPEC_FOCUSED_METHODS: &[&str] = &[
+    "fdescribe", "fcontext", "ffeature",
+    "fit", "fspecify", "fexample", "fscenario",
+    "focus",
+];
+
+/// RSpec example methods.
+pub const RSPEC_EXAMPLES: &[&str] = &[
+    "it", "specify", "example", "scenario",
+    "xit", "xspecify", "xexample", "xscenario",
+    "fit", "fspecify", "fexample", "fscenario",
+    "pending", "skip",
+];
+
+/// RSpec hook methods.
+pub const RSPEC_HOOKS: &[&str] = &[
+    "before", "after", "around",
+    "prepend_before", "prepend_after",
+    "append_before", "append_after",
+];
+
+/// RSpec let/subject methods.
+pub const RSPEC_LETS: &[&str] = &["let", "let!"];
+pub const RSPEC_SUBJECTS: &[&str] = &["subject", "subject!"];
+
+/// All RSpec methods that define example groups or examples (for detecting RSpec context).
+pub const RSPEC_ALL_METHODS: &[&str] = &[
+    "describe", "context", "feature", "example_group",
+    "xdescribe", "xcontext", "xfeature",
+    "fdescribe", "fcontext", "ffeature",
+    "shared_examples", "shared_examples_for", "shared_context",
+    "it", "specify", "example", "scenario",
+    "xit", "xspecify", "xexample", "xscenario",
+    "fit", "fspecify", "fexample", "fscenario",
+    "pending", "skip", "focus",
+    "before", "after", "around",
+    "let", "let!", "subject", "subject!",
+];
+
+/// Check if a method name is an RSpec example group method.
+pub fn is_rspec_example_group(name: &[u8]) -> bool {
+    let s = std::str::from_utf8(name).unwrap_or("");
+    RSPEC_EXAMPLE_GROUPS.contains(&s)
+}
+
+/// Check if a method name is an RSpec example method.
+pub fn is_rspec_example(name: &[u8]) -> bool {
+    let s = std::str::from_utf8(name).unwrap_or("");
+    RSPEC_EXAMPLES.contains(&s)
+}
+
+/// Check if a method name is an RSpec hook method.
+pub fn is_rspec_hook(name: &[u8]) -> bool {
+    let s = std::str::from_utf8(name).unwrap_or("");
+    RSPEC_HOOKS.contains(&s)
+}
+
+/// Check if a method name is a focused RSpec method (f-prefixed).
+pub fn is_rspec_focused(name: &[u8]) -> bool {
+    let s = std::str::from_utf8(name).unwrap_or("");
+    RSPEC_FOCUSED_METHODS.contains(&s)
+}
+
+/// Check if a method name is an RSpec let or let!.
+pub fn is_rspec_let(name: &[u8]) -> bool {
+    name == b"let" || name == b"let!"
+}
+
+/// Check if a method name is an RSpec subject or subject!.
+pub fn is_rspec_subject(name: &[u8]) -> bool {
+    name == b"subject" || name == b"subject!"
+}
+
+/// Default include patterns for all RSpec cops — only run on spec files.
+pub const RSPEC_DEFAULT_INCLUDE: &[&str] = &["**/*_spec.rb", "**/spec/**/*"];
+
+/// Check if a CallNode has a keyword argument `focus: true` or symbol arg `:focus`.
+pub fn has_rspec_focus_metadata(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<(usize, usize, usize, usize)> {
+    let call = node.as_call_node()?;
+    let args = call.arguments()?;
+    for arg in args.arguments().iter() {
+        // Check for `:focus` symbol argument
+        if let Some(sym) = arg.as_symbol_node() {
+            if sym.unescaped() == b"focus" {
+                let loc = sym.location();
+                let (line, col) = source.offset_to_line_col(loc.start_offset());
+                let len = loc.end_offset() - loc.start_offset();
+                return Some((line, col, loc.start_offset(), len));
+            }
+        }
+        // Check for `focus: true` keyword argument
+        if let Some(kw) = arg.as_keyword_hash_node() {
+            for elem in kw.elements().iter() {
+                if let Some(assoc) = elem.as_assoc_node() {
+                    if let Some(sym) = assoc.key().as_symbol_node() {
+                        if sym.unescaped() == b"focus" {
+                            let loc = elem.location();
+                            let (line, col) = source.offset_to_line_col(loc.start_offset());
+                            let len = loc.end_offset() - loc.start_offset();
+                            return Some((line, col, loc.start_offset(), len));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Get the first positional (non-keyword) argument from a call node.
+pub fn first_positional_arg<'a>(call: &ruby_prism::CallNode<'a>) -> Option<ruby_prism::Node<'a>> {
+    let args = call.arguments()?;
+    for arg in args.arguments().iter() {
+        // Skip keyword hash arguments
+        if arg.as_keyword_hash_node().is_some() {
+            continue;
+        }
+        return Some(arg);
+    }
+    None
+}
+
+/// Get the string content of a string node (returns owned Vec).
+pub fn string_value(node: &ruby_prism::Node<'_>) -> Option<Vec<u8>> {
+    if let Some(s) = node.as_string_node() {
+        return Some(s.unescaped().to_vec());
+    }
+    None
+}
+
+/// Count block body lines (statements in a block node).
+pub fn block_body_line_count(
+    source: &SourceFile,
+    block: &ruby_prism::BlockNode<'_>,
+) -> usize {
+    let loc = block.location();
+    let (start_line, _) = source.offset_to_line_col(loc.start_offset());
+    let (end_line, _) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
+    if end_line <= start_line + 1 { return 0; }
+    end_line - start_line - 1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

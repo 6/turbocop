@@ -1,0 +1,6 @@
+allow(foo).to receive(:bar)
+allow(foo).to receive(:baz).with(1)
+allow(obj).to receive(:qux).and_return(true)
+expect(foo).to eq(bar)
+expect(foo).to have_received(:bar)
+allow(foo).to receive(:bar).and_return(42)

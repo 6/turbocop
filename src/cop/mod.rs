@@ -5,6 +5,7 @@ pub mod naming;
 pub mod performance;
 pub mod rails;
 pub mod registry;
+pub mod rspec;
 pub mod style;
 pub mod util;
 pub mod walker;

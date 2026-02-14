@@ -1,0 +1,25 @@
+RSpec.describe User do
+  it 'allows exception class' do
+    expect { raise StandardError }.to raise_error(StandardError)
+  end
+
+  it 'allows exception message' do
+    expect { raise StandardError.new('error') }.to raise_error('error')
+  end
+
+  it 'allows not_to raise_error without args' do
+    expect { safe_method }.not_to raise_error
+  end
+
+  it 'allows raise_error with block' do
+    expect { raise StandardError }.to raise_error { |e| e.data }
+  end
+
+  it 'allows raise_exception with class' do
+    expect { raise StandardError }.to raise_exception(StandardError)
+  end
+
+  it 'allows to_not raise_error without args' do
+    expect { safe_method }.to_not raise_error
+  end
+end

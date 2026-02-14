@@ -1,0 +1,88 @@
+use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
+use crate::cop::{Cop, CopConfig};
+use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::source::SourceFile;
+
+pub struct MissingExampleGroupArgument;
+
+const EXAMPLE_GROUP_METHODS: &[&[u8]] = &[
+    b"describe", b"context", b"feature", b"example_group",
+];
+
+impl Cop for MissingExampleGroupArgument {
+    fn name(&self) -> &'static str {
+        "RSpec/MissingExampleGroupArgument"
+    }
+
+    fn default_severity(&self) -> Severity {
+        Severity::Convention
+    }
+
+    fn default_include(&self) -> &'static [&'static str] {
+        RSPEC_DEFAULT_INCLUDE
+    }
+
+    fn check_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
+        let call = match node.as_call_node() {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+
+        let method_name = call.name().as_slice();
+
+        if !EXAMPLE_GROUP_METHODS.contains(&method_name) {
+            return Vec::new();
+        }
+
+        // Must have a block
+        if call.block().is_none() {
+            return Vec::new();
+        }
+
+        // Must be receiverless or RSpec.describe
+        let is_rspec_call = if call.receiver().is_none() {
+            true
+        } else if let Some(recv) = call.receiver() {
+            if let Some(cr) = recv.as_constant_read_node() {
+                cr.name().as_slice() == b"RSpec"
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if !is_rspec_call {
+            return Vec::new();
+        }
+
+        // Must have no arguments (or only keyword/metadata args, but no positional)
+        if call.arguments().is_some() {
+            return Vec::new();
+        }
+
+        let method_str = std::str::from_utf8(method_name).unwrap_or("describe");
+
+        // Flag the entire call up to the block
+        let loc = call.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        vec![self.diagnostic(
+            source,
+            line,
+            column,
+            format!("The first argument to `{method_str}` should not be empty."),
+        )]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    crate::cop_fixture_tests!(MissingExampleGroupArgument, "cops/rspec/missing_example_group_argument");
+}

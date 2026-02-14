@@ -59,6 +59,29 @@ Each cop has a test fixture directory under `testdata/cops/<dept>/<cop_name>/` w
 - `# rblint-filename: Name.rb` — first line only; overrides the filename passed to `SourceFile` (used by `Naming/FileName`)
 - `# rblint-expect: L:C Department/CopName: Message` — explicit offense at line L, column C; use when `^` can't be placed (trailing blanks, missing newlines)
 
+## Vendor Fixture Extraction Process
+
+To add a new cop department from a RuboCop plugin (e.g., rubocop-rspec, rubocop-performance), extract test fixtures from the vendor specs:
+
+1. **Read the vendor spec** at `vendor/rubocop-{plugin}/spec/rubocop/cop/{dept}/{cop_name}_spec.rb`
+2. **Extract `expect_offense` blocks** — these contain inline Ruby with `^` annotation markers:
+   ```ruby
+   expect_offense(<<~RUBY)
+     User.where(id: x).take
+          ^^^^^^^^^^^^^^^^^ Use `find_by` instead of `where.take`.
+   RUBY
+   ```
+3. **Convert to rblint format** — strip the heredoc wrapper, prepend the department/cop prefix to annotations, write to `testdata/cops/{dept}/{cop_name}/offense.rb`
+4. **Extract `expect_no_offenses` blocks** — combine clean Ruby snippets into `no_offense.rb` (≥5 non-empty lines)
+5. **Adapt annotations** — vendor specs use just the message after `^`; rblint requires `Department/CopName: message` format:
+   - Vendor: `^^^ Use find_by instead of where.take.`
+   - rblint: `^^^ Rails/FindBy: Use find_by instead of where.take.`
+6. **Handle edge cases**:
+   - Vendor specs with interpolation (`#{method}`) — pick concrete examples
+   - Vendor specs testing config variations — use default config for fixtures, test variations inline
+   - Cops that fire once per file — use `offense/` scenario directory layout
+7. **Validate** — `cargo test` enforces ≥3 offense annotations and ≥5 no_offense lines per cop
+
 ## Rules
 
 - Keep [PROGRESS.md](PROGRESS.md) up to date when completing milestone tasks. Check off items as done and update milestone status.

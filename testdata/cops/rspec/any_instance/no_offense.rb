@@ -1,0 +1,5 @@
+allow(foo).to receive(:bar)
+expect(foo).to receive(:bar)
+instance_double(Foo)
+double('foo')
+allow(foo).to receive(:any_instance)

@@ -749,8 +749,8 @@ $ rubylint --rubocop-only | tr ',' '\n' | wc -l
 | M5: AST complex | 50 | 190 | Week 7-9 | Indentation, alignment, multiline |
 | M6: bin/lint + --rubocop-only | 0 new | 190 | Week 9-10 | Hybrid CI mode works end-to-end |
 | M7: Autocorrect | +30 fixes | 190 | Week 10-12 | --autocorrect for easy cops |
-| M8: rubocop-rspec | 80 | 270 | Week 13-15 | **HIGH PRIORITY** — eliminates ~80 cops from 12s rubocop |
-| M9: rubocop-rails | 70 | 340 | Week 16-18 | **HIGH PRIORITY** — gets rubocop down to ~18 cops |
+| M8: rubocop-rspec | 113 | 364 | **Done** | All 113 rubocop-rspec cops ported |
+| M9: rubocop-rails | 98 | 251→364 | **Done** (was M6) | All 98 rubocop-rails cops ported in M6 |
 
 **M6 is the "ship it" milestone.** At ~190 cops (core + performance) with
 bin/lint hybrid mode, you can deploy to CI across all repos. RuboCop still
