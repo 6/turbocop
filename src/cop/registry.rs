@@ -20,6 +20,8 @@ impl CopRegistry {
         let mut registry = Self::new();
         super::layout::register_all(&mut registry);
         super::lint::register_all(&mut registry);
+        super::metrics::register_all(&mut registry);
+        super::naming::register_all(&mut registry);
         super::style::register_all(&mut registry);
         registry
     }
@@ -74,12 +76,19 @@ mod tests {
     fn default_registry_has_cops() {
         let reg = CopRegistry::default_registry();
         assert!(!reg.is_empty());
-        assert_eq!(reg.len(), 25);
-        // Spot-check a few cops
+        assert_eq!(reg.len(), 70);
+        // Spot-check cops from each department
         assert!(reg.get("Layout/TrailingWhitespace").is_some());
         assert!(reg.get("Layout/LineLength").is_some());
         assert!(reg.get("Style/FrozenStringLiteralComment").is_some());
         assert!(reg.get("Style/Tab").is_some());
+        assert!(reg.get("Metrics/MethodLength").is_some());
+        assert!(reg.get("Metrics/AbcSize").is_some());
+        assert!(reg.get("Naming/MethodName").is_some());
+        assert!(reg.get("Naming/FileName").is_some());
+        assert!(reg.get("Style/EmptyMethod").is_some());
+        assert!(reg.get("Lint/BooleanSymbol").is_some());
+        assert!(reg.get("Lint/UnifiedInteger").is_some());
     }
 
     #[test]

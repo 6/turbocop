@@ -437,10 +437,11 @@ fn all_registered_cops_can_fire() {
 #[test]
 fn registry_has_expected_cop_count() {
     let registry = CopRegistry::default_registry();
-    assert_eq!(registry.len(), 25, "Expected 25 registered cops");
+    assert_eq!(registry.len(), 70, "Expected 70 registered cops");
 
     let names = registry.names();
     let expected = [
+        // Layout (17)
         "Layout/TrailingWhitespace",
         "Layout/LineLength",
         "Layout/TrailingEmptyLines",
@@ -458,14 +459,63 @@ fn registry_has_expected_cop_count() {
         "Layout/SpaceInsideBlockBraces",
         "Layout/SpaceInsideArrayLiteralBrackets",
         "Layout/SpaceBeforeBlockBraces",
+        // Lint (19)
         "Lint/Debugger",
         "Lint/LiteralAsCondition",
+        "Lint/EmptyConditionalBody",
+        "Lint/EmptyWhen",
+        "Lint/BooleanSymbol",
+        "Lint/DeprecatedClassMethods",
+        "Lint/EnsureReturn",
+        "Lint/FloatOutOfRange",
+        "Lint/Loop",
+        "Lint/NestedMethodDefinition",
+        "Lint/RaiseException",
+        "Lint/SuppressedException",
+        "Lint/UnifiedInteger",
+        "Lint/UriEscapeUnescape",
+        "Lint/UriRegexp",
+        "Lint/DuplicateCaseCondition",
+        "Lint/ElseLayout",
+        "Lint/RedundantStringCoercion",
+        "Lint/EachWithObjectArgument",
+        // Metrics (8)
+        "Metrics/MethodLength",
+        "Metrics/ClassLength",
+        "Metrics/ModuleLength",
+        "Metrics/BlockLength",
+        "Metrics/ParameterLists",
+        "Metrics/AbcSize",
+        "Metrics/CyclomaticComplexity",
+        "Metrics/PerceivedComplexity",
+        // Naming (8)
+        "Naming/MethodName",
+        "Naming/VariableName",
+        "Naming/ConstantName",
+        "Naming/ClassAndModuleCamelCase",
+        "Naming/AccessorMethodName",
+        "Naming/PredicateName",
+        "Naming/AsciiIdentifiers",
+        "Naming/FileName",
+        // Style (18)
         "Style/FrozenStringLiteralComment",
         "Style/Tab",
         "Style/StringLiterals",
         "Style/RedundantReturn",
         "Style/NumericLiterals",
         "Style/Semicolon",
+        "Style/EmptyMethod",
+        "Style/NegatedIf",
+        "Style/NegatedWhile",
+        "Style/ParenthesesAroundCondition",
+        "Style/IfUnlessModifier",
+        "Style/WordArray",
+        "Style/SymbolArray",
+        "Style/TrailingCommaInArguments",
+        "Style/TrailingCommaInArrayLiteral",
+        "Style/TrailingCommaInHashLiteral",
+        "Style/ClassAndModuleChildren",
+        "Style/TernaryParentheses",
     ];
     for name in &expected {
         assert!(

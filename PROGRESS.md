@@ -94,9 +94,84 @@ All files compile, binary runs, produces "0 offenses detected."
 - [x] **testdata/cops/** — 34 new fixture files (offense + no_offense for each new cop)
 - [x] 175 tests passing (159 unit + 16 integration)
 
-## Next: M3 — AST single-node cops
+## Completed: M3 — AST single-node cops
 
-See [PLAN.md § Batch 2](PLAN.md#batch-2-ast-walking-cops-single-node-patterns).
+45 new AST-based cops (70 total), two new departments (Metrics, Naming), shared utilities module.
+
+### M3 Infrastructure
+
+- [x] **src/cop/util.rs** — Shared utilities: line counting, name case checks, trailing comma detection
+- [x] **src/cop/metrics/mod.rs** — New Metrics department with `register_all()`
+- [x] **src/cop/naming/mod.rs** — New Naming department with `register_all()`
+- [x] **src/cop/mod.rs** — Added `pub mod metrics; pub mod naming; pub mod util;`
+- [x] **src/cop/registry.rs** — Added `metrics::register_all` and `naming::register_all` to `default_registry()`
+
+### M3 Cops — Metrics (8 new)
+
+- [x] Metrics/MethodLength — DefNode, configurable Max (10), CountComments
+- [x] Metrics/ClassLength — ClassNode, configurable Max (100), CountComments
+- [x] Metrics/ModuleLength — ModuleNode, configurable Max (100), CountComments
+- [x] Metrics/BlockLength — BlockNode, configurable Max (25), CountComments
+- [x] Metrics/ParameterLists — DefNode, configurable Max (5), CountKeywordArgs
+- [x] Metrics/AbcSize — DefNode, ABC score via subtree Visit, configurable Max (17)
+- [x] Metrics/CyclomaticComplexity — DefNode, cyclomatic score via subtree Visit, configurable Max (7)
+- [x] Metrics/PerceivedComplexity — DefNode, perceived score via subtree Visit, configurable Max (8)
+
+### M3 Cops — Naming (8 new)
+
+- [x] Naming/MethodName — DefNode, snake_case check
+- [x] Naming/VariableName — LocalVariableWriteNode, snake_case check
+- [x] Naming/ConstantName — ConstantWriteNode/ConstantPathWriteNode, SCREAMING_SNAKE_CASE check
+- [x] Naming/ClassAndModuleCamelCase — ClassNode/ModuleNode, CamelCase check
+- [x] Naming/AccessorMethodName — DefNode, flag get_/set_ prefix
+- [x] Naming/PredicateName — DefNode, flag has_/is_ prefix
+- [x] Naming/AsciiIdentifiers — DefNode/LocalVariableWriteNode, ASCII check
+- [x] Naming/FileName — check_lines (path check), snake_case file path
+
+### M3 Cops — Style (12 new)
+
+- [x] Style/EmptyMethod — DefNode, empty body detection
+- [x] Style/NegatedIf — IfNode, `!` predicate without else → use `unless`
+- [x] Style/NegatedWhile — WhileNode, `!` predicate → use `until`
+- [x] Style/ParenthesesAroundCondition — IfNode/WhileNode/UntilNode, parenthesized predicate
+- [x] Style/IfUnlessModifier — IfNode, single-stmt body → modifier form
+- [x] Style/WordArray — ArrayNode, all StringNodes → `%w[]`
+- [x] Style/SymbolArray — ArrayNode, all SymbolNodes → `%i[]`
+- [x] Style/TrailingCommaInArguments — CallNode, trailing comma in args
+- [x] Style/TrailingCommaInArrayLiteral — ArrayNode, trailing comma
+- [x] Style/TrailingCommaInHashLiteral — HashNode, trailing comma
+- [x] Style/ClassAndModuleChildren — ClassNode/ModuleNode, compact vs nested style
+- [x] Style/TernaryParentheses — IfNode (ternary), unnecessary parens
+
+### M3 Cops — Lint (17 new)
+
+- [x] Lint/EmptyConditionalBody — IfNode, empty body
+- [x] Lint/EmptyWhen — WhenNode, empty body
+- [x] Lint/BooleanSymbol — SymbolNode, `:true`/`:false`
+- [x] Lint/DeprecatedClassMethods — CallNode, `File.exists?`/`Dir.exists?`
+- [x] Lint/EnsureReturn — EnsureNode, ReturnNode in ensure body via Visit
+- [x] Lint/FloatOutOfRange — FloatNode, parse source → `.is_infinite()`
+- [x] Lint/Loop — WhileNode/UntilNode, `begin..end while` form
+- [x] Lint/NestedMethodDefinition — DefNode, nested DefNode via Visit (skip class/module)
+- [x] Lint/RaiseException — CallNode, `raise Exception` detection
+- [x] Lint/SuppressedException — RescueNode, empty rescue body
+- [x] Lint/UnifiedInteger — ConstantReadNode, `Fixnum`/`Bignum`
+- [x] Lint/UriEscapeUnescape — CallNode, `URI.escape`/`URI.unescape`
+- [x] Lint/UriRegexp — CallNode, `URI.regexp`
+- [x] Lint/DuplicateCaseCondition — CaseNode, duplicate when condition source text
+- [x] Lint/ElseLayout — IfNode, code on same line as `else`
+- [x] Lint/RedundantStringCoercion — InterpolatedStringNode, `#{x.to_s}`
+- [x] Lint/EachWithObjectArgument — CallNode, immutable literal argument
+
+### M3 Summary
+
+- [x] **src/cop/registry.rs** — `default_registry()` registers all 70 cops
+- [x] **testdata/cops/** — ~90 new fixture files (offense + no_offense for each new cop)
+- [x] 275 tests passing (259 unit + 16 integration)
+
+## Next: M4 — Performance cops
+
+See [PLAN.md § Batch 3](PLAN.md#batch-3-rubocop-performance-cops-all).
 
 ## Upcoming Milestones
 
@@ -105,7 +180,7 @@ See [PLAN.md § Batch 2](PLAN.md#batch-2-ast-walking-cops-single-node-patterns).
 | **M0**: Skeleton | 0 | **Done** |
 | **M1**: Line-based cops | 8 | **Done** |
 | **M2**: Token/simple-pattern cops | 25 | **Done** |
-| **M3**: AST single-node | 70 | Pending — [PLAN.md § Batch 2](PLAN.md#batch-2-ast-walking-cops-single-node-patterns) |
+| **M3**: AST single-node | 70 | **Done** |
 | **M4**: Performance cops | 40 | Pending — [PLAN.md § Batch 3](PLAN.md#batch-3-rubocop-performance-cops-all) |
 | **M5**: Complex core cops | 50 | Pending — [PLAN.md § Batch 4](PLAN.md#batch-4-complex-core-cops--remaining-core) |
 | **M6**: bin/lint + --rubocop-only | 0 new | Pending |
