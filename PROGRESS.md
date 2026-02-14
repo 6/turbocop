@@ -26,28 +26,44 @@ All files compile, binary runs, produces "0 offenses detected."
 - [x] **Verify**: `cargo run -- .` parses .rb files, reports 0 offenses
 - [x] Unit tests for SourceFile, config loading, file discovery, formatters
 
-## Next: M1 — Line-based cops
+## Completed: M1 — Line-based cops + Test harness
 
-12 cops that only need line text (no AST). See [PLAN.md § Batch 0](PLAN.md#batch-0-line-based-cops-no-ast-needed).
+8 line-based cops, annotation-based test harness, RuboCop git submodule for reference.
 
-- [ ] Layout/TrailingWhitespace
-- [ ] Layout/TrailingEmptyLines
-- [ ] Layout/LineLength
-- [ ] Style/FrozenStringLiteralComment
-- [ ] Layout/LeadingEmptyLines
-- [ ] Style/MagicComment alignment
-- [ ] Layout/EndOfLine
-- [ ] Layout/InitialIndentation
-- [ ] Style/Tab
+### M1 Tasks
+
+- [x] **vendor/rubocop** — Git submodule (shallow clone) for reference specs
+- [x] **src/testutil.rs** — Annotation-based fixture parser + assertion helpers
+- [x] **src/cop/layout/** — 6 layout cops:
+  - [x] Layout/TrailingWhitespace
+  - [x] Layout/LineLength (configurable Max, default 120)
+  - [x] Layout/TrailingEmptyLines
+  - [x] Layout/LeadingEmptyLines
+  - [x] Layout/EndOfLine
+  - [x] Layout/InitialIndentation
+- [x] **src/cop/style/** — 2 style cops:
+  - [x] Style/FrozenStringLiteralComment (shebang/encoding-aware)
+  - [x] Style/Tab
+- [x] **src/cop/registry.rs** — `default_registry()` registers all 8 cops
+- [x] **testdata/cops/** — Fixture files with offense/no_offense cases
+- [x] **.gitattributes** — Whitespace preservation for test fixtures
+- [x] 96 tests passing (43 from M0 + 53 new)
+
+## Next: M2 — Token / simple-pattern cops
+
+See [PLAN.md § Batch 1](PLAN.md#batch-1-tokensimple-pattern-cops-minimal-ast).
+
 - [ ] Layout/EmptyLineBetweenDefs (basic)
-- [ ] Test harness: fixture-based testing per cop
+- [ ] Style/MagicComment alignment
+- [ ] Additional line-based cops from Batch 0 not yet implemented
+- [ ] Token-based cops from Batch 1
 
 ## Upcoming Milestones
 
 | Milestone | Cops | Status |
 |-----------|------|--------|
 | **M0**: Skeleton | 0 | **Done** |
-| **M1**: Line-based cops | 12 | Pending — [PLAN.md § Batch 0](PLAN.md#batch-0-line-based-cops-no-ast-needed) |
+| **M1**: Line-based cops | 8 | **Done** |
 | **M2**: Token cops | 18 | Pending — [PLAN.md § Batch 1](PLAN.md#batch-1-tokensimple-pattern-cops-minimal-ast) |
 | **M3**: AST single-node | 70 | Pending — [PLAN.md § Batch 2](PLAN.md#batch-2-ast-walking-cops-single-node-patterns) |
 | **M4**: Performance cops | 40 | Pending — [PLAN.md § Batch 3](PLAN.md#batch-3-rubocop-performance-cops-all) |

@@ -1,4 +1,6 @@
+pub mod layout;
 pub mod registry;
+pub mod style;
 
 use std::collections::HashMap;
 

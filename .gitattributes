@@ -1,0 +1,2 @@
+# Preserve trailing whitespace in test fixtures
+testdata/cops/layout/trailing_whitespace/** -whitespace

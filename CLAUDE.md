@@ -2,6 +2,12 @@
 
 Fast Ruby linter in Rust targeting RuboCop compatibility. Uses Prism (ruby-prism crate) for parsing, rayon for parallelism.
 
+## Setup
+
+```
+git submodule update --init    # fetch vendor/rubocop (reference specs)
+```
+
 ## Commands
 
 ```
@@ -17,7 +23,8 @@ cargo run -- --debug .
 
 - `src/diagnostic.rs` — Severity, Location, Diagnostic types
 - `src/parse/` — Prism wrapper + SourceFile (line offsets, byte→line:col)
-- `src/cop/` — `Cop` trait (`check_lines`/`check_node`), `CopRegistry`
+- `src/cop/` — `Cop` trait (`check_lines`/`check_node`), `CopRegistry`, department modules (`layout/`, `style/`)
+- `src/testutil.rs` — `#[cfg(test)]` annotation-based fixture parser + assertion helpers
 - `src/config/` — `.rubocop.yml` loading (stub: no inherit_from yet)
 - `src/fs/` — File discovery via `ignore` crate (.gitignore-aware)
 - `src/linter.rs` — Parallel orchestration (parse per-thread since ParseResult is !Send)

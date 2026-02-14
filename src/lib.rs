@@ -7,6 +7,9 @@ pub mod fs;
 pub mod linter;
 pub mod parse;
 
+#[cfg(test)]
+pub mod testutil;
+
 use anyhow::Result;
 
 use cli::Args;

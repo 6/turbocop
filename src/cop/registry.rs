@@ -16,9 +16,11 @@ impl CopRegistry {
     }
 
     /// Build the default registry with all built-in cops.
-    /// Empty at M0 — cops will be added in later milestones.
     pub fn default_registry() -> Self {
-        Self::new()
+        let mut registry = Self::new();
+        super::layout::register_all(&mut registry);
+        super::style::register_all(&mut registry);
+        registry
     }
 
     pub fn register(&mut self, cop: Box<dyn Cop>) {
@@ -68,10 +70,15 @@ mod tests {
     }
 
     #[test]
-    fn default_registry_is_empty() {
+    fn default_registry_has_cops() {
         let reg = CopRegistry::default_registry();
-        assert!(reg.is_empty());
-        assert_eq!(reg.len(), 0);
+        assert!(!reg.is_empty());
+        assert_eq!(reg.len(), 8);
+        // Spot-check a few cops
+        assert!(reg.get("Layout/TrailingWhitespace").is_some());
+        assert!(reg.get("Layout/LineLength").is_some());
+        assert!(reg.get("Style/FrozenStringLiteralComment").is_some());
+        assert!(reg.get("Style/Tab").is_some());
     }
 
     #[test]
