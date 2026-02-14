@@ -32,4 +32,12 @@ pub struct Args {
     /// Enable debug output
     #[arg(long)]
     pub debug: bool,
+
+    /// Print comma-separated list of cops not covered by rblint, then exit
+    #[arg(long)]
+    pub rubocop_only: bool,
+
+    /// Read source from stdin, use PATH for display and config matching
+    #[arg(long, value_name = "PATH")]
+    pub stdin: Option<PathBuf>,
 }

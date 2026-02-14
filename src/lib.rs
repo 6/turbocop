@@ -10,6 +10,9 @@ pub mod parse;
 #[cfg(test)]
 pub mod testutil;
 
+use std::collections::HashSet;
+use std::io::Read;
+
 use anyhow::Result;
 
 use cli::Args;
@@ -17,7 +20,8 @@ use config::load_config;
 use cop::registry::CopRegistry;
 use formatter::create_formatter;
 use fs::discover_files;
-use linter::run_linter;
+use linter::{lint_source, run_linter};
+use parse::source::SourceFile;
 
 /// Run the linter. Returns the exit code: 0 = clean, 1 = offenses found, 2 = error.
 pub fn run(args: Args) -> Result<i32> {
@@ -30,15 +34,40 @@ pub fn run(args: Args) -> Result<i32> {
         );
     }
 
+    let registry = CopRegistry::default_registry();
+
+    // --rubocop-only: print uncovered cops and exit
+    if args.rubocop_only {
+        let covered: HashSet<&str> = registry.cops().iter().map(|c| c.name()).collect();
+        let mut remaining: Vec<String> = config
+            .enabled_cop_names()
+            .into_iter()
+            .filter(|name| !covered.contains(name.as_str()))
+            .collect();
+        remaining.sort();
+        println!("{}", remaining.join(","));
+        return Ok(0);
+    }
+
+    // --stdin: read from stdin and lint a single file
+    if let Some(ref display_path) = args.stdin {
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input)?;
+        let source = SourceFile::from_string(display_path.clone(), input);
+        let result = lint_source(&source, &config, &registry, &args);
+        let formatter = create_formatter(&args.format);
+        formatter.print(&result.diagnostics, result.file_count);
+        return if result.diagnostics.is_empty() {
+            Ok(0)
+        } else {
+            Ok(1)
+        };
+    }
+
     let files = discover_files(&args.paths, &config)?;
 
     if args.debug {
         eprintln!("debug: {} files to lint", files.len());
-    }
-
-    let registry = CopRegistry::default_registry();
-
-    if args.debug {
         eprintln!("debug: {} cops registered", registry.len());
     }
 

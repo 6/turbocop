@@ -53,6 +53,17 @@ impl SourceFile {
         self.path.to_str().unwrap_or("<non-utf8 path>")
     }
 
+    /// Create a SourceFile from a string, using the given path for display purposes.
+    pub fn from_string(path: PathBuf, content: String) -> Self {
+        let bytes = content.into_bytes();
+        let line_starts = compute_line_starts(&bytes);
+        Self {
+            path,
+            content: bytes,
+            line_starts,
+        }
+    }
+
     /// Create a SourceFile from raw bytes (for testing).
     #[cfg(test)]
     pub fn from_bytes(path: &str, content: Vec<u8>) -> Self {

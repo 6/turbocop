@@ -1,0 +1,17 @@
+# Mix of cops rblint covers and cops it doesn't
+Style/FrozenStringLiteralComment:
+  Enabled: true
+
+Layout/TrailingWhitespace:
+  Enabled: true
+
+# These cops don't exist in rblint
+Custom/MyCop:
+  Enabled: true
+
+Vendor/SpecialCop:
+  Enabled: true
+
+# Disabled cop should not appear in output
+Custom/DisabledCop:
+  Enabled: false

@@ -614,6 +614,41 @@ All files compile, binary runs, produces "0 offenses detected."
 - [x] Vendor fixture extraction documented in CLAUDE.md
 - [x] Test coverage guard: `all_cops_have_fixture_files` covers all 364 cops
 
+## Completed: M10 — Production Readiness (Config Inheritance + CLI)
+
+Config inheritance (`inherit_from` + `inherit_gem`), `--rubocop-only` flag, `--stdin` support. Enables deployment to real projects.
+
+### M10 Infrastructure
+
+- [x] **src/config/mod.rs** — Full config inheritance: `inherit_from` (local YAML, recursive), `inherit_gem` (via `bundle info --path`), circular detection, merge logic
+- [x] **src/config/gem_path.rs** — Gem path resolution via `bundle info --path` with Gemfile.lock mtime cache
+- [x] **src/config/mod.rs** — `enabled_cop_names()` method on ResolvedConfig for `--rubocop-only`
+- [x] **src/config/mod.rs** — RuboCop-compatible merge rules: Exclude appends, Include replaces, scalars last-writer-wins
+- [x] **src/config/mod.rs** — Silent handling of `require:` and `plugins:` keys
+
+### M10 CLI Features
+
+- [x] **src/cli.rs** — `--rubocop-only` flag: prints comma-separated list of cops not covered by rblint
+- [x] **src/cli.rs** — `--stdin PATH` flag: reads source from stdin, uses PATH for display and config matching
+- [x] **src/lib.rs** — Early exit for `--rubocop-only`, stdin lint path
+- [x] **src/parse/source.rs** — `SourceFile::from_string()` public constructor (non-test)
+- [x] **src/linter.rs** — `lint_source()` public function for linting a single SourceFile directly
+
+### M10 Tests
+
+- [x] **src/config/mod.rs** — 12 new unit tests: inherit_from (single, array, override, exclude-appends, include-replaces, missing, circular), require/plugins ignored, deep merge, enabled_cop_names, merge logic
+- [x] **src/config/gem_path.rs** — 2 unit tests: output parsing, cache key behavior
+- [x] **tests/integration.rs** — 8 new integration tests: inherit_from merging, circular detection, --rubocop-only CLI, --stdin (trailing whitespace, clean exit, display path Include matching), inherited config pipeline, lint_source API
+- [x] **testdata/config/** — Fixture files for inherit_from, circular, rubocop_only configs
+- [x] 994 tests passing (959 unit + 35 integration)
+
+### M10 Summary
+
+- [x] Config inheritance: `inherit_from` (local files, recursive) + `inherit_gem` (bundle info)
+- [x] `--rubocop-only`: enables hybrid `bin/lint` workflow
+- [x] `--stdin PATH`: enables editor integration (VSCode, vim, Emacs)
+- [x] All 364 cops preserved, zero regressions
+
 ## Upcoming Milestones
 
 | Milestone | Cops | Status |
@@ -627,3 +662,4 @@ All files compile, binary runs, produces "0 offenses detected."
 | **M6**: rubocop-rails + Include/Exclude | 251 | **Done** |
 | **M7**: Autocorrect | +30 fixes | Pending |
 | **M8**: rubocop-rspec | 364 | **Done** |
+| **M10**: Production Readiness | 364 + config/CLI | **Done** |

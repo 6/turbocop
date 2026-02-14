@@ -16,6 +16,22 @@ pub struct LintResult {
     pub file_count: usize,
 }
 
+/// Lint a single SourceFile (already loaded into memory). Used for --stdin mode.
+pub fn lint_source(
+    source: &SourceFile,
+    config: &ResolvedConfig,
+    registry: &CopRegistry,
+    args: &Args,
+) -> LintResult {
+    let diagnostics = lint_source_inner(source, config, registry, args);
+    let mut sorted = diagnostics;
+    sorted.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
+    LintResult {
+        diagnostics: sorted,
+        file_count: 1,
+    }
+}
+
 pub fn run_linter(
     files: &[std::path::PathBuf],
     config: &ResolvedConfig,
@@ -50,6 +66,15 @@ fn lint_file(
         }
     };
 
+    lint_source_inner(&source, config, registry, args)
+}
+
+fn lint_source_inner(
+    source: &SourceFile,
+    config: &ResolvedConfig,
+    registry: &CopRegistry,
+    args: &Args,
+) -> Vec<Diagnostic> {
     // Parse on this thread (ParseResult is !Send)
     let parse_result = crate::parse::parse_source(source.as_bytes());
     let code_map = CodeMap::from_parse_result(source.as_bytes(), &parse_result);
@@ -68,22 +93,27 @@ fn lint_file(
         }
 
         // Check config (with cop's default include/exclude patterns)
-        if !config.is_cop_enabled(name, path, cop.default_include(), cop.default_exclude()) {
+        if !config.is_cop_enabled(
+            name,
+            &source.path,
+            cop.default_include(),
+            cop.default_exclude(),
+        ) {
             continue;
         }
 
         let cop_config = config.cop_config(name);
 
         // Line-based checks
-        diagnostics.extend(cop.check_lines(&source, &cop_config));
+        diagnostics.extend(cop.check_lines(source, &cop_config));
 
         // Source-based checks (raw byte scanning with CodeMap)
-        diagnostics.extend(cop.check_source(&source, &parse_result, &code_map, &cop_config));
+        diagnostics.extend(cop.check_source(source, &parse_result, &code_map, &cop_config));
 
         // AST-based checks: walk every node
         let mut walker = CopWalker {
             cop: &**cop,
-            source: &source,
+            source,
             parse_result: &parse_result,
             cop_config: &cop_config,
             diagnostics: Vec::new(),

@@ -38,6 +38,8 @@ fn default_args() -> Args {
         except: vec![],
         no_color: false,
         debug: false,
+        rubocop_only: false,
+        stdin: None,
     }
 }
 
@@ -1326,4 +1328,289 @@ fn config_overrides_new_departments() {
     );
 
     fs::remove_dir_all(&dir).ok();
+}
+
+// ---------- M10: Config inheritance tests ----------
+
+#[test]
+fn inherit_from_merges_configs() {
+    let child_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/config/inherit_from/child.yml");
+    let config = load_config(Some(child_path.as_path())).unwrap();
+
+    // Child overrides Layout/LineLength Max from 100 to 120
+    let cc = config.cop_config("Layout/LineLength");
+    assert_eq!(
+        cc.options.get("Max").and_then(|v| v.as_u64()),
+        Some(120),
+        "Child should override base's Max:100 with Max:120"
+    );
+
+    // Child disables FrozenStringLiteralComment (base had it enabled)
+    assert!(
+        !config.is_cop_enabled("Style/FrozenStringLiteralComment", Path::new("a.rb"), &[], &[]),
+        "Child should disable FrozenStringLiteralComment"
+    );
+
+    // Global excludes are appended from both base and child
+    let excludes = config.global_excludes();
+    assert!(
+        excludes.contains(&"vendor/**".to_string()),
+        "Base's vendor/** exclude should be present"
+    );
+    assert!(
+        excludes.contains(&"tmp/**".to_string()),
+        "Child's tmp/** exclude should be present"
+    );
+}
+
+#[test]
+fn circular_inherit_from_is_detected() {
+    let circular_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("testdata/config/inherit_from/circular_a.yml");
+    let result = load_config(Some(circular_path.as_path()));
+    assert!(result.is_err(), "Circular inheritance should fail");
+    let err_msg = format!("{:#}", result.unwrap_err());
+    assert!(
+        err_msg.contains("Circular config inheritance"),
+        "Error should mention circular inheritance, got: {err_msg}"
+    );
+}
+
+// ---------- M10: --rubocop-only CLI tests ----------
+
+#[test]
+fn rubocop_only_outputs_uncovered_cops() {
+    let config_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/config/rubocop_only/mixed.yml");
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_rblint"))
+        .args(["--rubocop-only", "--config", config_path.to_str().unwrap()])
+        .output()
+        .expect("Failed to execute rblint");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "--rubocop-only should exit 0, stderr: {stderr}"
+    );
+
+    // Should contain uncovered cops
+    assert!(
+        stdout.contains("Custom/MyCop"),
+        "Output should contain Custom/MyCop, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("Vendor/SpecialCop"),
+        "Output should contain Vendor/SpecialCop, got: {stdout}"
+    );
+
+    // Should NOT contain rblint-covered cops
+    assert!(
+        !stdout.contains("Style/FrozenStringLiteralComment"),
+        "Output should NOT contain covered cop Style/FrozenStringLiteralComment"
+    );
+    assert!(
+        !stdout.contains("Layout/TrailingWhitespace"),
+        "Output should NOT contain covered cop Layout/TrailingWhitespace"
+    );
+
+    // Should NOT contain disabled cops
+    assert!(
+        !stdout.contains("Custom/DisabledCop"),
+        "Output should NOT contain disabled cop Custom/DisabledCop"
+    );
+}
+
+// ---------- M10: --stdin CLI tests ----------
+
+#[test]
+fn stdin_detects_trailing_whitespace() {
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_rblint"))
+        .args([
+            "--stdin",
+            "test.rb",
+            "--only",
+            "Layout/TrailingWhitespace",
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to start rblint");
+
+    // Write source with trailing whitespace to stdin
+    {
+        use std::io::Write;
+        let stdin = child.stdin.as_mut().unwrap();
+        stdin.write_all(b"x = 1   \n").unwrap();
+    }
+
+    let output = child.wait_with_output().expect("Failed to wait for rblint");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        !output.status.success(),
+        "--stdin should exit 1 when offenses found"
+    );
+    assert!(
+        stdout.contains("Layout/TrailingWhitespace"),
+        "Should detect trailing whitespace via stdin, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("test.rb"),
+        "Display path should be test.rb, got: {stdout}"
+    );
+}
+
+#[test]
+fn stdin_clean_code_exits_zero() {
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_rblint"))
+        .args([
+            "--stdin",
+            "clean.rb",
+            "--only",
+            "Layout/TrailingWhitespace",
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to start rblint");
+
+    {
+        use std::io::Write;
+        let stdin = child.stdin.as_mut().unwrap();
+        stdin.write_all(b"x = 1\ny = 2\n").unwrap();
+    }
+
+    let output = child.wait_with_output().expect("Failed to wait for rblint");
+
+    assert!(
+        output.status.success(),
+        "--stdin with clean code should exit 0"
+    );
+}
+
+#[test]
+fn stdin_display_path_affects_include_matching() {
+    // RSpec cops should run when display path matches spec pattern
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_rblint"))
+        .args([
+            "--stdin",
+            "spec/foo_spec.rb",
+            "--only",
+            "RSpec/Focus",
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to start rblint");
+
+    {
+        use std::io::Write;
+        let stdin = child.stdin.as_mut().unwrap();
+        stdin
+            .write_all(b"RSpec.describe Foo, :focus do\n  it 'works' do\n    expect(1).to eq(1)\n  end\nend\n")
+            .unwrap();
+    }
+
+    let output = child.wait_with_output().expect("Failed to wait for rblint");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("RSpec/Focus"),
+        "RSpec/Focus should fire when display path matches spec pattern, got: {stdout}"
+    );
+
+    // Same code with non-spec display path — RSpec cops should NOT run
+    let mut child2 = std::process::Command::new(env!("CARGO_BIN_EXE_rblint"))
+        .args(["--stdin", "app/foo.rb", "--only", "RSpec/Focus"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to start rblint");
+
+    {
+        use std::io::Write;
+        let stdin = child2.stdin.as_mut().unwrap();
+        stdin
+            .write_all(b"RSpec.describe Foo, :focus do\n  it 'works' do\n    expect(1).to eq(1)\n  end\nend\n")
+            .unwrap();
+    }
+
+    let output2 = child2
+        .wait_with_output()
+        .expect("Failed to wait for rblint");
+    let stdout2 = String::from_utf8_lossy(&output2.stdout);
+
+    assert!(
+        !stdout2.contains("RSpec/Focus"),
+        "RSpec/Focus should NOT fire when display path is app/foo.rb, got: {stdout2}"
+    );
+}
+
+// ---------- M10: Config inheritance with linter pipeline ----------
+
+#[test]
+fn inherited_config_affects_linting() {
+    let dir = temp_dir("inherited_linting");
+    // base.yml disables TrailingWhitespace
+    write_file(
+        &dir,
+        "base.yml",
+        b"Layout/TrailingWhitespace:\n  Enabled: false\n",
+    );
+    let config_path = write_file(
+        &dir,
+        ".rubocop.yml",
+        b"inherit_from: base.yml\n",
+    );
+    let file = write_file(&dir, "test.rb", b"x = 1   \n");
+
+    let config = load_config(Some(config_path.as_path())).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        only: vec!["Layout/TrailingWhitespace".to_string()],
+        ..default_args()
+    };
+
+    let result = run_linter(&[file], &config, &registry, &args);
+    assert!(
+        result.diagnostics.is_empty(),
+        "TrailingWhitespace should be disabled by inherited config, got {} offenses",
+        result.diagnostics.len()
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn lint_source_directly() {
+    use rblint::linter::lint_source;
+    use rblint::parse::source::SourceFile;
+
+    let source =
+        SourceFile::from_string(PathBuf::from("test.rb"), "x = 1   \n".to_string());
+    let config = load_config(None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        only: vec!["Layout/TrailingWhitespace".to_string()],
+        ..default_args()
+    };
+
+    let result = lint_source(&source, &config, &registry, &args);
+    assert_eq!(result.file_count, 1);
+    assert!(
+        !result.diagnostics.is_empty(),
+        "lint_source should detect trailing whitespace"
+    );
+    assert_eq!(
+        result.diagnostics[0].cop_name,
+        "Layout/TrailingWhitespace"
+    );
+    assert_eq!(result.diagnostics[0].path, "test.rb");
 }

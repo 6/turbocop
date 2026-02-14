@@ -751,6 +751,7 @@ $ rubylint --rubocop-only | tr ',' '\n' | wc -l
 | M7: Autocorrect | +30 fixes | 190 | Week 10-12 | --autocorrect for easy cops |
 | M8: rubocop-rspec | 113 | 364 | **Done** | All 113 rubocop-rspec cops ported |
 | M9: rubocop-rails | 98 | 251→364 | **Done** (was M6) | All 98 rubocop-rails cops ported in M6 |
+| M10: Production Readiness | 0 new | 364 | **Done** | Config inheritance, --rubocop-only, --stdin |
 
 **M6 is the "ship it" milestone.** At ~190 cops (core + performance) with
 bin/lint hybrid mode, you can deploy to CI across all repos. RuboCop still
