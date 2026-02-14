@@ -36,6 +36,16 @@ pub fn run(args: Args) -> Result<i32> {
 
     let registry = CopRegistry::default_registry();
 
+    // --list-cops: print all registered cop names and exit
+    if args.list_cops {
+        let mut names: Vec<&str> = registry.cops().iter().map(|c| c.name()).collect();
+        names.sort();
+        for name in names {
+            println!("{name}");
+        }
+        return Ok(0);
+    }
+
     // --rubocop-only: print uncovered cops and exit
     if args.rubocop_only {
         let covered: HashSet<&str> = registry.cops().iter().map(|c| c.name()).collect();

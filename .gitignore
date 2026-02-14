@@ -5,3 +5,7 @@ target/
 
 # rustfmt backup files
 **/*.rs.bk
+
+# Benchmark repos and results
+bench/repos/
+bench/results/

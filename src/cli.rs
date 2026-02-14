@@ -37,6 +37,10 @@ pub struct Args {
     #[arg(long)]
     pub rubocop_only: bool,
 
+    /// List all registered cop names, one per line, then exit
+    #[arg(long)]
+    pub list_cops: bool,
+
     /// Read source from stdin, use PATH for display and config matching
     #[arg(long, value_name = "PATH")]
     pub stdin: Option<PathBuf>,

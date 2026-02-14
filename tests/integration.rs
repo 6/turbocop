@@ -39,6 +39,7 @@ fn default_args() -> Args {
         no_color: false,
         debug: false,
         rubocop_only: false,
+        list_cops: false,
         stdin: None,
     }
 }
@@ -1613,4 +1614,61 @@ fn lint_source_directly() {
         "Layout/TrailingWhitespace"
     );
     assert_eq!(result.diagnostics[0].path, "test.rb");
+}
+
+// ---------- --list-cops CLI tests ----------
+
+#[test]
+fn list_cops_prints_all_registered_cops() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_rblint"))
+        .args(["--list-cops"])
+        .output()
+        .expect("Failed to execute rblint");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "--list-cops should exit 0, stderr: {stderr}"
+    );
+
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(
+        lines.len(),
+        364,
+        "Expected 364 cop names, got {}",
+        lines.len()
+    );
+
+    // Verify sorted order
+    let mut sorted = lines.clone();
+    sorted.sort();
+    assert_eq!(lines, sorted, "--list-cops output should be sorted");
+
+    // Spot-check a few cops from different departments
+    assert!(
+        lines.contains(&"Layout/TrailingWhitespace"),
+        "Should contain Layout/TrailingWhitespace"
+    );
+    assert!(
+        lines.contains(&"Style/FrozenStringLiteralComment"),
+        "Should contain Style/FrozenStringLiteralComment"
+    );
+    assert!(
+        lines.contains(&"Lint/Debugger"),
+        "Should contain Lint/Debugger"
+    );
+    assert!(
+        lines.contains(&"Performance/Detect"),
+        "Should contain Performance/Detect"
+    );
+    assert!(
+        lines.contains(&"Rails/FindBy"),
+        "Should contain Rails/FindBy"
+    );
+    assert!(
+        lines.contains(&"RSpec/Focus"),
+        "Should contain RSpec/Focus"
+    );
 }
