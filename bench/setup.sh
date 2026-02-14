@@ -15,7 +15,14 @@ else
   echo "mastodon already cloned, skipping."
 fi
 echo "Installing mastodon bundle..."
-(cd "$REPOS_DIR/mastodon" && bundle install --jobs 4 --quiet)
+if ! (cd "$REPOS_DIR/mastodon" && bundle install --jobs 4 --quiet 2>/dev/null); then
+  echo "  Full bundle failed, retrying without production group..."
+  if ! (cd "$REPOS_DIR/mastodon" && bundle install --jobs 4 --quiet --without production 2>/dev/null); then
+    echo "  WARNING: bundle install failed for mastodon."
+    echo "  You may need: brew install libidn"
+    echo "  rubocop will still work if rubocop gems were installed."
+  fi
+fi
 
 # Discourse — pin to a stable tag
 DISCOURSE_REPO="https://github.com/discourse/discourse.git"
@@ -28,6 +35,12 @@ else
   echo "discourse already cloned, skipping."
 fi
 echo "Installing discourse bundle..."
-(cd "$REPOS_DIR/discourse" && bundle install --jobs 4 --quiet)
+if ! (cd "$REPOS_DIR/discourse" && bundle install --jobs 4 --quiet 2>/dev/null); then
+  echo "  Full bundle failed, retrying without production group..."
+  if ! (cd "$REPOS_DIR/discourse" && bundle install --jobs 4 --quiet --without production 2>/dev/null); then
+    echo "  WARNING: bundle install failed for discourse."
+    echo "  rubocop will still work if rubocop gems were installed."
+  fi
+fi
 
 echo "Setup complete."

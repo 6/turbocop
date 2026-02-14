@@ -2,14 +2,22 @@
 # frozen_string_literal: true
 
 # Compare rblint JSON output against rubocop JSON output.
-# Usage: compare.rb <rblint.json> <rubocop.json> <covered-cops.txt> <repo-dir>
+# Usage: compare.rb [--json out.json] <rblint.json> <rubocop.json> [covered-cops.txt] [repo-dir]
 
 require "json"
 require "set"
 
-rblint_file, rubocop_file, covered_cops_file, repo_dir = ARGV
+# Parse --json flag
+json_output_file = nil
+args = ARGV.dup
+if (idx = args.index("--json"))
+  args.delete_at(idx)
+  json_output_file = args.delete_at(idx)
+end
+
+rblint_file, rubocop_file, covered_cops_file, repo_dir = args
 unless rblint_file && rubocop_file
-  abort "Usage: compare.rb <rblint.json> <rubocop.json> [covered-cops.txt] [repo-dir]"
+  abort "Usage: compare.rb [--json out.json] <rblint.json> <rubocop.json> [covered-cops.txt] [repo-dir]"
 end
 
 # Load covered cops list (one per line from --list-cops output)
@@ -83,6 +91,20 @@ else
     puts "  #{cop.ljust(45)} #{counts[:match].to_s.rjust(6)} " \
          "#{counts[:fp].to_s.rjust(6)} #{counts[:fn].to_s.rjust(6)}"
   end
+end
+
+# Write machine-readable JSON for report.rb
+if json_output_file
+  report = {
+    rblint_count: rblint_offenses.size,
+    rubocop_count: rubocop_offenses.size,
+    matches: matches.size,
+    false_positives: false_positives.size,
+    false_negatives: false_negatives.size,
+    match_rate: match_rate.round(1),
+    per_cop: per_cop.transform_values { |v| {match: v[:match], fp: v[:fp], fn: v[:fn]} }
+  }
+  File.write(json_output_file, JSON.pretty_generate(report))
 end
 
 # Exit with non-zero if there are divergences (useful for CI)

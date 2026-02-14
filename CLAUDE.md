@@ -82,8 +82,21 @@ To add a new cop department from a RuboCop plugin (e.g., rubocop-rspec, rubocop-
    - Cops that fire once per file — use `offense/` scenario directory layout
 7. **Validate** — `cargo test` enforces ≥3 offense annotations and ≥5 no_offense lines per cop
 
+## Benchmarking
+
+```
+cargo run --release --bin bench_rblint                # full run: setup + bench + conform + report
+cargo run --release --bin bench_rblint -- setup        # clone benchmark repos only
+cargo run --release --bin bench_rblint -- bench        # timing benchmarks (hyperfine)
+cargo run --release --bin bench_rblint -- conform      # conformance comparison
+cargo run --release --bin bench_rblint -- report       # regenerate results.md from cached data
+```
+
+Results are written to `bench/results.md`. Benchmark repos (Mastodon, Discourse) are cloned to `bench/repos/` (gitignored).
+
 ## Rules
 
 - Keep [PROGRESS.md](PROGRESS.md) up to date when completing milestone tasks. Check off items as done and update milestone status.
 - See [PLAN.md](PLAN.md) for full roadmap, cop batching strategy, and technical design decisions.
 - After adding a new cop, ensure `cargo test` passes — the `all_cops_have_minimum_test_coverage` integration test enforces that every cop has at least 3 offense fixture cases and 5+ non-empty lines in no_offense.rb. There are zero exemptions; use `offense/` scenario directories and `# rblint-expect:` annotations to handle cops that can't use the standard single-file format.
+- After modifying any shell script (`.sh`), run `shellcheck` on it to catch common issues.

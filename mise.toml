@@ -1,3 +1,5 @@
 [tools]
 rust = "1.93.1"
 hyperfine = "1.20.0"
+shellcheck = "0.11.0"
+ruby = "3.4"
