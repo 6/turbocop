@@ -3,3 +3,7 @@
 {a: 1}
 
 {}
+
+{x: "hello", y: "world"}
+
+{foo: :bar}

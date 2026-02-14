@@ -4,3 +4,9 @@
 [submodule "vendor/rubocop-performance"]
 	path = vendor/rubocop-performance
 	url = https://github.com/rubocop/rubocop-performance.git
+[submodule "vendor/rubocop-rails"]
+	path = vendor/rubocop-rails
+	url = https://github.com/rubocop/rubocop-rails.git
+[submodule "vendor/rubocop-rspec"]
+	path = vendor/rubocop-rspec
+	url = https://github.com/rubocop/rubocop-rspec.git

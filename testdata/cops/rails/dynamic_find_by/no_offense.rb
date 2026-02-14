@@ -1,3 +1,5 @@
 User.find_by(name: "foo")
 User.find_by(email: "test@test.com")
 find_by_name("foo")
+User.where(name: "foo")
+User.find(1)

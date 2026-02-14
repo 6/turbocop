@@ -1,3 +1,5 @@
 Rails.root.join("app/models")
 Rails.root.join("app")
 some_path.join("a", "b")
+File.join("a", "b")
+Pathname.new("path")

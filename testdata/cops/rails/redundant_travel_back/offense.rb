@@ -7,3 +7,9 @@ def test_something
   travel_back
   ^^^^^^^^^^^ Rails/RedundantTravelBack: Redundant `travel_back` detected. It is automatically called after each test.
 end
+
+def test_other
+  freeze_time
+  travel_back
+  ^^^^^^^^^^^ Rails/RedundantTravelBack: Redundant `travel_back` detected. It is automatically called after each test.
+end

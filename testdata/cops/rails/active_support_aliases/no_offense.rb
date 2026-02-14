@@ -1,4 +1,6 @@
 str.start_with?("foo")
 str.end_with?("bar")
+'some_string'.start_with?('prefix')
+'some_string'.end_with?('prefix')
 name.start_with?("Dr.")
 path.end_with?(".rb")

@@ -1,3 +1,5 @@
 Post.where(user_id: User.select(:id))
 Post.where(status: "active")
 User.pluck(:id)
+Post.where(author_id: User.select(:id))
+Post.where(id: [1, 2, 3])

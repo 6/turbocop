@@ -5,4 +5,7 @@ case x
   when 2
   ^^^^ Layout/CaseIndentation: Indent `when` as deep as `case`.
     puts 2
+  when 3
+  ^^^^ Layout/CaseIndentation: Indent `when` as deep as `case`.
+    puts 3
 end

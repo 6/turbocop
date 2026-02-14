@@ -1007,188 +1007,21 @@ fn all_cops_have_minimum_test_coverage() {
     let testdata = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/cops");
     let registry = CopRegistry::default_registry();
 
-    // Cops exempt from the 2-offense minimum. Each entry must have a comment
-    // explaining why 1 offense is acceptable. Remove entries as coverage improves.
+    // Cops exempt from the 3-offense minimum. Only cops whose detection pattern
+    // fundamentally cannot be expressed as 3+ annotated fixture cases.
     let offense_exemptions: &[&str] = &[
-        // --- Rails cops with inherently single patterns ---
-        "Rails/ApplicationController",  // only checks class parent != ApplicationController
-        "Rails/ApplicationJob",         // only checks class parent != ApplicationJob
-        "Rails/ApplicationMailer",      // only checks class parent != ApplicationMailer
-        "Rails/ApplicationRecord",      // only checks class parent != ApplicationRecord
-        "Rails/HasAndBelongsToMany",    // only checks for has_and_belongs_to_many call
-        "Rails/TableNameAssignment",    // only checks self.table_name =
-        // --- Non-Rails cops not yet enriched (future milestones) ---
-        // Layout
-        "Layout/AssignmentIndentation",
-        "Layout/BlockAlignment",
-        "Layout/CaseIndentation",
-        "Layout/ConditionPosition",
-        "Layout/DefEndAlignment",
-        "Layout/ElseAlignment",
-        "Layout/EmptyLineBetweenDefs",
-        "Layout/EmptyLines",
-        "Layout/EmptyLinesAroundBlockBody",
-        "Layout/EmptyLinesAroundClassBody",
-        "Layout/EmptyLinesAroundMethodBody",
-        "Layout/EmptyLinesAroundModuleBody",
-        "Layout/EndAlignment",
-        "Layout/EndOfLine",
-        "Layout/FirstArgumentIndentation",
-        "Layout/FirstArrayElementIndentation",
-        "Layout/FirstHashElementIndentation",
-        "Layout/IndentationConsistency",
-        "Layout/IndentationWidth",
-        "Layout/InitialIndentation",
-        "Layout/LeadingEmptyLines",
-        "Layout/LineLength",
-        "Layout/MultilineMethodCallIndentation",
-        "Layout/MultilineOperationIndentation",
-        "Layout/RescueEnsureAlignment",
-        "Layout/SpaceAfterColon",
-        "Layout/SpaceAfterComma",
-        "Layout/SpaceAfterSemicolon",
-        "Layout/SpaceAroundEqualsInParameterDefault",
-        "Layout/SpaceBeforeBlockBraces",
-        "Layout/SpaceBeforeComma",
-        "Layout/TrailingEmptyLines",
-        "Layout/TrailingWhitespace",
-        // Lint
-        "Lint/DuplicateCaseCondition",
-        "Lint/EachWithObjectArgument",
-        "Lint/ElseLayout",
-        "Lint/EmptyConditionalBody",
-        "Lint/EmptyWhen",
-        "Lint/EnsureReturn",
-        "Lint/FloatOutOfRange",
-        "Lint/LiteralAsCondition",
-        "Lint/Loop",
-        "Lint/NestedMethodDefinition",
-        "Lint/RaiseException",
-        "Lint/RedundantStringCoercion",
-        "Lint/SuppressedException",
-        "Lint/UriRegexp",
-        // Style
-        "Style/ClassAndModuleChildren",
-        "Style/Documentation",
-        "Style/EmptyMethod",
-        "Style/FrozenStringLiteralComment",
-        "Style/HashSyntax",
-        "Style/IfUnlessModifier",
-        "Style/Lambda",
-        "Style/MethodCallWithArgsParentheses",
-        "Style/NegatedIf",
-        "Style/NegatedWhile",
-        "Style/NumericLiterals",
-        "Style/ParenthesesAroundCondition",
-        "Style/Proc",
-        "Style/RaiseArgs",
-        "Style/RedundantReturn",
-        "Style/RescueModifier",
-        "Style/RescueStandardError",
-        "Style/Semicolon",
-        "Style/SignalException",
-        "Style/SingleLineMethods",
-        "Style/SpecialGlobalVars",
-        "Style/StabbyLambdaParentheses",
-        "Style/StringLiterals",
-        "Style/SymbolArray",
-        "Style/Tab",
-        "Style/TernaryParentheses",
-        "Style/TrailingCommaInArguments",
-        "Style/TrailingCommaInArrayLiteral",
-        "Style/TrailingCommaInHashLiteral",
-        "Style/WordArray",
-        "Style/YodaCondition",
-        // Performance
-        "Performance/AncestorsInclude",
-        "Performance/ArraySemiInfiniteRangeSlice",
-        "Performance/BindCall",
-        "Performance/BlockGivenWithExplicitBlock",
-        "Performance/CaseWhenSplat",
-        "Performance/CompareWithBlock",
-        "Performance/ConcurrentMonotonicTime",
-        "Performance/DeletePrefix",
-        "Performance/DeleteSuffix",
-        "Performance/Detect",
-        "Performance/DoubleStartEndWith",
-        "Performance/EndWith",
-        "Performance/InefficientHashSearch",
-        "Performance/MapMethodChain",
-        "Performance/MethodObjectAsBlock",
-        "Performance/RangeInclude",
-        "Performance/RedundantBlockCall",
-        "Performance/RedundantEqualityComparisonBlock",
-        "Performance/RedundantMerge",
-        "Performance/RedundantSortBlock",
-        "Performance/RedundantSplitRegexpArgument",
-        "Performance/RedundantStringChars",
-        "Performance/Size",
-        "Performance/SortReverse",
-        "Performance/Squeeze",
-        "Performance/StartWith",
-        "Performance/StringIdentifierArgument",
-        "Performance/StringInclude",
-        "Performance/StringReplacement",
-        "Performance/Sum",
-        "Performance/TimesMap",
-        "Performance/UnfreezeString",
-        // Metrics
-        "Metrics/AbcSize",
-        "Metrics/BlockLength",
-        "Metrics/ClassLength",
-        "Metrics/CyclomaticComplexity",
-        "Metrics/MethodLength",
-        "Metrics/ModuleLength",
-        "Metrics/ParameterLists",
-        "Metrics/PerceivedComplexity",
-        // Naming
-        "Naming/AccessorMethodName",
-        "Naming/AsciiIdentifiers",
-        "Naming/ClassAndModuleCamelCase",
-        "Naming/ConstantName",
-        "Naming/FileName",
-        "Naming/MethodName",
-        "Naming/PredicateName",
-        "Naming/VariableName",
+        "Layout/EndOfLine",          // detects CRLF — can't store CRLF in annotated fixtures
+        "Layout/InitialIndentation", // single pattern: indentation on first line of file
+        "Layout/LeadingEmptyLines",  // single pattern: blank line at start of file
+        "Layout/TrailingEmptyLines", // detects trailing blank lines — can't annotate empty lines
+        "Naming/FileName",           // detects filename, not content — annotations not applicable
+        "Style/FrozenStringLiteralComment", // single pattern: missing magic comment on line 1
     ];
 
-    // Cops exempt from the 3-line no_offense.rb minimum.
+    // Cops exempt from the 5-line no_offense.rb minimum. Only cops where the
+    // no_offense case is inherently minimal (e.g., empty/single-line files).
     let no_offense_exemptions: &[&str] = &[
-        // These cops have very narrow patterns where 1-2 no_offense lines suffice
-        "Layout/EndOfLine",        // no_offense is just a unix-ending file
-        "Layout/InitialIndentation", // no_offense is just a properly-indented file
-        "Layout/SpaceBeforeBlockBraces", // single line suffices
-        "Layout/TrailingEmptyLines", // no_offense is a file with correct trailing newline
-        "Lint/EachWithObjectArgument", // narrow pattern
-        "Lint/UriEscapeUnescape",  // narrow pattern
-        "Lint/UriRegexp",          // narrow pattern
-        "Naming/FileName",         // tested via filename, not content
-        // --- Non-Rails cops not yet enriched (future milestones) ---
-        "Layout/TrailingWhitespace",
-        "Layout/LeadingEmptyLines",
-        "Layout/EmptyLines",
-        "Layout/SpaceAfterSemicolon",
-        "Layout/SpaceBeforeComma",
-        "Layout/SpaceAroundEqualsInParameterDefault",
-        "Layout/SpaceInsideHashLiteralBraces",
-        "Layout/SpaceInsideArrayLiteralBrackets",
-        "Style/FrozenStringLiteralComment",
-        "Style/Lambda",
-        "Style/Proc",
-        "Style/StabbyLambdaParentheses",
-        "Style/TernaryParentheses",
-        "Performance/AncestorsInclude",
-        "Performance/BigDecimalWithNumericArgument",
-        "Performance/Caller",
-        "Performance/ConcurrentMonotonicTime",
-        "Performance/IoReadlines",
-        "Performance/MapMethodChain",
-        "Performance/MethodObjectAsBlock",
-        "Performance/OpenStruct",
-        "Performance/RangeInclude",
-        "Performance/RedundantMatch",
-        "Performance/RegexpMatch",
-        "Performance/UriDefaultParser",
+        "Naming/FileName", // tested via filename not content — 1 line suffices
     ];
 
     let mut failures = Vec::new();
@@ -1208,7 +1041,7 @@ fn all_cops_have_minimum_test_coverage() {
             continue; // all_cops_have_fixture_files covers this
         };
 
-        // Check offense.rb has at least 2 annotated cases.
+        // Check offense.rb has at least 3 annotated cases.
         // Count annotation lines: lines where first non-whitespace is '^' followed
         // by ': ' and '/' (matching the fixture annotation format).
         if let Ok(offense_content) = fs::read_to_string(effective_dir.join("offense.rb")) {
@@ -1221,22 +1054,22 @@ fn all_cops_have_minimum_test_coverage() {
                         && trimmed.contains('/')
                 })
                 .count();
-            if annotation_count < 2 && !offense_exemptions.contains(&cop_name) {
+            if annotation_count < 3 && !offense_exemptions.contains(&cop_name) {
                 failures.push(format!(
-                    "{cop_name}: only {annotation_count} offense case(s) in offense.rb, need at least 2"
+                    "{cop_name}: only {annotation_count} offense case(s) in offense.rb, need at least 3"
                 ));
             }
         }
 
-        // Check no_offense.rb has at least 3 non-empty lines
+        // Check no_offense.rb has at least 5 non-empty lines
         if let Ok(no_offense_content) = fs::read_to_string(effective_dir.join("no_offense.rb")) {
             let non_empty = no_offense_content
                 .lines()
                 .filter(|l| !l.trim().is_empty())
                 .count();
-            if non_empty < 3 && !no_offense_exemptions.contains(&cop_name) {
+            if non_empty < 5 && !no_offense_exemptions.contains(&cop_name) {
                 failures.push(format!(
-                    "{cop_name}: only {non_empty} non-empty line(s) in no_offense.rb, need at least 3"
+                    "{cop_name}: only {non_empty} non-empty line(s) in no_offense.rb, need at least 5"
                 ));
             }
         }

@@ -1,3 +1,5 @@
 User.where(age: 18..)
 User.where(name: "foo")
 User.where("name LIKE ?", "%foo%")
+User.where(active: true)
+Post.where(id: 1..100)

@@ -9,3 +9,9 @@ class Bar
       b = 2
       ^^^ Layout/IndentationConsistency: Inconsistent indentation detected.
 end
+
+module Baz
+  c = 1
+        d = 2
+        ^^^ Layout/IndentationConsistency: Inconsistent indentation detected.
+end

@@ -1,3 +1,5 @@
 obj.send(:method_name)
 obj.respond_to?(:foo)
 obj.method(:bar)
+obj.public_send(:baz)
+obj.send(variable)

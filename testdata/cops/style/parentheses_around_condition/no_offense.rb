@@ -11,3 +11,7 @@ until x > 1
 end
 
 x > 1 ? a : b
+
+if x && y
+  do_something
+end

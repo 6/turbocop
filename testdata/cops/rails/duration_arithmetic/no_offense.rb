@@ -2,3 +2,4 @@
 2.hours.ago
 Time.now
 x + 1.day
+Time.zone.now

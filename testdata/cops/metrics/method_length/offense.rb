@@ -12,3 +12,37 @@ def long_method
   x = 10
   x = 11
 end
+
+def another_long_method
+^^^ Metrics/MethodLength: Method has too many lines. [12/10]
+  a = 1
+  b = 2
+  c = 3
+  d = 4
+  e = 5
+  f = 6
+  g = 7
+  h = 8
+  i = 9
+  j = 10
+  k = 11
+  l = 12
+end
+
+def verbose_method(x)
+^^^ Metrics/MethodLength: Method has too many lines. [14/10]
+  if x
+    a = 1
+    b = 2
+    c = 3
+  else
+    d = 4
+    e = 5
+    f = 6
+  end
+  g = 7
+  h = 8
+  i = 9
+  j = 10
+  k = 11
+end

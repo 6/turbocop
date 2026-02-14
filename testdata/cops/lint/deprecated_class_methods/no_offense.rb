@@ -1,3 +1,5 @@
 File.exist?("foo")
 Dir.exist?("bar")
 MyClass.exists?("baz")
+File.new("qux")
+Dir.entries("quux")

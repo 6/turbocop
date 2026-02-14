@@ -1,3 +1,5 @@
 User.where.not(status: "active")
 User.where(status: "active")
 User.where("name = ?", "foo")
+User.where.not(id: [1, 2])
+Post.where(published: true)

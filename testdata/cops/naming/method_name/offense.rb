@@ -7,3 +7,8 @@ def another_Bad_one
     ^^^^^^^^^^^^^^^ Naming/MethodName: Use snake_case for method names.
   y = 2
 end
+
+def myHelper
+    ^^^^^^^^ Naming/MethodName: Use snake_case for method names.
+  nil
+end

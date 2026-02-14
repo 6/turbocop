@@ -1,2 +1,5 @@
 URI::DEFAULT_PARSER.unescape('foo')
 URI::DEFAULT_PARSER.escape('bar')
+URI.parse('http://example.com')
+obj.decode('foo')
+CGI.escape('bar')

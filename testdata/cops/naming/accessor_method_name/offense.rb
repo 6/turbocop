@@ -7,3 +7,8 @@ def set_value
     ^^^^^^^^^ Naming/AccessorMethodName: Do not prefix writer method names with `set_`.
   @value = value
 end
+
+def get_name
+    ^^^^^^^^ Naming/AccessorMethodName: Do not prefix reader method names with `get_`.
+  @name
+end

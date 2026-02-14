@@ -5,3 +5,8 @@ rescue
 ensure
   cleanup
 end
+begin
+  work
+ensure
+  finalize
+end

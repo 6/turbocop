@@ -1,2 +1,5 @@
 (1..10).cover?(5)
 array.include?(5)
+hash.include?(:key)
+[1, 2, 3].include?(2)
+set.include?(item)

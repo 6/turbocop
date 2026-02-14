@@ -4,3 +4,7 @@ when 1
 when 2
   do_other
 end
+case bar
+when :a
+  handle_a
+end

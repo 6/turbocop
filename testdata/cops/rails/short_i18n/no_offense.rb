@@ -1,3 +1,5 @@
 I18n.t(:foo)
 I18n.l(time)
 translate(:foo)
+localize(time)
+I18n.t("hello")

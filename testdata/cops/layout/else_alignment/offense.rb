@@ -11,3 +11,10 @@ if foo
   ^^^^^ Layout/ElseAlignment: Align `elsif` with `if`.
   baz
 end
+
+if alpha
+  one
+    else
+    ^^^^ Layout/ElseAlignment: Align `else` with `if`.
+  two
+end

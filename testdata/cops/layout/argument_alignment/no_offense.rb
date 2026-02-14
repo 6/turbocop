@@ -1,7 +1,9 @@
 foo(1,
     2,
     3)
-
-bar(1, 2, 3)
-
-baz(:a)
+bar(:a,
+    :b,
+    :c)
+baz("x",
+    "y")
+single_arg(1)
