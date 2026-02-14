@@ -1,0 +1,5 @@
+x.include?('foo')
+x.match?(/foo.*bar/)
+x.match?(/\Afoo/)
+x.match?(/foo\z/)
+x.match?(/fo+o/)

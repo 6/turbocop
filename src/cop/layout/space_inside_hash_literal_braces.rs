@@ -132,4 +132,25 @@ mod tests {
             ),
         );
     }
+
+    #[test]
+    fn config_no_space() {
+        use std::collections::HashMap;
+        use crate::testutil::{run_cop_full_with_config, assert_cop_no_offenses_full_with_config};
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("no_space".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Hash with spaces should trigger with no_space style
+        let source = b"x = { a: 1 }\n";
+        let diags = run_cop_full_with_config(&SpaceInsideHashLiteralBraces, source, config.clone());
+        assert!(!diags.is_empty(), "Should fire with EnforcedStyle:no_space on spaced hash");
+
+        // Hash without spaces should be clean with no_space style
+        let source2 = b"x = {a: 1}\n";
+        assert_cop_no_offenses_full_with_config(&SpaceInsideHashLiteralBraces, source2, config);
+    }
 }

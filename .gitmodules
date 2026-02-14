@@ -1,3 +1,6 @@
 [submodule "vendor/rubocop"]
 	path = vendor/rubocop
 	url = https://github.com/rubocop/rubocop.git
+[submodule "vendor/rubocop-performance"]
+	path = vendor/rubocop-performance
+	url = https://github.com/rubocop/rubocop-performance.git

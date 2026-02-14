@@ -81,4 +81,24 @@ mod tests {
             include_bytes!("../../../testdata/cops/style/symbol_array/no_offense.rb"),
         );
     }
+
+    #[test]
+    fn config_min_size_5() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([("MinSize".into(), serde_yml::Value::Number(5.into()))]),
+            ..CopConfig::default()
+        };
+        // 5 symbols should trigger with MinSize:5
+        let source = b"x = [:a, :b, :c, :d, :e]\n";
+        let diags = run_cop_full_with_config(&SymbolArray, source, config.clone());
+        assert!(!diags.is_empty(), "Should fire with MinSize:5 on 5-element symbol array");
+
+        // 4 symbols should NOT trigger
+        let source2 = b"x = [:a, :b, :c, :d]\n";
+        let diags2 = run_cop_full_with_config(&SymbolArray, source2, config);
+        assert!(diags2.is_empty(), "Should not fire on 4-element symbol array with MinSize:5");
+    }
 }

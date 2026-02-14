@@ -2,6 +2,7 @@ pub mod layout;
 pub mod lint;
 pub mod metrics;
 pub mod naming;
+pub mod performance;
 pub mod registry;
 pub mod style;
 pub mod util;

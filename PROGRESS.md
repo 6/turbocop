@@ -169,9 +169,84 @@ All files compile, binary runs, produces "0 offenses detected."
 - [x] **testdata/cops/** — ~90 new fixture files (offense + no_offense for each new cop)
 - [x] 275 tests passing (259 unit + 16 integration)
 
-## Next: M4 — Performance cops
+## Completed: M4 — Performance cops + Test Hardening
 
-See [PLAN.md § Batch 3](PLAN.md#batch-3-rubocop-performance-cops-all).
+47 new Performance department cops (117 total), rubocop-performance submodule, method chain utility, config variation tests, M3 integration tests.
+
+### M4 Infrastructure
+
+- [x] **vendor/rubocop-performance** — Git submodule (shallow clone) for reference specs
+- [x] **src/cop/performance/mod.rs** — New Performance department with `register_all()`
+- [x] **src/cop/mod.rs** — Added `pub mod performance;`
+- [x] **src/cop/registry.rs** — Added `performance::register_all` to `default_registry()`
+- [x] **src/cop/util.rs** — Added `MethodChain` struct and `as_method_chain()` helper for detecting `x.inner().outer()` patterns
+
+### M4 Cops — Performance (39 new)
+
+- [x] Performance/AncestorsInclude — ancestors.include?(X) → is_a?(X)
+- [x] Performance/ArraySemiInfiniteRangeSlice — arr[n..] → arr.drop(n)
+- [x] Performance/BigDecimalWithNumericArgument — BigDecimal(2) → BigDecimal('2')
+- [x] Performance/BindCall — method(:bar).bind(obj).call → bind_call
+- [x] Performance/BlockGivenWithExplicitBlock — block_given? with explicit &block param
+- [x] Performance/Caller — caller[n] → caller(n..n).first
+- [x] Performance/CaseWhenSplat — splat in when → move to end
+- [x] Performance/Casecmp — downcase == → casecmp
+- [x] Performance/ChainArrayAllocation — intermediate array allocation detection
+- [x] Performance/CompareWithBlock — sort{|a,b| a.x <=> b.x} → sort_by
+- [x] Performance/ConcurrentMonotonicTime — Concurrent.monotonic_time → Process.clock_gettime
+- [x] Performance/Count — select{}.count → count{}
+- [x] Performance/DeletePrefix — gsub(/\Aprefix/,'') → delete_prefix
+- [x] Performance/DeleteSuffix — gsub(/suffix\z/,'') → delete_suffix
+- [x] Performance/Detect — select{}.first → detect{}
+- [x] Performance/DoubleStartEndWith — chained || start_with? → multi-arg
+- [x] Performance/EndWith — match?(/foo\z/) → end_with?
+- [x] Performance/FlatMap — map{}.flatten → flat_map{}
+- [x] Performance/InefficientHashSearch — hash.keys.include? → hash.key?
+- [x] Performance/IoReadlines — IO.readlines.each → IO.foreach
+- [x] Performance/MapCompact — map{}.compact → filter_map{}
+- [x] Performance/MapMethodChain — chained map calls
+- [x] Performance/MethodObjectAsBlock — &method(:foo) → block
+- [x] Performance/OpenStruct — flag OpenStruct usage
+- [x] Performance/RangeInclude — Range#include? → Range#cover?
+- [x] Performance/RedundantBlockCall — block.call → yield
+- [x] Performance/RedundantEqualityComparisonBlock — select{|x| x == val}
+- [x] Performance/RedundantMatch — match → match?
+- [x] Performance/RedundantMerge — merge! single pair → []=
+- [x] Performance/RedundantSortBlock — sort{|a,b| a <=> b} → sort
+- [x] Performance/RedundantSplitRegexpArgument — split(/,/) → split(',')
+- [x] Performance/RedundantStringChars — chars[n] → [n]
+- [x] Performance/RegexpMatch — =~ → match?
+- [x] Performance/ReverseEach — reverse.each → reverse_each
+- [x] Performance/ReverseFirst — reverse.first → last.reverse
+- [x] Performance/SelectMap — select{}.map{} → filter_map{}
+- [x] Performance/Size — count → size
+- [x] Performance/SortReverse — sort.reverse → sort with reversed block
+- [x] Performance/Squeeze — gsub(/a+/,'a') → squeeze('a')
+- [x] Performance/StartWith — match?(/\Afoo/) → start_with?
+- [x] Performance/StringIdentifierArgument — send('foo') → send(:foo)
+- [x] Performance/StringInclude — match?(/literal/) → include?
+- [x] Performance/StringReplacement — gsub single char → tr
+- [x] Performance/Sum — inject(0,:+) → sum
+- [x] Performance/TimesMap — n.times.map{} → Array.new(n){}
+- [x] Performance/UnfreezeString — String.new → unary plus
+- [x] Performance/UriDefaultParser — URI.decode/encode → DEFAULT_PARSER
+
+### M4 Test Hardening
+
+- [x] Config variation tests for configurable cops (Metrics/MethodLength, ClassLength, CyclomaticComplexity, etc.)
+- [x] M3 integration tests: metrics_cops_fire_on_complex_code, naming_cops_fire_on_bad_names, config_overrides_new_departments
+- [x] SpaceInsideHashLiteralBraces no_space config test
+- [x] Style/WordArray MinSize config test
+
+### M4 Summary
+
+- [x] **src/cop/registry.rs** — `default_registry()` registers all 117 cops
+- [x] **testdata/cops/performance/** — ~78 new fixture files (offense + no_offense for each new cop)
+- [x] 389 tests passing (370 unit + 19 integration)
+
+## Next: M5 — Complex core cops
+
+See [PLAN.md § Batch 4](PLAN.md#batch-4-complex-core-cops--remaining-core).
 
 ## Upcoming Milestones
 
@@ -181,7 +256,7 @@ See [PLAN.md § Batch 3](PLAN.md#batch-3-rubocop-performance-cops-all).
 | **M1**: Line-based cops | 8 | **Done** |
 | **M2**: Token/simple-pattern cops | 25 | **Done** |
 | **M3**: AST single-node | 70 | **Done** |
-| **M4**: Performance cops | 40 | Pending — [PLAN.md § Batch 3](PLAN.md#batch-3-rubocop-performance-cops-all) |
+| **M4**: Performance cops | 117 | **Done** |
 | **M5**: Complex core cops | 50 | Pending — [PLAN.md § Batch 4](PLAN.md#batch-4-complex-core-cops--remaining-core) |
 | **M6**: bin/lint + --rubocop-only | 0 new | Pending |
 | **M7**: Autocorrect | +30 fixes | Pending |

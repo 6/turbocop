@@ -92,4 +92,24 @@ mod tests {
             include_bytes!("../../../testdata/cops/style/numeric_literals/no_offense.rb"),
         );
     }
+
+    #[test]
+    fn config_min_digits_3() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([("MinDigits".into(), serde_yml::Value::Number(3.into()))]),
+            ..CopConfig::default()
+        };
+        // 3-digit number without underscores should trigger with MinDigits:3
+        let source = b"x = 100\n";
+        let diags = run_cop_full_with_config(&NumericLiterals, source, config.clone());
+        assert!(!diags.is_empty(), "Should fire with MinDigits:3 on 3-digit number");
+
+        // 2-digit number should NOT trigger
+        let source2 = b"x = 99\n";
+        let diags2 = run_cop_full_with_config(&NumericLiterals, source2, config);
+        assert!(diags2.is_empty(), "Should not fire on 2-digit number with MinDigits:3");
+    }
 }

@@ -156,4 +156,20 @@ mod tests {
             include_bytes!("../../../testdata/cops/metrics/abc_size/no_offense.rb"),
         );
     }
+
+    #[test]
+    fn config_custom_max() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([("Max".into(), serde_yml::Value::Number(1.into()))]),
+            ..CopConfig::default()
+        };
+        // Multiple assignments and calls push ABC well above 1
+        let source = b"def foo\n  a = 1\n  b = 2\n  c = bar\n  d = baz\nend\n";
+        let diags = run_cop_full_with_config(&AbcSize, source, config);
+        assert!(!diags.is_empty(), "Should fire with Max:1 on method with high ABC");
+        assert!(diags[0].message.contains("/1]"));
+    }
 }

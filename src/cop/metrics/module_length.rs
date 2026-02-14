@@ -73,4 +73,20 @@ mod tests {
             include_bytes!("../../../testdata/cops/metrics/module_length/no_offense.rb"),
         );
     }
+
+    #[test]
+    fn config_custom_max() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([("Max".into(), serde_yml::Value::Number(3.into()))]),
+            ..CopConfig::default()
+        };
+        // 4 body lines exceeds Max:3
+        let source = b"module Foo\n  a = 1\n  b = 2\n  c = 3\n  d = 4\nend\n";
+        let diags = run_cop_full_with_config(&ModuleLength, source, config);
+        assert!(!diags.is_empty(), "Should fire with Max:3 on 4-line module");
+        assert!(diags[0].message.contains("[4/3]"));
+    }
 }

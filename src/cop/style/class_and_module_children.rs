@@ -106,4 +106,26 @@ mod tests {
             ),
         );
     }
+
+    #[test]
+    fn config_compact_style() {
+        use std::collections::HashMap;
+        use crate::testutil::{run_cop_full_with_config, assert_cop_no_offenses_full_with_config};
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("compact".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Nested style should trigger with compact enforced
+        let source = b"class Foo\nend\n";
+        let diags = run_cop_full_with_config(&ClassAndModuleChildren, source, config.clone());
+        assert!(!diags.is_empty(), "Should fire with EnforcedStyle:compact on nested class");
+        assert!(diags[0].message.contains("compact"));
+
+        // Compact style should be clean
+        let source2 = b"class Foo::Bar\nend\n";
+        assert_cop_no_offenses_full_with_config(&ClassAndModuleChildren, source2, config);
+    }
 }

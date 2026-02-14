@@ -98,4 +98,24 @@ mod tests {
             include_bytes!("../../../testdata/cops/style/word_array/no_offense.rb"),
         );
     }
+
+    #[test]
+    fn config_min_size_5() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([("MinSize".into(), serde_yml::Value::Number(5.into()))]),
+            ..CopConfig::default()
+        };
+        // 5 elements should trigger with MinSize:5
+        let source = b"x = ['a', 'b', 'c', 'd', 'e']\n";
+        let diags = run_cop_full_with_config(&WordArray, source, config.clone());
+        assert!(!diags.is_empty(), "Should fire with MinSize:5 on 5-element word array");
+
+        // 4 elements should NOT trigger
+        let source2 = b"x = ['a', 'b', 'c', 'd']\n";
+        let diags2 = run_cop_full_with_config(&WordArray, source2, config);
+        assert!(diags2.is_empty(), "Should not fire on 4-element word array with MinSize:5");
+    }
 }

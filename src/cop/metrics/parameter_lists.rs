@@ -92,4 +92,20 @@ mod tests {
             include_bytes!("../../../testdata/cops/metrics/parameter_lists/no_offense.rb"),
         );
     }
+
+    #[test]
+    fn config_custom_max() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([("Max".into(), serde_yml::Value::Number(2.into()))]),
+            ..CopConfig::default()
+        };
+        // 3 params exceeds Max:2
+        let source = b"def foo(a, b, c)\nend\n";
+        let diags = run_cop_full_with_config(&ParameterLists, source, config);
+        assert!(!diags.is_empty(), "Should fire with Max:2 on 3-param method");
+        assert!(diags[0].message.contains("[3/2]"));
+    }
 }

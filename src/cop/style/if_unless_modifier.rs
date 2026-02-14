@@ -122,4 +122,23 @@ mod tests {
             include_bytes!("../../../testdata/cops/style/if_unless_modifier/no_offense.rb"),
         );
     }
+
+    #[test]
+    fn config_max_line_length() {
+        use std::collections::HashMap;
+        use crate::testutil::{run_cop_full_with_config, assert_cop_no_offenses_full_with_config};
+
+        let config = CopConfig {
+            options: HashMap::from([("MaxLineLength".into(), serde_yml::Value::Number(40.into()))]),
+            ..CopConfig::default()
+        };
+        // Short body + condition fits in 40 chars as modifier => should suggest modifier
+        let source = b"if x\n  y\nend\n";
+        let diags = run_cop_full_with_config(&IfUnlessModifier, source, config.clone());
+        assert!(!diags.is_empty(), "Should fire with MaxLineLength:40 on short if");
+
+        // Longer body that would exceed 40 chars as modifier => should NOT suggest
+        let source2 = b"if some_very_long_condition_variable_name\n  do_something_important_here\nend\n";
+        assert_cop_no_offenses_full_with_config(&IfUnlessModifier, source2, config);
+    }
 }

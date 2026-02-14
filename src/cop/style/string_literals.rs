@@ -98,4 +98,22 @@ mod tests {
             include_bytes!("../../../testdata/cops/style/string_literals/no_offense.rb"),
         );
     }
+
+    #[test]
+    fn config_double_quotes() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("double_quotes".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Single-quoted string should trigger with double_quotes style
+        let source = b"x = 'hello'\n";
+        let diags = run_cop_full_with_config(&StringLiterals, source, config);
+        assert!(!diags.is_empty(), "Should fire with EnforcedStyle:double_quotes on single-quoted string");
+        assert!(diags[0].message.contains("double-quoted"));
+    }
 }

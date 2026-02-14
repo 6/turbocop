@@ -79,4 +79,38 @@ mod tests {
             include_bytes!("../../../testdata/cops/metrics/method_length/no_offense.rb"),
         );
     }
+
+    #[test]
+    fn config_custom_max() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([("Max".into(), serde_yml::Value::Number(5.into()))]),
+            ..CopConfig::default()
+        };
+        // 6 body lines exceeds Max:5
+        let source = b"def foo\n  a\n  b\n  c\n  d\n  e\n  f\nend\n";
+        let diags = run_cop_full_with_config(&MethodLength, source, config);
+        assert!(!diags.is_empty(), "Should fire with Max:5 on 6-line method");
+        assert!(diags[0].message.contains("[6/5]"));
+    }
+
+    #[test]
+    fn config_count_comments_true() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(3.into())),
+                ("CountComments".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        // 4 lines including comments exceeds Max:3 when CountComments:true
+        let source = b"def foo\n  # comment1\n  # comment2\n  a\n  b\nend\n";
+        let diags = run_cop_full_with_config(&MethodLength, source, config);
+        assert!(!diags.is_empty(), "Should fire with CountComments:true");
+    }
 }

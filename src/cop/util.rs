@@ -114,6 +114,33 @@ pub fn is_ascii_name(name: &[u8]) -> bool {
     name.iter().all(|b| b.is_ascii())
 }
 
+/// Info about a 2-method chain: `receiver.inner_method(...).outer_method(...)`.
+pub struct MethodChain<'a> {
+    /// The inner CallNode (the receiver of the outer call).
+    pub inner_call: ruby_prism::CallNode<'a>,
+    /// The method name of the inner call.
+    pub inner_method: &'a [u8],
+    /// The method name of the outer call.
+    pub outer_method: &'a [u8],
+}
+
+/// Extract a 2-method chain from a node.
+///
+/// If `node` is a CallNode `x.outer()` whose receiver is also a CallNode `y.inner()`,
+/// returns `Some(MethodChain { inner_call, inner_method, outer_method })`.
+pub fn as_method_chain<'a>(node: &ruby_prism::Node<'a>) -> Option<MethodChain<'a>> {
+    let outer_call = node.as_call_node()?;
+    let outer_method = outer_call.name().as_slice();
+    let receiver = outer_call.receiver()?;
+    let inner_call = receiver.as_call_node()?;
+    let inner_method = inner_call.name().as_slice();
+    Some(MethodChain {
+        inner_call,
+        inner_method,
+        outer_method,
+    })
+}
+
 /// Check if there is a trailing comma between last_element_end and closing_start.
 pub fn has_trailing_comma(
     source_bytes: &[u8],

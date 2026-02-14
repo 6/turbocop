@@ -110,4 +110,20 @@ mod tests {
             include_bytes!("../../../testdata/cops/metrics/perceived_complexity/no_offense.rb"),
         );
     }
+
+    #[test]
+    fn config_custom_max() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([("Max".into(), serde_yml::Value::Number(1.into()))]),
+            ..CopConfig::default()
+        };
+        // 1 (base) + 1 (if) + 1 (else) = 3 > Max:1
+        let source = b"def foo\n  if x\n    y\n  else\n    z\n  end\nend\n";
+        let diags = run_cop_full_with_config(&PerceivedComplexity, source, config);
+        assert!(!diags.is_empty(), "Should fire with Max:1 on method with if/else");
+        assert!(diags[0].message.contains("/1]"));
+    }
 }

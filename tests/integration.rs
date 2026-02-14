@@ -437,7 +437,7 @@ fn all_registered_cops_can_fire() {
 #[test]
 fn registry_has_expected_cop_count() {
     let registry = CopRegistry::default_registry();
-    assert_eq!(registry.len(), 70, "Expected 70 registered cops");
+    assert_eq!(registry.len(), 117, "Expected 117 registered cops");
 
     let names = registry.names();
     let expected = [
@@ -497,6 +497,54 @@ fn registry_has_expected_cop_count() {
         "Naming/PredicateName",
         "Naming/AsciiIdentifiers",
         "Naming/FileName",
+        // Performance (39)
+        "Performance/AncestorsInclude",
+        "Performance/ArraySemiInfiniteRangeSlice",
+        "Performance/BigDecimalWithNumericArgument",
+        "Performance/BindCall",
+        "Performance/BlockGivenWithExplicitBlock",
+        "Performance/Caller",
+        "Performance/CaseWhenSplat",
+        "Performance/Casecmp",
+        "Performance/ChainArrayAllocation",
+        "Performance/CompareWithBlock",
+        "Performance/ConcurrentMonotonicTime",
+        "Performance/Count",
+        "Performance/DeletePrefix",
+        "Performance/DeleteSuffix",
+        "Performance/Detect",
+        "Performance/DoubleStartEndWith",
+        "Performance/EndWith",
+        "Performance/FlatMap",
+        "Performance/InefficientHashSearch",
+        "Performance/IoReadlines",
+        "Performance/MapCompact",
+        "Performance/MapMethodChain",
+        "Performance/MethodObjectAsBlock",
+        "Performance/OpenStruct",
+        "Performance/RangeInclude",
+        "Performance/RedundantBlockCall",
+        "Performance/RedundantEqualityComparisonBlock",
+        "Performance/RedundantMatch",
+        "Performance/RedundantMerge",
+        "Performance/RedundantSortBlock",
+        "Performance/RedundantSplitRegexpArgument",
+        "Performance/RedundantStringChars",
+        "Performance/RegexpMatch",
+        "Performance/ReverseEach",
+        "Performance/ReverseFirst",
+        "Performance/SelectMap",
+        "Performance/Size",
+        "Performance/SortReverse",
+        "Performance/Squeeze",
+        "Performance/StartWith",
+        "Performance/StringIdentifierArgument",
+        "Performance/StringInclude",
+        "Performance/StringReplacement",
+        "Performance/Sum",
+        "Performance/TimesMap",
+        "Performance/UnfreezeString",
+        "Performance/UriDefaultParser",
         // Style (18)
         "Style/FrozenStringLiteralComment",
         "Style/Tab",
@@ -523,4 +571,93 @@ fn registry_has_expected_cop_count() {
             "Registry missing expected cop: {name}"
         );
     }
+}
+
+// ---------- M3 integration tests ----------
+
+#[test]
+fn metrics_cops_fire_on_complex_code() {
+    let dir = temp_dir("metrics_complex");
+    // 16-line method body exceeds default Max:10 for MethodLength
+    let file = write_file(
+        &dir,
+        "complex.rb",
+        b"# frozen_string_literal: true\n\ndef long_method\n  a = 1\n  b = 2\n  c = 3\n  d = 4\n  e = 5\n  f = 6\n  g = 7\n  h = 8\n  i = 9\n  j = 10\n  k = 11\n  l = 12\n  m = 13\n  n = 14\n  o = 15\n  p = 16\nend\n",
+    );
+    let config = load_config(None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        only: vec!["Metrics/MethodLength".to_string()],
+        ..default_args()
+    };
+
+    let result = run_linter(&[file], &config, &registry, &args);
+    assert!(
+        !result.diagnostics.is_empty(),
+        "Metrics/MethodLength should fire on 16-line method"
+    );
+    assert_eq!(result.diagnostics[0].cop_name, "Metrics/MethodLength");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn naming_cops_fire_on_bad_names() {
+    let dir = temp_dir("naming_bad");
+    // camelCase method name should trigger Naming/MethodName
+    let file = write_file(
+        &dir,
+        "bad_names.rb",
+        b"# frozen_string_literal: true\n\ndef myMethod\nend\n",
+    );
+    let config = load_config(None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        only: vec!["Naming/MethodName".to_string()],
+        ..default_args()
+    };
+
+    let result = run_linter(&[file], &config, &registry, &args);
+    let cop_names: Vec<&str> = result.diagnostics.iter().map(|d| d.cop_name.as_str()).collect();
+    assert!(
+        cop_names.contains(&"Naming/MethodName"),
+        "Naming/MethodName should fire on camelCase method name"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn config_overrides_new_departments() {
+    let dir = temp_dir("config_new_dept");
+    // 4-line method body: under default Max:10 but over Max:3
+    let file = write_file(
+        &dir,
+        "short_method.rb",
+        b"# frozen_string_literal: true\n\ndef foo\n  a = 1\n  b = 2\n  c = 3\n  d = 4\nend\n",
+    );
+    let config_path = write_file(
+        &dir,
+        ".rubocop.yml",
+        b"Metrics/MethodLength:\n  Max: 3\n",
+    );
+    let config = load_config(Some(config_path.as_path())).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        only: vec!["Metrics/MethodLength".to_string()],
+        ..default_args()
+    };
+
+    let result = run_linter(&[file], &config, &registry, &args);
+    assert!(
+        !result.diagnostics.is_empty(),
+        "Metrics/MethodLength should fire with Max:3 on 4-line method"
+    );
+    assert_eq!(result.diagnostics[0].cop_name, "Metrics/MethodLength");
+    assert!(
+        result.diagnostics[0].message.contains("/3]"),
+        "Message should reference Max:3"
+    );
+
+    fs::remove_dir_all(&dir).ok();
 }
