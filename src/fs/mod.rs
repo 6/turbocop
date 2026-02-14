@@ -79,7 +79,7 @@ mod tests {
         fs::write(dir.join("b.rb"), "").unwrap();
         fs::write(dir.join("c.txt"), "").unwrap();
 
-        let config = load_config(Some(Path::new("/nonexistent"))).unwrap();
+        let config = load_config(Some(Path::new("/nonexistent")), None).unwrap();
         let files = discover_files(&[dir.clone()], &config).unwrap();
 
         assert_eq!(files.len(), 2);
@@ -93,7 +93,7 @@ mod tests {
         let txt = dir.join("script");
         fs::write(&txt, "puts 'hi'").unwrap();
 
-        let config = load_config(Some(Path::new("/nonexistent"))).unwrap();
+        let config = load_config(Some(Path::new("/nonexistent")), None).unwrap();
         let files = discover_files(&[txt.clone()], &config).unwrap();
 
         assert_eq!(files.len(), 1);
@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn nonexistent_path_errors() {
-        let config = load_config(Some(Path::new("/nonexistent"))).unwrap();
+        let config = load_config(Some(Path::new("/nonexistent")), None).unwrap();
         let result = discover_files(&[PathBuf::from("/no/such/path")], &config);
         assert!(result.is_err());
     }
@@ -115,7 +115,7 @@ mod tests {
         fs::write(dir.join("a.rb"), "").unwrap();
         fs::write(dir.join("m.rb"), "").unwrap();
 
-        let config = load_config(Some(Path::new("/nonexistent"))).unwrap();
+        let config = load_config(Some(Path::new("/nonexistent")), None).unwrap();
         let files = discover_files(&[dir.clone()], &config).unwrap();
 
         let names: Vec<_> = files
@@ -134,7 +134,7 @@ mod tests {
         fs::write(dir.join("top.rb"), "").unwrap();
         fs::write(sub.join("nested.rb"), "").unwrap();
 
-        let config = load_config(Some(Path::new("/nonexistent"))).unwrap();
+        let config = load_config(Some(Path::new("/nonexistent")), None).unwrap();
         let files = discover_files(&[dir.clone()], &config).unwrap();
 
         assert_eq!(files.len(), 2);

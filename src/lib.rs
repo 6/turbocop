@@ -25,9 +25,21 @@ use parse::source::SourceFile;
 
 /// Run the linter. Returns the exit code: 0 = clean, 1 = offenses found, 2 = error.
 pub fn run(args: Args) -> Result<i32> {
-    let config = load_config(args.config.as_deref())?;
+    let target_dir = args.paths.first().map(|p| {
+        if p.is_file() {
+            p.parent().unwrap_or(p)
+        } else {
+            p.as_path()
+        }
+    });
+    let config = load_config(args.config.as_deref(), target_dir)?;
 
     if args.debug {
+        if let Some(dir) = config.config_dir() {
+            eprintln!("debug: config loaded from: {}", dir.display());
+        } else {
+            eprintln!("debug: no config file found");
+        }
         eprintln!(
             "debug: global excludes: {:?}",
             config.global_excludes()

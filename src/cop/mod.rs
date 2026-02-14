@@ -16,10 +16,26 @@ use crate::diagnostic::{Diagnostic, Location, Severity};
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
+/// Tri-state for cop Enabled field, matching RuboCop semantics.
+///
+/// - `True` / `False` — explicitly set in config
+/// - `Pending` — set by plugin defaults (e.g. `rubocop-rails`); disabled
+///   unless `AllCops.NewCops: enable`
+/// - `Unset` — no explicit setting; inherits from defaults (enabled unless
+///   `AllCops.DisabledByDefault: true`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EnabledState {
+    True,
+    False,
+    Pending,
+    #[default]
+    Unset,
+}
+
 /// Per-cop configuration extracted from .rubocop.yml.
 #[derive(Debug, Clone)]
 pub struct CopConfig {
-    pub enabled: bool,
+    pub enabled: EnabledState,
     pub severity: Option<Severity>,
     pub exclude: Vec<String>,
     pub include: Vec<String>,
@@ -29,7 +45,7 @@ pub struct CopConfig {
 impl Default for CopConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: EnabledState::Unset,
             severity: None,
             exclude: Vec::new(),
             include: Vec::new(),

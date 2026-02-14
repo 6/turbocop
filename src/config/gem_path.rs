@@ -6,44 +6,51 @@ use std::time::SystemTime;
 
 use anyhow::{Context, Result};
 
-/// Cache for gem path resolution. Keyed on gem name, stores the resolved path.
-/// Invalidated when Gemfile.lock mtime changes.
+/// Cache for gem path resolution. Keyed on (working_dir, gem_name), stores
+/// the resolved path. Invalidated when Gemfile.lock mtime changes.
 struct GemPathCache {
-    entries: HashMap<String, PathBuf>,
+    entries: HashMap<(PathBuf, String), PathBuf>,
     lockfile_mtime: Option<SystemTime>,
+    working_dir: PathBuf,
 }
 
 static GEM_PATH_CACHE: Mutex<Option<GemPathCache>> = Mutex::new(None);
 
 /// Resolve a gem's install path via `bundle info --path <gem_name>`.
 ///
-/// Results are cached and invalidated when Gemfile.lock mtime changes.
-pub fn resolve_gem_path(gem_name: &str) -> Result<PathBuf> {
-    let lockfile_mtime = Path::new("Gemfile.lock")
+/// `working_dir` is the directory where `bundle` should run (typically the
+/// project root where `Gemfile.lock` lives). Results are cached per
+/// (working_dir, gem_name) and invalidated when Gemfile.lock mtime changes.
+pub fn resolve_gem_path(gem_name: &str, working_dir: &Path) -> Result<PathBuf> {
+    let lockfile_mtime = working_dir
+        .join("Gemfile.lock")
         .metadata()
         .and_then(|m| m.modified())
         .ok();
+
+    let cache_key = (working_dir.to_path_buf(), gem_name.to_string());
 
     // Check cache
     {
         let cache = GEM_PATH_CACHE.lock().unwrap();
         if let Some(ref c) = *cache {
-            if c.lockfile_mtime == lockfile_mtime {
-                if let Some(path) = c.entries.get(gem_name) {
+            if c.working_dir == working_dir && c.lockfile_mtime == lockfile_mtime {
+                if let Some(path) = c.entries.get(&cache_key) {
                     return Ok(path.clone());
                 }
             }
         }
     }
 
-    // Run bundle info --path
+    // Run bundle info --path from the working directory
     let output = Command::new("bundle")
         .args(["info", "--path", gem_name])
+        .current_dir(working_dir)
         .output()
         .with_context(|| {
             format!(
-                "Cannot resolve inherit_gem for '{}': `bundle` not found on PATH. \
-                 Install Bundler or remove inherit_gem from your .rubocop.yml.",
+                "Cannot resolve gem '{}': `bundle` not found on PATH. \
+                 Install Bundler or remove inherit_gem/require from your .rubocop.yml.",
                 gem_name
             )
         })?;
@@ -51,10 +58,11 @@ pub fn resolve_gem_path(gem_name: &str) -> Result<PathBuf> {
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!(
-            "Gem '{}' not found in bundle. \
+            "Gem '{}' not found in bundle (working_dir: {}). \
              Run `bundle install` or remove it from inherit_gem. \
              bundle info stderr: {}",
             gem_name,
+            working_dir.display(),
             stderr.trim()
         );
     }
@@ -76,13 +84,15 @@ pub fn resolve_gem_path(gem_name: &str) -> Result<PathBuf> {
         let c = cache.get_or_insert_with(|| GemPathCache {
             entries: HashMap::new(),
             lockfile_mtime,
+            working_dir: working_dir.to_path_buf(),
         });
-        // Reset cache if lockfile changed
-        if c.lockfile_mtime != lockfile_mtime {
+        // Reset cache if lockfile or working_dir changed
+        if c.lockfile_mtime != lockfile_mtime || c.working_dir != working_dir {
             c.entries.clear();
             c.lockfile_mtime = lockfile_mtime;
+            c.working_dir = working_dir.to_path_buf();
         }
-        c.entries.insert(gem_name.to_string(), path.clone());
+        c.entries.insert(cache_key, path.clone());
     }
 
     Ok(path)

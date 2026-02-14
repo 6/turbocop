@@ -7,25 +7,69 @@ use anyhow::{Context, Result};
 use globset::GlobBuilder;
 use serde_yml::Value;
 
-use crate::cop::CopConfig;
+use crate::cop::{CopConfig, EnabledState};
 use crate::diagnostic::Severity;
+
+/// Policy for handling `Enabled: pending` cops, controlled by `AllCops.NewCops`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NewCopsPolicy {
+    Enable,
+    Disable,
+}
+
+/// Department-level configuration (e.g., `RSpec:`, `Rails:`).
+///
+/// Plugin default configs use bare department keys to set Include/Exclude
+/// patterns and Enabled state for all cops in that department.
+#[derive(Debug, Clone, Default)]
+struct DepartmentConfig {
+    enabled: EnabledState,
+    include: Vec<String>,
+    exclude: Vec<String>,
+}
+
+/// Controls how arrays are merged during config inheritance.
+///
+/// By default, Exclude arrays are appended and Include arrays are replaced.
+/// `inherit_mode` lets configs override this per-key.
+#[derive(Debug, Clone, Default)]
+struct InheritMode {
+    /// Keys whose arrays should be appended (merged) instead of replaced.
+    merge: HashSet<String>,
+    /// Keys whose arrays should be replaced instead of appended.
+    override_keys: HashSet<String>,
+}
 
 /// Resolved configuration from .rubocop.yml with full inheritance support.
 ///
-/// Supports `inherit_from` (local YAML files) and `inherit_gem` (via
-/// `bundle info --path`). Silently ignores `require:` and `plugins:` keys.
+/// Supports `inherit_from` (local YAML files), `inherit_gem` (via
+/// `bundle info --path`), `require:` (plugin default configs), department-level
+/// configs, `Enabled: pending` / `AllCops.NewCops`, `AllCops.DisabledByDefault`,
+/// and `inherit_mode`.
 #[derive(Debug)]
 pub struct ResolvedConfig {
     /// Per-cop configs keyed by cop name (e.g. "Style/FrozenStringLiteralComment")
     cop_configs: HashMap<String, CopConfig>,
+    /// Department-level configs keyed by department name (e.g. "RSpec", "Rails")
+    department_configs: HashMap<String, DepartmentConfig>,
     global_excludes: Vec<String>,
+    /// Directory containing the resolved config file (for relative path resolution).
+    config_dir: Option<PathBuf>,
+    /// How to handle `Enabled: pending` cops.
+    new_cops: NewCopsPolicy,
+    /// When true, cops without explicit `Enabled: true` are disabled.
+    disabled_by_default: bool,
 }
 
 impl ResolvedConfig {
     fn empty() -> Self {
         Self {
             cop_configs: HashMap::new(),
+            department_configs: HashMap::new(),
             global_excludes: Vec::new(),
+            config_dir: None,
+            new_cops: NewCopsPolicy::Disable,
+            disabled_by_default: false,
         }
     }
 }
@@ -34,47 +78,106 @@ impl ResolvedConfig {
 #[derive(Debug, Clone)]
 struct ConfigLayer {
     cop_configs: HashMap<String, CopConfig>,
+    department_configs: HashMap<String, DepartmentConfig>,
     global_excludes: Vec<String>,
+    new_cops: Option<String>,
+    disabled_by_default: Option<bool>,
+    inherit_mode: InheritMode,
 }
 
 impl ConfigLayer {
     fn empty() -> Self {
         Self {
             cop_configs: HashMap::new(),
+            department_configs: HashMap::new(),
             global_excludes: Vec::new(),
+            new_cops: None,
+            disabled_by_default: None,
+            inherit_mode: InheritMode::default(),
         }
     }
 }
 
-/// Load config from the given path, or look for `.rubocop.yml` in the
-/// current directory. Returns an empty config if the file doesn't exist.
+/// Walk up from `start_dir` to find `.rubocop.yml`.
+fn find_config(start_dir: &Path) -> Option<PathBuf> {
+    let mut dir = std::fs::canonicalize(start_dir).unwrap_or_else(|_| start_dir.to_path_buf());
+    loop {
+        let candidate = dir.join(".rubocop.yml");
+        if candidate.exists() {
+            return Some(candidate);
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    None
+}
+
+/// Load config from the given path, or auto-discover `.rubocop.yml` by walking
+/// up from `target_dir`. Returns an empty config if no config file is found.
 ///
-/// Resolves `inherit_from` and `inherit_gem` recursively, merging layers
-/// bottom-up with RuboCop-compatible merge rules.
-pub fn load_config(path: Option<&Path>) -> Result<ResolvedConfig> {
+/// Resolves `inherit_from`, `inherit_gem`, and `require:` recursively, merging
+/// layers bottom-up with RuboCop-compatible merge rules.
+pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<ResolvedConfig> {
     let config_path = match path {
-        Some(p) => p.to_path_buf(),
-        None => Path::new(".rubocop.yml").to_path_buf(),
+        Some(p) => {
+            if p.exists() {
+                Some(p.to_path_buf())
+            } else {
+                return Ok(ResolvedConfig::empty());
+            }
+        }
+        None => {
+            let start = target_dir
+                .map(|p| {
+                    if p.is_file() {
+                        p.parent().unwrap_or(p).to_path_buf()
+                    } else {
+                        p.to_path_buf()
+                    }
+                })
+                .or_else(|| std::env::current_dir().ok());
+            match start {
+                Some(dir) => find_config(&dir),
+                None => None,
+            }
+        }
     };
 
-    if !config_path.exists() {
-        return Ok(ResolvedConfig::empty());
-    }
+    let config_path = match config_path {
+        Some(p) => p,
+        None => return Ok(ResolvedConfig::empty()),
+    };
+
+    let config_dir = config_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
 
     let mut visited = HashSet::new();
-    let layer = load_config_recursive(&config_path, &mut visited)?;
+    let layer = load_config_recursive(&config_path, &config_dir, &mut visited)?;
 
     Ok(ResolvedConfig {
         cop_configs: layer.cop_configs,
+        department_configs: layer.department_configs,
         global_excludes: layer.global_excludes,
+        config_dir: Some(config_dir),
+        new_cops: match layer.new_cops.as_deref() {
+            Some("enable") => NewCopsPolicy::Enable,
+            _ => NewCopsPolicy::Disable,
+        },
+        disabled_by_default: layer.disabled_by_default.unwrap_or(false),
     })
 }
 
 /// Recursively load a config file and all its inherited configs.
 ///
+/// `working_dir` is the top-level config directory used for gem path resolution
+/// (where `Gemfile.lock` typically lives).
 /// `visited` tracks absolute paths to detect circular inheritance.
 fn load_config_recursive(
     config_path: &Path,
+    working_dir: &Path,
     visited: &mut HashSet<PathBuf>,
 ) -> Result<ConfigLayer> {
     let abs_path = if config_path.is_absolute() {
@@ -103,19 +206,59 @@ fn load_config_recursive(
         .unwrap_or_else(|| Path::new("."))
         .to_path_buf();
 
-    // Collect inherited layers (in order: inherit_gem first, then inherit_from)
+    // Collect inherited layers in priority order (lowest first):
+    // require: gem defaults < inherit_gem < inherit_from < local
     let mut base_layer = ConfigLayer::empty();
 
     if let Value::Mapping(ref map) = raw {
+        // 0. Process require: — load plugin default configs (lowest priority)
+        if let Some(require_value) = map.get(&Value::String("require".to_string())) {
+            let gems = match require_value {
+                Value::String(s) => vec![s.clone()],
+                Value::Sequence(seq) => seq
+                    .iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect(),
+                _ => vec![],
+            };
+
+            for gem_name in &gems {
+                // Only process rubocop plugin gems (they have config/default.yml)
+                if !gem_name.starts_with("rubocop-") {
+                    continue;
+                }
+                let gem_root = match gem_path::resolve_gem_path(gem_name, working_dir) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        eprintln!("warning: require '{}': {e:#}", gem_name);
+                        continue;
+                    }
+                };
+                let default_config = gem_root.join("config").join("default.yml");
+                if !default_config.exists() {
+                    continue;
+                }
+                match load_config_recursive(&default_config, working_dir, visited) {
+                    Ok(layer) => merge_layer_into(&mut base_layer, &layer, None),
+                    Err(e) => {
+                        eprintln!(
+                            "warning: failed to load default config for {}: {e:#}",
+                            gem_name
+                        );
+                    }
+                }
+            }
+        }
+
         // 1. Process inherit_gem
         if let Some(gem_value) = map.get(&Value::String("inherit_gem".to_string())) {
             if let Value::Mapping(gem_map) = gem_value {
                 for (gem_key, gem_paths) in gem_map {
                     if let Some(gem_name) = gem_key.as_str() {
                         let gem_layers =
-                            resolve_inherit_gem(gem_name, gem_paths, visited);
+                            resolve_inherit_gem(gem_name, gem_paths, working_dir, visited);
                         for layer in gem_layers {
-                            merge_layer_into(&mut base_layer, &layer);
+                            merge_layer_into(&mut base_layer, &layer, None);
                         }
                     }
                 }
@@ -143,8 +286,8 @@ fn load_config_recursive(
                     );
                     continue;
                 }
-                match load_config_recursive(&inherited_path, visited) {
-                    Ok(layer) => merge_layer_into(&mut base_layer, &layer),
+                match load_config_recursive(&inherited_path, working_dir, visited) {
+                    Ok(layer) => merge_layer_into(&mut base_layer, &layer, None),
                     Err(e) => {
                         // Circular inheritance errors should propagate
                         if format!("{e:#}").contains("Circular config inheritance") {
@@ -160,9 +303,9 @@ fn load_config_recursive(
         }
     }
 
-    // 3. Parse the local config layer and merge it on top
+    // 3. Parse the local config layer and merge it on top (highest priority)
     let local_layer = parse_config_layer(&raw);
-    merge_layer_into(&mut base_layer, &local_layer);
+    merge_layer_into(&mut base_layer, &local_layer, Some(&local_layer.inherit_mode));
 
     Ok(base_layer)
 }
@@ -172,9 +315,10 @@ fn load_config_recursive(
 fn resolve_inherit_gem(
     gem_name: &str,
     paths_value: &Value,
+    working_dir: &Path,
     visited: &mut HashSet<PathBuf>,
 ) -> Vec<ConfigLayer> {
-    let gem_root = match gem_path::resolve_gem_path(gem_name) {
+    let gem_root = match gem_path::resolve_gem_path(gem_name, working_dir) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("warning: {e:#}");
@@ -202,7 +346,7 @@ fn resolve_inherit_gem(
             );
             continue;
         }
-        match load_config_recursive(&full_path, visited) {
+        match load_config_recursive(&full_path, working_dir, visited) {
             Ok(layer) => layers.push(layer),
             Err(e) => {
                 eprintln!(
@@ -218,7 +362,11 @@ fn resolve_inherit_gem(
 /// Parse a single YAML Value into a ConfigLayer (no inheritance resolution).
 fn parse_config_layer(raw: &Value) -> ConfigLayer {
     let mut cop_configs = HashMap::new();
+    let mut department_configs = HashMap::new();
     let mut global_excludes = Vec::new();
+    let mut new_cops = None;
+    let mut disabled_by_default = None;
+    let mut inherit_mode = InheritMode::default();
 
     if let Value::Mapping(map) = raw {
         for (key, value) in map {
@@ -230,35 +378,62 @@ fn parse_config_layer(raw: &Value) -> ConfigLayer {
             // Skip non-cop top-level keys silently
             match key_str {
                 "inherit_from" | "inherit_gem" | "require" | "plugins" => continue,
+                "inherit_mode" => {
+                    inherit_mode = parse_inherit_mode(value);
+                    continue;
+                }
                 "AllCops" => {
                     if let Some(excludes) = extract_string_list(value, "Exclude") {
                         global_excludes = excludes;
+                    }
+                    if let Value::Mapping(ac_map) = value {
+                        if let Some(nc) = ac_map.get(&Value::String("NewCops".to_string())) {
+                            new_cops = nc.as_str().map(String::from);
+                        }
+                        if let Some(dbd) =
+                            ac_map.get(&Value::String("DisabledByDefault".to_string()))
+                        {
+                            disabled_by_default = dbd.as_bool();
+                        }
                     }
                     continue;
                 }
                 _ => {}
             }
 
-            // Cop names contain "/" (e.g. "Style/FrozenStringLiteralComment")
             if key_str.contains('/') {
+                // Cop-level config (e.g. "Style/FrozenStringLiteralComment")
                 let cop_config = parse_cop_config(value);
                 cop_configs.insert(key_str.to_string(), cop_config);
+            } else {
+                // Department-level config (e.g. "RSpec", "Rails")
+                let dept_config = parse_department_config(value);
+                department_configs.insert(key_str.to_string(), dept_config);
             }
         }
     }
 
     ConfigLayer {
         cop_configs,
+        department_configs,
         global_excludes,
+        new_cops,
+        disabled_by_default,
+        inherit_mode,
     }
 }
 
 /// Merge an overlay layer into a base layer using RuboCop merge rules:
 /// - Scalar values (Enabled, Severity, options): last writer wins
-/// - Exclude arrays: appended (union)
-/// - Include arrays: replaced (override)
+/// - Exclude arrays: appended (union) by default, replaced if `inherit_mode: override`
+/// - Include arrays: replaced (override) by default, appended if `inherit_mode: merge`
 /// - Global excludes: appended
-fn merge_layer_into(base: &mut ConfigLayer, overlay: &ConfigLayer) {
+/// - NewCops / DisabledByDefault: last writer wins
+fn merge_layer_into(
+    base: &mut ConfigLayer,
+    overlay: &ConfigLayer,
+    inherit_mode: Option<&InheritMode>,
+) {
     // Merge global excludes: append
     for exc in &overlay.global_excludes {
         if !base.global_excludes.contains(exc) {
@@ -266,11 +441,34 @@ fn merge_layer_into(base: &mut ConfigLayer, overlay: &ConfigLayer) {
         }
     }
 
+    // NewCops: last writer wins
+    if overlay.new_cops.is_some() {
+        base.new_cops.clone_from(&overlay.new_cops);
+    }
+
+    // DisabledByDefault: last writer wins
+    if overlay.disabled_by_default.is_some() {
+        base.disabled_by_default = overlay.disabled_by_default;
+    }
+
+    // Merge department configs
+    for (dept_name, overlay_dept) in &overlay.department_configs {
+        match base.department_configs.get_mut(dept_name) {
+            Some(base_dept) => {
+                merge_department_config(base_dept, overlay_dept, inherit_mode);
+            }
+            None => {
+                base.department_configs
+                    .insert(dept_name.clone(), overlay_dept.clone());
+            }
+        }
+    }
+
     // Merge per-cop configs
     for (cop_name, overlay_config) in &overlay.cop_configs {
         match base.cop_configs.get_mut(cop_name) {
             Some(base_config) => {
-                merge_cop_config(base_config, overlay_config);
+                merge_cop_config(base_config, overlay_config, inherit_mode);
             }
             None => {
                 base.cop_configs
@@ -280,28 +478,98 @@ fn merge_layer_into(base: &mut ConfigLayer, overlay: &ConfigLayer) {
     }
 }
 
+/// Merge a single department's overlay config into its base config.
+fn merge_department_config(
+    base: &mut DepartmentConfig,
+    overlay: &DepartmentConfig,
+    inherit_mode: Option<&InheritMode>,
+) {
+    // Enabled: last writer wins (only if overlay explicitly set it)
+    if overlay.enabled != EnabledState::Unset {
+        base.enabled = overlay.enabled;
+    }
+
+    let should_merge_include = inherit_mode
+        .map(|im| im.merge.contains("Include"))
+        .unwrap_or(false);
+    let should_override_exclude = inherit_mode
+        .map(|im| im.override_keys.contains("Exclude"))
+        .unwrap_or(false);
+
+    // Exclude: append by default, replace if inherit_mode says override
+    if should_override_exclude {
+        if !overlay.exclude.is_empty() {
+            base.exclude.clone_from(&overlay.exclude);
+        }
+    } else {
+        for exc in &overlay.exclude {
+            if !base.exclude.contains(exc) {
+                base.exclude.push(exc.clone());
+            }
+        }
+    }
+
+    // Include: replace by default, append if inherit_mode says merge
+    if !overlay.include.is_empty() {
+        if should_merge_include {
+            for inc in &overlay.include {
+                if !base.include.contains(inc) {
+                    base.include.push(inc.clone());
+                }
+            }
+        } else {
+            base.include.clone_from(&overlay.include);
+        }
+    }
+}
+
 /// Merge a single cop's overlay config into its base config.
-fn merge_cop_config(base: &mut CopConfig, overlay: &CopConfig) {
-    // Enabled: last writer wins (only if overlay explicitly set it —
-    // we can't distinguish "default true" from "explicitly set true" in CopConfig,
-    // so we always apply the overlay's value)
-    base.enabled = overlay.enabled;
+fn merge_cop_config(
+    base: &mut CopConfig,
+    overlay: &CopConfig,
+    inherit_mode: Option<&InheritMode>,
+) {
+    // Enabled: last writer wins (only if overlay explicitly set it)
+    if overlay.enabled != EnabledState::Unset {
+        base.enabled = overlay.enabled;
+    }
 
     // Severity: last writer wins (if overlay has one)
     if overlay.severity.is_some() {
         base.severity = overlay.severity;
     }
 
-    // Exclude: append (union)
-    for exc in &overlay.exclude {
-        if !base.exclude.contains(exc) {
-            base.exclude.push(exc.clone());
+    let should_merge_include = inherit_mode
+        .map(|im| im.merge.contains("Include"))
+        .unwrap_or(false);
+    let should_override_exclude = inherit_mode
+        .map(|im| im.override_keys.contains("Exclude"))
+        .unwrap_or(false);
+
+    // Exclude: append (union) by default, replace if inherit_mode says override
+    if should_override_exclude {
+        if !overlay.exclude.is_empty() {
+            base.exclude.clone_from(&overlay.exclude);
+        }
+    } else {
+        for exc in &overlay.exclude {
+            if !base.exclude.contains(exc) {
+                base.exclude.push(exc.clone());
+            }
         }
     }
 
-    // Include: replace (override) if overlay has any
+    // Include: replace (override) by default, append if inherit_mode says merge
     if !overlay.include.is_empty() {
-        base.include.clone_from(&overlay.include);
+        if should_merge_include {
+            for inc in &overlay.include {
+                if !base.include.contains(inc) {
+                    base.include.push(inc.clone());
+                }
+            }
+        } else {
+            base.include.clone_from(&overlay.include);
+        }
     }
 
     // Options: merge (last writer wins per key)
@@ -314,9 +582,13 @@ impl ResolvedConfig {
     /// Check if a cop is enabled for the given file path.
     ///
     /// Evaluates in order:
-    /// 1. If the cop is explicitly disabled, return false.
+    /// 1. Determine enabled state from cop config > department config > defaults.
+    ///    - `False` → disabled
+    ///    - `Pending` → disabled unless `AllCops.NewCops: enable`
+    ///    - `Unset` → disabled if `AllCops.DisabledByDefault: true`
+    ///    - `True` → enabled
     /// 2. If global excludes match the path, return false.
-    /// 3. Merge cop's default_include/default_exclude with user config overrides.
+    /// 3. Merge cop's default_include/default_exclude with user/department overrides.
     /// 4. If effective Include is non-empty, path must match at least one pattern.
     /// 5. If effective Exclude is non-empty, path must NOT match any pattern.
     pub fn is_cop_enabled(
@@ -327,12 +599,31 @@ impl ResolvedConfig {
         default_exclude: &[&str],
     ) -> bool {
         let config = self.cop_configs.get(name);
+        let dept = name.split('/').next().unwrap_or("");
+        let dept_config = self.department_configs.get(dept);
 
-        // 1. Explicit Enabled: false
-        if let Some(c) = config {
-            if !c.enabled {
-                return false;
+        // 1. Determine enabled state (cop-level > department-level > defaults)
+        let enabled_state = match config.map(|c| c.enabled) {
+            Some(s) if s != EnabledState::Unset => s,
+            _ => match dept_config.map(|dc| dc.enabled) {
+                Some(s) if s != EnabledState::Unset => s,
+                _ => EnabledState::Unset,
+            },
+        };
+
+        match enabled_state {
+            EnabledState::False => return false,
+            EnabledState::Pending => {
+                if self.new_cops != NewCopsPolicy::Enable {
+                    return false;
+                }
             }
+            EnabledState::Unset => {
+                if self.disabled_by_default {
+                    return false;
+                }
+            }
+            EnabledState::True => {}
         }
 
         // 2. Global excludes
@@ -343,14 +634,24 @@ impl ResolvedConfig {
         }
 
         // 3. Build effective include/exclude lists.
-        //    User config overrides defaults when non-empty.
+        //    Precedence: cop config > department config > defaults.
         let effective_include: Vec<&str> = match config {
             Some(c) if !c.include.is_empty() => c.include.iter().map(|s| s.as_str()).collect(),
-            _ => default_include.to_vec(),
+            _ => match dept_config {
+                Some(dc) if !dc.include.is_empty() => {
+                    dc.include.iter().map(|s| s.as_str()).collect()
+                }
+                _ => default_include.to_vec(),
+            },
         };
         let effective_exclude: Vec<&str> = match config {
             Some(c) if !c.exclude.is_empty() => c.exclude.iter().map(|s| s.as_str()).collect(),
-            _ => default_exclude.to_vec(),
+            _ => match dept_config {
+                Some(dc) if !dc.exclude.is_empty() => {
+                    dc.exclude.iter().map(|s| s.as_str()).collect()
+                }
+                _ => default_exclude.to_vec(),
+            },
         };
 
         // 4. Include filter: path must match at least one
@@ -381,13 +682,22 @@ impl ResolvedConfig {
         &self.global_excludes
     }
 
-    /// Return all cop names from the config that are explicitly set to Enabled: true,
-    /// plus cop names that appear in the config without Enabled: false.
-    /// This is used by --rubocop-only to determine which cops the project uses.
+    /// Directory containing the resolved config file.
+    pub fn config_dir(&self) -> Option<&Path> {
+        self.config_dir.as_deref()
+    }
+
+    /// Return all cop names from the config that would be enabled given
+    /// the current NewCops/DisabledByDefault settings.
     pub fn enabled_cop_names(&self) -> Vec<String> {
         self.cop_configs
             .iter()
-            .filter(|(_, config)| config.enabled)
+            .filter(|(_, config)| match config.enabled {
+                EnabledState::True => true,
+                EnabledState::Unset => !self.disabled_by_default,
+                EnabledState::Pending => self.new_cops == NewCopsPolicy::Enable,
+                EnabledState::False => false,
+            })
             .map(|(name, _)| name.clone())
             .collect()
     }
@@ -405,7 +715,13 @@ fn parse_cop_config(value: &Value) -> CopConfig {
             match key {
                 "Enabled" => {
                     if let Some(b) = v.as_bool() {
-                        config.enabled = b;
+                        config.enabled = if b {
+                            EnabledState::True
+                        } else {
+                            EnabledState::False
+                        };
+                    } else if v.as_str() == Some("pending") {
+                        config.enabled = EnabledState::Pending;
                     }
                 }
                 "Severity" => {
@@ -431,6 +747,62 @@ fn parse_cop_config(value: &Value) -> CopConfig {
     }
 
     config
+}
+
+/// Parse a department-level config (e.g. `RSpec:` or `Rails:`).
+fn parse_department_config(value: &Value) -> DepartmentConfig {
+    let mut config = DepartmentConfig::default();
+
+    if let Value::Mapping(map) = value {
+        for (k, v) in map {
+            match k.as_str() {
+                Some("Enabled") => {
+                    if let Some(b) = v.as_bool() {
+                        config.enabled = if b {
+                            EnabledState::True
+                        } else {
+                            EnabledState::False
+                        };
+                    } else if v.as_str() == Some("pending") {
+                        config.enabled = EnabledState::Pending;
+                    }
+                }
+                Some("Include") => {
+                    if let Some(list) = value_to_string_list(v) {
+                        config.include = list;
+                    }
+                }
+                Some("Exclude") => {
+                    if let Some(list) = value_to_string_list(v) {
+                        config.exclude = list;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    config
+}
+
+/// Parse the `inherit_mode` key from a config file.
+fn parse_inherit_mode(value: &Value) -> InheritMode {
+    let mut mode = InheritMode::default();
+
+    if let Value::Mapping(map) = value {
+        if let Some(merge_value) = map.get(&Value::String("merge".to_string())) {
+            if let Some(list) = value_to_string_list(merge_value) {
+                mode.merge = list.into_iter().collect();
+            }
+        }
+        if let Some(override_value) = map.get(&Value::String("override".to_string())) {
+            if let Some(list) = value_to_string_list(override_value) {
+                mode.override_keys = list.into_iter().collect();
+            }
+        }
+    }
+
+    mode
 }
 
 fn extract_string_list(value: &Value, key: &str) -> Option<Vec<String>> {
@@ -496,7 +868,8 @@ mod tests {
 
     #[test]
     fn missing_config_returns_empty() {
-        let config = load_config(Some(Path::new("/nonexistent/.rubocop.yml"))).unwrap();
+        let config =
+            load_config(Some(Path::new("/nonexistent/.rubocop.yml")), None).unwrap();
         assert!(config.global_excludes().is_empty());
         assert!(config.is_cop_enabled("Style/Foo", Path::new("a.rb"), &[], &[]));
     }
@@ -509,7 +882,7 @@ mod tests {
             &dir,
             "AllCops:\n  Exclude:\n    - 'vendor/**'\n    - 'tmp/**'\n",
         );
-        let config = load_config(Some(&path)).unwrap();
+        let config = load_config(Some(&path), None).unwrap();
         assert_eq!(
             config.global_excludes(),
             &["vendor/**".to_string(), "tmp/**".to_string()]
@@ -522,7 +895,7 @@ mod tests {
         let dir = std::env::temp_dir().join("rblint_test_config_disabled");
         fs::create_dir_all(&dir).unwrap();
         let path = write_config(&dir, "Style/Foo:\n  Enabled: false\n");
-        let config = load_config(Some(&path)).unwrap();
+        let config = load_config(Some(&path), None).unwrap();
         assert!(!config.is_cop_enabled("Style/Foo", Path::new("a.rb"), &[], &[]));
         // Unknown cops default to enabled
         assert!(config.is_cop_enabled("Style/Bar", Path::new("a.rb"), &[], &[]));
@@ -534,7 +907,7 @@ mod tests {
         let dir = std::env::temp_dir().join("rblint_test_config_severity");
         fs::create_dir_all(&dir).unwrap();
         let path = write_config(&dir, "Style/Foo:\n  Severity: error\n");
-        let config = load_config(Some(&path)).unwrap();
+        let config = load_config(Some(&path), None).unwrap();
         let cc = config.cop_config("Style/Foo");
         assert_eq!(cc.severity, Some(Severity::Error));
         fs::remove_dir_all(&dir).ok();
@@ -548,7 +921,7 @@ mod tests {
             &dir,
             "Style/Foo:\n  Exclude:\n    - 'spec/**'\n  Include:\n    - '**/*.rake'\n",
         );
-        let config = load_config(Some(&path)).unwrap();
+        let config = load_config(Some(&path), None).unwrap();
         let cc = config.cop_config("Style/Foo");
         assert_eq!(cc.exclude, vec!["spec/**".to_string()]);
         assert_eq!(cc.include, vec!["**/*.rake".to_string()]);
@@ -560,7 +933,7 @@ mod tests {
         let dir = std::env::temp_dir().join("rblint_test_config_options");
         fs::create_dir_all(&dir).unwrap();
         let path = write_config(&dir, "Layout/LineLength:\n  Max: 120\n");
-        let config = load_config(Some(&path)).unwrap();
+        let config = load_config(Some(&path), None).unwrap();
         let cc = config.cop_config("Layout/LineLength");
         assert_eq!(cc.options.get("Max").and_then(|v| v.as_u64()), Some(120));
         fs::remove_dir_all(&dir).ok();
@@ -571,7 +944,7 @@ mod tests {
         let dir = std::env::temp_dir().join("rblint_test_config_noncop");
         fs::create_dir_all(&dir).unwrap();
         let path = write_config(&dir, "AllCops:\n  Exclude: []\nrequire:\n  - rubocop-rspec\n");
-        let config = load_config(Some(&path)).unwrap();
+        let config = load_config(Some(&path), None).unwrap();
         // "require" has no "/" so should not be treated as a cop
         assert!(config.is_cop_enabled("require", Path::new("a.rb"), &[], &[]));
         fs::remove_dir_all(&dir).ok();
@@ -579,9 +952,10 @@ mod tests {
 
     #[test]
     fn default_cop_config() {
-        let config = load_config(Some(Path::new("/nonexistent/.rubocop.yml"))).unwrap();
+        let config =
+            load_config(Some(Path::new("/nonexistent/.rubocop.yml")), None).unwrap();
         let cc = config.cop_config("Style/Whatever");
-        assert!(cc.enabled);
+        assert_eq!(cc.enabled, EnabledState::Unset);
         assert!(cc.severity.is_none());
         assert!(cc.exclude.is_empty());
         assert!(cc.options.is_empty());
@@ -591,19 +965,36 @@ mod tests {
 
     #[test]
     fn default_include_filters_files() {
-        let config = load_config(Some(Path::new("/nonexistent/.rubocop.yml"))).unwrap();
+        let config =
+            load_config(Some(Path::new("/nonexistent/.rubocop.yml")), None).unwrap();
         // With default_include set, only matching files pass
         let inc = &["db/migrate/**/*.rb"];
-        assert!(config.is_cop_enabled("Rails/Foo", Path::new("db/migrate/001_create.rb"), inc, &[]));
-        assert!(!config.is_cop_enabled("Rails/Foo", Path::new("app/models/user.rb"), inc, &[]));
+        assert!(config.is_cop_enabled(
+            "Rails/Foo",
+            Path::new("db/migrate/001_create.rb"),
+            inc,
+            &[]
+        ));
+        assert!(!config.is_cop_enabled(
+            "Rails/Foo",
+            Path::new("app/models/user.rb"),
+            inc,
+            &[]
+        ));
     }
 
     #[test]
     fn default_exclude_filters_files() {
-        let config = load_config(Some(Path::new("/nonexistent/.rubocop.yml"))).unwrap();
+        let config =
+            load_config(Some(Path::new("/nonexistent/.rubocop.yml")), None).unwrap();
         let exc = &["spec/**/*.rb"];
         assert!(config.is_cop_enabled("Style/Foo", Path::new("app/models/user.rb"), &[], exc));
-        assert!(!config.is_cop_enabled("Style/Foo", Path::new("spec/models/user_spec.rb"), &[], exc));
+        assert!(!config.is_cop_enabled(
+            "Style/Foo",
+            Path::new("spec/models/user_spec.rb"),
+            &[],
+            exc
+        ));
     }
 
     #[test]
@@ -614,10 +1005,15 @@ mod tests {
             &dir,
             "Rails/Migration:\n  Include:\n    - 'db/**/*.rb'\n",
         );
-        let config = load_config(Some(&path)).unwrap();
+        let config = load_config(Some(&path), None).unwrap();
         // Default include is narrower but user config overrides
         let default_inc = &["db/migrate/**/*.rb"];
-        assert!(config.is_cop_enabled("Rails/Migration", Path::new("db/seeds.rb"), default_inc, &[]));
+        assert!(config.is_cop_enabled(
+            "Rails/Migration",
+            Path::new("db/seeds.rb"),
+            default_inc,
+            &[]
+        ));
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -626,8 +1022,13 @@ mod tests {
         let dir = std::env::temp_dir().join("rblint_test_config_global_exc");
         fs::create_dir_all(&dir).unwrap();
         let path = write_config(&dir, "AllCops:\n  Exclude:\n    - 'vendor/**'\n");
-        let config = load_config(Some(&path)).unwrap();
-        assert!(!config.is_cop_enabled("Style/Foo", Path::new("vendor/gems/foo.rb"), &[], &[]));
+        let config = load_config(Some(&path), None).unwrap();
+        assert!(!config.is_cop_enabled(
+            "Style/Foo",
+            Path::new("vendor/gems/foo.rb"),
+            &[],
+            &[]
+        ));
         assert!(config.is_cop_enabled("Style/Foo", Path::new("app/models/user.rb"), &[], &[]));
         fs::remove_dir_all(&dir).ok();
     }
@@ -635,9 +1036,18 @@ mod tests {
     #[test]
     fn glob_matches_basic() {
         assert!(glob_matches("**/*.rb", Path::new("app/models/user.rb")));
-        assert!(glob_matches("db/migrate/**/*.rb", Path::new("db/migrate/001_create.rb")));
-        assert!(!glob_matches("db/migrate/**/*.rb", Path::new("app/models/user.rb")));
-        assert!(glob_matches("spec/**", Path::new("spec/models/user_spec.rb")));
+        assert!(glob_matches(
+            "db/migrate/**/*.rb",
+            Path::new("db/migrate/001_create.rb")
+        ));
+        assert!(!glob_matches(
+            "db/migrate/**/*.rb",
+            Path::new("app/models/user.rb")
+        ));
+        assert!(glob_matches(
+            "spec/**",
+            Path::new("spec/models/user_spec.rb")
+        ));
     }
 
     // ---- Inheritance tests ----
@@ -659,7 +1069,7 @@ mod tests {
             "inherit_from: base.yml\nLayout/LineLength:\n  Max: 120\n",
         );
 
-        let config = load_config(Some(&path)).unwrap();
+        let config = load_config(Some(&path), None).unwrap();
         // Child overrides base's Max
         let cc = config.cop_config("Layout/LineLength");
         assert_eq!(cc.options.get("Max").and_then(|v| v.as_u64()), Some(120));
@@ -691,7 +1101,7 @@ mod tests {
             "inherit_from:\n  - base1.yml\n  - base2.yml\n",
         );
 
-        let config = load_config(Some(&path)).unwrap();
+        let config = load_config(Some(&path), None).unwrap();
         // Global excludes are appended from both bases
         assert!(config.global_excludes().contains(&"vendor/**".to_string()));
         assert!(config.global_excludes().contains(&"tmp/**".to_string()));
@@ -714,7 +1124,7 @@ mod tests {
             "inherit_from: base.yml\nStyle/Foo:\n  Enabled: false\n",
         );
 
-        let config = load_config(Some(&path)).unwrap();
+        let config = load_config(Some(&path), None).unwrap();
         assert!(!config.is_cop_enabled("Style/Foo", Path::new("a.rb"), &[], &[]));
 
         fs::remove_dir_all(&dir).ok();
@@ -737,7 +1147,7 @@ mod tests {
             "inherit_from: base.yml\nStyle/Foo:\n  Exclude:\n    - 'tmp/**'\n",
         );
 
-        let config = load_config(Some(&path)).unwrap();
+        let config = load_config(Some(&path), None).unwrap();
         let cc = config.cop_config("Style/Foo");
         assert!(cc.exclude.contains(&"vendor/**".to_string()));
         assert!(cc.exclude.contains(&"tmp/**".to_string()));
@@ -762,7 +1172,7 @@ mod tests {
             "inherit_from: base.yml\nStyle/Foo:\n  Include:\n    - 'app/**'\n",
         );
 
-        let config = load_config(Some(&path)).unwrap();
+        let config = load_config(Some(&path), None).unwrap();
         let cc = config.cop_config("Style/Foo");
         // Include is replaced, not appended
         assert_eq!(cc.include, vec!["app/**".to_string()]);
@@ -783,7 +1193,7 @@ mod tests {
         );
 
         // Should succeed (prints a warning to stderr)
-        let config = load_config(Some(&path)).unwrap();
+        let config = load_config(Some(&path), None).unwrap();
         assert!(!config.is_cop_enabled("Style/Foo", Path::new("a.rb"), &[], &[]));
 
         fs::remove_dir_all(&dir).ok();
@@ -799,7 +1209,7 @@ mod tests {
         write_yaml(&dir, "b.yml", "inherit_from: a.yml\n");
 
         let path = dir.join("a.yml");
-        let result = load_config(Some(&path));
+        let result = load_config(Some(&path), None);
         assert!(result.is_err());
         let err_msg = format!("{:#}", result.unwrap_err());
         assert!(
@@ -822,7 +1232,7 @@ mod tests {
             "require:\n  - rubocop-rspec\n  - rubocop-rails\nplugins:\n  - rubocop-performance\nStyle/Foo:\n  Enabled: false\n",
         );
 
-        let config = load_config(Some(&path)).unwrap();
+        let config = load_config(Some(&path), None).unwrap();
         assert!(!config.is_cop_enabled("Style/Foo", Path::new("a.rb"), &[], &[]));
 
         fs::remove_dir_all(&dir).ok();
@@ -845,7 +1255,7 @@ mod tests {
             "inherit_from: base.yml\nStyle/Foo:\n  Max: 120\n",
         );
 
-        let config = load_config(Some(&path)).unwrap();
+        let config = load_config(Some(&path), None).unwrap();
         let cc = config.cop_config("Style/Foo");
         // Max overridden by child
         assert_eq!(cc.options.get("Max").and_then(|v| v.as_u64()), Some(120));
@@ -870,7 +1280,7 @@ mod tests {
             "Style/Foo:\n  Enabled: true\nStyle/Bar:\n  Enabled: false\nLint/Baz:\n  Max: 10\n",
         );
 
-        let config = load_config(Some(&path)).unwrap();
+        let config = load_config(Some(&path), None).unwrap();
         let names = config.enabled_cop_names();
         assert!(names.contains(&"Style/Foo".to_string()));
         assert!(!names.contains(&"Style/Bar".to_string()));
@@ -888,7 +1298,7 @@ mod tests {
         base.cop_configs.insert(
             "Style/Foo".to_string(),
             CopConfig {
-                enabled: true,
+                enabled: EnabledState::True,
                 ..CopConfig::default()
             },
         );
@@ -897,26 +1307,29 @@ mod tests {
         overlay.cop_configs.insert(
             "Style/Foo".to_string(),
             CopConfig {
-                enabled: false,
+                enabled: EnabledState::False,
                 ..CopConfig::default()
             },
         );
 
-        merge_layer_into(&mut base, &overlay);
-        assert!(!base.cop_configs["Style/Foo"].enabled);
+        merge_layer_into(&mut base, &overlay, None);
+        assert_eq!(
+            base.cop_configs["Style/Foo"].enabled,
+            EnabledState::False
+        );
     }
 
     #[test]
     fn merge_layer_global_excludes_appended() {
         let mut base = ConfigLayer {
-            cop_configs: HashMap::new(),
             global_excludes: vec!["vendor/**".to_string()],
+            ..ConfigLayer::empty()
         };
         let overlay = ConfigLayer {
-            cop_configs: HashMap::new(),
             global_excludes: vec!["tmp/**".to_string()],
+            ..ConfigLayer::empty()
         };
-        merge_layer_into(&mut base, &overlay);
+        merge_layer_into(&mut base, &overlay, None);
         assert_eq!(base.global_excludes.len(), 2);
         assert!(base.global_excludes.contains(&"vendor/**".to_string()));
         assert!(base.global_excludes.contains(&"tmp/**".to_string()));
@@ -925,14 +1338,261 @@ mod tests {
     #[test]
     fn merge_layer_no_duplicate_excludes() {
         let mut base = ConfigLayer {
-            cop_configs: HashMap::new(),
             global_excludes: vec!["vendor/**".to_string()],
+            ..ConfigLayer::empty()
         };
         let overlay = ConfigLayer {
-            cop_configs: HashMap::new(),
             global_excludes: vec!["vendor/**".to_string()],
+            ..ConfigLayer::empty()
         };
-        merge_layer_into(&mut base, &overlay);
+        merge_layer_into(&mut base, &overlay, None);
         assert_eq!(base.global_excludes.len(), 1);
+    }
+
+    // ---- Auto-discovery tests ----
+
+    #[test]
+    fn auto_discover_config_from_target_dir() {
+        let dir = std::env::temp_dir().join("rblint_test_autodiscover");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        write_config(&dir, "Style/Foo:\n  Enabled: false\n");
+
+        // Auto-discover from target_dir
+        let config = load_config(None, Some(&dir)).unwrap();
+        assert!(!config.is_cop_enabled("Style/Foo", Path::new("a.rb"), &[], &[]));
+        assert!(config.config_dir().is_some());
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn auto_discover_walks_up_parent() {
+        let parent = std::env::temp_dir().join("rblint_test_autodiscover_parent");
+        let child = parent.join("app").join("models");
+        let _ = fs::remove_dir_all(&parent);
+        fs::create_dir_all(&child).unwrap();
+
+        write_config(&parent, "Style/Bar:\n  Enabled: false\n");
+
+        // Target is a subdirectory — should find config in parent
+        let config = load_config(None, Some(&child)).unwrap();
+        assert!(!config.is_cop_enabled("Style/Bar", Path::new("a.rb"), &[], &[]));
+
+        fs::remove_dir_all(&parent).ok();
+    }
+
+    #[test]
+    fn no_config_found_returns_empty() {
+        let dir = std::env::temp_dir().join("rblint_test_no_config");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let config = load_config(None, Some(&dir)).unwrap();
+        assert!(config.global_excludes().is_empty());
+        assert!(config.is_cop_enabled("Style/Foo", Path::new("a.rb"), &[], &[]));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // ---- EnabledState / Pending / NewCops tests ----
+
+    #[test]
+    fn enabled_pending_disabled_by_default() {
+        let dir = std::env::temp_dir().join("rblint_test_pending_default");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let path = write_config(&dir, "Rails/Foo:\n  Enabled: pending\n");
+        let config = load_config(Some(&path), None).unwrap();
+        // Pending is disabled by default (no NewCops: enable)
+        assert!(!config.is_cop_enabled("Rails/Foo", Path::new("a.rb"), &[], &[]));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn enabled_pending_with_new_cops_enable() {
+        let dir = std::env::temp_dir().join("rblint_test_pending_enable");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let path = write_config(
+            &dir,
+            "AllCops:\n  NewCops: enable\nRails/Foo:\n  Enabled: pending\n",
+        );
+        let config = load_config(Some(&path), None).unwrap();
+        // Pending is enabled when NewCops: enable
+        assert!(config.is_cop_enabled("Rails/Foo", Path::new("a.rb"), &[], &[]));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // ---- DisabledByDefault tests ----
+
+    #[test]
+    fn disabled_by_default_disables_unset_cops() {
+        let dir = std::env::temp_dir().join("rblint_test_disabled_by_default");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let path = write_config(
+            &dir,
+            "AllCops:\n  DisabledByDefault: true\nStyle/Foo:\n  Enabled: true\n",
+        );
+        let config = load_config(Some(&path), None).unwrap();
+        // Explicitly enabled cop is still enabled
+        assert!(config.is_cop_enabled("Style/Foo", Path::new("a.rb"), &[], &[]));
+        // Unmentioned cop is disabled
+        assert!(!config.is_cop_enabled("Style/Bar", Path::new("a.rb"), &[], &[]));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // ---- Department-level config tests ----
+
+    #[test]
+    fn department_include_filters_cops() {
+        let dir = std::env::temp_dir().join("rblint_test_dept_include");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let path = write_config(
+            &dir,
+            "RSpec:\n  Include:\n    - '**/*_spec.rb'\n    - '**/spec/**/*'\n",
+        );
+        let config = load_config(Some(&path), None).unwrap();
+        // RSpec cop should match spec files via department include
+        assert!(config.is_cop_enabled(
+            "RSpec/ExampleLength",
+            Path::new("spec/models/user_spec.rb"),
+            &[],
+            &[]
+        ));
+        // RSpec cop should NOT match non-spec files
+        assert!(!config.is_cop_enabled(
+            "RSpec/ExampleLength",
+            Path::new("app/models/user.rb"),
+            &[],
+            &[]
+        ));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn department_enabled_false_disables_all_cops() {
+        let dir = std::env::temp_dir().join("rblint_test_dept_disabled");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let path = write_config(&dir, "Rails:\n  Enabled: false\n");
+        let config = load_config(Some(&path), None).unwrap();
+        assert!(!config.is_cop_enabled("Rails/FindBy", Path::new("a.rb"), &[], &[]));
+        assert!(!config.is_cop_enabled("Rails/HttpStatus", Path::new("a.rb"), &[], &[]));
+        // Other departments unaffected
+        assert!(config.is_cop_enabled("Style/Foo", Path::new("a.rb"), &[], &[]));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn cop_config_overrides_department() {
+        let dir = std::env::temp_dir().join("rblint_test_cop_over_dept");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let path = write_config(
+            &dir,
+            "Rails:\n  Enabled: false\nRails/FindBy:\n  Enabled: true\n",
+        );
+        let config = load_config(Some(&path), None).unwrap();
+        // Department says disabled, but cop says enabled — cop wins
+        assert!(config.is_cop_enabled("Rails/FindBy", Path::new("a.rb"), &[], &[]));
+        // Other Rails cops still disabled
+        assert!(!config.is_cop_enabled("Rails/HttpStatus", Path::new("a.rb"), &[], &[]));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // ---- inherit_mode tests ----
+
+    #[test]
+    fn inherit_mode_merge_include() {
+        let dir = std::env::temp_dir().join("rblint_test_inherit_mode_merge");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        write_yaml(
+            &dir,
+            "base.yml",
+            "Style/Foo:\n  Include:\n    - '**/*.rb'\n",
+        );
+        let path = write_yaml(
+            &dir,
+            ".rubocop.yml",
+            "inherit_from: base.yml\ninherit_mode:\n  merge:\n    - Include\nStyle/Foo:\n  Include:\n    - '**/*.rake'\n",
+        );
+
+        let config = load_config(Some(&path), None).unwrap();
+        let cc = config.cop_config("Style/Foo");
+        // With merge mode, Include is appended instead of replaced
+        assert!(cc.include.contains(&"**/*.rb".to_string()));
+        assert!(cc.include.contains(&"**/*.rake".to_string()));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn inherit_mode_override_exclude() {
+        let dir = std::env::temp_dir().join("rblint_test_inherit_mode_override");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        write_yaml(
+            &dir,
+            "base.yml",
+            "Style/Foo:\n  Exclude:\n    - 'vendor/**'\n",
+        );
+        let path = write_yaml(
+            &dir,
+            ".rubocop.yml",
+            "inherit_from: base.yml\ninherit_mode:\n  override:\n    - Exclude\nStyle/Foo:\n  Exclude:\n    - 'tmp/**'\n",
+        );
+
+        let config = load_config(Some(&path), None).unwrap();
+        let cc = config.cop_config("Style/Foo");
+        // With override mode, Exclude is replaced instead of appended
+        assert!(!cc.exclude.contains(&"vendor/**".to_string()));
+        assert!(cc.exclude.contains(&"tmp/**".to_string()));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // ---- enabled_cop_names with pending/disabled_by_default ----
+
+    #[test]
+    fn enabled_cop_names_respects_pending_and_disabled_by_default() {
+        let dir = std::env::temp_dir().join("rblint_test_names_pending");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let path = write_yaml(
+            &dir,
+            ".rubocop.yml",
+            "AllCops:\n  NewCops: enable\n  DisabledByDefault: true\nStyle/Foo:\n  Enabled: true\nStyle/Bar:\n  Enabled: pending\nStyle/Baz:\n  Max: 10\n",
+        );
+
+        let config = load_config(Some(&path), None).unwrap();
+        let names = config.enabled_cop_names();
+        // Explicitly enabled
+        assert!(names.contains(&"Style/Foo".to_string()));
+        // Pending + NewCops: enable → enabled
+        assert!(names.contains(&"Style/Bar".to_string()));
+        // Unset + DisabledByDefault → disabled
+        assert!(!names.contains(&"Style/Baz".to_string()));
+
+        fs::remove_dir_all(&dir).ok();
     }
 }

@@ -649,6 +649,31 @@ Config inheritance (`inherit_from` + `inherit_gem`), `--rubocop-only` flag, `--s
 - [x] `--stdin PATH`: enables editor integration (VSCode, vim, Emacs)
 - [x] All 364 cops preserved, zero regressions
 
+## Completed: M11 — Drop-in RuboCop Config Compatibility
+
+Full `.rubocop.yml` compatibility: auto-discovery, `require:` plugin default loading, department-level configs, `Enabled: pending` / `AllCops.NewCops`, `AllCops.DisabledByDefault`, and `inherit_mode`.
+
+### M11 Infrastructure
+
+- [x] **src/cop/mod.rs** — `EnabledState` enum (True, False, Pending, Unset) replacing `bool` for `CopConfig.enabled`
+- [x] **src/config/mod.rs** — Config auto-discovery (walk up from target dir), `require:` plugin default config loading, department-level configs (`RSpec:`, `Rails:` Include/Exclude/Enabled), `AllCops.NewCops` / `AllCops.DisabledByDefault` support, `inherit_mode` (merge/override), `Enabled: pending` tri-state
+- [x] **src/config/gem_path.rs** — `working_dir` parameter for `resolve_gem_path` (bundle runs from repo dir)
+- [x] **src/lib.rs** — Pass target dir to `load_config` for auto-discovery, debug output for config dir
+
+### M11 Tests
+
+- [x] **src/config/mod.rs** — 11 new unit tests: auto-discovery (target dir, walk up parent, no config), `Enabled: pending` (default, with NewCops), `DisabledByDefault`, department Include, department Enabled, cop overrides department, `inherit_mode` merge/override, `enabled_cop_names` with pending/disabled_by_default
+- [x] All existing tests updated for new `load_config` signature and `EnabledState`
+
+### M11 Summary
+
+- [x] Config auto-discovery from target path (no more false positives from missing config)
+- [x] `require: rubocop-rspec` loads plugin `config/default.yml` (department Include/Exclude patterns)
+- [x] Department-level configs (`RSpec:`, `Rails:`) for Include/Exclude/Enabled
+- [x] `Enabled: pending` + `AllCops.NewCops: enable` tri-state
+- [x] `AllCops.DisabledByDefault: true` support
+- [x] `inherit_mode: merge/override` for Include/Exclude arrays
+
 ## Upcoming Milestones
 
 | Milestone | Cops | Status |
@@ -663,3 +688,4 @@ Config inheritance (`inherit_from` + `inherit_gem`), `--rubocop-only` flag, `--s
 | **M7**: Autocorrect | +30 fixes | Pending |
 | **M8**: rubocop-rspec | 364 | **Done** |
 | **M10**: Production Readiness | 364 + config/CLI | **Done** |
+| **M11**: Config Compatibility | Drop-in .rubocop.yml | **Done** |
