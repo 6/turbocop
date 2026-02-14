@@ -437,11 +437,11 @@ fn all_registered_cops_can_fire() {
 #[test]
 fn registry_has_expected_cop_count() {
     let registry = CopRegistry::default_registry();
-    assert_eq!(registry.len(), 117, "Expected 117 registered cops");
+    assert_eq!(registry.len(), 153, "Expected 153 registered cops");
 
     let names = registry.names();
     let expected = [
-        // Layout (17)
+        // Layout (40)
         "Layout/TrailingWhitespace",
         "Layout/LineLength",
         "Layout/TrailingEmptyLines",
@@ -459,6 +459,29 @@ fn registry_has_expected_cop_count() {
         "Layout/SpaceInsideBlockBraces",
         "Layout/SpaceInsideArrayLiteralBrackets",
         "Layout/SpaceBeforeBlockBraces",
+        "Layout/EmptyLineBetweenDefs",
+        "Layout/EmptyLinesAroundClassBody",
+        "Layout/EmptyLinesAroundModuleBody",
+        "Layout/EmptyLinesAroundMethodBody",
+        "Layout/EmptyLinesAroundBlockBody",
+        "Layout/CaseIndentation",
+        "Layout/ArgumentAlignment",
+        "Layout/ArrayAlignment",
+        "Layout/HashAlignment",
+        "Layout/BlockAlignment",
+        "Layout/ConditionPosition",
+        "Layout/DefEndAlignment",
+        "Layout/ElseAlignment",
+        "Layout/EndAlignment",
+        "Layout/RescueEnsureAlignment",
+        "Layout/IndentationWidth",
+        "Layout/IndentationConsistency",
+        "Layout/FirstArgumentIndentation",
+        "Layout/FirstArrayElementIndentation",
+        "Layout/FirstHashElementIndentation",
+        "Layout/AssignmentIndentation",
+        "Layout/MultilineMethodCallIndentation",
+        "Layout/MultilineOperationIndentation",
         // Lint (19)
         "Lint/Debugger",
         "Lint/LiteralAsCondition",
@@ -497,7 +520,7 @@ fn registry_has_expected_cop_count() {
         "Naming/PredicateName",
         "Naming/AsciiIdentifiers",
         "Naming/FileName",
-        // Performance (39)
+        // Performance (47)
         "Performance/AncestorsInclude",
         "Performance/ArraySemiInfiniteRangeSlice",
         "Performance/BigDecimalWithNumericArgument",
@@ -545,7 +568,7 @@ fn registry_has_expected_cop_count() {
         "Performance/TimesMap",
         "Performance/UnfreezeString",
         "Performance/UriDefaultParser",
-        // Style (18)
+        // Style (31)
         "Style/FrozenStringLiteralComment",
         "Style/Tab",
         "Style/StringLiterals",
@@ -564,6 +587,19 @@ fn registry_has_expected_cop_count() {
         "Style/TrailingCommaInHashLiteral",
         "Style/ClassAndModuleChildren",
         "Style/TernaryParentheses",
+        "Style/Documentation",
+        "Style/Lambda",
+        "Style/Proc",
+        "Style/RaiseArgs",
+        "Style/RescueModifier",
+        "Style/RescueStandardError",
+        "Style/SignalException",
+        "Style/SingleLineMethods",
+        "Style/SpecialGlobalVars",
+        "Style/StabbyLambdaParentheses",
+        "Style/YodaCondition",
+        "Style/HashSyntax",
+        "Style/MethodCallWithArgsParentheses",
     ];
     for name in &expected {
         assert!(
@@ -571,6 +607,208 @@ fn registry_has_expected_cop_count() {
             "Registry missing expected cop: {name}"
         );
     }
+}
+
+// ---------- Performance department integration tests ----------
+
+#[test]
+fn performance_cops_fire_on_slow_patterns() {
+    let dir = temp_dir("perf_cops");
+    let file = write_file(
+        &dir,
+        "slow.rb",
+        b"# frozen_string_literal: true\n\narr = [1, 2, 3]\narr.select { |x| x > 1 }.first\narr.reverse.each { |x| puts x }\narr.select { |x| x > 1 }.count\narr.flatten.map { |x| x.to_s }\n",
+    );
+    let config = load_config(None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = default_args();
+
+    let result = run_linter(&[file], &config, &registry, &args);
+    let perf_diags: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name.starts_with("Performance/"))
+        .collect();
+
+    assert!(
+        perf_diags.len() >= 3,
+        "Expected at least 3 Performance diagnostics, got {}: {:?}",
+        perf_diags.len(),
+        perf_diags.iter().map(|d| &d.cop_name).collect::<Vec<_>>()
+    );
+
+    let cop_names: Vec<&str> = perf_diags.iter().map(|d| d.cop_name.as_str()).collect();
+    assert!(
+        cop_names.contains(&"Performance/Detect"),
+        "Expected Performance/Detect to fire on select.first"
+    );
+    assert!(
+        cop_names.contains(&"Performance/ReverseEach"),
+        "Expected Performance/ReverseEach to fire on reverse.each"
+    );
+    assert!(
+        cop_names.contains(&"Performance/Count"),
+        "Expected Performance/Count to fire on select.count"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+// ---------- Lint department integration tests ----------
+
+#[test]
+fn lint_cops_fire_on_bad_code() {
+    let dir = temp_dir("lint_cops");
+    let file = write_file(
+        &dir,
+        "bad.rb",
+        b"# frozen_string_literal: true\n\nbinding.pry\nraise Exception, \"bad\"\nx = :true\n",
+    );
+    let config = load_config(None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = default_args();
+
+    let result = run_linter(&[file], &config, &registry, &args);
+    let lint_diags: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name.starts_with("Lint/"))
+        .collect();
+
+    assert!(
+        lint_diags.len() >= 3,
+        "Expected at least 3 Lint diagnostics, got {}: {:?}",
+        lint_diags.len(),
+        lint_diags.iter().map(|d| &d.cop_name).collect::<Vec<_>>()
+    );
+
+    let cop_names: Vec<&str> = lint_diags.iter().map(|d| d.cop_name.as_str()).collect();
+    assert!(
+        cop_names.contains(&"Lint/Debugger"),
+        "Expected Lint/Debugger to fire on binding.pry"
+    );
+    assert!(
+        cop_names.contains(&"Lint/RaiseException"),
+        "Expected Lint/RaiseException to fire on raise Exception"
+    );
+    assert!(
+        cop_names.contains(&"Lint/BooleanSymbol"),
+        "Expected Lint/BooleanSymbol to fire on :true"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+// ---------- Multi-department JSON output test ----------
+
+#[test]
+fn json_formatter_includes_all_departments() {
+    let dir = temp_dir("multi_dept");
+    // This file triggers cops from multiple departments:
+    // - Layout: trailing whitespace
+    // - Style: missing frozen_string_literal
+    // - Lint: binding.pry (Debugger), :true (BooleanSymbol)
+    let file = write_file(
+        &dir,
+        "multi.rb",
+        b"binding.pry  \nx = :true\n",
+    );
+    let config = load_config(None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = default_args();
+
+    let result = run_linter(&[file], &config, &registry, &args);
+
+    // Collect unique department prefixes
+    let departments: std::collections::HashSet<&str> = result
+        .diagnostics
+        .iter()
+        .filter_map(|d| d.cop_name.split('/').next())
+        .collect();
+
+    assert!(
+        departments.contains("Layout"),
+        "Expected Layout department diagnostics, got departments: {:?}",
+        departments
+    );
+    assert!(
+        departments.contains("Style"),
+        "Expected Style department diagnostics, got departments: {:?}",
+        departments
+    );
+    assert!(
+        departments.contains("Lint"),
+        "Expected Lint department diagnostics, got departments: {:?}",
+        departments
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+// ---------- Test coverage guard ----------
+
+/// Convert CamelCase to snake_case, handling runs of uppercase letters.
+/// Examples: "TrailingWhitespace" -> "trailing_whitespace",
+///           "AbcSize" -> "abc_size", "ABCSize" -> "abc_size",
+///           "UriRegexp" -> "uri_regexp"
+fn to_snake_case(s: &str) -> String {
+    let mut result = String::new();
+    let chars: Vec<char> = s.chars().collect();
+    for (i, &c) in chars.iter().enumerate() {
+        if c.is_uppercase() {
+            if i > 0 {
+                let prev = chars[i - 1];
+                if prev.is_lowercase() || prev.is_ascii_digit() {
+                    result.push('_');
+                } else if i + 1 < chars.len() && chars[i + 1].is_lowercase() {
+                    result.push('_');
+                }
+            }
+            result.push(c.to_ascii_lowercase());
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
+#[test]
+fn all_cops_have_fixture_files() {
+    let testdata = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/cops");
+    let registry = CopRegistry::default_registry();
+    let mut missing = Vec::new();
+
+    for cop_name in registry.names() {
+        let parts: Vec<&str> = cop_name.split('/').collect();
+        let dept = parts[0].to_lowercase();
+        let name = to_snake_case(parts[1]);
+
+        let dir = testdata.join(&dept).join(&name);
+        // Some cops use a `_cop` suffix to avoid Rust keyword conflicts (e.g. loop -> loop_cop)
+        let dir_alt = testdata.join(&dept).join(format!("{name}_cop"));
+
+        let effective_dir = if dir.exists() {
+            &dir
+        } else if dir_alt.exists() {
+            &dir_alt
+        } else {
+            missing.push(format!("{cop_name}: missing directory ({} or {})", dir.display(), dir_alt.display()));
+            continue;
+        };
+
+        if !effective_dir.join("offense.rb").exists() {
+            missing.push(format!("{cop_name}: missing offense.rb"));
+        }
+        if !effective_dir.join("no_offense.rb").exists() {
+            missing.push(format!("{cop_name}: missing no_offense.rb"));
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "Cops missing fixture files:\n{}",
+        missing.join("\n")
+    );
 }
 
 // ---------- M3 integration tests ----------

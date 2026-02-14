@@ -141,6 +141,47 @@ pub fn as_method_chain<'a>(node: &ruby_prism::Node<'a>) -> Option<MethodChain<'a
     })
 }
 
+/// Check if the line above a node's start offset is a comment line.
+pub fn preceding_comment_line(source: &SourceFile, node_start_offset: usize) -> bool {
+    let (node_line, _) = source.offset_to_line_col(node_start_offset);
+    if node_line <= 1 {
+        return false;
+    }
+    let lines: Vec<&[u8]> = source.lines().collect();
+    let prev_line = lines.get(node_line - 2); // node_line is 1-indexed, prev is node_line-1, 0-indexed = node_line-2
+    match prev_line {
+        Some(line) => {
+            let trimmed = trim_bytes(line);
+            trimmed.starts_with(b"#")
+        }
+        None => false,
+    }
+}
+
+/// Check if a node spans exactly one line in the source.
+pub fn node_on_single_line(source: &SourceFile, loc: &ruby_prism::Location<'_>) -> bool {
+    let (start_line, _) = source.offset_to_line_col(loc.start_offset());
+    let end_offset = loc.end_offset().saturating_sub(1).max(loc.start_offset());
+    let (end_line, _) = source.offset_to_line_col(end_offset);
+    start_line == end_line
+}
+
+/// Compute the expected indentation column for body statements
+/// given the keyword's column and the configured width.
+pub fn expected_indent_for_body(keyword_column: usize, width: usize) -> usize {
+    keyword_column + width
+}
+
+/// Get the line content at a given 1-indexed line number.
+pub fn line_at(source: &SourceFile, line_number: usize) -> Option<&[u8]> {
+    source.lines().nth(line_number - 1)
+}
+
+/// Get the indentation (number of leading spaces) for a byte slice.
+pub fn indentation_of(line: &[u8]) -> usize {
+    line.iter().take_while(|&&b| b == b' ').count()
+}
+
 /// Check if there is a trailing comma between last_element_end and closing_start.
 pub fn has_trailing_comma(
     source_bytes: &[u8],

@@ -1,0 +1,81 @@
+use crate::cop::{Cop, CopConfig};
+use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::parse::source::SourceFile;
+
+pub struct Proc;
+
+impl Cop for Proc {
+    fn name(&self) -> &'static str {
+        "Style/Proc"
+    }
+
+    fn check_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
+        let call = match node.as_call_node() {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+
+        if call.name().as_slice() != b"new" {
+            return Vec::new();
+        }
+
+        let receiver = match call.receiver() {
+            Some(r) => r,
+            None => return Vec::new(),
+        };
+
+        let const_node = match receiver.as_constant_read_node() {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+
+        if const_node.name().as_slice() != b"Proc" {
+            return Vec::new();
+        }
+
+        let loc = receiver.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        vec![Diagnostic {
+            path: source.path_str().to_string(),
+            location: Location { line, column },
+            severity: Severity::Convention,
+            cop_name: self.name().to_string(),
+            message: "Use `proc` instead of `Proc.new`.".to_string(),
+        }]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+
+    #[test]
+    fn offense_fixture() {
+        assert_cop_offenses_full(
+            &Proc,
+            include_bytes!("../../../testdata/cops/style/proc/offense.rb"),
+        );
+    }
+
+    #[test]
+    fn no_offense_fixture() {
+        assert_cop_no_offenses_full(
+            &Proc,
+            include_bytes!("../../../testdata/cops/style/proc/no_offense.rb"),
+        );
+    }
+
+    #[test]
+    fn other_class_new_is_ignored() {
+        let source = b"x = Object.new\n";
+        let diags = run_cop_full(&Proc, source);
+        assert!(diags.is_empty());
+    }
+}

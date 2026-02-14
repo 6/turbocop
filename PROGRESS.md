@@ -244,9 +244,75 @@ All files compile, binary runs, produces "0 offenses detected."
 - [x] **testdata/cops/performance/** — ~78 new fixture files (offense + no_offense for each new cop)
 - [x] 389 tests passing (370 unit + 19 integration)
 
-## Next: M5 — Complex core cops
+## Completed: M5 — Complex core cops + Test Hardening
 
-See [PLAN.md § Batch 4](PLAN.md#batch-4-complex-core-cops--remaining-core).
+36 new cops (153 total), bug fix, integration tests, test coverage guard.
+
+### M5 Bug Fixes
+
+- [x] **Performance/Casecmp** — Fixed message to interpolate actual method (`upcase`/`downcase`) instead of hardcoding `downcase ==`
+
+### M5 Infrastructure
+
+- [x] **src/cop/util.rs** — Added `preceding_comment_line()`, `node_on_single_line()`, `expected_indent_for_body()`, `line_at()`, `indentation_of()` utilities
+- [x] **tests/integration.rs** — Added `all_cops_have_fixture_files` test coverage guard, Performance/Lint/multi-department integration tests
+
+### M5 Cops — Style (13 new)
+
+- [x] Style/Documentation — ClassNode/ModuleNode, missing preceding comment
+- [x] Style/Lambda — CallNode `lambda`, prefer stabby `->` syntax
+- [x] Style/Proc — CallNode `Proc.new`, prefer `proc` keyword
+- [x] Style/RaiseArgs — CallNode `raise`, separate args vs `.new()`
+- [x] Style/RescueModifier — RescueModifierNode, flag inline `rescue`
+- [x] Style/RescueStandardError — RescueNode, omit explicit `StandardError`
+- [x] Style/SignalException — CallNode `raise`/`fail`, configurable preference
+- [x] Style/SingleLineMethods — DefNode, flag single-line `def foo; bar; end`
+- [x] Style/SpecialGlobalVars — GlobalVariableReadNode, Perl vars → English names
+- [x] Style/StabbyLambdaParentheses — LambdaNode, parentheses around params
+- [x] Style/YodaCondition — CallNode `==`/`!=`, flag literal-on-left
+- [x] Style/HashSyntax — AssocNode, Ruby 1.9 hash syntax (configurable)
+- [x] Style/MethodCallWithArgsParentheses — CallNode, require parens for args
+
+### M5 Cops — Layout: EmptyLines family (6 new)
+
+- [x] Layout/EmptyLineBetweenDefs — DefNode sequence, blank line between defs
+- [x] Layout/EmptyLinesAroundClassBody — ClassNode, no blank after `class`/before `end`
+- [x] Layout/EmptyLinesAroundModuleBody — ModuleNode, no blank after `module`/before `end`
+- [x] Layout/EmptyLinesAroundMethodBody — DefNode, no blank after `def`/before `end`
+- [x] Layout/EmptyLinesAroundBlockBody — BlockNode, no blank after `do`/`{`/before `end`/`}`
+- [x] Layout/CaseIndentation — CaseNode, `when` aligned to `case`
+
+### M5 Cops — Layout: Alignment (9 new)
+
+- [x] Layout/ArgumentAlignment — CallNode, multi-line args alignment
+- [x] Layout/ArrayAlignment — ArrayNode, multi-line elements alignment
+- [x] Layout/HashAlignment — HashNode, multi-line pairs alignment
+- [x] Layout/BlockAlignment — BlockNode, `end` aligned to block start
+- [x] Layout/ConditionPosition — IfNode/WhileNode/UntilNode, condition on same line
+- [x] Layout/DefEndAlignment — DefNode, `end` aligned to `def`
+- [x] Layout/ElseAlignment — IfNode, `else`/`elsif` aligned to `if`
+- [x] Layout/EndAlignment — ClassNode/ModuleNode/IfNode/etc., `end` aligned to keyword
+- [x] Layout/RescueEnsureAlignment — BeginNode/DefNode, `rescue`/`ensure` alignment
+
+### M5 Cops — Layout: Indentation (8 new)
+
+- [x] Layout/IndentationWidth — Body indented by Width (default 2), configurable
+- [x] Layout/IndentationConsistency — All statements at same depth use same indentation
+- [x] Layout/FirstArgumentIndentation — First arg indentation relative to call
+- [x] Layout/FirstArrayElementIndentation — First element indentation in arrays
+- [x] Layout/FirstHashElementIndentation — First pair indentation in hashes
+- [x] Layout/AssignmentIndentation — RHS indentation after `=`
+- [x] Layout/MultilineMethodCallIndentation — Chained method calls indentation
+- [x] Layout/MultilineOperationIndentation — Binary ops continuation line indent
+
+### M5 Summary
+
+- [x] **src/cop/registry.rs** — `default_registry()` registers all 153 cops
+- [x] **testdata/cops/** — ~72 new fixture files (offense + no_offense for each new cop)
+- [x] 513 tests passing (490 unit + 23 integration)
+- [x] Test coverage guard: `all_cops_have_fixture_files` integration test
+
+## Next: M6 — bin/lint + --rubocop-only
 
 ## Upcoming Milestones
 
@@ -257,7 +323,7 @@ See [PLAN.md § Batch 4](PLAN.md#batch-4-complex-core-cops--remaining-core).
 | **M2**: Token/simple-pattern cops | 25 | **Done** |
 | **M3**: AST single-node | 70 | **Done** |
 | **M4**: Performance cops | 117 | **Done** |
-| **M5**: Complex core cops | 50 | Pending — [PLAN.md § Batch 4](PLAN.md#batch-4-complex-core-cops--remaining-core) |
+| **M5**: Complex core cops | 153 | **Done** |
 | **M6**: bin/lint + --rubocop-only | 0 new | Pending |
 | **M7**: Autocorrect | +30 fixes | Pending |
 | **M8**: rubocop-rspec | 80 | Pending |

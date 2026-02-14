@@ -1,0 +1,10 @@
+foo(
+  1
+)
+
+bar(1, 2, 3)
+
+baz(
+  "hello",
+  "world"
+)

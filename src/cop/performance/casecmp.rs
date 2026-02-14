@@ -46,7 +46,10 @@ impl Cop for Casecmp {
             location: Location { line, column },
             severity: self.default_severity(),
             cop_name: self.name().to_string(),
-            message: "Use `casecmp` instead of `downcase ==`.".to_string(),
+            message: format!(
+                "Use `casecmp` instead of `{} ==`.",
+                std::str::from_utf8(chain.inner_method).unwrap_or("downcase")
+            ),
         }]
     }
 }
