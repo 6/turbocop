@@ -49,14 +49,54 @@ All files compile, binary runs, produces "0 offenses detected."
 - [x] **.gitattributes** — Whitespace preservation for test fixtures
 - [x] 96 tests passing (43 from M0 + 53 new)
 
-## Next: M2 — Token / simple-pattern cops
+## Completed: M2 — Token / simple-pattern cops
 
-See [PLAN.md § Batch 1](PLAN.md#batch-1-tokensimple-pattern-cops-minimal-ast).
+17 new cops (25 total), CodeMap infrastructure, `check_source` cop method, CopWalker extraction.
 
-- [ ] Layout/EmptyLineBetweenDefs (basic)
-- [ ] Style/MagicComment alignment
-- [ ] Additional line-based cops from Batch 0 not yet implemented
-- [ ] Token-based cops from Batch 1
+### M2 Infrastructure
+
+- [x] **src/cop/walker.rs** — Extracted CopWalker from linter.rs (shared by linter + test harness)
+- [x] **src/parse/codemap.rs** — CodeMap: sorted non-code byte ranges for O(log n) `is_code()` lookups
+- [x] **src/cop/mod.rs** — Added `check_source` method to Cop trait (default no-op)
+- [x] **src/linter.rs** — Builds CodeMap per file, calls `check_source` between check_lines and check_node
+- [x] **src/testutil.rs** — Full-pipeline test helpers: `run_cop_full`, `assert_cop_offenses_full`, etc.
+- [x] **src/cop/lint/mod.rs** — New Lint department with `register_all()`
+
+### M2 Cops — Layout (11 new)
+
+- [x] Layout/EmptyLines — consecutive blank lines > Max (line-based)
+- [x] Layout/SpaceAfterComma — check_source + CodeMap
+- [x] Layout/SpaceAfterSemicolon — check_source + CodeMap
+- [x] Layout/SpaceBeforeComma — check_source + CodeMap
+- [x] Layout/SpaceAroundEqualsInParameterDefault — AST (OptionalParameterNode)
+- [x] Layout/SpaceAfterColon — AST (AssocNode shorthand hash)
+- [x] Layout/SpaceInsideParens — AST (ParenthesesNode)
+- [x] Layout/SpaceInsideHashLiteralBraces — AST (HashNode, configurable)
+- [x] Layout/SpaceInsideBlockBraces — AST (BlockNode)
+- [x] Layout/SpaceInsideArrayLiteralBrackets — AST (ArrayNode)
+- [x] Layout/SpaceBeforeBlockBraces — AST (BlockNode)
+
+### M2 Cops — Lint (2 new)
+
+- [x] Lint/Debugger — AST (CallNode: binding.pry, debugger, byebug, binding.irb)
+- [x] Lint/LiteralAsCondition — AST (IfNode/WhileNode/UntilNode with literal predicate)
+
+### M2 Cops — Style (4 new)
+
+- [x] Style/StringLiterals — AST (StringNode, configurable EnforcedStyle)
+- [x] Style/RedundantReturn — AST (DefNode last statement is ReturnNode)
+- [x] Style/NumericLiterals — AST (IntegerNode, configurable MinDigits)
+- [x] Style/Semicolon — check_source + CodeMap
+
+### M2 Summary
+
+- [x] **src/cop/registry.rs** — `default_registry()` registers all 25 cops
+- [x] **testdata/cops/** — 34 new fixture files (offense + no_offense for each new cop)
+- [x] 175 tests passing (159 unit + 16 integration)
+
+## Next: M3 — AST single-node cops
+
+See [PLAN.md § Batch 2](PLAN.md#batch-2-ast-walking-cops-single-node-patterns).
 
 ## Upcoming Milestones
 
@@ -64,7 +104,7 @@ See [PLAN.md § Batch 1](PLAN.md#batch-1-tokensimple-pattern-cops-minimal-ast).
 |-----------|------|--------|
 | **M0**: Skeleton | 0 | **Done** |
 | **M1**: Line-based cops | 8 | **Done** |
-| **M2**: Token cops | 18 | Pending — [PLAN.md § Batch 1](PLAN.md#batch-1-tokensimple-pattern-cops-minimal-ast) |
+| **M2**: Token/simple-pattern cops | 25 | **Done** |
 | **M3**: AST single-node | 70 | Pending — [PLAN.md § Batch 2](PLAN.md#batch-2-ast-walking-cops-single-node-patterns) |
 | **M4**: Performance cops | 40 | Pending — [PLAN.md § Batch 3](PLAN.md#batch-3-rubocop-performance-cops-all) |
 | **M5**: Complex core cops | 50 | Pending — [PLAN.md § Batch 4](PLAN.md#batch-4-complex-core-cops--remaining-core) |

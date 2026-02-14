@@ -437,7 +437,7 @@ fn all_registered_cops_can_fire() {
 #[test]
 fn registry_has_expected_cop_count() {
     let registry = CopRegistry::default_registry();
-    assert_eq!(registry.len(), 8, "Expected 8 registered cops");
+    assert_eq!(registry.len(), 25, "Expected 25 registered cops");
 
     let names = registry.names();
     let expected = [
@@ -447,8 +447,25 @@ fn registry_has_expected_cop_count() {
         "Layout/LeadingEmptyLines",
         "Layout/EndOfLine",
         "Layout/InitialIndentation",
+        "Layout/EmptyLines",
+        "Layout/SpaceAfterComma",
+        "Layout/SpaceAfterSemicolon",
+        "Layout/SpaceBeforeComma",
+        "Layout/SpaceAroundEqualsInParameterDefault",
+        "Layout/SpaceAfterColon",
+        "Layout/SpaceInsideParens",
+        "Layout/SpaceInsideHashLiteralBraces",
+        "Layout/SpaceInsideBlockBraces",
+        "Layout/SpaceInsideArrayLiteralBrackets",
+        "Layout/SpaceBeforeBlockBraces",
+        "Lint/Debugger",
+        "Lint/LiteralAsCondition",
         "Style/FrozenStringLiteralComment",
         "Style/Tab",
+        "Style/StringLiterals",
+        "Style/RedundantReturn",
+        "Style/NumericLiterals",
+        "Style/Semicolon",
     ];
     for name in &expected {
         assert!(

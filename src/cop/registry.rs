@@ -19,6 +19,7 @@ impl CopRegistry {
     pub fn default_registry() -> Self {
         let mut registry = Self::new();
         super::layout::register_all(&mut registry);
+        super::lint::register_all(&mut registry);
         super::style::register_all(&mut registry);
         registry
     }
@@ -73,7 +74,7 @@ mod tests {
     fn default_registry_has_cops() {
         let reg = CopRegistry::default_registry();
         assert!(!reg.is_empty());
-        assert_eq!(reg.len(), 8);
+        assert_eq!(reg.len(), 25);
         // Spot-check a few cops
         assert!(reg.get("Layout/TrailingWhitespace").is_some());
         assert!(reg.get("Layout/LineLength").is_some());

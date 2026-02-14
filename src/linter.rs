@@ -6,8 +6,9 @@ use ruby_prism::Visit;
 use crate::cli::Args;
 use crate::config::ResolvedConfig;
 use crate::cop::registry::CopRegistry;
-use crate::cop::CopConfig;
+use crate::cop::walker::CopWalker;
 use crate::diagnostic::Diagnostic;
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
 pub struct LintResult {
@@ -51,6 +52,7 @@ fn lint_file(
 
     // Parse on this thread (ParseResult is !Send)
     let parse_result = crate::parse::parse_source(source.as_bytes());
+    let code_map = CodeMap::from_parse_result(source.as_bytes(), &parse_result);
 
     let mut diagnostics = Vec::new();
 
@@ -75,6 +77,9 @@ fn lint_file(
         // Line-based checks
         diagnostics.extend(cop.check_lines(&source, &cop_config));
 
+        // Source-based checks (raw byte scanning with CodeMap)
+        diagnostics.extend(cop.check_source(&source, &parse_result, &code_map, &cop_config));
+
         // AST-based checks: walk every node
         let mut walker = CopWalker {
             cop: &**cop,
@@ -88,28 +93,4 @@ fn lint_file(
     }
 
     diagnostics
-}
-
-struct CopWalker<'a, 'pr> {
-    cop: &'a dyn crate::cop::Cop,
-    source: &'a SourceFile,
-    parse_result: &'a ruby_prism::ParseResult<'pr>,
-    cop_config: &'a CopConfig,
-    diagnostics: Vec<Diagnostic>,
-}
-
-impl<'pr> Visit<'pr> for CopWalker<'_, 'pr> {
-    fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
-        let results =
-            self.cop
-                .check_node(self.source, &node, self.parse_result, self.cop_config);
-        self.diagnostics.extend(results);
-    }
-
-    fn visit_leaf_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
-        let results =
-            self.cop
-                .check_node(self.source, &node, self.parse_result, self.cop_config);
-        self.diagnostics.extend(results);
-    }
 }

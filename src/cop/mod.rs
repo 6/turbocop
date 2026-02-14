@@ -1,10 +1,13 @@
 pub mod layout;
+pub mod lint;
 pub mod registry;
 pub mod style;
+pub mod walker;
 
 use std::collections::HashMap;
 
 use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
 /// Per-cop configuration extracted from .rubocop.yml.
@@ -42,6 +45,21 @@ pub trait Cop: Send + Sync {
     /// Line-based check — runs before AST traversal.
     #[allow(unused_variables)]
     fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+        Vec::new()
+    }
+
+    /// Source-based check — runs once per file with full parse context and CodeMap.
+    ///
+    /// Use this for cops that scan raw source bytes while needing to skip
+    /// non-code regions (strings, comments, regexps).
+    #[allow(unused_variables)]
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        code_map: &CodeMap,
+        config: &CopConfig,
+    ) -> Vec<Diagnostic> {
         Vec::new()
     }
 

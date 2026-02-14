@@ -1,5 +1,9 @@
+use ruby_prism::Visit;
+
+use crate::cop::walker::CopWalker;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
 /// An expected offense parsed from a fixture annotation.
@@ -195,6 +199,121 @@ pub fn assert_cop_no_offenses(cop: &dyn Cop, source_bytes: &[u8]) {
 pub fn assert_cop_no_offenses_with_config(cop: &dyn Cop, source_bytes: &[u8], config: CopConfig) {
     let source = SourceFile::from_bytes("test.rb", source_bytes.to_vec());
     let diagnostics = cop.check_lines(&source, &config);
+
+    assert!(
+        diagnostics.is_empty(),
+        "Expected no offenses but got {}:\n{}",
+        diagnostics.len(),
+        format_diagnostics(&diagnostics),
+    );
+}
+
+// ---- Full-pipeline helpers (check_lines + check_source + check_node walk) ----
+
+/// Run all three cop methods on raw source bytes and return diagnostics.
+pub fn run_cop_full(cop: &dyn Cop, source_bytes: &[u8]) -> Vec<Diagnostic> {
+    run_cop_full_with_config(cop, source_bytes, CopConfig::default())
+}
+
+/// Run all three cop methods with a specific config and return diagnostics.
+pub fn run_cop_full_with_config(
+    cop: &dyn Cop,
+    source_bytes: &[u8],
+    config: CopConfig,
+) -> Vec<Diagnostic> {
+    let source = SourceFile::from_bytes("test.rb", source_bytes.to_vec());
+    let parse_result = crate::parse::parse_source(source.as_bytes());
+    let code_map = CodeMap::from_parse_result(source.as_bytes(), &parse_result);
+
+    let mut diagnostics = Vec::new();
+
+    // Line-based checks
+    diagnostics.extend(cop.check_lines(&source, &config));
+
+    // Source-based checks
+    diagnostics.extend(cop.check_source(&source, &parse_result, &code_map, &config));
+
+    // AST-based checks
+    let mut walker = CopWalker {
+        cop,
+        source: &source,
+        parse_result: &parse_result,
+        cop_config: &config,
+        diagnostics: Vec::new(),
+    };
+    walker.visit(&parse_result.node());
+    diagnostics.extend(walker.diagnostics);
+
+    diagnostics
+}
+
+/// Run all three cop methods on fixture bytes and assert offenses match.
+pub fn assert_cop_offenses_full(cop: &dyn Cop, fixture_bytes: &[u8]) {
+    assert_cop_offenses_full_with_config(cop, fixture_bytes, CopConfig::default());
+}
+
+/// Run all three cop methods with config on fixture bytes and assert offenses match.
+pub fn assert_cop_offenses_full_with_config(
+    cop: &dyn Cop,
+    fixture_bytes: &[u8],
+    config: CopConfig,
+) {
+    let (clean_source, mut expected) = parse_fixture(fixture_bytes);
+    let mut diagnostics = run_cop_full_with_config(cop, &clean_source, config);
+
+    expected.sort_by_key(|e| (e.line, e.column));
+    diagnostics.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
+
+    assert_eq!(
+        diagnostics.len(),
+        expected.len(),
+        "Expected {} offense(s) but got {}.\nExpected:\n{}\nActual:\n{}",
+        expected.len(),
+        diagnostics.len(),
+        format_expected(&expected),
+        format_diagnostics(&diagnostics),
+    );
+
+    for (i, (diag, exp)) in diagnostics.iter().zip(expected.iter()).enumerate() {
+        assert_eq!(
+            diag.location.line, exp.line,
+            "Offense #{}: line mismatch (expected {} got {})\n  expected: {}:{} {}: {}\n  actual:   {d}",
+            i + 1, exp.line, diag.location.line,
+            exp.line, exp.column, exp.cop_name, exp.message,
+            d = diag,
+        );
+        assert_eq!(
+            diag.location.column, exp.column,
+            "Offense #{}: column mismatch (expected {} got {})\n  expected: {}:{} {}: {}\n  actual:   {d}",
+            i + 1, exp.column, diag.location.column,
+            exp.line, exp.column, exp.cop_name, exp.message,
+            d = diag,
+        );
+        assert_eq!(
+            diag.cop_name, exp.cop_name,
+            "Offense #{}: cop name mismatch\n  expected: {}\n  actual:   {}",
+            i + 1, exp.cop_name, diag.cop_name,
+        );
+        assert_eq!(
+            diag.message, exp.message,
+            "Offense #{}: message mismatch for {}\n  expected: {:?}\n  actual:   {:?}",
+            i + 1, exp.cop_name, exp.message, diag.message,
+        );
+    }
+}
+
+/// Assert a cop produces no offenses using the full pipeline.
+pub fn assert_cop_no_offenses_full(cop: &dyn Cop, source_bytes: &[u8]) {
+    assert_cop_no_offenses_full_with_config(cop, source_bytes, CopConfig::default());
+}
+
+/// Assert a cop produces no offenses using the full pipeline with config.
+pub fn assert_cop_no_offenses_full_with_config(
+    cop: &dyn Cop,
+    source_bytes: &[u8],
+    config: CopConfig,
+) {
+    let diagnostics = run_cop_full_with_config(cop, source_bytes, config);
 
     assert!(
         diagnostics.is_empty(),
