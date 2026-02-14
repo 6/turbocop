@@ -1,6 +1,6 @@
 use crate::cop::util::indentation_of;
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct AssignmentIndentation;
@@ -27,18 +27,13 @@ impl AssignmentIndentation {
         let expected = name_line_indent + width;
 
         if value_col != expected {
-            return vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location {
-                    line: value_line,
-                    column: value_col,
-                },
-                severity: Severity::Convention,
-                cop_name: self.name().to_string(),
-                message:
-                    "Indent the first line of the right-hand-side of a multi-line assignment."
-                        .to_string(),
-            }];
+            return vec![self.diagnostic(
+                source,
+                value_line,
+                value_col,
+                "Indent the first line of the right-hand-side of a multi-line assignment."
+                    .to_string(),
+            )];
         }
 
         Vec::new()
@@ -57,11 +52,7 @@ impl Cop for AssignmentIndentation {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let width = config
-            .options
-            .get("IndentationWidth")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(2) as usize;
+        let width = config.get_usize("IndentationWidth", 2);
 
         if let Some(n) = node.as_local_variable_write_node() {
             return self.check_write(source, n.name_loc().start_offset(), &n.value(), width);
@@ -90,23 +81,9 @@ impl Cop for AssignmentIndentation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &AssignmentIndentation,
-            include_bytes!("../../../testdata/cops/layout/assignment_indentation/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &AssignmentIndentation,
-            include_bytes!("../../../testdata/cops/layout/assignment_indentation/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(AssignmentIndentation, "cops/layout/assignment_indentation");
 
     #[test]
     fn single_line_assignment_ignored() {

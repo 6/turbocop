@@ -1,6 +1,6 @@
 use crate::cop::util::indentation_of;
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct MultilineOperationIndentation;
@@ -58,31 +58,23 @@ impl Cop for MultilineOperationIndentation {
                 return Vec::new();
             }
 
-            let width = config
-                .options
-                .get("IndentationWidth")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(2) as usize;
+            let width = config.get_usize("IndentationWidth", 2);
 
             let recv_line_bytes = source.lines().nth(recv_line - 1).unwrap_or(b"");
             let recv_indent = indentation_of(recv_line_bytes);
             let expected = recv_indent + width;
 
             if arg_col != expected {
-                return vec![Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location {
-                        line: arg_line,
-                        column: arg_col,
-                    },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: format!(
+                return vec![self.diagnostic(
+                    source,
+                    arg_line,
+                    arg_col,
+                    format!(
                         "Use {} (not {}) spaces for indentation of a continuation line.",
                         width,
                         arg_col.saturating_sub(recv_indent)
                     ),
-                }];
+                )];
             }
         }
 
@@ -125,31 +117,23 @@ impl MultilineOperationIndentation {
             return Vec::new();
         }
 
-        let width = config
-            .options
-            .get("IndentationWidth")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(2) as usize;
+        let width = config.get_usize("IndentationWidth", 2);
 
         let left_line_bytes = source.lines().nth(left_line - 1).unwrap_or(b"");
         let left_indent = indentation_of(left_line_bytes);
         let expected = left_indent + width;
 
         if right_col != expected {
-            return vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location {
-                    line: right_line,
-                    column: right_col,
-                },
-                severity: Severity::Convention,
-                cop_name: self.name().to_string(),
-                message: format!(
+            return vec![self.diagnostic(
+                source,
+                right_line,
+                right_col,
+                format!(
                     "Use {} (not {}) spaces for indentation of a continuation line.",
                     width,
                     right_col.saturating_sub(left_indent)
                 ),
-            }];
+            )];
         }
 
         Vec::new()
@@ -159,27 +143,12 @@ impl MultilineOperationIndentation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &MultilineOperationIndentation,
-            include_bytes!(
-                "../../../testdata/cops/layout/multiline_operation_indentation/offense.rb"
-            ),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &MultilineOperationIndentation,
-            include_bytes!(
-                "../../../testdata/cops/layout/multiline_operation_indentation/no_offense.rb"
-            ),
-        );
-    }
+    crate::cop_fixture_tests!(
+        MultilineOperationIndentation,
+        "cops/layout/multiline_operation_indentation"
+    );
 
     #[test]
     fn single_line_operation_ignored() {

@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct HashAlignment;
@@ -37,18 +37,13 @@ impl Cop for HashAlignment {
         for elem in elements.iter().skip(1) {
             let (elem_line, elem_col) = source.offset_to_line_col(elem.location().start_offset());
             if elem_line != first_line && elem_col != first_col {
-                diagnostics.push(Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location {
-                        line: elem_line,
-                        column: elem_col,
-                    },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message:
-                        "Align the elements of a hash literal if they span more than one line."
-                            .to_string(),
-                });
+                diagnostics.push(self.diagnostic(
+                    source,
+                    elem_line,
+                    elem_col,
+                    "Align the elements of a hash literal if they span more than one line."
+                        .to_string(),
+                ));
             }
         }
 
@@ -59,23 +54,9 @@ impl Cop for HashAlignment {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &HashAlignment,
-            include_bytes!("../../../testdata/cops/layout/hash_alignment/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &HashAlignment,
-            include_bytes!("../../../testdata/cops/layout/hash_alignment/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(HashAlignment, "cops/layout/hash_alignment");
 
     #[test]
     fn single_line_hash_no_offense() {

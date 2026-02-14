@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct Squeeze;
@@ -82,34 +82,13 @@ impl Cop for Squeeze {
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![Diagnostic {
-            path: source.path_str().to_string(),
-            location: Location { line, column },
-            severity: self.default_severity(),
-            cop_name: self.name().to_string(),
-            message: "Use `squeeze` instead of `gsub`.".to_string(),
-        }]
+        vec![self.diagnostic(source, line, column, "Use `squeeze` instead of `gsub`.".to_string())]
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &Squeeze,
-            include_bytes!("../../../testdata/cops/performance/squeeze/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &Squeeze,
-            include_bytes!("../../../testdata/cops/performance/squeeze/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(Squeeze, "cops/performance/squeeze");
 }

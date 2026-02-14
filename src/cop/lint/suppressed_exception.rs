@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct SuppressedException;
@@ -44,34 +44,17 @@ impl Cop for SuppressedException {
 
         let kw_loc = rescue_node.keyword_loc();
         let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-        vec![Diagnostic {
-            path: source.path_str().to_string(),
-            location: Location { line, column },
-            severity: self.default_severity(),
-            cop_name: self.name().to_string(),
-            message: "Do not suppress exceptions.".to_string(),
-        }]
+        vec![self.diagnostic(
+            source,
+            line,
+            column,
+            "Do not suppress exceptions.".to_string(),
+        )]
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
-
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &SuppressedException,
-            include_bytes!("../../../testdata/cops/lint/suppressed_exception/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &SuppressedException,
-            include_bytes!("../../../testdata/cops/lint/suppressed_exception/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(SuppressedException, "cops/lint/suppressed_exception");
 }

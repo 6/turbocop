@@ -1,6 +1,6 @@
 use crate::cop::util::as_method_chain;
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct Casecmp;
@@ -41,37 +41,15 @@ impl Cop for Casecmp {
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![Diagnostic {
-            path: source.path_str().to_string(),
-            location: Location { line, column },
-            severity: self.default_severity(),
-            cop_name: self.name().to_string(),
-            message: format!(
-                "Use `casecmp` instead of `{} ==`.",
-                std::str::from_utf8(chain.inner_method).unwrap_or("downcase")
-            ),
-        }]
+        vec![self.diagnostic(source, line, column, format!(
+            "Use `casecmp` instead of `{} ==`.",
+            std::str::from_utf8(chain.inner_method).unwrap_or("downcase")
+        ))]
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
-
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &Casecmp,
-            include_bytes!("../../../testdata/cops/performance/casecmp/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &Casecmp,
-            include_bytes!("../../../testdata/cops/performance/casecmp/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(Casecmp, "cops/performance/casecmp");
 }

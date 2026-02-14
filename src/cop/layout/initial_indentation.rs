@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct InitialIndentation;
@@ -16,16 +16,12 @@ impl Cop for InitialIndentation {
                 continue;
             }
             if line[0] == b' ' || line[0] == b'\t' {
-                return vec![Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location {
-                        line: i + 1,
-                        column: 0,
-                    },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: "Indentation of first line detected.".to_string(),
-                }];
+                return vec![self.diagnostic(
+                    source,
+                    i + 1,
+                    0,
+                    "Indentation of first line detected.".to_string(),
+                )];
             }
             break;
         }

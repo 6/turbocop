@@ -1,6 +1,6 @@
 use crate::cop::util::as_method_chain;
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct ChainArrayAllocation;
@@ -39,38 +39,12 @@ impl Cop for ChainArrayAllocation {
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![Diagnostic {
-            path: source.path_str().to_string(),
-            location: Location { line, column },
-            severity: self.default_severity(),
-            cop_name: self.name().to_string(),
-            message: "Avoid chaining array methods that allocate intermediate arrays.".to_string(),
-        }]
+        vec![self.diagnostic(source, line, column, "Avoid chaining array methods that allocate intermediate arrays.".to_string())]
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
-
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &ChainArrayAllocation,
-            include_bytes!(
-                "../../../testdata/cops/performance/chain_array_allocation/offense.rb"
-            ),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &ChainArrayAllocation,
-            include_bytes!(
-                "../../../testdata/cops/performance/chain_array_allocation/no_offense.rb"
-            ),
-        );
-    }
+    crate::cop_fixture_tests!(ChainArrayAllocation, "cops/performance/chain_array_allocation");
 }

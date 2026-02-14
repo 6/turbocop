@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct IfUnlessModifier;
@@ -70,12 +70,7 @@ impl Cop for IfUnlessModifier {
             return Vec::new();
         }
 
-        let max_line_length: usize = config
-            .options
-            .get("MaxLineLength")
-            .and_then(|v| v.as_u64())
-            .map(|n| n as usize)
-            .unwrap_or(120);
+        let max_line_length = config.get_usize("MaxLineLength", 120);
 
         // Estimate modifier line length: body + " " + keyword + " " + condition
         let body_text = &source.as_bytes()
@@ -87,15 +82,9 @@ impl Cop for IfUnlessModifier {
 
         if modifier_len <= max_line_length {
             let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-            return vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location { line, column },
-                severity: Severity::Convention,
-                cop_name: self.name().to_string(),
-                message: format!(
-                    "Favor modifier `{keyword}` usage when having a single-line body."
-                ),
-            }];
+            return vec![self.diagnostic(source, line, column, format!(
+                "Favor modifier `{keyword}` usage when having a single-line body."
+            ))];
         }
 
         Vec::new()
@@ -105,23 +94,8 @@ impl Cop for IfUnlessModifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &IfUnlessModifier,
-            include_bytes!("../../../testdata/cops/style/if_unless_modifier/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &IfUnlessModifier,
-            include_bytes!("../../../testdata/cops/style/if_unless_modifier/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(IfUnlessModifier, "cops/style/if_unless_modifier");
 
     #[test]
     fn config_max_line_length() {

@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct EmptyMethod;
@@ -49,13 +49,7 @@ impl Cop for EmptyMethod {
         if is_empty {
             let loc = def_node.def_keyword_loc();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location { line, column },
-                severity: Severity::Convention,
-                cop_name: self.name().to_string(),
-                message: "Put empty method definitions on a single line.".to_string(),
-            }];
+            return vec![self.diagnostic(source, line, column, "Put empty method definitions on a single line.".to_string())];
         }
 
         Vec::new()
@@ -65,21 +59,6 @@ impl Cop for EmptyMethod {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &EmptyMethod,
-            include_bytes!("../../../testdata/cops/style/empty_method/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &EmptyMethod,
-            include_bytes!("../../../testdata/cops/style/empty_method/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(EmptyMethod, "cops/style/empty_method");
 }

@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct ParameterLists;
@@ -21,17 +21,8 @@ impl Cop for ParameterLists {
             None => return Vec::new(),
         };
 
-        let max = config
-            .options
-            .get("Max")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(5) as usize;
-
-        let count_keyword_args = config
-            .options
-            .get("CountKeywordArgs")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
+        let max = config.get_usize("Max", 5);
+        let count_keyword_args = config.get_bool("CountKeywordArgs", true);
 
         let params = match def_node.parameters() {
             Some(p) => p,
@@ -57,15 +48,14 @@ impl Cop for ParameterLists {
         if count > max {
             let start_offset = def_node.def_keyword_loc().start_offset();
             let (line, column) = source.offset_to_line_col(start_offset);
-            return vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location { line, column },
-                severity: Severity::Convention,
-                cop_name: self.name().to_string(),
-                message: format!(
+            return vec![self.diagnostic(
+                source,
+                line,
+                column,
+                format!(
                     "Avoid parameter lists longer than {max} parameters. [{count}/{max}]"
                 ),
-            }];
+            )];
         }
 
         Vec::new()
@@ -75,23 +65,7 @@ impl Cop for ParameterLists {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
-
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &ParameterLists,
-            include_bytes!("../../../testdata/cops/metrics/parameter_lists/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &ParameterLists,
-            include_bytes!("../../../testdata/cops/metrics/parameter_lists/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(ParameterLists, "cops/metrics/parameter_lists");
 
     #[test]
     fn config_custom_max() {

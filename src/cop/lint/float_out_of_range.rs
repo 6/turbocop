@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct FloatOutOfRange;
@@ -38,13 +38,12 @@ impl Cop for FloatOutOfRange {
         match text.parse::<f64>() {
             Ok(val) if val.is_infinite() => {
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                vec![Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location { line, column },
-                    severity: self.default_severity(),
-                    cop_name: self.name().to_string(),
-                    message: "Float out of range.".to_string(),
-                }]
+                vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Float out of range.".to_string(),
+                )]
             }
             _ => Vec::new(),
         }
@@ -54,21 +53,5 @@ impl Cop for FloatOutOfRange {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
-
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &FloatOutOfRange,
-            include_bytes!("../../../testdata/cops/lint/float_out_of_range/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &FloatOutOfRange,
-            include_bytes!("../../../testdata/cops/lint/float_out_of_range/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(FloatOutOfRange, "cops/lint/float_out_of_range");
 }

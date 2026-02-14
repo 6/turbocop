@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct Lambda;
@@ -32,36 +32,16 @@ impl Cop for Lambda {
 
         let loc = call.message_loc().unwrap_or_else(|| call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![Diagnostic {
-            path: source.path_str().to_string(),
-            location: Location { line, column },
-            severity: Severity::Convention,
-            cop_name: self.name().to_string(),
-            message: "Use the `-> {}` lambda literal syntax for all lambdas.".to_string(),
-        }]
+        vec![self.diagnostic(source, line, column, "Use the `-> {}` lambda literal syntax for all lambdas.".to_string())]
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &Lambda,
-            include_bytes!("../../../testdata/cops/style/lambda/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &Lambda,
-            include_bytes!("../../../testdata/cops/style/lambda/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(Lambda, "cops/style/lambda");
 
     #[test]
     fn lambda_with_receiver_is_ignored() {

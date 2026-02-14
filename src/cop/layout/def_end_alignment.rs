@@ -1,5 +1,6 @@
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct DefEndAlignment;
@@ -27,47 +28,22 @@ impl Cop for DefEndAlignment {
             None => return Vec::new(),
         };
 
-        let def_kw_loc = def_node.def_keyword_loc();
-        let (_, def_col) = source.offset_to_line_col(def_kw_loc.start_offset());
-        let (end_line, end_col) = source.offset_to_line_col(end_kw_loc.start_offset());
-
-        if end_col != def_col {
-            return vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location {
-                    line: end_line,
-                    column: end_col,
-                },
-                severity: Severity::Convention,
-                cop_name: self.name().to_string(),
-                message: "Align `end` with `def`.".to_string(),
-            }];
-        }
-
-        Vec::new()
+        util::check_keyword_end_alignment(
+            self.name(),
+            source,
+            "def",
+            def_node.def_keyword_loc().start_offset(),
+            end_kw_loc.start_offset(),
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &DefEndAlignment,
-            include_bytes!("../../../testdata/cops/layout/def_end_alignment/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &DefEndAlignment,
-            include_bytes!("../../../testdata/cops/layout/def_end_alignment/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(DefEndAlignment, "cops/layout/def_end_alignment");
 
     #[test]
     fn endless_method_no_offense() {

@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct TrailingWhitespace;
@@ -18,29 +18,21 @@ impl Cop for TrailingWhitespace {
             let last_content = line.iter().rposition(|&b| b != b' ' && b != b'\t');
             match last_content {
                 Some(pos) if pos + 1 < line.len() => {
-                    diagnostics.push(Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location {
-                            line: i + 1,
-                            column: pos + 1,
-                        },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Trailing whitespace detected.".to_string(),
-                    });
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        i + 1,
+                        pos + 1,
+                        "Trailing whitespace detected.".to_string(),
+                    ));
                 }
                 None => {
                     // Entire line is whitespace
-                    diagnostics.push(Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location {
-                            line: i + 1,
-                            column: 0,
-                        },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Trailing whitespace detected.".to_string(),
-                    });
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        i + 1,
+                        0,
+                        "Trailing whitespace detected.".to_string(),
+                    ));
                 }
                 _ => {}
             }
@@ -52,23 +44,8 @@ impl Cop for TrailingWhitespace {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses, assert_cop_offenses};
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses(
-            &TrailingWhitespace,
-            include_bytes!("../../../testdata/cops/layout/trailing_whitespace/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses(
-            &TrailingWhitespace,
-            include_bytes!("../../../testdata/cops/layout/trailing_whitespace/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(TrailingWhitespace, "cops/layout/trailing_whitespace");
 
     #[test]
     fn all_whitespace_line() {

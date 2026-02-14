@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct SignalException;
@@ -31,11 +31,7 @@ impl Cop for SignalException {
             return Vec::new();
         }
 
-        let enforced_style = config
-            .options
-            .get("EnforcedStyle")
-            .and_then(|v| v.as_str())
-            .unwrap_or("only_raise");
+        let enforced_style = config.get_str("EnforcedStyle", "only_raise");
 
         let loc = call.message_loc().unwrap_or_else(|| call.location());
 
@@ -43,27 +39,13 @@ impl Cop for SignalException {
             "only_raise" => {
                 if name == b"fail" {
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location { line, column },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Use `raise` instead of `fail` to rethrow exceptions."
-                            .to_string(),
-                    }];
+                    return vec![self.diagnostic(source, line, column, "Use `raise` instead of `fail` to rethrow exceptions.".to_string())];
                 }
             }
             "only_fail" => {
                 if name == b"raise" {
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location { line, column },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Use `fail` instead of `raise` to rethrow exceptions."
-                            .to_string(),
-                    }];
+                    return vec![self.diagnostic(source, line, column, "Use `fail` instead of `raise` to rethrow exceptions.".to_string())];
                 }
             }
             _ => {}
@@ -76,25 +58,9 @@ impl Cop for SignalException {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{
-        assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full_with_config,
-    };
+    use crate::testutil::run_cop_full_with_config;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &SignalException,
-            include_bytes!("../../../testdata/cops/style/signal_exception/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &SignalException,
-            include_bytes!("../../../testdata/cops/style/signal_exception/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(SignalException, "cops/style/signal_exception");
 
     #[test]
     fn config_only_fail() {

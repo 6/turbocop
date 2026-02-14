@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct SpecialGlobalVars;
@@ -52,13 +52,12 @@ impl Cop for SpecialGlobalVars {
         if let Some(english) = perl_to_english(var_name) {
             let perl_name = std::str::from_utf8(var_name).unwrap_or("$?");
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location { line, column },
-                severity: Severity::Convention,
-                cop_name: self.name().to_string(),
-                message: format!("Prefer `{}` over `{}`.", english, perl_name),
-            }];
+            return vec![self.diagnostic(
+                source,
+                line,
+                column,
+                format!("Prefer `{}` over `{}`.", english, perl_name),
+            )];
         }
 
         Vec::new()
@@ -68,23 +67,9 @@ impl Cop for SpecialGlobalVars {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &SpecialGlobalVars,
-            include_bytes!("../../../testdata/cops/style/special_global_vars/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &SpecialGlobalVars,
-            include_bytes!("../../../testdata/cops/style/special_global_vars/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(SpecialGlobalVars, "cops/style/special_global_vars");
 
     #[test]
     fn regular_global_is_ignored() {

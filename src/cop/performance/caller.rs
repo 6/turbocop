@@ -1,6 +1,6 @@
 use crate::cop::util::as_method_chain;
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct Caller;
@@ -29,15 +29,7 @@ impl Cop for Caller {
                     if chain.outer_method == b"first" || chain.outer_method == b"[]" {
                         let loc = node.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![Diagnostic {
-                            path: source.path_str().to_string(),
-                            location: Location { line, column },
-                            severity: self.default_severity(),
-                            cop_name: self.name().to_string(),
-                            message:
-                                "Use `caller(n..n).first` instead of `caller.first` or `caller[n]`."
-                                    .to_string(),
-                        }];
+                        return vec![self.diagnostic(source, line, column, "Use `caller(n..n).first` instead of `caller.first` or `caller[n]`.".to_string())];
                     }
                 }
             }
@@ -50,21 +42,5 @@ impl Cop for Caller {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
-
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &Caller,
-            include_bytes!("../../../testdata/cops/performance/caller/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &Caller,
-            include_bytes!("../../../testdata/cops/performance/caller/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(Caller, "cops/performance/caller");
 }

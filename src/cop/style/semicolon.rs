@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
@@ -23,13 +23,7 @@ impl Cop for Semicolon {
         for (i, &byte) in bytes.iter().enumerate() {
             if byte == b';' && code_map.is_code(i) {
                 let (line, column) = source.offset_to_line_col(i);
-                diagnostics.push(Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location { line, column },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: "Do not use semicolons to terminate expressions.".to_string(),
-                });
+                diagnostics.push(self.diagnostic(source, line, column, "Do not use semicolons to terminate expressions.".to_string()));
             }
         }
 
@@ -40,21 +34,6 @@ impl Cop for Semicolon {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &Semicolon,
-            include_bytes!("../../../testdata/cops/style/semicolon/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &Semicolon,
-            include_bytes!("../../../testdata/cops/style/semicolon/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(Semicolon, "cops/style/semicolon");
 }

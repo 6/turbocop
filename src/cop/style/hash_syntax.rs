@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct HashSyntax;
@@ -21,11 +21,7 @@ impl Cop for HashSyntax {
             None => return Vec::new(),
         };
 
-        let enforced_style = config
-            .options
-            .get("EnforcedStyle")
-            .and_then(|v| v.as_str())
-            .unwrap_or("ruby19");
+        let enforced_style = config.get_str("EnforcedStyle", "ruby19");
 
         match enforced_style {
             "ruby19" => {
@@ -35,13 +31,7 @@ impl Cop for HashSyntax {
                     if let Some(op_loc) = assoc.operator_loc() {
                         if op_loc.as_slice() == b"=>" {
                             let (line, column) = source.offset_to_line_col(key.location().start_offset());
-                            return vec![Diagnostic {
-                                path: source.path_str().to_string(),
-                                location: Location { line, column },
-                                severity: Severity::Convention,
-                                cop_name: self.name().to_string(),
-                                message: "Use the new Ruby 1.9 hash syntax.".to_string(),
-                            }];
+                            return vec![self.diagnostic(source, line, column, "Use the new Ruby 1.9 hash syntax.".to_string())];
                         }
                     }
                 }
@@ -54,25 +44,13 @@ impl Cop for HashSyntax {
                         None => {
                             let (line, column) =
                                 source.offset_to_line_col(key.location().start_offset());
-                            return vec![Diagnostic {
-                                path: source.path_str().to_string(),
-                                location: Location { line, column },
-                                severity: Severity::Convention,
-                                cop_name: self.name().to_string(),
-                                message: "Use hash rockets syntax.".to_string(),
-                            }];
+                            return vec![self.diagnostic(source, line, column, "Use hash rockets syntax.".to_string())];
                         }
                         Some(op_loc) => {
                             if op_loc.as_slice() != b"=>" {
                                 let (line, column) =
                                     source.offset_to_line_col(key.location().start_offset());
-                                return vec![Diagnostic {
-                                    path: source.path_str().to_string(),
-                                    location: Location { line, column },
-                                    severity: Severity::Convention,
-                                    cop_name: self.name().to_string(),
-                                    message: "Use hash rockets syntax.".to_string(),
-                                }];
+                                return vec![self.diagnostic(source, line, column, "Use hash rockets syntax.".to_string())];
                             }
                         }
                     }
@@ -88,25 +66,9 @@ impl Cop for HashSyntax {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{
-        assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full_with_config,
-    };
+    use crate::testutil::run_cop_full_with_config;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &HashSyntax,
-            include_bytes!("../../../testdata/cops/style/hash_syntax/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &HashSyntax,
-            include_bytes!("../../../testdata/cops/style/hash_syntax/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(HashSyntax, "cops/style/hash_syntax");
 
     #[test]
     fn config_hash_rockets() {

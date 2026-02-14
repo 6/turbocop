@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct IndentationConsistency;
@@ -49,16 +49,12 @@ impl IndentationConsistency {
             }
 
             if child_col != first_col {
-                diagnostics.push(Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location {
-                        line: child_line,
-                        column: child_col,
-                    },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: "Inconsistent indentation detected.".to_string(),
-                });
+                diagnostics.push(self.diagnostic(
+                    source,
+                    child_line,
+                    child_col,
+                    "Inconsistent indentation detected.".to_string(),
+                ));
             }
         }
 
@@ -117,23 +113,9 @@ impl Cop for IndentationConsistency {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &IndentationConsistency,
-            include_bytes!("../../../testdata/cops/layout/indentation_consistency/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &IndentationConsistency,
-            include_bytes!("../../../testdata/cops/layout/indentation_consistency/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(IndentationConsistency, "cops/layout/indentation_consistency");
 
     #[test]
     fn single_statement_body() {

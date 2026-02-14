@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct LiteralAsCondition;
@@ -42,13 +42,12 @@ impl Cop for LiteralAsCondition {
                     let literal_text =
                         std::str::from_utf8(predicate.location().as_slice()).unwrap_or("literal");
                     let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                    return vec![Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location { line, column },
-                        severity: self.default_severity(),
-                        cop_name: self.name().to_string(),
-                        message: format!("Literal `{literal_text}` appeared as a condition."),
-                    }];
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        format!("Literal `{literal_text}` appeared as a condition."),
+                    )];
                 }
             }
         }
@@ -61,13 +60,12 @@ impl Cop for LiteralAsCondition {
                 let literal_text =
                     std::str::from_utf8(predicate.location().as_slice()).unwrap_or("literal");
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                return vec![Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location { line, column },
-                    severity: self.default_severity(),
-                    cop_name: self.name().to_string(),
-                    message: format!("Literal `{literal_text}` appeared as a condition."),
-                }];
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    format!("Literal `{literal_text}` appeared as a condition."),
+                )];
             }
         }
 
@@ -79,13 +77,12 @@ impl Cop for LiteralAsCondition {
                 let literal_text =
                     std::str::from_utf8(predicate.location().as_slice()).unwrap_or("literal");
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                return vec![Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location { line, column },
-                    severity: self.default_severity(),
-                    cop_name: self.name().to_string(),
-                    message: format!("Literal `{literal_text}` appeared as a condition."),
-                }];
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    format!("Literal `{literal_text}` appeared as a condition."),
+                )];
             }
         }
 
@@ -96,21 +93,5 @@ impl Cop for LiteralAsCondition {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
-
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &LiteralAsCondition,
-            include_bytes!("../../../testdata/cops/lint/literal_as_condition/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &LiteralAsCondition,
-            include_bytes!("../../../testdata/cops/lint/literal_as_condition/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(LiteralAsCondition, "cops/lint/literal_as_condition");
 }

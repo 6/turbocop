@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct YodaCondition;
@@ -56,13 +56,7 @@ impl Cop for YodaCondition {
         if is_literal(&receiver) && !is_literal(&arg_list[0]) {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location { line, column },
-                severity: Severity::Convention,
-                cop_name: self.name().to_string(),
-                message: "Prefer non-Yoda conditions.".to_string(),
-            }];
+            return vec![self.diagnostic(source, line, column, "Prefer non-Yoda conditions.".to_string())];
         }
 
         Vec::new()
@@ -72,23 +66,9 @@ impl Cop for YodaCondition {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &YodaCondition,
-            include_bytes!("../../../testdata/cops/style/yoda_condition/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &YodaCondition,
-            include_bytes!("../../../testdata/cops/style/yoda_condition/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(YodaCondition, "cops/style/yoda_condition");
 
     #[test]
     fn both_literals_not_flagged() {

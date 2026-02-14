@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct RedundantReturn;
@@ -39,13 +39,7 @@ impl Cop for RedundantReturn {
         if last.as_return_node().is_some() {
             let loc = last.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location { line, column },
-                severity: Severity::Convention,
-                cop_name: self.name().to_string(),
-                message: "Redundant `return` detected.".to_string(),
-            }];
+            return vec![self.diagnostic(source, line, column, "Redundant `return` detected.".to_string())];
         }
 
         Vec::new()
@@ -55,21 +49,6 @@ impl Cop for RedundantReturn {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &RedundantReturn,
-            include_bytes!("../../../testdata/cops/style/redundant_return/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &RedundantReturn,
-            include_bytes!("../../../testdata/cops/style/redundant_return/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(RedundantReturn, "cops/style/redundant_return");
 }

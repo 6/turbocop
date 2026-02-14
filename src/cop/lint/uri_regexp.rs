@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct UriRegexp;
@@ -45,34 +45,17 @@ impl Cop for UriRegexp {
 
         let msg_loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        vec![Diagnostic {
-            path: source.path_str().to_string(),
-            location: Location { line, column },
-            severity: self.default_severity(),
-            cop_name: self.name().to_string(),
-            message: "`URI.regexp` is obsolete and should not be used.".to_string(),
-        }]
+        vec![self.diagnostic(
+            source,
+            line,
+            column,
+            "`URI.regexp` is obsolete and should not be used.".to_string(),
+        )]
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
-
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &UriRegexp,
-            include_bytes!("../../../testdata/cops/lint/uri_regexp/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &UriRegexp,
-            include_bytes!("../../../testdata/cops/lint/uri_regexp/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(UriRegexp, "cops/lint/uri_regexp");
 }

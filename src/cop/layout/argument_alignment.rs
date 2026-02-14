@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct ArgumentAlignment;
@@ -43,17 +43,13 @@ impl Cop for ArgumentAlignment {
             let (arg_line, arg_col) = source.offset_to_line_col(arg.location().start_offset());
             // Only check arguments on different lines than the first
             if arg_line != first_line && arg_col != first_col {
-                diagnostics.push(Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location {
-                        line: arg_line,
-                        column: arg_col,
-                    },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: "Align the arguments of a method call if they span more than one line."
+                diagnostics.push(self.diagnostic(
+                    source,
+                    arg_line,
+                    arg_col,
+                    "Align the arguments of a method call if they span more than one line."
                         .to_string(),
-                });
+                ));
             }
         }
 
@@ -64,23 +60,9 @@ impl Cop for ArgumentAlignment {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &ArgumentAlignment,
-            include_bytes!("../../../testdata/cops/layout/argument_alignment/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &ArgumentAlignment,
-            include_bytes!("../../../testdata/cops/layout/argument_alignment/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(ArgumentAlignment, "cops/layout/argument_alignment");
 
     #[test]
     fn single_line_call_no_offense() {

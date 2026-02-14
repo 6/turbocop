@@ -1,6 +1,6 @@
 use crate::cop::util::is_camel_case;
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct ClassAndModuleCamelCase;
@@ -58,38 +58,17 @@ impl ClassAndModuleCamelCase {
 
         let (line, column) = source.offset_to_line_col(loc.start_offset());
 
-        vec![Diagnostic {
-            path: source.path_str().to_string(),
-            location: Location { line, column },
-            severity: Severity::Convention,
-            cop_name: self.name().to_string(),
-            message: "Use CamelCase for classes and modules.".to_string(),
-        }]
+        vec![self.diagnostic(
+            source,
+            line,
+            column,
+            "Use CamelCase for classes and modules.".to_string(),
+        )]
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
-
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &ClassAndModuleCamelCase,
-            include_bytes!(
-                "../../../testdata/cops/naming/class_and_module_camel_case/offense.rb"
-            ),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &ClassAndModuleCamelCase,
-            include_bytes!(
-                "../../../testdata/cops/naming/class_and_module_camel_case/no_offense.rb"
-            ),
-        );
-    }
+    crate::cop_fixture_tests!(ClassAndModuleCamelCase, "cops/naming/class_and_module_camel_case");
 }

@@ -1,7 +1,7 @@
 use ruby_prism::Visit;
 
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct NestedMethodDefinition;
@@ -72,14 +72,12 @@ impl Cop for NestedMethodDefinition {
             .iter()
             .map(|&offset| {
                 let (line, column) = source.offset_to_line_col(offset);
-                Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location { line, column },
-                    severity: self.default_severity(),
-                    cop_name: self.name().to_string(),
-                    message: "Method definitions must not be nested. Use `lambda` instead."
-                        .to_string(),
-                }
+                self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Method definitions must not be nested. Use `lambda` instead.".to_string(),
+                )
             })
             .collect()
     }
@@ -88,21 +86,5 @@ impl Cop for NestedMethodDefinition {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
-
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &NestedMethodDefinition,
-            include_bytes!("../../../testdata/cops/lint/nested_method_definition/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &NestedMethodDefinition,
-            include_bytes!("../../../testdata/cops/lint/nested_method_definition/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(NestedMethodDefinition, "cops/lint/nested_method_definition");
 }

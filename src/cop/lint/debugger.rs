@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct Debugger;
@@ -64,13 +64,12 @@ impl Cop for Debugger {
             let loc = call.location();
             let source_text = std::str::from_utf8(loc.as_slice()).unwrap_or("debugger");
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location { line, column },
-                severity: self.default_severity(),
-                cop_name: self.name().to_string(),
-                message: format!("Remove debugger entry point `{source_text}`."),
-            }]
+            vec![self.diagnostic(
+                source,
+                line,
+                column,
+                format!("Remove debugger entry point `{source_text}`."),
+            )]
         } else {
             Vec::new()
         }
@@ -80,21 +79,5 @@ impl Cop for Debugger {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
-
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &Debugger,
-            include_bytes!("../../../testdata/cops/lint/debugger/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &Debugger,
-            include_bytes!("../../../testdata/cops/lint/debugger/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(Debugger, "cops/lint/debugger");
 }

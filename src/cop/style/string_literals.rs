@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct StringLiterals;
@@ -33,11 +33,7 @@ impl Cop for StringLiterals {
             return Vec::new();
         }
 
-        let enforced_style = config
-            .options
-            .get("EnforcedStyle")
-            .and_then(|v| v.as_str())
-            .unwrap_or("single_quotes");
+        let enforced_style = config.get_str("EnforcedStyle", "single_quotes");
 
         let content = string_node.content_loc().as_slice();
 
@@ -49,26 +45,14 @@ impl Cop for StringLiterals {
                     // - No escape sequences (no backslash in content)
                     if !content.contains(&b'\'') && !content.contains(&b'\\') {
                         let (line, column) = source.offset_to_line_col(opening.start_offset());
-                        return vec![Diagnostic {
-                            path: source.path_str().to_string(),
-                            location: Location { line, column },
-                            severity: Severity::Convention,
-                            cop_name: self.name().to_string(),
-                            message: "Prefer single-quoted strings when you don't need string interpolation or special symbols.".to_string(),
-                        }];
+                        return vec![self.diagnostic(source, line, column, "Prefer single-quoted strings when you don't need string interpolation or special symbols.".to_string())];
                     }
                 }
             }
             "double_quotes" => {
                 if opening_byte == b'\'' {
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
-                    return vec![Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location { line, column },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Prefer double-quoted strings unless you need single quotes within your string.".to_string(),
-                    }];
+                    return vec![self.diagnostic(source, line, column, "Prefer double-quoted strings unless you need single quotes within your string.".to_string())];
                 }
             }
             _ => {}
@@ -81,23 +65,8 @@ impl Cop for StringLiterals {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &StringLiterals,
-            include_bytes!("../../../testdata/cops/style/string_literals/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &StringLiterals,
-            include_bytes!("../../../testdata/cops/style/string_literals/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(StringLiterals, "cops/style/string_literals");
 
     #[test]
     fn config_double_quotes() {

@@ -1,6 +1,6 @@
 use crate::cop::util::as_method_chain;
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct FlatMap;
@@ -46,34 +46,12 @@ impl Cop for FlatMap {
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![Diagnostic {
-            path: source.path_str().to_string(),
-            location: Location { line, column },
-            severity: self.default_severity(),
-            cop_name: self.name().to_string(),
-            message: format!("Use `flat_map` instead of `{inner_name}...flatten`."),
-        }]
+        vec![self.diagnostic(source, line, column, format!("Use `flat_map` instead of `{inner_name}...flatten`."))]
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
-
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &FlatMap,
-            include_bytes!("../../../testdata/cops/performance/flat_map/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &FlatMap,
-            include_bytes!("../../../testdata/cops/performance/flat_map/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(FlatMap, "cops/performance/flat_map");
 }

@@ -1,3 +1,4 @@
+use crate::diagnostic::{Diagnostic, Location, Severity};
 use crate::parse::source::SourceFile;
 
 /// Count body lines between start and end offsets (exclusive of keyword lines).
@@ -194,6 +195,129 @@ pub fn has_trailing_comma(
     source_bytes[last_element_end..closing_start]
         .iter()
         .any(|&b| b == b',')
+}
+
+// ── Shared cop logic helpers ──────────────────────────────────────────
+
+/// Check if a line is blank (only whitespace).
+pub fn is_blank_line(line: &[u8]) -> bool {
+    line.iter().all(|&b| b == b' ' || b == b'\t' || b == b'\r')
+}
+
+/// Check for extra empty lines at the beginning/end of a body.
+/// Used by EmptyLinesAround{Class,Module,Method,Block}Body.
+pub fn check_empty_lines_around_body(
+    cop_name: &str,
+    source: &SourceFile,
+    keyword_offset: usize,
+    end_offset: usize,
+    body_kind: &str,
+) -> Vec<Diagnostic> {
+    let (keyword_line, _) = source.offset_to_line_col(keyword_offset);
+    let (end_line, _) = source.offset_to_line_col(end_offset);
+
+    if keyword_line == end_line {
+        return Vec::new();
+    }
+
+    let mut diagnostics = Vec::new();
+
+    // Check for blank line after keyword
+    let after_keyword = keyword_line + 1;
+    if let Some(line) = line_at(source, after_keyword) {
+        if is_blank_line(line) && after_keyword < end_line {
+            diagnostics.push(Diagnostic {
+                path: source.path_str().to_string(),
+                location: Location { line: after_keyword, column: 0 },
+                severity: Severity::Convention,
+                cop_name: cop_name.to_string(),
+                message: format!("Extra empty line detected at {body_kind} body beginning."),
+            });
+        }
+    }
+
+    // Check for blank line before end
+    if end_line > 1 {
+        let before_end = end_line - 1;
+        if before_end > keyword_line {
+            if let Some(line) = line_at(source, before_end) {
+                if is_blank_line(line) {
+                    diagnostics.push(Diagnostic {
+                        path: source.path_str().to_string(),
+                        location: Location { line: before_end, column: 0 },
+                        severity: Severity::Convention,
+                        cop_name: cop_name.to_string(),
+                        message: format!("Extra empty line detected at {body_kind} body end."),
+                    });
+                }
+            }
+        }
+    }
+
+    diagnostics
+}
+
+/// Check that `end` is aligned with the opening keyword.
+/// Used by DefEndAlignment, EndAlignment, ElseAlignment.
+pub fn check_keyword_end_alignment(
+    cop_name: &str,
+    source: &SourceFile,
+    keyword_name: &str,
+    keyword_offset: usize,
+    end_offset: usize,
+) -> Vec<Diagnostic> {
+    let (_, kw_col) = source.offset_to_line_col(keyword_offset);
+    let (end_line, end_col) = source.offset_to_line_col(end_offset);
+
+    if end_col != kw_col {
+        return vec![Diagnostic {
+            path: source.path_str().to_string(),
+            location: Location { line: end_line, column: end_col },
+            severity: Severity::Convention,
+            cop_name: cop_name.to_string(),
+            message: format!("Align `end` with `{keyword_name}`."),
+        }];
+    }
+
+    Vec::new()
+}
+
+/// Check first element indentation relative to an opening delimiter.
+/// Used by FirstArgument/Array/HashElementIndentation.
+pub fn check_first_element_indentation(
+    cop_name: &str,
+    source: &SourceFile,
+    width: usize,
+    opening_offset: usize,
+    first_element_offset: usize,
+) -> Vec<Diagnostic> {
+    let (open_line, _) = source.offset_to_line_col(opening_offset);
+    let (elem_line, elem_col) = source.offset_to_line_col(first_element_offset);
+
+    // Skip if on same line as opener
+    if elem_line == open_line {
+        return Vec::new();
+    }
+
+    let open_line_bytes = source.lines().nth(open_line - 1).unwrap_or(b"");
+    let open_indent = indentation_of(open_line_bytes);
+    let expected = open_indent + width;
+
+    if elem_col != expected {
+        return vec![Diagnostic {
+            path: source.path_str().to_string(),
+            location: Location { line: elem_line, column: elem_col },
+            severity: Severity::Convention,
+            cop_name: cop_name.to_string(),
+            message: format!(
+                "Use {} (not {}) spaces for indentation of the first element.",
+                width,
+                elem_col.saturating_sub(open_indent)
+            ),
+        }];
+    }
+
+    Vec::new()
 }
 
 #[cfg(test)]

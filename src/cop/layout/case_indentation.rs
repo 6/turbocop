@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct CaseIndentation;
@@ -32,16 +32,12 @@ impl Cop for CaseIndentation {
                 let (when_line, when_col) = source.offset_to_line_col(when_loc.start_offset());
 
                 if when_col != case_col {
-                    diagnostics.push(Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location {
-                            line: when_line,
-                            column: when_col,
-                        },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Indent `when` as deep as `case`.".to_string(),
-                    });
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        when_line,
+                        when_col,
+                        "Indent `when` as deep as `case`.".to_string(),
+                    ));
                 }
             }
         }
@@ -53,23 +49,9 @@ impl Cop for CaseIndentation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &CaseIndentation,
-            include_bytes!("../../../testdata/cops/layout/case_indentation/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &CaseIndentation,
-            include_bytes!("../../../testdata/cops/layout/case_indentation/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(CaseIndentation, "cops/layout/case_indentation");
 
     #[test]
     fn nested_case_respects_own_indent() {

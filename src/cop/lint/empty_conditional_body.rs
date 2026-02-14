@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct EmptyConditionalBody;
@@ -35,13 +35,12 @@ impl Cop for EmptyConditionalBody {
 
             if body_empty {
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                return vec![Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location { line, column },
-                    severity: self.default_severity(),
-                    cop_name: self.name().to_string(),
-                    message: "Avoid empty `if` conditions.".to_string(),
-                }];
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Avoid empty `if` conditions.".to_string(),
+                )];
             }
         }
 
@@ -55,13 +54,12 @@ impl Cop for EmptyConditionalBody {
             if body_empty {
                 let kw_loc = unless_node.keyword_loc();
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                return vec![Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location { line, column },
-                    severity: self.default_severity(),
-                    cop_name: self.name().to_string(),
-                    message: "Avoid empty `unless` conditions.".to_string(),
-                }];
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Avoid empty `unless` conditions.".to_string(),
+                )];
             }
         }
 
@@ -72,21 +70,5 @@ impl Cop for EmptyConditionalBody {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
-
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &EmptyConditionalBody,
-            include_bytes!("../../../testdata/cops/lint/empty_conditional_body/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &EmptyConditionalBody,
-            include_bytes!("../../../testdata/cops/lint/empty_conditional_body/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(EmptyConditionalBody, "cops/lint/empty_conditional_body");
 }

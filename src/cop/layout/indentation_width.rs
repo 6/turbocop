@@ -1,6 +1,6 @@
 use crate::cop::util::expected_indent_for_body;
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct IndentationWidth;
@@ -41,19 +41,15 @@ impl IndentationWidth {
             }
 
             if child_col != expected {
-                return vec![Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location {
-                        line: child_line,
-                        column: child_col,
-                    },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: format!(
+                return vec![self.diagnostic(
+                    source,
+                    child_line,
+                    child_col,
+                    format!(
                         "Use {} (not {}) spaces for indentation.",
                         width, child_col.saturating_sub(kw_col)
                     ),
-                }];
+                )];
             }
         }
 
@@ -89,19 +85,15 @@ impl IndentationWidth {
             }
 
             if child_col != expected {
-                return vec![Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location {
-                        line: child_line,
-                        column: child_col,
-                    },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: format!(
+                return vec![self.diagnostic(
+                    source,
+                    child_line,
+                    child_col,
+                    format!(
                         "Use {} (not {}) spaces for indentation.",
                         width, child_col.saturating_sub(kw_col)
                     ),
-                }];
+                )];
             }
         }
 
@@ -121,11 +113,7 @@ impl Cop for IndentationWidth {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let width = config
-            .options
-            .get("Width")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(2) as usize;
+        let width = config.get_usize("Width", 2);
 
         if let Some(class_node) = node.as_class_node() {
             return self.check_body_indentation(
@@ -189,19 +177,15 @@ impl Cop for IndentationWidth {
                 }
 
                 if cond_col != expected {
-                    return vec![Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location {
-                            line: cond_line,
-                            column: cond_col,
-                        },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: format!(
+                    return vec![self.diagnostic(
+                        source,
+                        cond_line,
+                        cond_col,
+                        format!(
                             "Use {} (not {}) spaces for indentation.",
                             width, cond_col.saturating_sub(kw_col)
                         ),
-                    }];
+                    )];
                 }
             }
         }
@@ -231,23 +215,9 @@ impl Cop for IndentationWidth {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full_with_config};
+    use crate::testutil::run_cop_full_with_config;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &IndentationWidth,
-            include_bytes!("../../../testdata/cops/layout/indentation_width/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &IndentationWidth,
-            include_bytes!("../../../testdata/cops/layout/indentation_width/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(IndentationWidth, "cops/layout/indentation_width");
 
     #[test]
     fn custom_width() {

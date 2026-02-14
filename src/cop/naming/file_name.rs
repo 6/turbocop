@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::cop::util::is_snake_case;
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct FileName;
@@ -37,15 +37,14 @@ impl Cop for FileName {
             return Vec::new();
         }
 
-        vec![Diagnostic {
-            path: source.path_str().to_string(),
-            location: Location { line: 1, column: 0 },
-            severity: Severity::Convention,
-            cop_name: self.name().to_string(),
-            message: format!(
+        vec![self.diagnostic(
+            source,
+            1,
+            0,
+            format!(
                 "The name of this source file (`{file_stem}`) should use snake_case."
             ),
-        }]
+        )]
     }
 }
 

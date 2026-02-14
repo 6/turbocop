@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct SpaceInsideArrayLiteralBrackets;
@@ -51,11 +51,7 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
             return Vec::new();
         }
 
-        let enforced = config
-            .options
-            .get("EnforcedStyle")
-            .and_then(|v| v.as_str())
-            .unwrap_or("no_space");
+        let enforced = config.get_str("EnforcedStyle", "no_space");
 
         let mut diagnostics = Vec::new();
 
@@ -66,45 +62,41 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
             "no_space" => {
                 if space_after_open {
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
-                    diagnostics.push(Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location { line, column },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Space inside array literal brackets detected.".to_string(),
-                    });
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Space inside array literal brackets detected.".to_string(),
+                    ));
                 }
                 if space_before_close {
                     let (line, column) = source.offset_to_line_col(closing.start_offset());
-                    diagnostics.push(Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location { line, column },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Space inside array literal brackets detected.".to_string(),
-                    });
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Space inside array literal brackets detected.".to_string(),
+                    ));
                 }
             }
             "space" => {
                 if !space_after_open {
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
-                    diagnostics.push(Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location { line, column },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Space inside array literal brackets missing.".to_string(),
-                    });
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Space inside array literal brackets missing.".to_string(),
+                    ));
                 }
                 if !space_before_close {
                     let (line, column) = source.offset_to_line_col(closing.start_offset());
-                    diagnostics.push(Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location { line, column },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Space inside array literal brackets missing.".to_string(),
-                    });
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Space inside array literal brackets missing.".to_string(),
+                    ));
                 }
             }
             _ => {}
@@ -117,25 +109,9 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &SpaceInsideArrayLiteralBrackets,
-            include_bytes!(
-                "../../../testdata/cops/layout/space_inside_array_literal_brackets/offense.rb"
-            ),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &SpaceInsideArrayLiteralBrackets,
-            include_bytes!(
-                "../../../testdata/cops/layout/space_inside_array_literal_brackets/no_offense.rb"
-            ),
-        );
-    }
+    crate::cop_fixture_tests!(
+        SpaceInsideArrayLiteralBrackets,
+        "cops/layout/space_inside_array_literal_brackets"
+    );
 }

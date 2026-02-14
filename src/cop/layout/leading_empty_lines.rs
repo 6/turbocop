@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct LeadingEmptyLines;
@@ -16,13 +16,12 @@ impl Cop for LeadingEmptyLines {
         }
 
         if bytes[0] == b'\n' {
-            return vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location { line: 1, column: 0 },
-                severity: Severity::Convention,
-                cop_name: self.name().to_string(),
-                message: "Unnecessary blank line at the beginning of the source.".to_string(),
-            }];
+            return vec![self.diagnostic(
+                source,
+                1,
+                0,
+                "Unnecessary blank line at the beginning of the source.".to_string(),
+            )];
         }
 
         Vec::new()
@@ -32,23 +31,8 @@ impl Cop for LeadingEmptyLines {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses, assert_cop_offenses};
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses(
-            &LeadingEmptyLines,
-            include_bytes!("../../../testdata/cops/layout/leading_empty_lines/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses(
-            &LeadingEmptyLines,
-            include_bytes!("../../../testdata/cops/layout/leading_empty_lines/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(LeadingEmptyLines, "cops/layout/leading_empty_lines");
 
     #[test]
     fn multiple_leading_blank_lines() {

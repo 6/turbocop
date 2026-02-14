@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct SpaceInsideHashLiteralBraces;
@@ -45,11 +45,7 @@ impl Cop for SpaceInsideHashLiteralBraces {
             return Vec::new();
         }
 
-        let enforced = config
-            .options
-            .get("EnforcedStyle")
-            .and_then(|v| v.as_str())
-            .unwrap_or("space");
+        let enforced = config.get_str("EnforcedStyle", "space");
 
         let mut diagnostics = Vec::new();
 
@@ -60,45 +56,41 @@ impl Cop for SpaceInsideHashLiteralBraces {
             "space" => {
                 if !space_after_open {
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
-                    diagnostics.push(Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location { line, column },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Space inside { missing.".to_string(),
-                    });
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Space inside { missing.".to_string(),
+                    ));
                 }
                 if !space_before_close {
                     let (line, column) = source.offset_to_line_col(closing.start_offset());
-                    diagnostics.push(Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location { line, column },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Space inside } missing.".to_string(),
-                    });
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Space inside } missing.".to_string(),
+                    ));
                 }
             }
             "no_space" => {
                 if space_after_open {
                     let (line, column) = source.offset_to_line_col(open_end);
-                    diagnostics.push(Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location { line, column },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Space inside { detected.".to_string(),
-                    });
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Space inside { detected.".to_string(),
+                    ));
                 }
                 if space_before_close {
                     let (line, column) = source.offset_to_line_col(close_start - 1);
-                    diagnostics.push(Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location { line, column },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Space inside } detected.".to_string(),
-                    });
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Space inside } detected.".to_string(),
+                    ));
                 }
             }
             _ => {}
@@ -111,32 +103,16 @@ impl Cop for SpaceInsideHashLiteralBraces {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
+    use crate::testutil::{run_cop_full_with_config, assert_cop_no_offenses_full_with_config};
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &SpaceInsideHashLiteralBraces,
-            include_bytes!(
-                "../../../testdata/cops/layout/space_inside_hash_literal_braces/offense.rb"
-            ),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &SpaceInsideHashLiteralBraces,
-            include_bytes!(
-                "../../../testdata/cops/layout/space_inside_hash_literal_braces/no_offense.rb"
-            ),
-        );
-    }
+    crate::cop_fixture_tests!(
+        SpaceInsideHashLiteralBraces,
+        "cops/layout/space_inside_hash_literal_braces"
+    );
 
     #[test]
     fn config_no_space() {
         use std::collections::HashMap;
-        use crate::testutil::{run_cop_full_with_config, assert_cop_no_offenses_full_with_config};
 
         let config = CopConfig {
             options: HashMap::from([

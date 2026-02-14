@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct SpaceInsideParens;
@@ -37,13 +37,12 @@ impl Cop for SpaceInsideParens {
             // Skip if the next non-space is a newline (multiline)
             if bytes.get(open_end) != Some(&b'\n') && bytes.get(open_end) != Some(&b'\r') {
                 let (line, column) = source.offset_to_line_col(open_end);
-                diagnostics.push(Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location { line, column },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: "Space inside parentheses detected.".to_string(),
-                });
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Space inside parentheses detected.".to_string(),
+                ));
             }
         }
 
@@ -59,13 +58,12 @@ impl Cop for SpaceInsideParens {
                 };
                 if before_space != Some(b'\n') && before_space != Some(b'\r') {
                     let (line, column) = source.offset_to_line_col(close_start - 1);
-                    diagnostics.push(Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location { line, column },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Space inside parentheses detected.".to_string(),
-                    });
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Space inside parentheses detected.".to_string(),
+                    ));
                 }
             }
         }
@@ -77,21 +75,6 @@ impl Cop for SpaceInsideParens {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &SpaceInsideParens,
-            include_bytes!("../../../testdata/cops/layout/space_inside_parens/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &SpaceInsideParens,
-            include_bytes!("../../../testdata/cops/layout/space_inside_parens/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(SpaceInsideParens, "cops/layout/space_inside_parens");
 }

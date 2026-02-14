@@ -1,6 +1,6 @@
 use crate::cop::util::preceding_comment_line;
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct Documentation;
@@ -22,26 +22,14 @@ impl Cop for Documentation {
             let start = kw_loc.start_offset();
             if !preceding_comment_line(source, start) {
                 let (line, column) = source.offset_to_line_col(start);
-                return vec![Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location { line, column },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: "Missing top-level documentation comment for `class`.".to_string(),
-                }];
+                return vec![self.diagnostic(source, line, column, "Missing top-level documentation comment for `class`.".to_string())];
             }
         } else if let Some(module_node) = node.as_module_node() {
             let kw_loc = module_node.module_keyword_loc();
             let start = kw_loc.start_offset();
             if !preceding_comment_line(source, start) {
                 let (line, column) = source.offset_to_line_col(start);
-                return vec![Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location { line, column },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: "Missing top-level documentation comment for `module`.".to_string(),
-                }];
+                return vec![self.diagnostic(source, line, column, "Missing top-level documentation comment for `module`.".to_string())];
             }
         }
 
@@ -52,23 +40,9 @@ impl Cop for Documentation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &Documentation,
-            include_bytes!("../../../testdata/cops/style/documentation/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &Documentation,
-            include_bytes!("../../../testdata/cops/style/documentation/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(Documentation, "cops/style/documentation");
 
     #[test]
     fn first_line_class_has_no_preceding_comment() {

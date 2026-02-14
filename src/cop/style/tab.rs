@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct Tab;
@@ -13,16 +13,7 @@ impl Cop for Tab {
         let mut diagnostics = Vec::new();
         for (i, line) in source.lines().enumerate() {
             if let Some(pos) = line.iter().position(|&b| b == b'\t') {
-                diagnostics.push(Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location {
-                        line: i + 1,
-                        column: pos,
-                    },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: "Tab detected in indentation.".to_string(),
-                });
+                diagnostics.push(self.diagnostic(source, i + 1, pos, "Tab detected in indentation.".to_string()));
             }
         }
         diagnostics
@@ -32,23 +23,8 @@ impl Cop for Tab {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses, assert_cop_offenses};
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses(
-            &Tab,
-            include_bytes!("../../../testdata/cops/style/tab/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses(
-            &Tab,
-            include_bytes!("../../../testdata/cops/style/tab/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(Tab, "cops/style/tab");
 
     #[test]
     fn tab_at_start() {

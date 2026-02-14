@@ -1,13 +1,9 @@
-use crate::cop::util::line_at;
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct EmptyLinesAroundMethodBody;
-
-fn is_blank(line: &[u8]) -> bool {
-    line.iter().all(|&b| b == b' ' || b == b'\t' || b == b'\r')
-}
 
 impl Cop for EmptyLinesAroundMethodBody {
     fn name(&self) -> &'static str {
@@ -32,83 +28,25 @@ impl Cop for EmptyLinesAroundMethodBody {
             None => return Vec::new(),
         };
 
-        let def_loc = def_node.def_keyword_loc();
-        let (def_line, _) = source.offset_to_line_col(def_loc.start_offset());
-        let (end_line, _) = source.offset_to_line_col(end_loc.start_offset());
-
-        // Skip single-line methods
-        if def_line == end_line {
-            return Vec::new();
-        }
-
-        let mut diagnostics = Vec::new();
-
-        // Check for blank line after def keyword
-        let after_def_line = def_line + 1;
-        if let Some(line) = line_at(source, after_def_line) {
-            if is_blank(line) && after_def_line < end_line {
-                diagnostics.push(Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location {
-                        line: after_def_line,
-                        column: 0,
-                    },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: "Extra empty line detected at method body beginning.".to_string(),
-                });
-            }
-        }
-
-        // Check for blank line before end keyword
-        if end_line > 1 {
-            let before_end_line = end_line - 1;
-            if before_end_line > def_line {
-                if let Some(line) = line_at(source, before_end_line) {
-                    if is_blank(line) {
-                        diagnostics.push(Diagnostic {
-                            path: source.path_str().to_string(),
-                            location: Location {
-                                line: before_end_line,
-                                column: 0,
-                            },
-                            severity: Severity::Convention,
-                            cop_name: self.name().to_string(),
-                            message: "Extra empty line detected at method body end.".to_string(),
-                        });
-                    }
-                }
-            }
-        }
-
-        diagnostics
+        util::check_empty_lines_around_body(
+            self.name(),
+            source,
+            def_node.def_keyword_loc().start_offset(),
+            end_loc.start_offset(),
+            "method",
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &EmptyLinesAroundMethodBody,
-            include_bytes!(
-                "../../../testdata/cops/layout/empty_lines_around_method_body/offense.rb"
-            ),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &EmptyLinesAroundMethodBody,
-            include_bytes!(
-                "../../../testdata/cops/layout/empty_lines_around_method_body/no_offense.rb"
-            ),
-        );
-    }
+    crate::cop_fixture_tests!(
+        EmptyLinesAroundMethodBody,
+        "cops/layout/empty_lines_around_method_body"
+    );
 
     #[test]
     fn single_line_def_no_offense() {

@@ -10,7 +10,7 @@ pub mod walker;
 
 use std::collections::HashMap;
 
-use crate::diagnostic::{Diagnostic, Severity};
+use crate::diagnostic::{Diagnostic, Location, Severity};
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
@@ -36,6 +36,33 @@ impl Default for CopConfig {
     }
 }
 
+impl CopConfig {
+    /// Get a string option with a default value.
+    pub fn get_str<'a>(&'a self, key: &str, default: &'a str) -> &'a str {
+        self.options
+            .get(key)
+            .and_then(|v| v.as_str())
+            .unwrap_or(default)
+    }
+
+    /// Get an unsigned integer option with a default value.
+    pub fn get_usize(&self, key: &str, default: usize) -> usize {
+        self.options
+            .get(key)
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+            .unwrap_or(default)
+    }
+
+    /// Get a boolean option with a default value.
+    pub fn get_bool(&self, key: &str, default: bool) -> bool {
+        self.options
+            .get(key)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(default)
+    }
+}
+
 /// A lint rule. Implementations must be Send + Sync so they can be shared
 /// across rayon worker threads.
 pub trait Cop: Send + Sync {
@@ -44,6 +71,23 @@ pub trait Cop: Send + Sync {
 
     fn default_severity(&self) -> Severity {
         Severity::Convention
+    }
+
+    /// Create a Diagnostic with standard fields filled in.
+    fn diagnostic(
+        &self,
+        source: &SourceFile,
+        line: usize,
+        column: usize,
+        message: String,
+    ) -> Diagnostic {
+        Diagnostic {
+            path: source.path_str().to_string(),
+            location: Location { line, column },
+            severity: self.default_severity(),
+            cop_name: self.name().to_string(),
+            message,
+        }
     }
 
     /// Line-based check — runs before AST traversal.
@@ -78,4 +122,36 @@ pub trait Cop: Send + Sync {
     ) -> Vec<Diagnostic> {
         Vec::new()
     }
+}
+
+/// Generate standard offense/no_offense fixture tests for a cop.
+///
+/// Usage:
+/// ```ignore
+/// #[cfg(test)]
+/// mod tests {
+///     use super::*;
+///     crate::cop_fixture_tests!(CopStruct, "cops/dept/cop_name");
+///     // additional tests...
+/// }
+/// ```
+#[macro_export]
+macro_rules! cop_fixture_tests {
+    ($cop:expr, $path:literal) => {
+        #[test]
+        fn offense_fixture() {
+            $crate::testutil::assert_cop_offenses_full(
+                &$cop,
+                include_bytes!(concat!("../../../testdata/", $path, "/offense.rb")),
+            );
+        }
+
+        #[test]
+        fn no_offense_fixture() {
+            $crate::testutil::assert_cop_no_offenses_full(
+                &$cop,
+                include_bytes!(concat!("../../../testdata/", $path, "/no_offense.rb")),
+            );
+        }
+    };
 }

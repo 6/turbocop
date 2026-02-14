@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct BlockAlignment;
@@ -49,17 +49,13 @@ impl Cop for BlockAlignment {
 
         // Only flag if end is on a different line and misaligned
         if end_line != opening_line && end_col != indent {
-            return vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location {
-                    line: end_line,
-                    column: end_col,
-                },
-                severity: Severity::Convention,
-                cop_name: self.name().to_string(),
-                message: "Align `end` with the start of the line where the block is defined."
+            return vec![self.diagnostic(
+                source,
+                end_line,
+                end_col,
+                "Align `end` with the start of the line where the block is defined."
                     .to_string(),
-            }];
+            )];
         }
 
         Vec::new()
@@ -69,23 +65,9 @@ impl Cop for BlockAlignment {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &BlockAlignment,
-            include_bytes!("../../../testdata/cops/layout/block_alignment/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &BlockAlignment,
-            include_bytes!("../../../testdata/cops/layout/block_alignment/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(BlockAlignment, "cops/layout/block_alignment");
 
     #[test]
     fn brace_block_no_offense() {

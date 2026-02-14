@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct EndOfLine;
@@ -13,16 +13,12 @@ impl Cop for EndOfLine {
         let mut diagnostics = Vec::new();
         for (i, line) in source.lines().enumerate() {
             if line.ends_with(b"\r") {
-                diagnostics.push(Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location {
-                        line: i + 1,
-                        column: line.len() - 1,
-                    },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: "Carriage return character detected.".to_string(),
-                });
+                diagnostics.push(self.diagnostic(
+                    source,
+                    i + 1,
+                    line.len() - 1,
+                    "Carriage return character detected.".to_string(),
+                ));
             }
         }
         diagnostics

@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct RescueModifier;
@@ -23,36 +23,16 @@ impl Cop for RescueModifier {
 
         let kw_loc = rescue_mod.keyword_loc();
         let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-        vec![Diagnostic {
-            path: source.path_str().to_string(),
-            location: Location { line, column },
-            severity: Severity::Convention,
-            cop_name: self.name().to_string(),
-            message: "Avoid rescuing without specifying an error class.".to_string(),
-        }]
+        vec![self.diagnostic(source, line, column, "Avoid rescuing without specifying an error class.".to_string())]
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &RescueModifier,
-            include_bytes!("../../../testdata/cops/style/rescue_modifier/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &RescueModifier,
-            include_bytes!("../../../testdata/cops/style/rescue_modifier/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(RescueModifier, "cops/style/rescue_modifier");
 
     #[test]
     fn inline_rescue_fires() {

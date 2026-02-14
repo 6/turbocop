@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct SpaceAroundEqualsInParameterDefault;
@@ -21,11 +21,7 @@ impl Cop for SpaceAroundEqualsInParameterDefault {
             None => return Vec::new(),
         };
 
-        let enforced = config
-            .options
-            .get("EnforcedStyle")
-            .and_then(|v| v.as_str())
-            .unwrap_or("space");
+        let enforced = config.get_str("EnforcedStyle", "space");
 
         let op = opt.operator_loc();
         let bytes = source.as_bytes();
@@ -39,25 +35,23 @@ impl Cop for SpaceAroundEqualsInParameterDefault {
             "space" => {
                 if !space_before || !space_after {
                     let (line, column) = source.offset_to_line_col(op_start);
-                    return vec![Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location { line, column },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Surrounding space missing for operator `=`.".to_string(),
-                    }];
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Surrounding space missing for operator `=`.".to_string(),
+                    )];
                 }
             }
             "no_space" => {
                 if space_before || space_after {
                     let (line, column) = source.offset_to_line_col(op_start);
-                    return vec![Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location { line, column },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Surrounding space detected for operator `=`.".to_string(),
-                    }];
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Surrounding space detected for operator `=`.".to_string(),
+                    )];
                 }
             }
             _ => {}
@@ -69,25 +63,9 @@ impl Cop for SpaceAroundEqualsInParameterDefault {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &SpaceAroundEqualsInParameterDefault,
-            include_bytes!(
-                "../../../testdata/cops/layout/space_around_equals_in_parameter_default/offense.rb"
-            ),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &SpaceAroundEqualsInParameterDefault,
-            include_bytes!(
-                "../../../testdata/cops/layout/space_around_equals_in_parameter_default/no_offense.rb"
-            ),
-        );
-    }
+    crate::cop_fixture_tests!(
+        SpaceAroundEqualsInParameterDefault,
+        "cops/layout/space_around_equals_in_parameter_default"
+    );
 }

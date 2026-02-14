@@ -1,6 +1,6 @@
 use crate::cop::util::indentation_of;
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct FirstHashElementIndentation;
@@ -45,31 +45,23 @@ impl Cop for FirstHashElementIndentation {
             return Vec::new();
         }
 
-        let width = config
-            .options
-            .get("IndentationWidth")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(2) as usize;
+        let width = config.get_usize("IndentationWidth", 2);
 
         let open_line_bytes = source.lines().nth(open_line - 1).unwrap_or(b"");
         let open_line_indent = indentation_of(open_line_bytes);
         let expected = open_line_indent + width;
 
         if elem_col != expected {
-            return vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location {
-                    line: elem_line,
-                    column: elem_col,
-                },
-                severity: Severity::Convention,
-                cop_name: self.name().to_string(),
-                message: format!(
+            return vec![self.diagnostic(
+                source,
+                elem_line,
+                elem_col,
+                format!(
                     "Use {} (not {}) spaces for indentation of the first element.",
                     width,
                     elem_col.saturating_sub(open_line_indent)
                 ),
-            }];
+            )];
         }
 
         Vec::new()
@@ -79,27 +71,12 @@ impl Cop for FirstHashElementIndentation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &FirstHashElementIndentation,
-            include_bytes!(
-                "../../../testdata/cops/layout/first_hash_element_indentation/offense.rb"
-            ),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &FirstHashElementIndentation,
-            include_bytes!(
-                "../../../testdata/cops/layout/first_hash_element_indentation/no_offense.rb"
-            ),
-        );
-    }
+    crate::cop_fixture_tests!(
+        FirstHashElementIndentation,
+        "cops/layout/first_hash_element_indentation"
+    );
 
     #[test]
     fn same_line_elements_ignored() {

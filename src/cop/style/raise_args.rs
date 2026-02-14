@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct RaiseArgs;
@@ -31,11 +31,7 @@ impl Cop for RaiseArgs {
             return Vec::new();
         }
 
-        let enforced_style = config
-            .options
-            .get("EnforcedStyle")
-            .and_then(|v| v.as_str())
-            .unwrap_or("explode");
+        let enforced_style = config.get_str("EnforcedStyle", "explode");
 
         if enforced_style != "explode" {
             return Vec::new();
@@ -56,14 +52,7 @@ impl Cop for RaiseArgs {
             if arg_call.name().as_slice() == b"new" && arg_call.receiver().is_some() {
                 let loc = call.message_loc().unwrap_or_else(|| call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location { line, column },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: "Provide an exception class and message as separate arguments."
-                        .to_string(),
-                }];
+                return vec![self.diagnostic(source, line, column, "Provide an exception class and message as separate arguments.".to_string())];
             }
         }
 
@@ -74,23 +63,9 @@ impl Cop for RaiseArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &RaiseArgs,
-            include_bytes!("../../../testdata/cops/style/raise_args/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &RaiseArgs,
-            include_bytes!("../../../testdata/cops/style/raise_args/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(RaiseArgs, "cops/style/raise_args");
 
     #[test]
     fn bare_raise_is_ignored() {

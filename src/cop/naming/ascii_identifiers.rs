@@ -1,6 +1,6 @@
 use crate::cop::util::is_ascii_name;
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct AsciiIdentifiers;
@@ -22,13 +22,12 @@ impl Cop for AsciiIdentifiers {
             if !is_ascii_name(method_name) {
                 let loc = def_node.name_loc();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location { line, column },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: "Use only ascii symbols in identifiers.".to_string(),
-                }];
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use only ascii symbols in identifiers.".to_string(),
+                )];
             }
         }
 
@@ -37,13 +36,12 @@ impl Cop for AsciiIdentifiers {
             if !is_ascii_name(var_name) {
                 let loc = write_node.name_loc();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location { line, column },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: "Use only ascii symbols in identifiers.".to_string(),
-                }];
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use only ascii symbols in identifiers.".to_string(),
+                )];
             }
         }
 
@@ -54,21 +52,5 @@ impl Cop for AsciiIdentifiers {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
-
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &AsciiIdentifiers,
-            include_bytes!("../../../testdata/cops/naming/ascii_identifiers/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &AsciiIdentifiers,
-            include_bytes!("../../../testdata/cops/naming/ascii_identifiers/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(AsciiIdentifiers, "cops/naming/ascii_identifiers");
 }

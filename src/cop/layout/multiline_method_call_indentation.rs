@@ -1,6 +1,6 @@
 use crate::cop::util::indentation_of;
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct MultilineMethodCallIndentation;
@@ -43,11 +43,7 @@ impl Cop for MultilineMethodCallIndentation {
             return Vec::new();
         }
 
-        let width = config
-            .options
-            .get("IndentationWidth")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(2) as usize;
+        let width = config.get_usize("IndentationWidth", 2);
 
         // Find the start of the chain: walk up receivers to find the first receiver
         // that starts on a different line or has no receiver itself
@@ -59,20 +55,16 @@ impl Cop for MultilineMethodCallIndentation {
         // Account for the dot: msg_col points at `.`, so the indent should
         // be measured from the dot position
         if msg_col != expected {
-            return vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location {
-                    line: msg_line,
-                    column: msg_col,
-                },
-                severity: Severity::Convention,
-                cop_name: self.name().to_string(),
-                message: format!(
+            return vec![self.diagnostic(
+                source,
+                msg_line,
+                msg_col,
+                format!(
                     "Use {} (not {}) spaces for indentation of a chained method call.",
                     width,
                     msg_col.saturating_sub(chain_indent)
                 ),
-            }];
+            )];
         }
 
         Vec::new()
@@ -101,27 +93,12 @@ fn find_chain_start_line(source: &SourceFile, node: &ruby_prism::Node<'_>) -> us
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &MultilineMethodCallIndentation,
-            include_bytes!(
-                "../../../testdata/cops/layout/multiline_method_call_indentation/offense.rb"
-            ),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &MultilineMethodCallIndentation,
-            include_bytes!(
-                "../../../testdata/cops/layout/multiline_method_call_indentation/no_offense.rb"
-            ),
-        );
-    }
+    crate::cop_fixture_tests!(
+        MultilineMethodCallIndentation,
+        "cops/layout/multiline_method_call_indentation"
+    );
 
     #[test]
     fn same_line_chain_ignored() {

@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct RescueEnsureAlignment;
@@ -30,16 +30,12 @@ impl Cop for RescueEnsureAlignment {
                 let (rescue_line, rescue_col) =
                     source.offset_to_line_col(rescue_kw_loc.start_offset());
                 if rescue_col != begin_col {
-                    diagnostics.push(Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location {
-                            line: rescue_line,
-                            column: rescue_col,
-                        },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Align `rescue` with `begin`.".to_string(),
-                    });
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        rescue_line,
+                        rescue_col,
+                        "Align `rescue` with `begin`.".to_string(),
+                    ));
                 }
             }
 
@@ -48,16 +44,12 @@ impl Cop for RescueEnsureAlignment {
                 let (ensure_line, ensure_col) =
                     source.offset_to_line_col(ensure_kw_loc.start_offset());
                 if ensure_col != begin_col {
-                    diagnostics.push(Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location {
-                            line: ensure_line,
-                            column: ensure_col,
-                        },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Align `ensure` with `begin`.".to_string(),
-                    });
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        ensure_line,
+                        ensure_col,
+                        "Align `ensure` with `begin`.".to_string(),
+                    ));
                 }
             }
         } else if let Some(def_node) = node.as_def_node() {
@@ -71,16 +63,12 @@ impl Cop for RescueEnsureAlignment {
                     let (rescue_line, rescue_col) =
                         source.offset_to_line_col(rescue_kw_loc.start_offset());
                     if rescue_col != def_col {
-                        diagnostics.push(Diagnostic {
-                            path: source.path_str().to_string(),
-                            location: Location {
-                                line: rescue_line,
-                                column: rescue_col,
-                            },
-                            severity: Severity::Convention,
-                            cop_name: self.name().to_string(),
-                            message: "Align `rescue` with `def`.".to_string(),
-                        });
+                        diagnostics.push(self.diagnostic(
+                            source,
+                            rescue_line,
+                            rescue_col,
+                            "Align `rescue` with `def`.".to_string(),
+                        ));
                     }
                 }
             }
@@ -93,27 +81,9 @@ impl Cop for RescueEnsureAlignment {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &RescueEnsureAlignment,
-            include_bytes!(
-                "../../../testdata/cops/layout/rescue_ensure_alignment/offense.rb"
-            ),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &RescueEnsureAlignment,
-            include_bytes!(
-                "../../../testdata/cops/layout/rescue_ensure_alignment/no_offense.rb"
-            ),
-        );
-    }
+    crate::cop_fixture_tests!(RescueEnsureAlignment, "cops/layout/rescue_ensure_alignment");
 
     #[test]
     fn no_rescue_no_offense() {

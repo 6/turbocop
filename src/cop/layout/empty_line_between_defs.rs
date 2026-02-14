@@ -1,6 +1,6 @@
 use crate::cop::util::line_at;
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct EmptyLineBetweenDefs;
@@ -79,39 +79,21 @@ impl Cop for EmptyLineBetweenDefs {
             return Vec::new();
         }
 
-        vec![Diagnostic {
-            path: source.path_str().to_string(),
-            location: Location {
-                line: def_line,
-                column: def_col,
-            },
-            severity: Severity::Convention,
-            cop_name: self.name().to_string(),
-            message: "Use empty lines between method definitions.".to_string(),
-        }]
+        vec![self.diagnostic(
+            source,
+            def_line,
+            def_col,
+            "Use empty lines between method definitions.".to_string(),
+        )]
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &EmptyLineBetweenDefs,
-            include_bytes!("../../../testdata/cops/layout/empty_line_between_defs/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &EmptyLineBetweenDefs,
-            include_bytes!("../../../testdata/cops/layout/empty_line_between_defs/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(EmptyLineBetweenDefs, "cops/layout/empty_line_between_defs");
 
     #[test]
     fn single_def_no_offense() {

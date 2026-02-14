@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct Loop;
@@ -31,13 +31,12 @@ impl Cop for Loop {
                     let first_stmt_offset = first_stmt.location().start_offset();
                     if kw_loc.start_offset() > first_stmt_offset {
                         let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                        return vec![Diagnostic {
-                            path: source.path_str().to_string(),
-                            location: Location { line, column },
-                            severity: self.default_severity(),
-                            cop_name: self.name().to_string(),
-                            message: "Use `Kernel#loop` with `break` rather than `begin/end/while(until)`.".to_string(),
-                        }];
+                        return vec![self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Use `Kernel#loop` with `break` rather than `begin/end/while(until)`.".to_string(),
+                        )];
                     }
                 }
             }
@@ -52,13 +51,12 @@ impl Cop for Loop {
                     let first_stmt_offset = first_stmt.location().start_offset();
                     if kw_loc.start_offset() > first_stmt_offset {
                         let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                        return vec![Diagnostic {
-                            path: source.path_str().to_string(),
-                            location: Location { line, column },
-                            severity: self.default_severity(),
-                            cop_name: self.name().to_string(),
-                            message: "Use `Kernel#loop` with `break` rather than `begin/end/while(until)`.".to_string(),
-                        }];
+                        return vec![self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Use `Kernel#loop` with `break` rather than `begin/end/while(until)`.".to_string(),
+                        )];
                     }
                 }
             }
@@ -71,21 +69,5 @@ impl Cop for Loop {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
-
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &Loop,
-            include_bytes!("../../../testdata/cops/lint/loop_cop/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &Loop,
-            include_bytes!("../../../testdata/cops/lint/loop_cop/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(Loop, "cops/lint/loop_cop");
 }

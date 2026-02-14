@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct SpaceBeforeBlockBraces;
@@ -32,13 +32,12 @@ impl Cop for SpaceBeforeBlockBraces {
         let before = opening.start_offset();
         if before > 0 && bytes[before - 1] != b' ' {
             let (line, column) = source.offset_to_line_col(before);
-            return vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location { line, column },
-                severity: Severity::Convention,
-                cop_name: self.name().to_string(),
-                message: "Space missing to the left of {.".to_string(),
-            }];
+            return vec![self.diagnostic(
+                source,
+                line,
+                column,
+                "Space missing to the left of {.".to_string(),
+            )];
         }
         Vec::new()
     }
@@ -47,25 +46,6 @@ impl Cop for SpaceBeforeBlockBraces {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &SpaceBeforeBlockBraces,
-            include_bytes!(
-                "../../../testdata/cops/layout/space_before_block_braces/offense.rb"
-            ),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &SpaceBeforeBlockBraces,
-            include_bytes!(
-                "../../../testdata/cops/layout/space_before_block_braces/no_offense.rb"
-            ),
-        );
-    }
+    crate::cop_fixture_tests!(SpaceBeforeBlockBraces, "cops/layout/space_before_block_braces");
 }

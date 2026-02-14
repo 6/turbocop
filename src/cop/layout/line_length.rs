@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct LineLength;
@@ -10,25 +10,17 @@ impl Cop for LineLength {
     }
 
     fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
-        let max = config
-            .options
-            .get("Max")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(120) as usize;
+        let max = config.get_usize("Max", 120);
 
         let mut diagnostics = Vec::new();
         for (i, line) in source.lines().enumerate() {
             if line.len() > max {
-                diagnostics.push(Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location {
-                        line: i + 1,
-                        column: max,
-                    },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: format!("Line is too long. [{}/{}]", line.len(), max),
-                });
+                diagnostics.push(self.diagnostic(
+                    source,
+                    i + 1,
+                    max,
+                    format!("Line is too long. [{}/{}]", line.len(), max),
+                ));
             }
         }
         diagnostics
@@ -38,23 +30,8 @@ impl Cop for LineLength {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses, assert_cop_offenses};
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses(
-            &LineLength,
-            include_bytes!("../../../testdata/cops/layout/line_length/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses(
-            &LineLength,
-            include_bytes!("../../../testdata/cops/layout/line_length/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(LineLength, "cops/layout/line_length");
 
     #[test]
     fn custom_max() {

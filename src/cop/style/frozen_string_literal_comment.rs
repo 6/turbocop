@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct FrozenStringLiteralComment;
@@ -13,7 +13,7 @@ impl Cop for FrozenStringLiteralComment {
         let lines: Vec<&[u8]> = source.lines().collect();
 
         if lines.is_empty() || (lines.len() == 1 && lines[0].is_empty()) {
-            return vec![missing_diagnostic(source)];
+            return vec![self.diagnostic(source, 1, 0, "Missing frozen string literal comment.".to_string())];
         }
 
         let mut idx = 0;
@@ -33,17 +33,7 @@ impl Cop for FrozenStringLiteralComment {
             return Vec::new();
         }
 
-        vec![missing_diagnostic(source)]
-    }
-}
-
-fn missing_diagnostic(source: &SourceFile) -> Diagnostic {
-    Diagnostic {
-        path: source.path_str().to_string(),
-        location: Location { line: 1, column: 0 },
-        severity: Severity::Convention,
-        cop_name: "Style/FrozenStringLiteralComment".to_string(),
-        message: "Missing frozen string literal comment.".to_string(),
+        vec![self.diagnostic(source, 1, 0, "Missing frozen string literal comment.".to_string())]
     }
 }
 
@@ -68,27 +58,8 @@ fn is_frozen_string_literal_comment(line: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses, assert_cop_offenses};
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses(
-            &FrozenStringLiteralComment,
-            include_bytes!(
-                "../../../testdata/cops/style/frozen_string_literal_comment/offense.rb"
-            ),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses(
-            &FrozenStringLiteralComment,
-            include_bytes!(
-                "../../../testdata/cops/style/frozen_string_literal_comment/no_offense.rb"
-            ),
-        );
-    }
+    crate::cop_fixture_tests!(FrozenStringLiteralComment, "cops/style/frozen_string_literal_comment");
 
     #[test]
     fn missing_comment() {

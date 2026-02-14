@@ -1,6 +1,6 @@
 use crate::cop::util::has_trailing_comma;
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct TrailingCommaInArrayLiteral;
@@ -42,13 +42,7 @@ impl Cop for TrailingCommaInArrayLiteral {
             if let Some(comma_offset) = search_range.iter().position(|&b| b == b',') {
                 let abs_offset = last_end + comma_offset;
                 let (line, column) = source.offset_to_line_col(abs_offset);
-                return vec![Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location { line, column },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: "Avoid comma after the last item of an array.".to_string(),
-                }];
+                return vec![self.diagnostic(source, line, column, "Avoid comma after the last item of an array.".to_string())];
             }
         }
 
@@ -59,25 +53,6 @@ impl Cop for TrailingCommaInArrayLiteral {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &TrailingCommaInArrayLiteral,
-            include_bytes!(
-                "../../../testdata/cops/style/trailing_comma_in_array_literal/offense.rb"
-            ),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &TrailingCommaInArrayLiteral,
-            include_bytes!(
-                "../../../testdata/cops/style/trailing_comma_in_array_literal/no_offense.rb"
-            ),
-        );
-    }
+    crate::cop_fixture_tests!(TrailingCommaInArrayLiteral, "cops/style/trailing_comma_in_array_literal");
 }

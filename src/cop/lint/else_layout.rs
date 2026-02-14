@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct ElseLayout;
@@ -62,16 +62,12 @@ impl Cop for ElseLayout {
         let (stmt_line, stmt_col) = source.offset_to_line_col(first_loc.start_offset());
 
         if stmt_line == else_line {
-            return vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location {
-                    line: stmt_line,
-                    column: stmt_col,
-                },
-                severity: self.default_severity(),
-                cop_name: self.name().to_string(),
-                message: "Odd `else` layout detected. Code on the same line as `else` is not allowed.".to_string(),
-            }];
+            return vec![self.diagnostic(
+                source,
+                stmt_line,
+                stmt_col,
+                "Odd `else` layout detected. Code on the same line as `else` is not allowed.".to_string(),
+            )];
         }
 
         Vec::new()
@@ -81,21 +77,5 @@ impl Cop for ElseLayout {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full};
-
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &ElseLayout,
-            include_bytes!("../../../testdata/cops/lint/else_layout/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &ElseLayout,
-            include_bytes!("../../../testdata/cops/lint/else_layout/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(ElseLayout, "cops/lint/else_layout");
 }

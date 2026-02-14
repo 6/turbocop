@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct FirstArgumentIndentation;
@@ -49,25 +49,17 @@ impl Cop for FirstArgumentIndentation {
             return Vec::new();
         }
 
-        let width = config
-            .options
-            .get("IndentationWidth")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(2) as usize;
+        let width = config.get_usize("IndentationWidth", 2);
 
         let expected = call_line_indent + width;
 
         if arg_col != expected {
-            return vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location {
-                    line: arg_line,
-                    column: arg_col,
-                },
-                severity: Severity::Convention,
-                cop_name: self.name().to_string(),
-                message: "Indent the first argument one step more than the start of the previous line.".to_string(),
-            }];
+            return vec![self.diagnostic(
+                source,
+                arg_line,
+                arg_col,
+                "Indent the first argument one step more than the start of the previous line.".to_string(),
+            )];
         }
 
         Vec::new()
@@ -77,23 +69,12 @@ impl Cop for FirstArgumentIndentation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &FirstArgumentIndentation,
-            include_bytes!("../../../testdata/cops/layout/first_argument_indentation/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &FirstArgumentIndentation,
-            include_bytes!("../../../testdata/cops/layout/first_argument_indentation/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(
+        FirstArgumentIndentation,
+        "cops/layout/first_argument_indentation"
+    );
 
     #[test]
     fn args_on_same_line_ignored() {

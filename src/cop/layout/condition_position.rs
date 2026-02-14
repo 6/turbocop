@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct ConditionPosition;
@@ -32,16 +32,12 @@ impl Cop for ConditionPosition {
             let (pred_line, pred_col) =
                 source.offset_to_line_col(predicate.location().start_offset());
             if pred_line != kw_line {
-                return vec![Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location {
-                        line: pred_line,
-                        column: pred_col,
-                    },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: format!("Place the condition on the same line as `{keyword}`."),
-                }];
+                return vec![self.diagnostic(
+                    source,
+                    pred_line,
+                    pred_col,
+                    format!("Place the condition on the same line as `{keyword}`."),
+                )];
             }
         } else if let Some(while_node) = node.as_while_node() {
             let kw_loc = while_node.keyword_loc();
@@ -50,16 +46,12 @@ impl Cop for ConditionPosition {
             let (pred_line, pred_col) =
                 source.offset_to_line_col(predicate.location().start_offset());
             if pred_line != kw_line {
-                return vec![Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location {
-                        line: pred_line,
-                        column: pred_col,
-                    },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: "Place the condition on the same line as `while`.".to_string(),
-                }];
+                return vec![self.diagnostic(
+                    source,
+                    pred_line,
+                    pred_col,
+                    "Place the condition on the same line as `while`.".to_string(),
+                )];
             }
         } else if let Some(until_node) = node.as_until_node() {
             let kw_loc = until_node.keyword_loc();
@@ -68,16 +60,12 @@ impl Cop for ConditionPosition {
             let (pred_line, pred_col) =
                 source.offset_to_line_col(predicate.location().start_offset());
             if pred_line != kw_line {
-                return vec![Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location {
-                        line: pred_line,
-                        column: pred_col,
-                    },
-                    severity: Severity::Convention,
-                    cop_name: self.name().to_string(),
-                    message: "Place the condition on the same line as `until`.".to_string(),
-                }];
+                return vec![self.diagnostic(
+                    source,
+                    pred_line,
+                    pred_col,
+                    "Place the condition on the same line as `until`.".to_string(),
+                )];
             }
         }
 
@@ -88,23 +76,9 @@ impl Cop for ConditionPosition {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &ConditionPosition,
-            include_bytes!("../../../testdata/cops/layout/condition_position/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &ConditionPosition,
-            include_bytes!("../../../testdata/cops/layout/condition_position/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(ConditionPosition, "cops/layout/condition_position");
 
     #[test]
     fn inline_if_no_offense() {

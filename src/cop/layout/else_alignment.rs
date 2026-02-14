@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct ElseAlignment;
@@ -44,16 +44,12 @@ impl Cop for ElseAlignment {
                 let (else_line, else_col) =
                     source.offset_to_line_col(else_kw_loc.start_offset());
                 if else_col != if_col {
-                    diagnostics.push(Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location {
-                            line: else_line,
-                            column: else_col,
-                        },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Align `else` with `if`.".to_string(),
-                    });
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        else_line,
+                        else_col,
+                        "Align `else` with `if`.".to_string(),
+                    ));
                 }
                 current = None;
             } else if let Some(elsif_node) = subsequent.as_if_node() {
@@ -64,16 +60,12 @@ impl Cop for ElseAlignment {
                 let (elsif_line, elsif_col) =
                     source.offset_to_line_col(elsif_kw_loc.start_offset());
                 if elsif_col != if_col {
-                    diagnostics.push(Diagnostic {
-                        path: source.path_str().to_string(),
-                        location: Location {
-                            line: elsif_line,
-                            column: elsif_col,
-                        },
-                        severity: Severity::Convention,
-                        cop_name: self.name().to_string(),
-                        message: "Align `elsif` with `if`.".to_string(),
-                    });
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        elsif_line,
+                        elsif_col,
+                        "Align `elsif` with `if`.".to_string(),
+                    ));
                 }
                 current = elsif_node.subsequent();
             } else {
@@ -88,23 +80,9 @@ impl Cop for ElseAlignment {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &ElseAlignment,
-            include_bytes!("../../../testdata/cops/layout/else_alignment/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &ElseAlignment,
-            include_bytes!("../../../testdata/cops/layout/else_alignment/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(ElseAlignment, "cops/layout/else_alignment");
 
     #[test]
     fn ternary_no_offense() {

@@ -1,11 +1,11 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct RescueStandardError;
 
 fn check_rescue_node(
-    cop_name: &str,
+    cop: &dyn Cop,
     source: &SourceFile,
     rescue_node: &ruby_prism::RescueNode<'_>,
     enforced_style: &str,
@@ -21,15 +21,7 @@ fn check_rescue_node(
                     if const_read.name().as_slice() == b"StandardError" {
                         let kw_loc = rescue_node.keyword_loc();
                         let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                        diags.push(Diagnostic {
-                            path: source.path_str().to_string(),
-                            location: Location { line, column },
-                            severity: Severity::Convention,
-                            cop_name: cop_name.to_string(),
-                            message:
-                                "Omit the error class when rescuing `StandardError` by itself."
-                                    .to_string(),
-                        });
+                        diags.push(cop.diagnostic(source, line, column, "Omit the error class when rescuing `StandardError` by itself.".to_string()));
                     }
                 }
             }
@@ -38,13 +30,7 @@ fn check_rescue_node(
             if exceptions.is_empty() {
                 let kw_loc = rescue_node.keyword_loc();
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                diags.push(Diagnostic {
-                    path: source.path_str().to_string(),
-                    location: Location { line, column },
-                    severity: Severity::Convention,
-                    cop_name: cop_name.to_string(),
-                    message: "Specify `StandardError` explicitly when rescuing.".to_string(),
-                });
+                diags.push(cop.diagnostic(source, line, column, "Specify `StandardError` explicitly when rescuing.".to_string()));
             }
         }
         _ => {}
@@ -52,7 +38,7 @@ fn check_rescue_node(
 
     // Check subsequent rescue clauses in the chain
     if let Some(subsequent) = rescue_node.subsequent() {
-        diags.extend(check_rescue_node(cop_name, source, &subsequent, enforced_style));
+        diags.extend(check_rescue_node(cop, source, &subsequent, enforced_style));
     }
 
     diags
@@ -80,39 +66,18 @@ impl Cop for RescueStandardError {
             None => return Vec::new(),
         };
 
-        let enforced_style = config
-            .options
-            .get("EnforcedStyle")
-            .and_then(|v| v.as_str())
-            .unwrap_or("implicit");
+        let enforced_style = config.get_str("EnforcedStyle", "implicit");
 
-        check_rescue_node(self.name(), source, &rescue_clause, enforced_style)
+        check_rescue_node(self, source, &rescue_clause, enforced_style)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{
-        assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full,
-        run_cop_full_with_config,
-    };
+    use crate::testutil::{run_cop_full, run_cop_full_with_config};
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &RescueStandardError,
-            include_bytes!("../../../testdata/cops/style/rescue_standard_error/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &RescueStandardError,
-            include_bytes!("../../../testdata/cops/style/rescue_standard_error/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(RescueStandardError, "cops/style/rescue_standard_error");
 
     #[test]
     fn explicit_style_flags_bare_rescue() {

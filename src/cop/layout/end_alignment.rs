@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct EndAlignment;
@@ -121,16 +121,12 @@ impl EndAlignment {
         let (end_line, end_col) = source.offset_to_line_col(end_offset);
 
         if end_col != kw_col {
-            return vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location {
-                    line: end_line,
-                    column: end_col,
-                },
-                severity: Severity::Convention,
-                cop_name: self.name().to_string(),
-                message: format!("Align `end` with `{keyword}`."),
-            }];
+            return vec![self.diagnostic(
+                source,
+                end_line,
+                end_col,
+                format!("Align `end` with `{keyword}`."),
+            )];
         }
 
         Vec::new()
@@ -140,23 +136,9 @@ impl EndAlignment {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{assert_cop_no_offenses_full, assert_cop_offenses_full, run_cop_full};
+    use crate::testutil::run_cop_full;
 
-    #[test]
-    fn offense_fixture() {
-        assert_cop_offenses_full(
-            &EndAlignment,
-            include_bytes!("../../../testdata/cops/layout/end_alignment/offense.rb"),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        assert_cop_no_offenses_full(
-            &EndAlignment,
-            include_bytes!("../../../testdata/cops/layout/end_alignment/no_offense.rb"),
-        );
-    }
+    crate::cop_fixture_tests!(EndAlignment, "cops/layout/end_alignment");
 
     #[test]
     fn modifier_if_no_offense() {

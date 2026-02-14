@@ -1,5 +1,5 @@
 use crate::cop::{Cop, CopConfig};
-use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct TrailingEmptyLines;
@@ -18,16 +18,12 @@ impl Cop for TrailingEmptyLines {
         if *bytes.last().unwrap() != b'\n' {
             // Missing final newline
             let line_count = bytes.iter().filter(|&&b| b == b'\n').count() + 1;
-            return vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location {
-                    line: line_count,
-                    column: 0,
-                },
-                severity: Severity::Convention,
-                cop_name: self.name().to_string(),
-                message: "Final newline missing.".to_string(),
-            }];
+            return vec![self.diagnostic(
+                source,
+                line_count,
+                0,
+                "Final newline missing.".to_string(),
+            )];
         }
 
         // Check for trailing blank lines (content ends with \n\n)
@@ -40,16 +36,12 @@ impl Cop for TrailingEmptyLines {
             // end is at the position of the first byte of the trailing \n sequence
             // The line after the last content line is the first trailing blank line
             let line_num = bytes[..end].iter().filter(|&&b| b == b'\n').count() + 2;
-            return vec![Diagnostic {
-                path: source.path_str().to_string(),
-                location: Location {
-                    line: line_num,
-                    column: 0,
-                },
-                severity: Severity::Convention,
-                cop_name: self.name().to_string(),
-                message: "Trailing blank line detected.".to_string(),
-            }];
+            return vec![self.diagnostic(
+                source,
+                line_num,
+                0,
+                "Trailing blank line detected.".to_string(),
+            )];
         }
 
         Vec::new()
