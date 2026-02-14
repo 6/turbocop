@@ -42,3 +42,4 @@ cargo run -- --debug .
 
 - Keep [PROGRESS.md](PROGRESS.md) up to date when completing milestone tasks. Check off items as done and update milestone status.
 - See [PLAN.md](PLAN.md) for full roadmap, cop batching strategy, and technical design decisions.
+- After adding a new cop, ensure `cargo test` passes — the `all_cops_have_minimum_test_coverage` integration test enforces that every cop has at least 2 offense fixture cases and 3+ lines in no_offense.rb. If a cop inherently has only 1 pattern, add it to the exemption list in `tests/integration.rs` with a comment explaining why.

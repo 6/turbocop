@@ -19,6 +19,9 @@ const SKIP_METHODS: &[&[u8]] = &[
     b"insert_all!",
     b"upsert",
     b"upsert_all",
+    b"increment_counter",
+    b"decrement_counter",
+    b"update_counters",
 ];
 
 impl Cop for SkipsModelValidations {

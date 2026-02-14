@@ -16,6 +16,8 @@ const OLD_VALIDATORS: &[(&[u8], &str)] = &[
     (b"validates_acceptance_of", "acceptance: true"),
     (b"validates_confirmation_of", "confirmation: true"),
     (b"validates_size_of", "length: { ... }"),
+    (b"validates_comparison_of", "comparison: { ... }"),
+    (b"validates_absence_of", "absence: true"),
 ];
 
 impl Cop for Validation {

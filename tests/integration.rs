@@ -844,6 +844,137 @@ fn json_formatter_includes_all_departments() {
     fs::remove_dir_all(&dir).ok();
 }
 
+// ---------- Include/Exclude integration tests ----------
+//
+// These tests exercise the full linter pipeline with path-based filtering.
+// Since run_linter receives absolute paths but Include/Exclude patterns are
+// relative, we construct config patterns using absolute paths to match.
+
+#[test]
+fn migration_cop_filtered_by_path() {
+    let dir = temp_dir("migration_path_filter");
+    // Use a config that sets Include with an absolute pattern matching our temp dir.
+    // This mirrors what default_include does but with absolute paths.
+    let dir_str = dir.display();
+    let config_yaml = format!(
+        "Rails/CreateTableWithTimestamps:\n  Include:\n    - '{dir_str}/db/migrate/**/*.rb'\n"
+    );
+    let config_path = write_file(&dir, ".rubocop.yml", config_yaml.as_bytes());
+    let migration_content = b"class CreateUsers < ActiveRecord::Migration[7.0]\n  def change\n    create_table :users do |t|\n      t.string :name\n    end\n  end\nend\n";
+    let migrate_file = write_file(&dir, "db/migrate/001_create_users.rb", migration_content);
+    let model_file = write_file(&dir, "app/models/user.rb", migration_content);
+    let config = load_config(Some(config_path.as_path())).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        only: vec!["Rails/CreateTableWithTimestamps".to_string()],
+        ..default_args()
+    };
+
+    let result = run_linter(&[migrate_file, model_file], &config, &registry, &args);
+
+    // Only the migration file should have offenses
+    let migrate_offenses: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.path.contains("db/migrate"))
+        .collect();
+    let model_offenses: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.path.contains("app/models"))
+        .collect();
+
+    assert!(
+        !migrate_offenses.is_empty(),
+        "CreateTableWithTimestamps should fire on db/migrate/ files"
+    );
+    assert!(
+        model_offenses.is_empty(),
+        "CreateTableWithTimestamps should NOT fire on app/models/ files (not in Include path)"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn global_exclude_skips_file() {
+    let dir = temp_dir("global_exclude");
+    // Use absolute pattern in AllCops.Exclude to match temp dir paths
+    let dir_str = dir.display();
+    let config_yaml = format!(
+        "AllCops:\n  Exclude:\n    - '{dir_str}/vendor/**'\n"
+    );
+    let config_path = write_file(&dir, ".rubocop.yml", config_yaml.as_bytes());
+    // Place a file with trailing whitespace in vendor/
+    let vendor_file = write_file(&dir, "vendor/foo.rb", b"x = 1  \n");
+    // Place the same file outside vendor/
+    let app_file = write_file(&dir, "app.rb", b"x = 1  \n");
+
+    let config = load_config(Some(config_path.as_path())).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        only: vec!["Layout/TrailingWhitespace".to_string()],
+        ..default_args()
+    };
+
+    let result = run_linter(&[vendor_file, app_file], &config, &registry, &args);
+
+    let vendor_offenses: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.path.contains("vendor"))
+        .collect();
+    let app_offenses: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.path.contains("app.rb"))
+        .collect();
+
+    assert!(
+        vendor_offenses.is_empty(),
+        "Global Exclude should prevent offenses on vendor/ files"
+    );
+    assert!(
+        !app_offenses.is_empty(),
+        "Non-excluded files should still have offenses"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn user_include_override_widens_scope() {
+    let dir = temp_dir("user_include_override");
+    // CreateTableWithTimestamps defaults to Include: db/migrate/**/*.rb
+    // Override to widen scope to all db/**/*.rb (using absolute path for temp dir)
+    let dir_str = dir.display();
+    let config_yaml = format!(
+        "Rails/CreateTableWithTimestamps:\n  Include:\n    - '{dir_str}/db/**/*.rb'\n"
+    );
+    let config_path = write_file(&dir, ".rubocop.yml", config_yaml.as_bytes());
+    let migration_content = b"class CreateUsers < ActiveRecord::Migration[7.0]\n  def change\n    create_table :users do |t|\n      t.string :name\n    end\n  end\nend\n";
+    // This file is in db/ but NOT in db/migrate/ — only matches the widened Include
+    let seeds_file = write_file(&dir, "db/seeds.rb", migration_content);
+    let config = load_config(Some(config_path.as_path())).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        only: vec!["Rails/CreateTableWithTimestamps".to_string()],
+        ..default_args()
+    };
+
+    let result = run_linter(&[seeds_file], &config, &registry, &args);
+
+    assert!(
+        !result.diagnostics.is_empty(),
+        "User Include override should widen scope to db/seeds.rb"
+    );
+    for d in &result.diagnostics {
+        assert_eq!(d.cop_name, "Rails/CreateTableWithTimestamps");
+    }
+
+    fs::remove_dir_all(&dir).ok();
+}
+
 // ---------- Test coverage guard ----------
 
 /// Convert CamelCase to snake_case, handling runs of uppercase letters.
@@ -869,6 +1000,253 @@ fn to_snake_case(s: &str) -> String {
         }
     }
     result
+}
+
+#[test]
+fn all_cops_have_minimum_test_coverage() {
+    let testdata = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/cops");
+    let registry = CopRegistry::default_registry();
+
+    // Cops exempt from the 2-offense minimum. Each entry must have a comment
+    // explaining why 1 offense is acceptable. Remove entries as coverage improves.
+    let offense_exemptions: &[&str] = &[
+        // --- Rails cops with inherently single patterns ---
+        "Rails/ApplicationController",  // only checks class parent != ApplicationController
+        "Rails/ApplicationJob",         // only checks class parent != ApplicationJob
+        "Rails/ApplicationMailer",      // only checks class parent != ApplicationMailer
+        "Rails/ApplicationRecord",      // only checks class parent != ApplicationRecord
+        "Rails/HasAndBelongsToMany",    // only checks for has_and_belongs_to_many call
+        "Rails/TableNameAssignment",    // only checks self.table_name =
+        // --- Non-Rails cops not yet enriched (future milestones) ---
+        // Layout
+        "Layout/AssignmentIndentation",
+        "Layout/BlockAlignment",
+        "Layout/CaseIndentation",
+        "Layout/ConditionPosition",
+        "Layout/DefEndAlignment",
+        "Layout/ElseAlignment",
+        "Layout/EmptyLineBetweenDefs",
+        "Layout/EmptyLines",
+        "Layout/EmptyLinesAroundBlockBody",
+        "Layout/EmptyLinesAroundClassBody",
+        "Layout/EmptyLinesAroundMethodBody",
+        "Layout/EmptyLinesAroundModuleBody",
+        "Layout/EndAlignment",
+        "Layout/EndOfLine",
+        "Layout/FirstArgumentIndentation",
+        "Layout/FirstArrayElementIndentation",
+        "Layout/FirstHashElementIndentation",
+        "Layout/IndentationConsistency",
+        "Layout/IndentationWidth",
+        "Layout/InitialIndentation",
+        "Layout/LeadingEmptyLines",
+        "Layout/LineLength",
+        "Layout/MultilineMethodCallIndentation",
+        "Layout/MultilineOperationIndentation",
+        "Layout/RescueEnsureAlignment",
+        "Layout/SpaceAfterColon",
+        "Layout/SpaceAfterComma",
+        "Layout/SpaceAfterSemicolon",
+        "Layout/SpaceAroundEqualsInParameterDefault",
+        "Layout/SpaceBeforeBlockBraces",
+        "Layout/SpaceBeforeComma",
+        "Layout/TrailingEmptyLines",
+        "Layout/TrailingWhitespace",
+        // Lint
+        "Lint/DuplicateCaseCondition",
+        "Lint/EachWithObjectArgument",
+        "Lint/ElseLayout",
+        "Lint/EmptyConditionalBody",
+        "Lint/EmptyWhen",
+        "Lint/EnsureReturn",
+        "Lint/FloatOutOfRange",
+        "Lint/LiteralAsCondition",
+        "Lint/Loop",
+        "Lint/NestedMethodDefinition",
+        "Lint/RaiseException",
+        "Lint/RedundantStringCoercion",
+        "Lint/SuppressedException",
+        "Lint/UriRegexp",
+        // Style
+        "Style/ClassAndModuleChildren",
+        "Style/Documentation",
+        "Style/EmptyMethod",
+        "Style/FrozenStringLiteralComment",
+        "Style/HashSyntax",
+        "Style/IfUnlessModifier",
+        "Style/Lambda",
+        "Style/MethodCallWithArgsParentheses",
+        "Style/NegatedIf",
+        "Style/NegatedWhile",
+        "Style/NumericLiterals",
+        "Style/ParenthesesAroundCondition",
+        "Style/Proc",
+        "Style/RaiseArgs",
+        "Style/RedundantReturn",
+        "Style/RescueModifier",
+        "Style/RescueStandardError",
+        "Style/Semicolon",
+        "Style/SignalException",
+        "Style/SingleLineMethods",
+        "Style/SpecialGlobalVars",
+        "Style/StabbyLambdaParentheses",
+        "Style/StringLiterals",
+        "Style/SymbolArray",
+        "Style/Tab",
+        "Style/TernaryParentheses",
+        "Style/TrailingCommaInArguments",
+        "Style/TrailingCommaInArrayLiteral",
+        "Style/TrailingCommaInHashLiteral",
+        "Style/WordArray",
+        "Style/YodaCondition",
+        // Performance
+        "Performance/AncestorsInclude",
+        "Performance/ArraySemiInfiniteRangeSlice",
+        "Performance/BindCall",
+        "Performance/BlockGivenWithExplicitBlock",
+        "Performance/CaseWhenSplat",
+        "Performance/CompareWithBlock",
+        "Performance/ConcurrentMonotonicTime",
+        "Performance/DeletePrefix",
+        "Performance/DeleteSuffix",
+        "Performance/Detect",
+        "Performance/DoubleStartEndWith",
+        "Performance/EndWith",
+        "Performance/InefficientHashSearch",
+        "Performance/MapMethodChain",
+        "Performance/MethodObjectAsBlock",
+        "Performance/RangeInclude",
+        "Performance/RedundantBlockCall",
+        "Performance/RedundantEqualityComparisonBlock",
+        "Performance/RedundantMerge",
+        "Performance/RedundantSortBlock",
+        "Performance/RedundantSplitRegexpArgument",
+        "Performance/RedundantStringChars",
+        "Performance/Size",
+        "Performance/SortReverse",
+        "Performance/Squeeze",
+        "Performance/StartWith",
+        "Performance/StringIdentifierArgument",
+        "Performance/StringInclude",
+        "Performance/StringReplacement",
+        "Performance/Sum",
+        "Performance/TimesMap",
+        "Performance/UnfreezeString",
+        // Metrics
+        "Metrics/AbcSize",
+        "Metrics/BlockLength",
+        "Metrics/ClassLength",
+        "Metrics/CyclomaticComplexity",
+        "Metrics/MethodLength",
+        "Metrics/ModuleLength",
+        "Metrics/ParameterLists",
+        "Metrics/PerceivedComplexity",
+        // Naming
+        "Naming/AccessorMethodName",
+        "Naming/AsciiIdentifiers",
+        "Naming/ClassAndModuleCamelCase",
+        "Naming/ConstantName",
+        "Naming/FileName",
+        "Naming/MethodName",
+        "Naming/PredicateName",
+        "Naming/VariableName",
+    ];
+
+    // Cops exempt from the 3-line no_offense.rb minimum.
+    let no_offense_exemptions: &[&str] = &[
+        // These cops have very narrow patterns where 1-2 no_offense lines suffice
+        "Layout/EndOfLine",        // no_offense is just a unix-ending file
+        "Layout/InitialIndentation", // no_offense is just a properly-indented file
+        "Layout/SpaceBeforeBlockBraces", // single line suffices
+        "Layout/TrailingEmptyLines", // no_offense is a file with correct trailing newline
+        "Lint/EachWithObjectArgument", // narrow pattern
+        "Lint/UriEscapeUnescape",  // narrow pattern
+        "Lint/UriRegexp",          // narrow pattern
+        "Naming/FileName",         // tested via filename, not content
+        // --- Non-Rails cops not yet enriched (future milestones) ---
+        "Layout/TrailingWhitespace",
+        "Layout/LeadingEmptyLines",
+        "Layout/EmptyLines",
+        "Layout/SpaceAfterSemicolon",
+        "Layout/SpaceBeforeComma",
+        "Layout/SpaceAroundEqualsInParameterDefault",
+        "Layout/SpaceInsideHashLiteralBraces",
+        "Layout/SpaceInsideArrayLiteralBrackets",
+        "Style/FrozenStringLiteralComment",
+        "Style/Lambda",
+        "Style/Proc",
+        "Style/StabbyLambdaParentheses",
+        "Style/TernaryParentheses",
+        "Performance/AncestorsInclude",
+        "Performance/BigDecimalWithNumericArgument",
+        "Performance/Caller",
+        "Performance/ConcurrentMonotonicTime",
+        "Performance/IoReadlines",
+        "Performance/MapMethodChain",
+        "Performance/MethodObjectAsBlock",
+        "Performance/OpenStruct",
+        "Performance/RangeInclude",
+        "Performance/RedundantMatch",
+        "Performance/RegexpMatch",
+        "Performance/UriDefaultParser",
+    ];
+
+    let mut failures = Vec::new();
+
+    for cop_name in registry.names() {
+        let parts: Vec<&str> = cop_name.split('/').collect();
+        let dept = parts[0].to_lowercase();
+        let name = to_snake_case(parts[1]);
+
+        let dir = testdata.join(&dept).join(&name);
+        let dir_alt = testdata.join(&dept).join(format!("{name}_cop"));
+        let effective_dir = if dir.exists() {
+            &dir
+        } else if dir_alt.exists() {
+            &dir_alt
+        } else {
+            continue; // all_cops_have_fixture_files covers this
+        };
+
+        // Check offense.rb has at least 2 annotated cases.
+        // Count annotation lines: lines where first non-whitespace is '^' followed
+        // by ': ' and '/' (matching the fixture annotation format).
+        if let Ok(offense_content) = fs::read_to_string(effective_dir.join("offense.rb")) {
+            let annotation_count = offense_content
+                .lines()
+                .filter(|line| {
+                    let trimmed = line.trim_start();
+                    trimmed.starts_with('^')
+                        && trimmed.contains(": ")
+                        && trimmed.contains('/')
+                })
+                .count();
+            if annotation_count < 2 && !offense_exemptions.contains(&cop_name) {
+                failures.push(format!(
+                    "{cop_name}: only {annotation_count} offense case(s) in offense.rb, need at least 2"
+                ));
+            }
+        }
+
+        // Check no_offense.rb has at least 3 non-empty lines
+        if let Ok(no_offense_content) = fs::read_to_string(effective_dir.join("no_offense.rb")) {
+            let non_empty = no_offense_content
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .count();
+            if non_empty < 3 && !no_offense_exemptions.contains(&cop_name) {
+                failures.push(format!(
+                    "{cop_name}: only {non_empty} non-empty line(s) in no_offense.rb, need at least 3"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "Cops below minimum test coverage thresholds:\n{}",
+        failures.join("\n")
+    );
 }
 
 #[test]
