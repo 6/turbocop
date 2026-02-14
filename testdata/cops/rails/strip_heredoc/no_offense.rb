@@ -1,0 +1,2 @@
+text.strip
+text.chomp

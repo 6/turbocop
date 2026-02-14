@@ -1,0 +1,3 @@
+Rails.env
+ENV['HOME']
+ENV['DATABASE_URL']

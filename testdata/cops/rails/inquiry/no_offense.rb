@@ -1,0 +1,2 @@
+status == "active"
+status.active?

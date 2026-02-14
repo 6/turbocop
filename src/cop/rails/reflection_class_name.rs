@@ -1,0 +1,61 @@
+use crate::cop::util::keyword_arg_value;
+use crate::cop::{Cop, CopConfig};
+use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::source::SourceFile;
+
+pub struct ReflectionClassName;
+
+const ASSOCIATION_METHODS: &[&[u8]] = &[
+    b"has_many",
+    b"has_one",
+    b"belongs_to",
+    b"has_and_belongs_to_many",
+];
+
+impl Cop for ReflectionClassName {
+    fn name(&self) -> &'static str {
+        "Rails/ReflectionClassName"
+    }
+
+    fn default_severity(&self) -> Severity {
+        Severity::Convention
+    }
+
+    fn check_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
+        let call = match node.as_call_node() {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+        if call.receiver().is_some() {
+            return Vec::new();
+        }
+        if !ASSOCIATION_METHODS.contains(&call.name().as_slice()) {
+            return Vec::new();
+        }
+        if let Some(value) = keyword_arg_value(&call, b"class_name") {
+            if value.as_string_node().is_some() {
+                let loc = node.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use a constant instead of a string for `class_name`.".to_string(),
+                )];
+            }
+        }
+        Vec::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    crate::cop_fixture_tests!(ReflectionClassName, "cops/rails/reflection_class_name");
+}

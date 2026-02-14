@@ -67,8 +67,8 @@ fn lint_file(
             continue;
         }
 
-        // Check config
-        if !config.is_cop_enabled(name, path) {
+        // Check config (with cop's default include/exclude patterns)
+        if !config.is_cop_enabled(name, path, cop.default_include(), cop.default_exclude()) {
             continue;
         }
 

@@ -1,0 +1,4 @@
+I18n.t("simple_key")
+I18n.t("one.two")
+t(".title")
+t("hello")

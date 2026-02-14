@@ -1,0 +1,53 @@
+use crate::cop::{Cop, CopConfig};
+use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::source::SourceFile;
+
+pub struct TableNameAssignment;
+
+impl Cop for TableNameAssignment {
+    fn name(&self) -> &'static str {
+        "Rails/TableNameAssignment"
+    }
+
+    fn default_severity(&self) -> Severity {
+        Severity::Convention
+    }
+
+    fn check_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
+        let call = match node.as_call_node() {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+        if call.name().as_slice() != b"table_name=" {
+            return Vec::new();
+        }
+        // Must have `self` as receiver
+        let receiver = match call.receiver() {
+            Some(r) => r,
+            None => return Vec::new(),
+        };
+        if receiver.as_self_node().is_none() {
+            return Vec::new();
+        }
+        let loc = node.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        vec![self.diagnostic(
+            source,
+            line,
+            column,
+            "Do not set `self.table_name`. Use conventions or rename the table.".to_string(),
+        )]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    crate::cop_fixture_tests!(TableNameAssignment, "cops/rails/table_name_assignment");
+}

@@ -1,0 +1,2 @@
+request.referrer
+request.url

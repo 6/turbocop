@@ -1,0 +1,2 @@
+File.read(Rails.root.join("config", "database.yml"))
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RootPathnameMethods: Use `Rails.root.join(...).read` instead of `File.read(Rails.root.join(...))`.

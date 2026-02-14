@@ -312,7 +312,153 @@ All files compile, binary runs, produces "0 offenses detected."
 - [x] 513 tests passing (490 unit + 23 integration)
 - [x] Test coverage guard: `all_cops_have_fixture_files` integration test
 
-## Next: M6 — bin/lint + --rubocop-only
+## Completed: M6 — rubocop-rails (98 cops) + Include/Exclude Infrastructure
+
+98 new Rails department cops (251 total), Include/Exclude path pattern enforcement, Cop trait default_include/default_exclude.
+
+### M6 Infrastructure
+
+- [x] **src/config/mod.rs** — `is_cop_enabled()` now enforces Include/Exclude glob patterns using `globset`
+- [x] **src/config/mod.rs** — `glob_matches()` helper for RuboCop-style pattern matching
+- [x] **src/config/mod.rs** — Global excludes (AllCops.Exclude) now applied in path filtering
+- [x] **src/cop/mod.rs** — Added `default_include()` and `default_exclude()` methods to Cop trait
+- [x] **src/linter.rs** — Passes cop's default include/exclude to `is_cop_enabled()`
+- [x] **src/cop/rails/mod.rs** — New Rails department with `register_all()`
+- [x] **src/cop/util.rs** — Added Rails-specific helpers: `parent_class_name`, `is_dsl_call`, `class_body_calls`, `has_keyword_arg`, `keyword_arg_value`, `constant_name`, `full_constant_path`, `MethodChain3`, `as_method_chain3`
+
+### M6 Cops — Rails: Method Call Detection (22)
+
+- [x] Rails/Exit — flag `exit`/`exit!` calls
+- [x] Rails/Output — flag `puts`/`print`/`p`/`pp` calls
+- [x] Rails/OutputSafety — flag `html_safe`/`raw` calls
+- [x] Rails/Blank — `!present?` → `blank?`
+- [x] Rails/Present — `!blank?` → `present?`
+- [x] Rails/NegateInclude — `!include?` → `exclude?`
+- [x] Rails/SafeNavigation — `try`/`try!` → safe navigation `&.`
+- [x] Rails/Delegate — manual delegation → `delegate`
+- [x] Rails/DelegateAllowBlank — flag invalid `allow_blank` option
+- [x] Rails/RequestReferer — `referer` → `referrer`
+- [x] Rails/RefuteMethods — `refute_*` → `assert_not_*`
+- [x] Rails/ToFormattedS — `to_formatted_s` → `to_fs`
+- [x] Rails/ToSWithArgument — `to_s(:format)` → `to_fs`
+- [x] Rails/StripHeredoc — `strip_heredoc` → squiggly heredoc
+- [x] Rails/Inquiry — flag `.inquiry` calls
+- [x] Rails/PluckId — `pluck(:id)` → `ids`
+- [x] Rails/Pluck — `map { |x| x[:key] }` → `pluck`
+- [x] Rails/IndexBy — `map.to_h` → `index_by`
+- [x] Rails/WhereNot — flag manual negated SQL → `where.not`
+- [x] Rails/WhereExists — `where.exists?` → `exists?`
+- [x] Rails/PluckInWhere — flag `pluck` inside `where`
+- [x] Rails/ActiveSupportAliases — `starts_with?`/`ends_with?` → standard Ruby
+
+### M6 Cops — Rails: Method Chain Detection (18)
+
+- [x] Rails/FindBy — `where.first` → `find_by`
+- [x] Rails/FindEach — `all.each` → `find_each`
+- [x] Rails/CompactBlank — `reject(&:blank?)` → `compact_blank`
+- [x] Rails/Pick — `pluck.first` → `pick`
+- [x] Rails/ContentTag — `content_tag` → `tag.*`
+- [x] Rails/SelectMap — `select.map` → `filter_map`
+- [x] Rails/RootJoinChain — chained `.join` → single `join`
+- [x] Rails/RootPathnameMethods — `File.read(Rails.root.join)` → pathname methods
+- [x] Rails/RootPublicPath — `Rails.root.join('public')` → `Rails.public_path`
+- [x] Rails/FilePath — multi-arg `join` → single path string
+- [x] Rails/ResponseParsedBody — `JSON.parse(response.body)` → `parsed_body`
+- [x] Rails/RedundantActiveRecordAllMethod — remove redundant `.all`
+- [x] Rails/HelperInstanceVariable — flag instance variables in helpers
+- [x] Rails/UnusedRenderContent — flag content with head-only status
+- [x] Rails/RedundantTravelBack — redundant `travel_back`
+- [x] Rails/DurationArithmetic — `Time.now + 1.day` → `1.day.from_now`
+- [x] Rails/ExpandedDateRange — explicit date range → `all_day`
+- [x] Rails/WhereRange — SQL comparison → range in `where`
+
+### M6 Cops — Rails: Time/Date (7)
+
+- [x] Rails/Date — `Date.today` → `Date.current`
+- [x] Rails/TimeZone — `Time.now` → `Time.zone.now`
+- [x] Rails/RelativeDateConstant — flag relative date in constants
+- [x] Rails/FreezeTime — `travel_to(Time.now)` → `freeze_time`
+- [x] Rails/TimeZoneAssignment — flag `Time.zone =`
+- [x] Rails/DotSeparatedKeys — dot-separated i18n keys
+- [x] Rails/ShortI18n — `translate` → `t`, `localize` → `l`
+
+### M6 Cops — Rails: Class Structure (15)
+
+- [x] Rails/ApplicationController — `ActionController::Base` → `ApplicationController`
+- [x] Rails/ApplicationRecord — `ActiveRecord::Base` → `ApplicationRecord`
+- [x] Rails/ApplicationJob — `ActiveJob::Base` → `ApplicationJob`
+- [x] Rails/ApplicationMailer — `ActionMailer::Base` → `ApplicationMailer`
+- [x] Rails/HasManyOrHasOneDependent — flag missing `:dependent`
+- [x] Rails/InverseOf — flag missing `:inverse_of` with `:foreign_key`
+- [x] Rails/HasAndBelongsToMany — flag HABTM → `has_many :through`
+- [x] Rails/DuplicateAssociation — flag duplicate association names
+- [x] Rails/DuplicateScope — flag duplicate scope names
+- [x] Rails/ReadWriteAttribute — `read_attribute`/`write_attribute` → `self[]`
+- [x] Rails/ActionOrder — non-standard controller action ordering
+- [x] Rails/ActiveRecordCallbacksOrder — callback lifecycle ordering
+- [x] Rails/ActionControllerTestCase — flag `ActionController::TestCase`
+- [x] Rails/LexicallyScopedActionFilter — filter action name checks
+- [x] Rails/ActionControllerFlashBeforeRender — `flash` before `render`
+
+### M6 Cops — Rails: Validation (4)
+
+- [x] Rails/Validation — `validates_*_of` → `validates`
+- [x] Rails/RedundantAllowNil — redundant `allow_nil` with `presence`
+- [x] Rails/RedundantPresenceValidationOnBelongsTo — redundant presence on `belongs_to`
+- [x] Rails/AttributeDefaultBlockValue — mutable `default:` → block form
+
+### M6 Cops — Rails: Environment/Config (8)
+
+- [x] Rails/EnvironmentComparison — `Rails.env ==` → predicate method
+- [x] Rails/EnvironmentVariableAccess — `ENV[]` → `ENV.fetch`
+- [x] Rails/Env — `ENV['RAILS_ENV']` → `Rails.env`
+- [x] Rails/UnknownEnv — flag non-standard environment names
+- [x] Rails/RakeEnvironment — flag missing `:environment` dependency
+- [x] Rails/EnvLocal — `development? || test?` → `local?`
+- [x] Rails/I18nLocaleAssignment — `I18n.locale =` → `with_locale`
+- [x] Rails/I18nLazyLookup — flag full i18n keys → lazy lookup
+
+### M6 Cops — Rails: Migration (7)
+
+- [x] Rails/CreateTableWithTimestamps — flag missing `t.timestamps`
+- [x] Rails/NotNullColumn — flag NOT NULL without default
+- [x] Rails/ThreeStateBooleanColumn — flag boolean without `null: false`
+- [x] Rails/DangerousColumnNames — flag reserved column names
+- [x] Rails/AddColumnIndex — flag `_id` columns without index
+- [x] Rails/MigrationClassName — migration class name conventions
+- [x] Rails/SchemaComment — flag missing table/column comments
+
+### M6 Cops — Rails: Enum (3)
+
+- [x] Rails/EnumHash — array enum → hash enum
+- [x] Rails/EnumSyntax — old enum syntax → Rails 7+ syntax
+- [x] Rails/EnumUniqueness — flag duplicate enum values
+
+### M6 Cops — Rails: Remaining (14)
+
+- [x] Rails/HttpPositionalArguments — positional → keyword args in HTTP test methods
+- [x] Rails/HttpStatus — numeric → symbolic HTTP status
+- [x] Rails/HttpStatusNameConsistency — consistent status code style
+- [x] Rails/DynamicFindBy — `find_by_name` → `find_by(name:)`
+- [x] Rails/SkipsModelValidations — flag validation-skipping methods
+- [x] Rails/ScopeArgs — scope without lambda
+- [x] Rails/ReflectionClassName — string `class_name:` → constant
+- [x] Rails/RedundantForeignKey — flag conventional foreign key
+- [x] Rails/RenderInline — flag `render inline:`
+- [x] Rails/RenderPlainText — `render text:` → `render plain:`
+- [x] Rails/ReversibleMigrationMethodDefinition — `up`/`down` or `change`
+- [x] Rails/TableNameAssignment — flag `self.table_name =`
+- [x] Rails/AfterCommitOverride — flag multiple `after_commit`
+- [x] Rails/TransactionExitStatement — flag `return`/`break`/`throw` in transaction
+
+### M6 Summary
+
+- [x] **src/cop/registry.rs** — `default_registry()` registers all 251 cops
+- [x] **src/cop/rails/** — 98 new cop source files
+- [x] **testdata/cops/rails/** — 196 new fixture files (offense + no_offense for each new cop)
+- [x] 714 tests passing (691 unit + 23 integration)
+- [x] Include/Exclude path pattern enforcement infrastructure
+- [x] Test coverage guard: `all_cops_have_fixture_files` covers all 251 cops
 
 ## Upcoming Milestones
 
@@ -324,7 +470,6 @@ All files compile, binary runs, produces "0 offenses detected."
 | **M3**: AST single-node | 70 | **Done** |
 | **M4**: Performance cops | 117 | **Done** |
 | **M5**: Complex core cops | 153 | **Done** |
-| **M6**: bin/lint + --rubocop-only | 0 new | Pending |
+| **M6**: rubocop-rails + Include/Exclude | 251 | **Done** |
 | **M7**: Autocorrect | +30 fixes | Pending |
 | **M8**: rubocop-rspec | 80 | Pending |
-| **M9**: rubocop-rails | 70 | Pending |

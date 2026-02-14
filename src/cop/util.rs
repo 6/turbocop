@@ -320,6 +320,151 @@ pub fn check_first_element_indentation(
     Vec::new()
 }
 
+// ── Rails-specific helpers ─────────────────────────────────────────────
+
+/// Extract the superclass constant name from a ClassNode.
+///
+/// For `class Foo < ActiveRecord::Base`, returns `Some(b"ActiveRecord::Base")`.
+/// Returns `None` if the class has no superclass or the superclass isn't a
+/// simple constant or constant path.
+pub fn parent_class_name<'a>(
+    source: &'a SourceFile,
+    class_node: &ruby_prism::ClassNode<'a>,
+) -> Option<&'a [u8]> {
+    let superclass = class_node.superclass()?;
+    let loc = superclass.location();
+    Some(&source.as_bytes()[loc.start_offset()..loc.end_offset()])
+}
+
+/// Check if a CallNode is a receiverless DSL-style call with the given method name.
+///
+/// Matches patterns like `has_many`, `validates`, `before_action` etc.
+pub fn is_dsl_call(call: &ruby_prism::CallNode<'_>, name: &[u8]) -> bool {
+    call.receiver().is_none() && call.name().as_slice() == name
+}
+
+/// Get all direct call statements from a class body's StatementsNode.
+///
+/// Returns an iterator over CallNode entries in the class body at the top level
+/// (not nested inside methods).
+pub fn class_body_calls<'a>(
+    class_node: &ruby_prism::ClassNode<'a>,
+) -> Vec<ruby_prism::CallNode<'a>> {
+    let body = match class_node.body() {
+        Some(b) => b,
+        None => return Vec::new(),
+    };
+    let stmts = match body.as_statements_node() {
+        Some(s) => s,
+        None => return Vec::new(),
+    };
+    stmts
+        .body()
+        .iter()
+        .filter_map(|node| node.as_call_node())
+        .collect()
+}
+
+/// Check if a CallNode has a keyword argument with the given key name.
+///
+/// Looks for `key: value` in the call's argument list.
+pub fn has_keyword_arg(call: &ruby_prism::CallNode<'_>, key: &[u8]) -> bool {
+    keyword_arg_value(call, key).is_some()
+}
+
+/// Get the value node of a keyword argument with the given key name.
+///
+/// For `has_many :items, dependent: :destroy`, `keyword_arg_value(call, b"dependent")`
+/// returns the SymbolNode for `:destroy`.
+pub fn keyword_arg_value<'a>(
+    call: &ruby_prism::CallNode<'a>,
+    key: &[u8],
+) -> Option<ruby_prism::Node<'a>> {
+    let args = call.arguments()?;
+    for arg in args.arguments().iter() {
+        // Direct keyword hash pairs in arguments
+        if let Some(kw) = arg.as_keyword_hash_node() {
+            for elem in kw.elements().iter() {
+                if let Some(assoc) = elem.as_assoc_node() {
+                    if let Some(sym) = assoc.key().as_symbol_node() {
+                        if sym.unescaped() == key {
+                            return Some(assoc.value());
+                        }
+                    }
+                }
+            }
+        }
+        // Hash literal as last argument
+        if let Some(hash) = arg.as_hash_node() {
+            for elem in hash.elements().iter() {
+                if let Some(assoc) = elem.as_assoc_node() {
+                    if let Some(sym) = assoc.key().as_symbol_node() {
+                        if sym.unescaped() == key {
+                            return Some(assoc.value());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Get the constant name (last segment) from a constant path or constant read node.
+///
+/// For `ActiveRecord::Base`, returns `b"Base"`.
+/// For `User`, returns `b"User"`.
+pub fn constant_name<'a>(node: &ruby_prism::Node<'a>) -> Option<&'a [u8]> {
+    if let Some(cr) = node.as_constant_read_node() {
+        return Some(cr.name().as_slice());
+    }
+    if let Some(cp) = node.as_constant_path_node() {
+        if let Some(name_node) = cp.name() {
+            return Some(name_node.as_slice());
+        }
+    }
+    None
+}
+
+/// Get the full constant path string from source bytes.
+///
+/// For a ConstantPathNode like `ActiveRecord::Base`, extracts the full text.
+pub fn full_constant_path<'a>(
+    source: &'a SourceFile,
+    node: &ruby_prism::Node<'_>,
+) -> &'a [u8] {
+    let loc = node.location();
+    &source.as_bytes()[loc.start_offset()..loc.end_offset()]
+}
+
+/// Extract a 3-method chain from a node.
+///
+/// If `node` is a CallNode `x.c()` whose receiver is `y.b()` whose receiver is `z.a()`,
+/// returns the three method names and call nodes.
+pub struct MethodChain3<'a> {
+    pub innermost_call: ruby_prism::CallNode<'a>,
+    pub innermost_method: &'a [u8],
+    pub middle_method: &'a [u8],
+    pub outer_method: &'a [u8],
+}
+
+pub fn as_method_chain3<'a>(node: &ruby_prism::Node<'a>) -> Option<MethodChain3<'a>> {
+    let outer_call = node.as_call_node()?;
+    let outer_method = outer_call.name().as_slice();
+    let mid_recv = outer_call.receiver()?;
+    let mid_call = mid_recv.as_call_node()?;
+    let middle_method = mid_call.name().as_slice();
+    let inner_recv = mid_call.receiver()?;
+    let innermost_call = inner_recv.as_call_node()?;
+    let innermost_method = innermost_call.name().as_slice();
+    Some(MethodChain3 {
+        innermost_call,
+        innermost_method,
+        middle_method,
+        outer_method,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -3,6 +3,7 @@ pub mod lint;
 pub mod metrics;
 pub mod naming;
 pub mod performance;
+pub mod rails;
 pub mod registry;
 pub mod style;
 pub mod util;
@@ -71,6 +72,18 @@ pub trait Cop: Send + Sync {
 
     fn default_severity(&self) -> Severity {
         Severity::Convention
+    }
+
+    /// Default Include patterns for this cop. If non-empty, the cop only runs
+    /// on files matching at least one pattern. User config overrides these.
+    fn default_include(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// Default Exclude patterns for this cop. If non-empty, the cop is skipped
+    /// on files matching any pattern. User config overrides these.
+    fn default_exclude(&self) -> &'static [&'static str] {
+        &[]
     }
 
     /// Create a Diagnostic with standard fields filled in.
