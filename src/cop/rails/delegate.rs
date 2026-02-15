@@ -65,21 +65,25 @@ impl Cop for Delegate {
             None => return Vec::new(),
         };
 
-        // Receiver must be an instance-level reference (local variable, method call,
-        // instance variable), NOT a constant (class methods can't use `delegate`).
-        if receiver.as_constant_read_node().is_some()
-            || receiver.as_constant_path_node().is_some()
-        {
-            return Vec::new();
-        }
+        // Receiver must be a delegatable target:
+        // - Instance variable (@foo.bar → delegate :bar, to: :foo)
+        // - Simple method/local variable (foo.bar → delegate :bar, to: :foo)
+        // NOT: constants, literals, chained calls, self, etc.
+        let is_delegatable_receiver = if receiver.as_instance_variable_read_node().is_some() {
+            true
+        } else if let Some(recv_call) = receiver.as_call_node() {
+            // Simple receiverless method call (acts as a local variable)
+            recv_call.receiver().is_none()
+                && recv_call.arguments().is_none()
+                && recv_call.block().is_none()
+        } else if receiver.as_local_variable_read_node().is_some() {
+            true
+        } else {
+            false
+        };
 
-        // The receiver should be a simple reference, not a chained call.
-        // e.g., `client.name` is OK (client is receiverless), but
-        // `client.name.upcase` is not (upcase's receiver is client.name).
-        if let Some(recv_call) = receiver.as_call_node() {
-            if recv_call.receiver().is_some() {
-                return Vec::new();
-            }
+        if !is_delegatable_receiver {
+            return Vec::new();
         }
 
         // The delegated call should have no arguments (simple forwarding)
