@@ -3,7 +3,7 @@ def get_value
   @value
 end
 
-def set_value
+def set_value(value)
     ^^^^^^^^^ Naming/AccessorMethodName: Do not prefix writer method names with `set_`.
   @value = value
 end

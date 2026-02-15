@@ -29,8 +29,13 @@ impl Cop for Size {
             return Vec::new();
         }
 
-        // Must have a receiver (bare `count` is not what we're looking for)
-        if call.receiver().is_none() {
+        // Must have a receiver that is an Array or Hash literal (not AR relations etc.)
+        let recv = match call.receiver() {
+            Some(r) => r,
+            None => return Vec::new(),
+        };
+
+        if recv.as_array_node().is_none() && recv.as_hash_node().is_none() {
             return Vec::new();
         }
 

@@ -22,6 +22,13 @@ impl Cop for TrailingCommaInArrayLiteral {
             None => return Vec::new(),
         };
 
+        // Skip %w(), %W(), %i(), %I() word/symbol arrays — they don't use commas
+        if let Some(opening) = array_node.opening_loc() {
+            if source.as_bytes().get(opening.start_offset()) == Some(&b'%') {
+                return Vec::new();
+            }
+        }
+
         let closing_loc = match array_node.closing_loc() {
             Some(loc) => loc,
             None => return Vec::new(),

@@ -9,3 +9,8 @@
 x = { name: "Alice", age: 30 }
 
 foo(option: true)
+
+# Mixed key types — don't flag symbol keys with =>
+{ "string_key" => "value", :symbol_key => 1 }
+
+{ "@type" => "Person", :name => "Alice", :age => 30 }

@@ -27,9 +27,16 @@ impl Cop for AccessorMethodName {
             Err(_) => return Vec::new(),
         };
 
-        let message = if name_str.starts_with("get_") {
+        // Count required parameters (excludes optional, rest, keyword, block)
+        let param_count = def_node
+            .parameters()
+            .map_or(0, |params| params.requireds().len());
+
+        let message = if name_str.starts_with("get_") && param_count == 0 {
+            // Reader methods: get_* with no arguments
             "Do not prefix reader method names with `get_`."
-        } else if name_str.starts_with("set_") {
+        } else if name_str.starts_with("set_") && param_count == 1 {
+            // Writer methods: set_* with exactly one argument
             "Do not prefix writer method names with `set_`."
         } else {
             return Vec::new();
