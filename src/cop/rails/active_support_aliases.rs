@@ -4,6 +4,17 @@ use crate::parse::source::SourceFile;
 
 pub struct ActiveSupportAliases;
 
+/// Check if the receiver is a string literal node.
+fn is_string_receiver(receiver: &ruby_prism::Node<'_>) -> bool {
+    receiver.as_string_node().is_some()
+        || receiver.as_interpolated_string_node().is_some()
+}
+
+/// Check if the receiver is an array literal node.
+fn is_array_receiver(receiver: &ruby_prism::Node<'_>) -> bool {
+    receiver.as_array_node().is_some()
+}
+
 impl Cop for ActiveSupportAliases {
     fn name(&self) -> &'static str {
         "Rails/ActiveSupportAliases"
@@ -25,15 +36,26 @@ impl Cop for ActiveSupportAliases {
             None => return Vec::new(),
         };
 
-        if call.receiver().is_none() {
-            return Vec::new();
-        }
+        let receiver = match call.receiver() {
+            Some(r) => r,
+            None => return Vec::new(),
+        };
 
         let name = call.name().as_slice();
-        let replacement = if name == b"starts_with?" {
-            "start_with?"
-        } else if name == b"ends_with?" {
-            "end_with?"
+        let replacement = if (name == b"starts_with?" || name == b"ends_with?")
+            && is_string_receiver(&receiver)
+        {
+            if name == b"starts_with?" {
+                "start_with?"
+            } else {
+                "end_with?"
+            }
+        } else if (name == b"append" || name == b"prepend") && is_array_receiver(&receiver) {
+            if name == b"append" {
+                "<<"
+            } else {
+                "unshift"
+            }
         } else {
             return Vec::new();
         };

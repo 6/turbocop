@@ -16,7 +16,7 @@ end
 
 RSpec.describe Baz do
   it do
-    expect(subject.a).to eq(3)
+    subject
     nested_block do
       expect { on_shard(:europe) { subject } }.to not_change { Baz.count }
                                    ^^^^^^^ RSpec/RepeatedSubjectCall: Calls to subject are memoized, this block is misleading

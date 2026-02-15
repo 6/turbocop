@@ -108,6 +108,9 @@ fn example_signature(source: &SourceFile, call: &ruby_prism::CallNode<'_>) -> Op
 }
 
 fn is_example_group(name: &[u8]) -> bool {
+    // NOTE: shared_examples, shared_examples_for, and shared_context are
+    // intentionally excluded — RuboCop's RepeatedDescription only fires on
+    // ExampleGroups (describe/context/feature), not SharedGroups.
     matches!(
         name,
         b"describe"
@@ -120,9 +123,6 @@ fn is_example_group(name: &[u8]) -> bool {
             | b"fdescribe"
             | b"fcontext"
             | b"ffeature"
-            | b"shared_examples"
-            | b"shared_examples_for"
-            | b"shared_context"
     )
 }
 

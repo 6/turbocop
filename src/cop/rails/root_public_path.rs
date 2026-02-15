@@ -21,8 +21,6 @@ impl Cop for RootPublicPath {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // Pattern: Rails.root.join("public")
-        // 3-chain: Rails (const) -> root -> join("public")
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -32,20 +30,22 @@ impl Cop for RootPublicPath {
             return Vec::new();
         }
 
-        // Must have exactly one string argument "public"
+        // Must have at least one argument, first must be a string starting with "public"
         let args = match call.arguments() {
             Some(a) => a,
             None => return Vec::new(),
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
-        if arg_list.len() != 1 {
+        if arg_list.is_empty() {
             return Vec::new();
         }
-        let string_val = match arg_list[0].as_string_node() {
+        let first_str = match arg_list[0].as_string_node() {
             Some(s) => s,
             None => return Vec::new(),
         };
-        if string_val.unescaped() != b"public" {
+        let content = first_str.unescaped();
+        // Match strings like "public", "public/file.pdf"
+        if content != b"public" && !content.starts_with(b"public/") {
             return Vec::new();
         }
 
@@ -62,12 +62,11 @@ impl Cop for RootPublicPath {
             return Vec::new();
         }
 
-        // root's receiver should be constant `Rails`
+        // root's receiver should be constant `Rails` or `::Rails`
         let rails_recv = match root_call.receiver() {
             Some(r) => r,
             None => return Vec::new(),
         };
-        // Handle both ConstantReadNode (Rails) and ConstantPathNode (::Rails)
         if util::constant_name(&rails_recv) != Some(b"Rails") {
             return Vec::new();
         }
@@ -78,7 +77,7 @@ impl Cop for RootPublicPath {
             source,
             line,
             column,
-            "Use `Rails.public_path` instead of `Rails.root.join('public')`.".to_string(),
+            "Use `Rails.public_path`.".to_string(),
         )]
     }
 }

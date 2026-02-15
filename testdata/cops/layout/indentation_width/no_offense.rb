@@ -39,3 +39,10 @@ when 1
 when 2
   do_other
 end
+
+# Block on chained method — body indented relative to dot
+source.passive_relationships
+      .where(account: Account.local)
+      .in_batches do |follows|
+        process(follows)
+      end

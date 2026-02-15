@@ -44,25 +44,38 @@ impl Cop for EmptyLineAfterExampleGroup {
         let end_offset = loc.end_offset().saturating_sub(1).max(loc.start_offset());
         let (end_line, _) = source.offset_to_line_col(end_offset);
 
-        // Check if the next line is blank
-        let next_line = end_line + 1;
-        let next_content = line_at(source, next_line);
-        match next_content {
-            Some(line) => {
-                if is_blank_line(line) {
-                    return Vec::new();
-                }
-
-                // Check for `end` line (last item before end)
-                let trimmed = line.iter().position(|&b| b != b' ' && b != b'\t');
-                if let Some(start) = trimmed {
-                    let rest = &line[start..];
-                    if rest.starts_with(b"end") && (rest.len() == 3 || !rest[3].is_ascii_alphanumeric()) {
-                        return Vec::new();
-                    }
-                }
+        // Check the lines after the example group end.
+        // Skip if:
+        //   - next line is blank (already has empty line)
+        //   - next non-blank/non-comment line is `end` (last item in parent group)
+        //   - no more lines (end of file)
+        let total_lines = source.lines().count();
+        let mut check_line = end_line + 1;
+        loop {
+            if check_line > total_lines {
+                return Vec::new(); // End of file
             }
-            None => return Vec::new(),
+            match line_at(source, check_line) {
+                Some(line) => {
+                    if is_blank_line(line) {
+                        return Vec::new(); // Found blank line — OK
+                    }
+                    let trimmed_start = line.iter().position(|&b| b != b' ' && b != b'\t');
+                    if let Some(start) = trimmed_start {
+                        let rest = &line[start..];
+                        if rest.starts_with(b"#") {
+                            // Comment line — keep scanning
+                            check_line += 1;
+                            continue;
+                        }
+                        if rest.starts_with(b"end") && (rest.len() == 3 || !rest[3].is_ascii_alphanumeric()) {
+                            return Vec::new(); // Next meaningful line is `end` — OK
+                        }
+                    }
+                    break; // Found a non-blank, non-comment, non-end line — offense
+                }
+                None => return Vec::new(),
+            }
         }
 
         let method_str = std::str::from_utf8(method_name).unwrap_or("describe");

@@ -31,3 +31,13 @@ RSpec.describe HeredocCase do
 
   it { expect(template).to include('some') }
 end
+
+# Blank line followed by comment before next statement is OK
+RSpec.describe CommentCase do
+  let(:status) { build(:status) }
+
+  # Set up the environment
+  before do
+    status.save!
+  end
+end

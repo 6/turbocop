@@ -118,6 +118,41 @@ impl Cop for ChangeByZero {
             return Vec::new();
         }
 
+        // RuboCop's expect_change_with_block pattern requires the block body
+        // to be a simple send with no arguments: (send (...) _).
+        // If the change call has a block, validate the block body structure.
+        if let Some(block) = change_call.block() {
+            if let Some(bn) = block.as_block_node() {
+                let body_ok = if let Some(body) = bn.body() {
+                    // Check if body is a simple send with no arguments
+                    if let Some(body_call) = body.as_call_node() {
+                        body_call.receiver().is_some()
+                            && body_call.arguments().is_none()
+                    } else if let Some(stmts) = body.as_statements_node() {
+                        // StatementsNode with a single statement that is a simple send
+                        let stmts_list: Vec<_> = stmts.body().iter().collect();
+                        if stmts_list.len() == 1 {
+                            if let Some(body_call) = stmts_list[0].as_call_node() {
+                                body_call.receiver().is_some()
+                                    && body_call.arguments().is_none()
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+                if !body_ok {
+                    return Vec::new();
+                }
+            }
+        }
+
         // Flag from the change call to the end of .by(0)
         let change_loc = change_call.location();
         let (line, column) = source.offset_to_line_col(change_loc.start_offset());

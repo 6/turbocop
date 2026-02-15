@@ -6,27 +6,71 @@ use crate::parse::source::SourceFile;
 
 pub struct CreateTableWithTimestamps;
 
-/// Walk a node tree looking for a call to `timestamps`.
+/// Walk a node tree looking for `timestamps` or `datetime :created_at/:updated_at`.
 struct TimestampFinder {
     found: bool,
 }
 
 impl<'pr> Visit<'pr> for TimestampFinder {
-    fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
-        if let Some(call) = node.as_call_node() {
-            if call.name().as_slice() == b"timestamps" {
-                self.found = true;
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        let name = node.name().as_slice();
+        if name == b"timestamps" {
+            self.found = true;
+            return;
+        }
+        // Check for `t.datetime :created_at` or `t.datetime :updated_at`
+        if name == b"datetime" {
+            if let Some(args) = node.arguments() {
+                if let Some(first) = args.arguments().iter().next() {
+                    if let Some(sym) = first.as_symbol_node() {
+                        let val = sym.unescaped();
+                        if val == b"created_at" || val == b"updated_at" {
+                            self.found = true;
+                            return;
+                        }
+                    }
+                    if let Some(s) = first.as_string_node() {
+                        let val = s.unescaped();
+                        if val == b"created_at" || val == b"updated_at" {
+                            self.found = true;
+                            return;
+                        }
+                    }
+                }
             }
         }
+        if !self.found {
+            ruby_prism::visit_call_node(self, node);
+        }
     }
+}
 
-    fn visit_leaf_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
-        if let Some(call) = node.as_call_node() {
-            if call.name().as_slice() == b"timestamps" {
-                self.found = true;
+/// Check if `create_table` has `id: false` option
+fn has_id_false(call: &ruby_prism::CallNode<'_>) -> bool {
+    let args = match call.arguments() {
+        Some(a) => a,
+        None => return false,
+    };
+    for arg in args.arguments().iter() {
+        let kw = match arg.as_keyword_hash_node() {
+            Some(k) => k,
+            None => continue,
+        };
+        for elem in kw.elements().iter() {
+            let assoc = match elem.as_assoc_node() {
+                Some(a) => a,
+                None => continue,
+            };
+            let key = match assoc.key().as_symbol_node() {
+                Some(s) => s,
+                None => continue,
+            };
+            if key.unescaped() == b"id" && assoc.value().as_false_node().is_some() {
+                return true;
             }
         }
     }
+    false
 }
 
 impl Cop for CreateTableWithTimestamps {
@@ -56,6 +100,11 @@ impl Cop for CreateTableWithTimestamps {
         };
 
         if call.name().as_slice() != b"create_table" {
+            return Vec::new();
+        }
+
+        // Skip `create_table :x, id: false` — join tables don't need timestamps
+        if has_id_false(&call) {
             return Vec::new();
         }
 

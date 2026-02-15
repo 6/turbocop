@@ -206,6 +206,14 @@ impl<'a> DescribedClassVisitor<'a> {
                 return;
             }
 
+            // Skip include/extend/prepend — class references in these are intentional
+            // module inclusions, not candidates for described_class replacement
+            if (name == b"include" || name == b"extend" || name == b"prepend")
+                && call.receiver().is_none()
+            {
+                return;
+            }
+
             // SkipBlocks: when true, don't recurse into arbitrary blocks
             if self.skip_blocks {
                 if call.block().is_some()

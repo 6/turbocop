@@ -25,12 +25,43 @@ fn is_start_anchored_literal(content: &[u8], safe_multiline: bool) -> bool {
     false
 }
 
+/// Check if a byte is a "safe literal" character per RuboCop's LITERAL_REGEX:
+/// `[\w\s\-,"'!#%&<>=;:\x60~/]` — word chars, whitespace, and specific punctuation.
+/// Characters NOT in this set (like `@`, `(`, `.`, `*`, etc.) are not considered literal.
+fn is_safe_literal_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric()
+        || b == b'_'
+        || b.is_ascii_whitespace()
+        || matches!(
+            b,
+            b'-' | b',' | b'"' | b'\'' | b'!' | b'#' | b'%' | b'&' | b'<' | b'>' | b'='
+            | b';' | b':' | b'`' | b'~' | b'/' | b'.'
+        )
+}
+
 fn is_literal_chars(bytes: &[u8]) -> bool {
-    for &b in bytes {
-        match b {
-            b'.' | b'*' | b'+' | b'?' | b'|' | b'(' | b')' | b'[' | b']' | b'{' | b'}'
-            | b'^' | b'$' | b'\\' => return false,
-            _ => {}
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            // Escaped character: backslash + next char
+            // RuboCop allows \\[^AbBdDgGhHkpPRwWXsSzZ0-9]
+            if i + 1 >= bytes.len() {
+                return false;
+            }
+            let next = bytes[i + 1];
+            if matches!(
+                next,
+                b'A' | b'b' | b'B' | b'd' | b'D' | b'g' | b'G' | b'h' | b'H' | b'k'
+                | b'p' | b'P' | b'R' | b'w' | b'W' | b'X' | b's' | b'S' | b'z' | b'Z'
+            ) || next.is_ascii_digit()
+            {
+                return false;
+            }
+            i += 2;
+        } else if is_safe_literal_char(bytes[i]) {
+            i += 1;
+        } else {
+            return false;
         }
     }
     true

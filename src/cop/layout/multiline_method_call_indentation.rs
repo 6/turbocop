@@ -1,3 +1,5 @@
+use ruby_prism::Visit;
+
 use crate::cop::util::indentation_of;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -10,88 +12,163 @@ impl Cop for MultilineMethodCallIndentation {
         "Layout/MultilineMethodCallIndentation"
     }
 
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let call_node = match node.as_call_node() {
-            Some(c) => c,
-            None => return Vec::new(),
+        let style = config.get_str("EnforcedStyle", "aligned");
+        let width = config.get_usize("IndentationWidth", 2);
+        let mut visitor = ChainVisitor {
+            cop: self,
+            source,
+            style,
+            width,
+            diagnostics: Vec::new(),
+            in_paren_args: false,
         };
+        visitor.visit(&parse_result.node());
+        visitor.diagnostics
+    }
+}
 
+struct ChainVisitor<'a> {
+    cop: &'a MultilineMethodCallIndentation,
+    source: &'a SourceFile,
+    style: &'a str,
+    width: usize,
+    diagnostics: Vec<Diagnostic>,
+    in_paren_args: bool,
+}
+
+impl ChainVisitor<'_> {
+    fn check_call(&mut self, call_node: &ruby_prism::CallNode<'_>) {
         // Must have a receiver (chained call)
         let receiver = match call_node.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have a call operator (the `.` part)
         let dot_loc = match call_node.call_operator_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let receiver_loc = receiver.location();
-        let (recv_end_line, _) = source.offset_to_line_col(receiver_loc.end_offset());
-        let (msg_line, msg_col) = source.offset_to_line_col(dot_loc.start_offset());
+        let (recv_end_line, _) = self.source.offset_to_line_col(receiver_loc.end_offset());
+        let (msg_line, msg_col) = self.source.offset_to_line_col(dot_loc.start_offset());
 
         // Only check when the dot is on a different line than the end of its receiver.
-        // This handles `foo(\n  ...\n).bar` where `.bar` is on the same line as `)`.
         if msg_line == recv_end_line {
-            return Vec::new();
+            return;
         }
 
-        let style = config.get_str("EnforcedStyle", "aligned");
-        let width = config.get_usize("IndentationWidth", 2);
+        // The dot must be a continuation dot (first non-whitespace on its line).
+        if !is_continuation_dot(self.source, dot_loc.start_offset()) {
+            return;
+        }
 
-        let expected = match style {
+        // RuboCop's not_for_this_cop?: skip when inside parenthesized call arguments
+        if self.in_paren_args {
+            return;
+        }
+
+        let expected = match self.style {
             "indented" => {
-                let chain_start_line = find_chain_start_line(source, &receiver);
-                let chain_line_bytes =
-                    source.lines().nth(chain_start_line - 1).unwrap_or(b"");
-                indentation_of(chain_line_bytes) + width
+                let chain_start_line = find_chain_start_line(self.source, &receiver);
+                let chain_line_bytes = self
+                    .source
+                    .lines()
+                    .nth(chain_start_line - 1)
+                    .unwrap_or(b"");
+                indentation_of(chain_line_bytes) + self.width
             }
             "indented_relative_to_receiver" => {
-                let chain_start_line = find_chain_start_line(source, &receiver);
-                let chain_line_bytes =
-                    source.lines().nth(chain_start_line - 1).unwrap_or(b"");
-                indentation_of(chain_line_bytes) + width
+                let chain_start_line = find_chain_start_line(self.source, &receiver);
+                let chain_line_bytes = self
+                    .source
+                    .lines()
+                    .nth(chain_start_line - 1)
+                    .unwrap_or(b"");
+                indentation_of(chain_line_bytes) + self.width
             }
             _ => {
                 // "aligned" (default): dot should align with the first dot in the chain
-                match find_alignment_dot_col(source, &receiver, msg_line) {
+                match find_alignment_dot_col(self.source, &receiver, msg_line) {
                     Some(col) => col,
                     // First multiline step — no previous dot to align with;
                     // accept whatever position the user chose
-                    None => return Vec::new(),
+                    None => return,
                 }
             }
         };
 
         if msg_col != expected {
-            let msg = match style {
+            let msg = match self.style {
                 "aligned" => {
                     "Align `.` with `.` on the previous line of the chain.".to_string()
                 }
                 _ => {
-                    let chain_start_line = find_chain_start_line(source, &receiver);
-                    let chain_line_bytes =
-                        source.lines().nth(chain_start_line - 1).unwrap_or(b"");
+                    let chain_start_line = find_chain_start_line(self.source, &receiver);
+                    let chain_line_bytes = self
+                        .source
+                        .lines()
+                        .nth(chain_start_line - 1)
+                        .unwrap_or(b"");
                     let chain_indent = indentation_of(chain_line_bytes);
                     format!(
                         "Use {} (not {}) spaces for indentation of a chained method call.",
-                        width,
+                        self.width,
                         msg_col.saturating_sub(chain_indent)
                     )
                 }
             };
-            return vec![self.diagnostic(source, msg_line, msg_col, msg)];
+            self.diagnostics
+                .push(self.cop.diagnostic(self.source, msg_line, msg_col, msg));
+        }
+    }
+}
+
+impl Visit<'_> for ChainVisitor<'_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'_>) {
+        // Check this call node for alignment issues
+        self.check_call(node);
+
+        // Visit receiver normally (inherits current context)
+        if let Some(recv) = node.receiver() {
+            self.visit(&recv);
         }
 
-        Vec::new()
+        // Visit arguments: if call has parens, mark as in_paren_args
+        let has_parens = node.opening_loc().is_some();
+        if let Some(args) = node.arguments() {
+            if has_parens {
+                let saved = self.in_paren_args;
+                self.in_paren_args = true;
+                self.visit(&args.as_node());
+                self.in_paren_args = saved;
+            } else {
+                self.visit(&args.as_node());
+            }
+        }
+
+        // Visit block normally (inherits current context)
+        if let Some(block) = node.block() {
+            self.visit(&block);
+        }
+    }
+
+    fn visit_parentheses_node(&mut self, node: &ruby_prism::ParenthesesNode<'_>) {
+        // Grouped expressions like `(foo\n  .bar)` — RuboCop skips these too
+        let saved = self.in_paren_args;
+        self.in_paren_args = true;
+        if let Some(body) = node.body() {
+            self.visit(&body);
+        }
+        self.in_paren_args = saved;
     }
 }
 

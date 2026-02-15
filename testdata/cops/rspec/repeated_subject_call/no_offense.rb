@@ -11,3 +11,11 @@ RSpec.describe Bar do
     expect(subject.b).to eq(4)
   end
 end
+
+# Chained subject calls are not flagged (subject is a receiver)
+RSpec.describe Baz do
+  it do
+    expect(subject.reblogs_count).to eq(1)
+    expect { subject.destroy }.to_not raise_error
+  end
+end

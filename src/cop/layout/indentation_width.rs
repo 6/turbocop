@@ -45,13 +45,14 @@ impl IndentationWidth {
             }
 
             if child_col != expected {
+                let actual_indent = child_col as isize - base_col as isize;
                 return vec![self.diagnostic(
                     source,
                     child_line,
                     child_col,
                     format!(
                         "Use {} (not {}) spaces for indentation.",
-                        width, child_col.saturating_sub(base_col)
+                        width, actual_indent
                     ),
                 )];
             }
@@ -89,13 +90,14 @@ impl IndentationWidth {
             }
 
             if child_col != expected {
+                let actual_indent = child_col as isize - kw_col as isize;
                 return vec![self.diagnostic(
                     source,
                     child_line,
                     child_col,
                     format!(
                         "Use {} (not {}) spaces for indentation.",
-                        width, child_col.saturating_sub(kw_col)
+                        width, actual_indent
                     ),
                 )];
             }
@@ -195,20 +197,43 @@ impl Cop for IndentationWidth {
             }
         }
 
-        if let Some(block_node) = node.as_block_node() {
-            let opening_offset = block_node.opening_loc().start_offset();
-            // For blocks, indentation is relative to the `end`/`}` keyword
-            // column, which aligns with the start of the expression (handles
-            // multiline chained calls where `do` is on a continuation line).
-            let closing_offset = block_node.closing_loc().start_offset();
-            let (_, base_col) = source.offset_to_line_col(closing_offset);
-            return self.check_body_indentation(
-                source,
-                opening_offset,
-                base_col,
-                block_node.body(),
-                width,
-            );
+        // Handle block body indentation from CallNode (since BlockNode is
+        // always a child of CallNode in Prism, and we need access to the
+        // call's dot for chained method detection).
+        if let Some(call_node) = node.as_call_node() {
+            if let Some(block_ref) = call_node.block() {
+                if let Some(block) = block_ref.as_block_node() {
+                    let opening_offset = block.opening_loc().start_offset();
+                    let closing_offset = block.closing_loc().start_offset();
+                    let (_, closing_col) = source.offset_to_line_col(closing_offset);
+                    // RuboCop's block_body_indentation_base: if the dot is
+                    // on a new line, use the dot column; otherwise `end`.
+                    let base_col = if let Some(dot_loc) = call_node.call_operator_loc() {
+                        if let Some(recv) = call_node.receiver() {
+                            let (recv_last_line, _) =
+                                source.offset_to_line_col(recv.location().end_offset());
+                            let (dot_line, dot_col) =
+                                source.offset_to_line_col(dot_loc.start_offset());
+                            if recv_last_line < dot_line {
+                                dot_col
+                            } else {
+                                closing_col
+                            }
+                        } else {
+                            closing_col
+                        }
+                    } else {
+                        closing_col
+                    };
+                    return self.check_body_indentation(
+                        source,
+                        opening_offset,
+                        base_col,
+                        block.body(),
+                        width,
+                    );
+                }
+            }
         }
 
         // Check body indentation inside when clauses (when keyword

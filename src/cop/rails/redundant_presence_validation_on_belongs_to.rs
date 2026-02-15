@@ -28,10 +28,14 @@ impl Cop for RedundantPresenceValidationOnBelongsTo {
 
         let calls = class_body_calls(&class);
 
-        // Collect belongs_to association names
+        // Collect belongs_to association names (only non-optional ones)
+        // belongs_to with `optional: true` does NOT add implicit presence validation
         let mut belongs_to_names: Vec<Vec<u8>> = Vec::new();
         for call in &calls {
             if is_dsl_call(call, b"belongs_to") {
+                if has_optional_true(call) {
+                    continue;
+                }
                 if let Some(name) = extract_first_symbol_arg(call) {
                     belongs_to_names.push(name);
                 }
@@ -71,6 +75,57 @@ impl Cop for RedundantPresenceValidationOnBelongsTo {
 
         diagnostics
     }
+}
+
+/// Check if a belongs_to call has `optional: true`
+fn has_optional_true(call: &ruby_prism::CallNode<'_>) -> bool {
+    let args = match call.arguments() {
+        Some(a) => a,
+        None => return false,
+    };
+    for arg in args.arguments().iter() {
+        let kw = match arg.as_keyword_hash_node() {
+            Some(k) => k,
+            None => continue,
+        };
+        for elem in kw.elements().iter() {
+            let assoc = match elem.as_assoc_node() {
+                Some(a) => a,
+                None => continue,
+            };
+            let key_sym = match assoc.key().as_symbol_node() {
+                Some(s) => s,
+                None => continue,
+            };
+            if key_sym.unescaped() == b"optional" {
+                // Check if value is `true`
+                if assoc.value().as_true_node().is_some() {
+                    return true;
+                }
+            }
+        }
+        // Also check HashNode (explicit braces)
+        let hash = match arg.as_hash_node() {
+            Some(h) => h,
+            None => continue,
+        };
+        for elem in hash.elements().iter() {
+            let assoc = match elem.as_assoc_node() {
+                Some(a) => a,
+                None => continue,
+            };
+            let key_sym = match assoc.key().as_symbol_node() {
+                Some(s) => s,
+                None => continue,
+            };
+            if key_sym.unescaped() == b"optional" {
+                if assoc.value().as_true_node().is_some() {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 fn extract_first_symbol_arg(call: &ruby_prism::CallNode<'_>) -> Option<Vec<u8>> {

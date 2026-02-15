@@ -55,6 +55,17 @@ impl WhereExists {
             return Vec::new();
         }
 
+        // The outer `exists?` should NOT have arguments — if it does, the
+        // developer is already passing conditions to exists? and this is a
+        // different pattern (e.g., `where(a: 1).exists?(['sql', val])`)
+        let outer_call = match node.as_call_node() {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+        if outer_call.arguments().is_some() {
+            return Vec::new();
+        }
+
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         vec![self.diagnostic(

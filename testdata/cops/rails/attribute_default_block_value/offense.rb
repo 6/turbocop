@@ -9,6 +9,6 @@ class Post < ApplicationRecord
 end
 
 class Order < ApplicationRecord
-  attribute :notes, default: "pending"
+  attribute :confirmed_at, :datetime, default: Time.zone.now
   ^^^^^^^^^ Rails/AttributeDefaultBlockValue: Pass a block to `default:` to avoid sharing mutable objects.
 end

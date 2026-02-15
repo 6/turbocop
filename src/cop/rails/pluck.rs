@@ -25,7 +25,8 @@ impl Cop for Pluck {
             None => return Vec::new(),
         };
 
-        if call.name().as_slice() != b"map" {
+        let method_name = call.name().as_slice();
+        if method_name != b"map" && method_name != b"collect" {
             return Vec::new();
         }
 
@@ -40,7 +41,30 @@ impl Cop for Pluck {
             None => return Vec::new(),
         };
 
-        // Block body should be a single indexing operation ([] call)
+        // Get block parameter name (must have exactly one)
+        let params = match block_node.parameters() {
+            Some(p) => p,
+            None => return Vec::new(),
+        };
+        let block_params = match params.as_block_parameters_node() {
+            Some(bp) => bp,
+            None => return Vec::new(),
+        };
+        let param_list = match block_params.parameters() {
+            Some(pl) => pl,
+            None => return Vec::new(),
+        };
+        let requireds: Vec<_> = param_list.requireds().iter().collect();
+        if requireds.len() != 1 {
+            return Vec::new();
+        }
+        let param_node = match requireds[0].as_required_parameter_node() {
+            Some(p) => p,
+            None => return Vec::new(),
+        };
+        let param_name = param_node.name().as_slice();
+
+        // Block body should be a single indexing operation: block_param[:key]
         let body = match block_node.body() {
             Some(b) => b,
             None => return Vec::new(),
@@ -62,6 +86,21 @@ impl Cop for Pluck {
         };
 
         if inner_call.name().as_slice() != b"[]" {
+            return Vec::new();
+        }
+
+        // Receiver of [] must be the block parameter (a local variable read)
+        let receiver = match inner_call.receiver() {
+            Some(r) => r,
+            None => return Vec::new(),
+        };
+
+        let lvar = match receiver.as_local_variable_read_node() {
+            Some(l) => l,
+            None => return Vec::new(),
+        };
+
+        if lvar.name().as_slice() != param_name {
             return Vec::new();
         }
 

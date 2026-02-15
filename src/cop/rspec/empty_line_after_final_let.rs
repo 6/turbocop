@@ -98,20 +98,23 @@ impl Cop for EmptyLineAfterFinalLet {
         let end_offset = loc.end_offset().saturating_sub(1).max(loc.start_offset());
         let (end_line, _) = source.offset_to_line_col(end_offset);
 
-        // Check if the line before the next sibling is blank
-        // This handles heredocs where the let node's end_offset may not
-        // cover the heredoc body.
-        let check_line = next_start_line.saturating_sub(1);
-        if check_line > end_line {
-            // There's at least one line between the let end and next sibling start.
+        // Check if there's a blank line between the last let and the next sibling.
+        // We check ALL lines between the let's end line and the next sibling's start
+        // line to handle cases where comments appear between them.
+        let check_start = end_line + 1;
+        let check_end = next_start_line;
+        if check_start < check_end {
+            // There are lines between the let end and next sibling start.
             // Check if ANY of those lines is blank.
-            if let Some(line) = line_at(source, check_line) {
-                if is_blank_line(line) {
-                    return Vec::new();
+            for line_num in check_start..check_end {
+                if let Some(line) = line_at(source, line_num) {
+                    if is_blank_line(line) {
+                        return Vec::new();
+                    }
                 }
             }
         } else {
-            // Same or adjacent line — check the line right after the let
+            // Adjacent line — check the line right after the let
             let next_line = end_line + 1;
             if let Some(line) = line_at(source, next_line) {
                 if is_blank_line(line) {

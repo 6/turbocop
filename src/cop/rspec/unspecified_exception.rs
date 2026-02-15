@@ -70,9 +70,21 @@ impl Cop for UnspecifiedException {
             return Vec::new();
         }
 
-        // Must have no block
+        // Must have no block (braces: raise_error { |e| ... })
         if root.block().is_some() {
             return Vec::new();
+        }
+
+        // Also check if the `.to` call has a block with arguments.
+        // `expect { }.to raise_error do |e| ... end` — the do/end block attaches
+        // to `.to`, not to `raise_error`. If `.to`'s block has parameters,
+        // the exception IS being captured via the block argument.
+        if let Some(to_block) = call.block() {
+            if let Some(block_node) = to_block.as_block_node() {
+                if block_node.parameters().is_some() {
+                    return Vec::new();
+                }
+            }
         }
 
         let loc = root.location();

@@ -175,13 +175,24 @@ impl Cop for SpecFilePathFormat {
 }
 
 fn camel_to_snake(s: &str) -> String {
+    // Matches Ruby's ActiveSupport `underscore` method:
+    // 1. Insert underscore between acronym run and next word: "URLValidator" → "URL_Validator"
+    // 2. Insert underscore between lowercase/digit and uppercase: "fooBar" → "foo_Bar"
+    // 3. Lowercase everything
+    let chars: Vec<char> = s.chars().collect();
     let mut result = String::new();
-    for (i, c) in s.chars().enumerate() {
+    for (i, &c) in chars.iter().enumerate() {
         if c.is_uppercase() && i > 0 {
-            // Check if previous char is lowercase or next char is lowercase
-            let prev = s.chars().nth(i - 1);
-            if let Some(p) = prev {
-                if p.is_lowercase() || p.is_ascii_digit() {
+            let prev = chars[i - 1];
+            if prev.is_lowercase() || prev.is_ascii_digit() {
+                // Pattern: lowercase/digit followed by uppercase → insert underscore
+                result.push('_');
+            } else if prev.is_uppercase() {
+                // Check if next char is lowercase (end of acronym)
+                // "URL" + "Validator" → at 'V', prev='L' is upper, next='a' is lower
+                // But at 'L' in "URL", prev='R' is upper, next='V' is upper → no underscore
+                if i + 1 < chars.len() && chars[i + 1].is_lowercase() {
+                    // This uppercase char starts a new word after an acronym
                     result.push('_');
                 }
             }
@@ -274,6 +285,17 @@ mod tests {
         let source = b"describe MyClass, type: :model do\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&SpecFilePathFormat, source, config);
         assert!(diags.is_empty(), "IgnoreMetadata should skip path check when metadata key is ignored");
+    }
+
+    #[test]
+    fn camel_to_snake_handles_acronyms() {
+        assert_eq!(camel_to_snake("URLValidator"), "url_validator");
+        assert_eq!(camel_to_snake("MyClass"), "my_class");
+        assert_eq!(camel_to_snake("HTTPSConnection"), "https_connection");
+        assert_eq!(camel_to_snake("FooBar"), "foo_bar");
+        assert_eq!(camel_to_snake("Foo"), "foo");
+        assert_eq!(camel_to_snake("API"), "api");
+        assert_eq!(camel_to_snake("HTMLParser"), "html_parser");
     }
 
     #[test]

@@ -1,11 +1,18 @@
 use std::collections::HashMap;
 
-use crate::cop::util::{class_body_calls, is_dsl_call};
+use crate::cop::util::{class_body_calls, is_dsl_call, parent_class_name};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct DuplicateAssociation;
+
+/// Check if the parent class looks like an ActiveRecord base class.
+fn is_active_record_parent(parent: &[u8]) -> bool {
+    parent == b"ApplicationRecord"
+        || parent == b"ActiveRecord::Base"
+        || parent.ends_with(b"Record")
+}
 
 impl Cop for DuplicateAssociation {
     fn name(&self) -> &'static str {
@@ -27,6 +34,17 @@ impl Cop for DuplicateAssociation {
             Some(c) => c,
             None => return Vec::new(),
         };
+
+        // Only check classes that inherit from ActiveRecord
+        let parent = parent_class_name(source, &class);
+        if let Some(parent_name) = parent {
+            if !is_active_record_parent(parent_name) {
+                return Vec::new();
+            }
+        } else {
+            // No parent class at all — skip
+            return Vec::new();
+        }
 
         let mut diagnostics = Vec::new();
         let calls = class_body_calls(&class);

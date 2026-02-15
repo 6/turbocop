@@ -520,7 +520,7 @@ fn registry_has_expected_cop_count() {
         "Naming/ConstantName",
         "Naming/ClassAndModuleCamelCase",
         "Naming/AccessorMethodName",
-        "Naming/PredicateName",
+        "Naming/PredicatePrefix",
         "Naming/AsciiIdentifiers",
         "Naming/FileName",
         // Performance (47)

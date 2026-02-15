@@ -44,9 +44,13 @@ impl Cop for LineLength {
                 }
             }
 
-            // Detect heredoc openers
+            // Detect heredoc openers — scan all `<<` occurrences since `<<` can
+            // also be the shovel operator (e.g. `file << <<~HEREDOC`).
             if heredoc_terminator.is_none() {
-                if let Some(pos) = line.windows(2).position(|w| w == b"<<") {
+                let mut search_from = 0;
+                while let Some(rel_pos) = line[search_from..].windows(2).position(|w| w == b"<<") {
+                    let pos = search_from + rel_pos;
+                    search_from = pos + 2;
                     let after = &line[pos + 2..];
                     let after = if after.starts_with(b"~") || after.starts_with(b"-") {
                         &after[1..]
@@ -68,6 +72,7 @@ impl Cop for LineLength {
                         .collect();
                     if !ident.is_empty() {
                         heredoc_terminator = Some(ident);
+                        break;
                     }
                 }
             }
@@ -113,20 +118,12 @@ impl Cop for LineLength {
                 }
             }
 
-            // AllowURI: skip lines containing a URI that makes them long
+            // AllowURI: skip lines containing a URI that makes them long.
+            // Matches RuboCop's `allowed_position?` logic: the URI (after extension)
+            // must start before `max` AND extend to the end of the line.
             if allow_uri {
                 if let Ok(line_str) = std::str::from_utf8(line) {
-                    let has_long_uri = uri_schemes.iter().any(|scheme| {
-                        let prefix = format!("{scheme}://");
-                        if let Some(start) = line_str.find(&prefix) {
-                            let uri_end = line_str[start..].find(|c: char| c.is_whitespace()).unwrap_or(line_str.len() - start);
-                            let without_uri_char_len = char_len - line_str[start..start + uri_end].chars().count();
-                            without_uri_char_len <= max
-                        } else {
-                            false
-                        }
-                    });
-                    if has_long_uri {
+                    if uri_extends_to_end(line_str, &uri_schemes, max) {
                         continue;
                     }
                 }
@@ -160,6 +157,61 @@ impl Cop for LineLength {
         }
         diagnostics
     }
+}
+
+/// Check if the last URI match in the line, after extension, reaches the end of the line
+/// AND starts before `max`. This matches RuboCop's `allowed_position?` + `extend_end_position`.
+fn uri_extends_to_end(line: &str, schemes: &[String], max: usize) -> bool {
+    // Find all URI starts (last match wins, matching RuboCop behavior)
+    let mut last_start = None;
+    for scheme in schemes {
+        let prefix = format!("{scheme}://");
+        let mut search_from = 0;
+        while let Some(pos) = line[search_from..].find(&prefix) {
+            let abs_pos = search_from + pos;
+            last_start = match last_start {
+                Some(prev) if prev > abs_pos => Some(prev),
+                _ => Some(abs_pos),
+            };
+            search_from = abs_pos + prefix.len();
+        }
+    }
+
+    let start = match last_start {
+        Some(s) => s,
+        None => return false,
+    };
+
+    // Find end of URI (first whitespace after URI start)
+    let uri_end = start
+        + line[start..]
+            .find(|c: char| c.is_whitespace())
+            .unwrap_or(line.len() - start);
+
+    // Extend end position (matching RuboCop's extend_end_position):
+    // 1. YARD brace extension: if line contains `{` and ends with `}`,
+    //    extend from end_pos through the closing `}`.
+    // 2. Extend to the end of the next non-whitespace run.
+    let mut end_pos = uri_end;
+
+    // Step 1: YARD brace extension — RuboCop checks /{(\s|\S)*}$/
+    // which matches any line that has a `{` somewhere and ends with `}`.
+    if line.contains('{') && line.ends_with('}') {
+        if let Some(brace_pos) = line[end_pos..].rfind('}') {
+            end_pos += brace_pos + 1; // include the closing `}`
+        }
+    }
+
+    // Step 2: Extend to next word boundary — /^\S+(?=\s|$)/
+    let rest = &line[end_pos..];
+    let non_ws_len = rest
+        .find(|c: char| c.is_whitespace())
+        .unwrap_or(rest.len());
+    end_pos += non_ws_len;
+
+    // Check allowed_position?: start_chars < max AND end_pos reaches end of line
+    let start_chars = line[..start].chars().count();
+    start_chars < max && end_pos >= line.len()
 }
 
 #[cfg(test)]
@@ -326,5 +378,45 @@ mod tests {
         );
         let diags = LineLength.check_lines(&source, &config);
         assert!(diags.is_empty(), "AllowCopDirectives should skip lines with rubocop directives");
+    }
+
+    #[test]
+    fn allow_uri_with_brace_extension_to_end_of_line() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(10.into())),
+                ("AllowURI".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        // URI in a line ending with } — the YARD brace extension should extend
+        // the URI range to end of line, matching RuboCop's behavior.
+        // The URI starts before max and braces extend to end of line.
+        let source = SourceFile::from_bytes(
+            "test.rb",
+            b"x { https://example.com/long/path }\n".to_vec(),
+        );
+        let diags = LineLength.check_lines(&source, &config);
+        assert!(diags.is_empty(), "AllowURI with YARD brace extension should skip lines where URI extends to end");
+    }
+
+    #[test]
+    fn allow_uri_without_extension_to_end_flags_offense() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(10.into())),
+                ("AllowURI".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        // URI that does NOT extend to end of line — should still flag
+        let source = SourceFile::from_bytes(
+            "test.rb",
+            b"x = 'https://example.com' + more_stuff_here\n".to_vec(),
+        );
+        let diags = LineLength.check_lines(&source, &config);
+        assert!(!diags.is_empty(), "AllowURI should flag when URI does not extend to end of line");
     }
 }

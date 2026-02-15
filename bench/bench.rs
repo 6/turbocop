@@ -469,6 +469,8 @@ fn run_conform() -> HashMap<String, ConformResult> {
             .iter()
             .map(|o| {
                 let path = o.path.strip_prefix(&repo_prefix).unwrap_or(&o.path);
+                // Strip leading "./" if present (rblint outputs ./path when run with ".")
+                let path = path.strip_prefix("./").unwrap_or(path);
                 (path.to_string(), o.line, o.cop_name.clone())
             })
             .collect();

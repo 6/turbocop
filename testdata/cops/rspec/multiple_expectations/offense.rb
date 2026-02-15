@@ -17,3 +17,12 @@ RSpec.describe Foo do
     expect { other }.to change(Bar, :count)
   end
 end
+
+# aggregate_failures: false overrides inherited aggregate_failures
+describe Foo, aggregate_failures: true do
+  it 'overrides with false', aggregate_failures: false do
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/MultipleExpectations: Example has too many expectations [2/1].
+    expect(foo).to eq(bar)
+    expect(baz).to eq(bar)
+  end
+end

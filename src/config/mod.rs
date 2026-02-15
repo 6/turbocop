@@ -69,6 +69,22 @@ impl CopFilter {
         }
         true
     }
+
+    /// Check whether the given path matches this cop's Include patterns.
+    fn is_included(&self, path: &Path) -> bool {
+        match self.include_set {
+            Some(ref inc) => inc.is_match(path),
+            None => true, // no Include = match all
+        }
+    }
+
+    /// Check whether the given path matches this cop's Exclude patterns.
+    fn is_excluded(&self, path: &Path) -> bool {
+        match self.exclude_set {
+            Some(ref exc) => exc.is_match(path),
+            None => false, // no Exclude = exclude nothing
+        }
+    }
 }
 
 /// Pre-compiled filter set for all cops + global excludes.
@@ -109,33 +125,39 @@ impl CopFilterSet {
     }
 
     /// Check whether a cop (by registry index) should run on the given file.
-    /// Tries matching against both the original path and a path relativized
-    /// to the config directory, to handle running from outside the project root.
+    /// Checks both the original path and the path relativized to config_dir:
+    /// - Include: matches if EITHER path matches (supports absolute + relative patterns)
+    /// - Exclude: matches if EITHER path matches (catches project-relative patterns)
     pub fn is_cop_match(&self, index: usize, path: &Path) -> bool {
         let filter = &self.filters[index];
         if !filter.enabled {
             return false;
         }
 
-        // Try with original path first — covers absolute patterns and
-        // cases where rblint runs from the project root
-        if filter.is_match(path) {
-            return true;
+        let rel_path = self
+            .config_dir
+            .as_ref()
+            .and_then(|cd| path.strip_prefix(cd).ok());
+
+        // Include: file must match on at least one path form.
+        // This supports both absolute patterns (/tmp/test/db/**) and
+        // relative patterns (db/migrate/**).
+        let included = filter.is_included(path)
+            || rel_path.is_some_and(|rel| filter.is_included(rel));
+        if !included {
+            return false;
         }
 
-        // If original path didn't match, try relativized against config_dir.
-        // This handles running from outside the project root where file paths
-        // have a prefix (e.g., `bench/repos/mastodon/spec/foo.rb` needs to
-        // match patterns like `spec/**`).
-        if let Some(ref cd) = self.config_dir {
-            if let Ok(rel) = path.strip_prefix(cd) {
-                if filter.is_match(rel) {
-                    return true;
-                }
-            }
+        // Exclude: file is excluded if EITHER path form matches.
+        // This catches project-relative Exclude patterns (lib/tasks/*.rake)
+        // even when the file path has a prefix (bench/repos/mastodon/...).
+        let excluded = filter.is_excluded(path)
+            || rel_path.is_some_and(|rel| filter.is_excluded(rel));
+        if excluded {
+            return false;
         }
 
-        false
+        true
     }
 }
 
@@ -179,6 +201,9 @@ pub struct ResolvedConfig {
     require_known_cops: HashSet<String>,
     /// Department names that had gems loaded via `require:`.
     require_departments: HashSet<String>,
+    /// Cops from `require:` (legacy) plugin defaults with `Enabled: pending`.
+    /// NOT enabled by `NewCops: enable` (rubocop 1.82+ behavior).
+    require_pending_cops: HashSet<String>,
 }
 
 impl ResolvedConfig {
@@ -192,6 +217,7 @@ impl ResolvedConfig {
             disabled_by_default: false,
             require_known_cops: HashSet::new(),
             require_departments: HashSet::new(),
+            require_pending_cops: HashSet::new(),
         }
     }
 }
@@ -215,6 +241,8 @@ struct ConfigLayer {
     require_known_cops: HashSet<String>,
     /// Department names that had gems loaded via `require:`.
     require_departments: HashSet<String>,
+    /// Cops from `require:` plugin defaults with `Enabled: pending`.
+    require_pending_cops: HashSet<String>,
 }
 
 impl ConfigLayer {
@@ -230,13 +258,20 @@ impl ConfigLayer {
             require_enabled_depts: HashSet::new(),
             require_known_cops: HashSet::new(),
             require_departments: HashSet::new(),
+            require_pending_cops: HashSet::new(),
         }
     }
 }
 
 /// Walk up from `start_dir` to find `.rubocop.yml`.
+///
+/// First tries with the original path (preserving relative paths), then falls
+/// back to canonicalized path to handle symlinks and `..` components.
 fn find_config(start_dir: &Path) -> Option<PathBuf> {
-    let mut dir = std::fs::canonicalize(start_dir).unwrap_or_else(|_| start_dir.to_path_buf());
+    // Try with original path first to preserve relative paths.
+    // This ensures config_dir stays relative when input is relative,
+    // matching file paths from discover_files for glob matching.
+    let mut dir = start_dir.to_path_buf();
     loop {
         let candidate = dir.join(".rubocop.yml");
         if candidate.exists() {
@@ -244,6 +279,21 @@ fn find_config(start_dir: &Path) -> Option<PathBuf> {
         }
         if !dir.pop() {
             break;
+        }
+    }
+    // Fallback: try with canonicalized path (resolves symlinks, ..)
+    if let Ok(canonical) = std::fs::canonicalize(start_dir) {
+        if canonical != start_dir {
+            let mut dir = canonical;
+            loop {
+                let candidate = dir.join(".rubocop.yml");
+                if candidate.exists() {
+                    return Some(candidate);
+                }
+                if !dir.pop() {
+                    break;
+                }
+            }
         }
     }
     None
@@ -359,6 +409,7 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
         disabled_by_default,
         require_known_cops: base.require_known_cops,
         require_departments: base.require_departments,
+        require_pending_cops: base.require_pending_cops,
     })
 }
 
@@ -441,8 +492,12 @@ fn load_config_recursive(
     let mut base_layer = ConfigLayer::empty();
 
     if let Value::Mapping(ref map) = raw {
-        // 0. Process require: — load plugin default configs (lowest priority)
-        if let Some(require_value) = map.get(&Value::String("require".to_string())) {
+        // 0. Process require: / plugins: — load plugin default configs (lowest priority).
+        let is_legacy_require = map.contains_key(&Value::String("require".to_string()));
+        let require_value = map
+            .get(&Value::String("require".to_string()))
+            .or_else(|| map.get(&Value::String("plugins".to_string())));
+        if let Some(require_value) = require_value {
             let gems = match require_value {
                 Value::String(s) => vec![s.clone()],
                 Value::Sequence(seq) => seq
@@ -510,6 +565,16 @@ fn load_config_recursive(
             .keys()
             .cloned()
             .collect();
+
+        // Track cops with Enabled: pending from require: (legacy) plugins.
+        if is_legacy_require {
+            base_layer.require_pending_cops = base_layer
+                .cop_configs
+                .iter()
+                .filter(|(_, c)| c.enabled == EnabledState::Pending)
+                .map(|(n, _)| n.clone())
+                .collect();
+        }
 
         // 1. Process inherit_gem
         if let Some(gem_value) = map.get(&Value::String("inherit_gem".to_string())) {
@@ -685,6 +750,7 @@ fn parse_config_layer(raw: &Value) -> ConfigLayer {
         require_enabled_depts: HashSet::new(),
         require_known_cops: HashSet::new(),
         require_departments: HashSet::new(),
+        require_pending_cops: HashSet::new(),
     }
 }
 
@@ -742,10 +808,8 @@ fn merge_layer_into(
         }
         // Track require-originated enabled state through merges.
         if overlay.require_enabled_cops.contains(cop_name) {
-            // Cop was enabled by require: defaults in overlay chain — propagate
             base.require_enabled_cops.insert(cop_name.clone());
         } else if overlay_config.enabled != EnabledState::Unset {
-            // User config explicitly set Enabled — remove from require set
             base.require_enabled_cops.remove(cop_name);
         }
     }
@@ -765,6 +829,9 @@ fn merge_layer_into(
     }
     for dept in &overlay.require_departments {
         base.require_departments.insert(dept.clone());
+    }
+    for cop_name in &overlay.require_pending_cops {
+        base.require_pending_cops.insert(cop_name.clone());
     }
 }
 
@@ -1090,7 +1157,7 @@ impl ResolvedConfig {
     pub fn enabled_cop_names(&self) -> Vec<String> {
         self.cop_configs
             .iter()
-            .filter(|(_, config)| match config.enabled {
+            .filter(|(_name, config)| match config.enabled {
                 EnabledState::True => true,
                 EnabledState::Unset => !self.disabled_by_default,
                 EnabledState::Pending => self.new_cops == NewCopsPolicy::Enable,
@@ -1992,5 +2059,116 @@ mod tests {
         assert!(!names.contains(&"Style/Baz".to_string()));
 
         fs::remove_dir_all(&dir).ok();
+    }
+
+    // --- is_cop_match tests ---
+    // These test the Include-OR / Exclude-OR logic that handles running
+    // from outside the project root where file paths have a prefix.
+
+    fn make_filter(
+        enabled: bool,
+        include: &[&str],
+        exclude: &[&str],
+    ) -> CopFilter {
+        CopFilter {
+            enabled,
+            include_set: build_glob_set(include),
+            exclude_set: build_glob_set(exclude),
+        }
+    }
+
+    #[test]
+    fn is_cop_match_exclude_works_on_relativized_path() {
+        // Simulates running `rblint bench/repos/mastodon` where file paths
+        // have a prefix but Exclude patterns are project-relative.
+        let filter = make_filter(true, &[], &["lib/tasks/*.rake"]);
+        let filter_set = CopFilterSet {
+            global_exclude: GlobSet::empty(),
+            filters: vec![filter],
+            config_dir: Some(PathBuf::from("bench/repos/mastodon")),
+        };
+        let path = Path::new("bench/repos/mastodon/lib/tasks/emojis.rake");
+        assert!(
+            !filter_set.is_cop_match(0, path),
+            "Exclude lib/tasks/*.rake should match relativized path"
+        );
+    }
+
+    #[test]
+    fn is_cop_match_include_works_with_absolute_patterns() {
+        // Integration tests use absolute Include patterns like /tmp/test/db/migrate/**/*.rb
+        let filter = make_filter(true, &["/tmp/test/db/migrate/**/*.rb"], &[]);
+        let filter_set = CopFilterSet {
+            global_exclude: GlobSet::empty(),
+            filters: vec![filter],
+            config_dir: Some(PathBuf::from("/tmp/test")),
+        };
+        let path = Path::new("/tmp/test/db/migrate/001_create_users.rb");
+        assert!(
+            filter_set.is_cop_match(0, path),
+            "Absolute Include pattern should match full path"
+        );
+    }
+
+    #[test]
+    fn is_cop_match_include_works_with_relative_patterns() {
+        // Relative Include pattern (e.g., spec/**/*_spec.rb) should match
+        // both direct and prefixed paths.
+        let filter = make_filter(true, &["**/spec/**/*_spec.rb"], &[]);
+        let filter_set = CopFilterSet {
+            global_exclude: GlobSet::empty(),
+            filters: vec![filter],
+            config_dir: Some(PathBuf::from("bench/repos/discourse")),
+        };
+        let path = Path::new("bench/repos/discourse/spec/models/user_spec.rb");
+        assert!(
+            filter_set.is_cop_match(0, path),
+            "Relative Include with ** prefix should match prefixed path"
+        );
+    }
+
+    #[test]
+    fn is_cop_match_exclude_on_relativized_path_overrides_include() {
+        // RSpec/EmptyExampleGroup scenario: Include matches via ** prefix,
+        // but project-relative Exclude should still block the file.
+        let filter = make_filter(
+            true,
+            &["**/spec/**/*_spec.rb"],
+            &["spec/requests/api/*"],
+        );
+        let filter_set = CopFilterSet {
+            global_exclude: GlobSet::empty(),
+            filters: vec![filter],
+            config_dir: Some(PathBuf::from("bench/repos/discourse")),
+        };
+        let path = Path::new("bench/repos/discourse/spec/requests/api/invites_spec.rb");
+        assert!(
+            !filter_set.is_cop_match(0, path),
+            "Exclude spec/requests/api/* should block even when Include matches via **"
+        );
+    }
+
+    #[test]
+    fn is_cop_match_no_config_dir_uses_original_path() {
+        // When config_dir is None, only the original path is checked.
+        let filter = make_filter(true, &["**/*.rb"], &["vendor/**"]);
+        let filter_set = CopFilterSet {
+            global_exclude: GlobSet::empty(),
+            filters: vec![filter],
+            config_dir: None,
+        };
+        assert!(filter_set.is_cop_match(0, Path::new("app/models/user.rb")));
+        assert!(!filter_set.is_cop_match(0, Path::new("vendor/gems/foo.rb")));
+    }
+
+    #[test]
+    fn is_cop_match_disabled_filter_returns_false() {
+        let filter = make_filter(false, &[], &[]);
+        let filter_set = CopFilterSet {
+            global_exclude: GlobSet::empty(),
+            filters: vec![filter],
+            config_dir: None,
+        };
+        assert!(!filter_set.is_cop_match(0, Path::new("anything.rb")));
     }
 }

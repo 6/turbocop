@@ -60,10 +60,12 @@ impl Cop for UnknownEnv {
         }
 
         // Check if the method is a known env (configured or default)
+        // RuboCop adds "local" when target_rails_version >= 7.1; we always include it
+        // since Rails 7.1+ is the norm for modern projects
         if let Some(ref envs) = configured_envs {
             let env_name = &chain.outer_method[..chain.outer_method.len() - 1];
             let env_str = std::str::from_utf8(env_name).unwrap_or("");
-            if envs.iter().any(|e| e == env_str) {
+            if envs.iter().any(|e| e == env_str) || env_str == "local" {
                 return Vec::new();
             }
         } else if KNOWN_ENVS.contains(&chain.outer_method) {

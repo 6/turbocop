@@ -7,3 +7,13 @@ class User < ApplicationRecord
     self[:first_name] = val
   end
 end
+
+class Topic < ApplicationRecord
+  def slug
+    read_attribute(:slug)
+  end
+
+  def title=(t)
+    write_attribute(:title, t)
+  end
+end

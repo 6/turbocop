@@ -9,7 +9,7 @@ class User < ApplicationRecord
     ^^^^^^^^^^^^^^^ Rails/ReadWriteAttribute: Use `self[:attr] = val` instead of `write_attribute`.
   end
 
-  def age
+  def compute_age
     read_attribute(:age)
     ^^^^^^^^^^^^^^ Rails/ReadWriteAttribute: Use `self[:attr]` instead of `read_attribute`.
   end

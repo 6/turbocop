@@ -10,4 +10,10 @@ RSpec.describe Foo do
 
   context 'second' do
   end
+
+  # Comment followed by end is OK
+  context 'with comment before end' do
+    it { expect(1).to eq(1) }
+  end
+  # TODO: add more tests
 end

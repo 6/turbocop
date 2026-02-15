@@ -39,24 +39,40 @@ impl Cop for ScopeArgs {
             return Vec::new();
         }
         let second = &arg_list[1];
-        // Lambda is fine
+
+        // RuboCop pattern: (send nil? :scope _ $send)
+        // Only flag when the second argument is a plain method call (send node)
+        // without an attached block. This matches model scope usage like:
+        //   scope :something, where(something: true)
+        let second_call = match second.as_call_node() {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+
+        // If the call has a block attached, it's things like `Proc.new { }` or `proc { }` - not an offense
+        if second_call.block().is_some() {
+            return Vec::new();
+        }
+
+        // Lambda literal is fine
         if second.as_lambda_node().is_some() {
             return Vec::new();
         }
-        // proc { } or lambda { } calls are fine
-        if let Some(call_arg) = second.as_call_node() {
-            let name = call_arg.name().as_slice();
-            if name == b"proc" || name == b"lambda" {
-                return Vec::new();
-            }
+
+        // proc/lambda calls without blocks are already method calls, but
+        // `proc` and `lambda` called without a block is unusual; skip them
+        let name = second_call.name().as_slice();
+        if name == b"proc" || name == b"lambda" {
+            return Vec::new();
         }
-        let loc = node.location();
+
+        let loc = second.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         vec![self.diagnostic(
             source,
             line,
             column,
-            "Use a lambda for the scope body: `scope :name, -> { ... }`.".to_string(),
+            "Use `lambda`/`proc` instead of a plain method call.".to_string(),
         )]
     }
 }

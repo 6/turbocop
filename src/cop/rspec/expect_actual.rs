@@ -25,37 +25,74 @@ impl Cop for ExpectActual {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // Look for expect(literal) calls
+        // Look for expect(literal).to/to_not/not_to matcher(args) chains
+        // RuboCop only flags when the full chain has a matcher with arguments.
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
         };
 
-        if call.name().as_slice() != b"expect" {
+        let method_name = call.name().as_slice();
+        // Must be a runner method (.to, .to_not, .not_to)
+        if method_name != b"to" && method_name != b"to_not" && method_name != b"not_to" {
             return Vec::new();
         }
 
-        // Must not have a receiver (or receiver is self-like)
-        if call.receiver().is_some() {
+        // Receiver must be expect(literal)
+        let recv = match call.receiver() {
+            Some(r) => r,
+            None => return Vec::new(),
+        };
+        let expect_call = match recv.as_call_node() {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+        if expect_call.name().as_slice() != b"expect" || expect_call.receiver().is_some() {
             return Vec::new();
         }
 
-        let args = match call.arguments() {
+        let expect_args = match expect_call.arguments() {
             Some(a) => a,
             None => return Vec::new(),
         };
-
-        let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
-        if arg_list.len() != 1 {
+        let expect_arg_list: Vec<ruby_prism::Node<'_>> = expect_args.arguments().iter().collect();
+        if expect_arg_list.len() != 1 {
             return Vec::new();
         }
 
-        let arg = &arg_list[0];
-        if !is_literal_value(arg) {
+        let literal_arg = &expect_arg_list[0];
+        if !is_literal_value(literal_arg) {
             return Vec::new();
         }
 
-        let loc = arg.location();
+        // Check that the matcher has arguments (RuboCop requires this).
+        // `expect(5).to eq(price)` → matcher `eq` has arg `price` → flagged
+        // `expect(".foo").to be_present` → `be_present` has no args → NOT flagged
+        let matcher_args = match call.arguments() {
+            Some(a) => a,
+            None => return Vec::new(),
+        };
+        let matcher_list: Vec<ruby_prism::Node<'_>> = matcher_args.arguments().iter().collect();
+        if matcher_list.is_empty() {
+            return Vec::new();
+        }
+
+        // The matcher call itself must have arguments
+        let matcher = &matcher_list[0];
+        if let Some(matcher_call) = matcher.as_call_node() {
+            let matcher_name = matcher_call.name().as_slice();
+            // Skip route_to and be_routable matchers
+            if matcher_name == b"route_to" || matcher_name == b"be_routable" {
+                return Vec::new();
+            }
+            // Matcher must have arguments (eq(something), be(something), etc.)
+            if matcher_call.arguments().is_none() {
+                // Also check for `be == something` pattern
+                return Vec::new();
+            }
+        }
+
+        let loc = literal_arg.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         vec![self.diagnostic(
             source,

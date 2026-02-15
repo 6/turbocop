@@ -12,3 +12,8 @@ def title
 ^^^ Rails/Delegate: Use `delegate` to define delegations.
   post.title
 end
+
+def site_title
+^^^ Rails/Delegate: Use `delegate` to define delegations.
+  Setting.site_title
+end

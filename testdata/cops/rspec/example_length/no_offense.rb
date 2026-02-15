@@ -26,4 +26,16 @@ RSpec.describe Foo do
     d = finalize(c)
     expect(d).to be_valid
   end
+
+  # Comment-only lines do not count (CountComments defaults to false)
+  it 'has comments that do not count' do
+    # setup comment
+    a = setup_data
+    # processing comment
+    b = process(a)
+    # transform comment
+    c = transform(b)
+    d = finalize(c)
+    expect(d).to be_valid
+  end
 end

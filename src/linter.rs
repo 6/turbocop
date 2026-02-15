@@ -103,8 +103,10 @@ fn lint_source_inner(
             continue;
         }
 
-        // Use pre-compiled cop filter (checks enabled state + include/exclude globs)
-        if !cop_filters.cop_filter(i).is_match(&source.path) {
+        // Use pre-compiled cop filter (checks enabled state + include/exclude globs).
+        // is_cop_match relativizes path against config_dir so relative patterns
+        // (e.g., `lib/mastodon/cli/*.rb`) work when running from outside the project root.
+        if !cop_filters.is_cop_match(i, &source.path) {
             continue;
         }
 

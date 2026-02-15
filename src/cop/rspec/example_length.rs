@@ -46,14 +46,16 @@ impl Cop for ExampleLength {
 
         let max = config.get_usize("Max", 5);
 
-        // Count body lines, skipping blank lines (RuboCop default behavior).
-        // count_body_lines counts non-blank, non-comment lines between start and end.
+        // Count body lines, skipping blank lines and comment lines.
+        // RuboCop's CodeLength mixin uses CountComments config (default false for
+        // RSpec/ExampleLength), meaning comment-only lines are NOT counted.
+        let count_comments = config.get_bool("CountComments", false);
         let block_loc = block.location();
         let count = util::count_body_lines(
             source,
             block_loc.start_offset(),
             block_loc.end_offset().saturating_sub(1).max(block_loc.start_offset()),
-            true, // count_comments = true (comments count as lines)
+            count_comments,
         );
 
         // Adjust for CountAsOne: multi-line arrays/hashes/heredocs count as 1 line

@@ -6,23 +6,26 @@ use crate::parse::source::SourceFile;
 pub struct ActiveRecordCallbacksOrder;
 
 const CALLBACK_ORDER: &[&[u8]] = &[
+    b"after_initialize",
     b"before_validation",
     b"after_validation",
     b"before_save",
     b"around_save",
     b"before_create",
-    b"before_update",
     b"around_create",
-    b"around_update",
     b"after_create",
+    b"before_update",
+    b"around_update",
     b"after_update",
+    b"before_destroy",
+    b"around_destroy",
+    b"after_destroy",
     b"after_save",
     b"before_commit",
     b"after_commit",
     b"after_rollback",
-    b"before_destroy",
-    b"around_destroy",
-    b"after_destroy",
+    b"after_find",
+    b"after_touch",
 ];
 
 fn callback_order_index(name: &[u8]) -> Option<usize> {
@@ -56,6 +59,11 @@ impl Cop for ActiveRecordCallbacksOrder {
         let mut callbacks: Vec<(&[u8], usize, usize)> = Vec::new();
 
         for call in &calls {
+            // RuboCop only considers send nodes (callbacks without blocks).
+            // Callbacks with blocks (before_save do...end, after_commit { }) are skipped.
+            if call.block().is_some() {
+                continue;
+            }
             for &cb_name in CALLBACK_ORDER {
                 if is_dsl_call(call, cb_name) {
                     if let Some(idx) = callback_order_index(cb_name) {
@@ -68,25 +76,24 @@ impl Cop for ActiveRecordCallbacksOrder {
         }
 
         let mut diagnostics = Vec::new();
-        let mut max_seen_idx = 0;
-        let mut max_seen_name: &[u8] = b"";
+        let mut prev_idx: isize = -1;
+        let mut prev_name: &[u8] = b"";
 
         for &(name, idx, offset) in &callbacks {
-            if idx < max_seen_idx {
+            let idx_signed = idx as isize;
+            if idx_signed < prev_idx {
                 let (line, column) = source.offset_to_line_col(offset);
                 let name_str = String::from_utf8_lossy(name);
-                let other_str = String::from_utf8_lossy(max_seen_name);
+                let other_str = String::from_utf8_lossy(prev_name);
                 diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
-                    format!("Callback `{name_str}` should appear before `{other_str}`."),
+                    format!("`{name_str}` is supposed to appear before `{other_str}`."),
                 ));
             }
-            if idx >= max_seen_idx {
-                max_seen_idx = idx;
-                max_seen_name = name;
-            }
+            prev_idx = idx_signed;
+            prev_name = name;
         }
 
         diagnostics

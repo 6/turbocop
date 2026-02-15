@@ -1,14 +1,14 @@
 class User < ApplicationRecord
-  validates :name, presence: true, allow_nil: true
-  ^^^^^^^^^ Rails/RedundantAllowNil: Remove redundant `allow_nil` when `presence` validation is also specified.
+  validates :x, length: { is: 5 }, allow_nil: true, allow_blank: true
+                                   ^^^^^^^^^^^^^^^ Rails/RedundantAllowNil: `allow_nil` is redundant when `allow_blank` has the same value.
 end
 
 class Post < ApplicationRecord
-  validates :title, allow_nil: true, presence: true
-  ^^^^^^^^^ Rails/RedundantAllowNil: Remove redundant `allow_nil` when `presence` validation is also specified.
+  validates :x, length: { is: 5 }, allow_nil: false, allow_blank: false
+                                   ^^^^^^^^^^^^^^^^ Rails/RedundantAllowNil: `allow_nil` is redundant when `allow_blank` has the same value.
 end
 
 class Comment < ApplicationRecord
-  validates :body, presence: true, allow_nil: true, length: { maximum: 500 }
-  ^^^^^^^^^ Rails/RedundantAllowNil: Remove redundant `allow_nil` when `presence` validation is also specified.
+  validates :x, length: { is: 5 }, allow_nil: false, allow_blank: true
+                                   ^^^^^^^^^^^^^^^^ Rails/RedundantAllowNil: `allow_nil: false` is redundant when `allow_blank` is true.
 end

@@ -4,3 +4,8 @@ class Post < ApplicationRecord
   validates :body, length: { minimum: 10 }
   validates :status, inclusion: { in: %w[draft published] }
 end
+
+class MediaAttachment < ApplicationRecord
+  belongs_to :account, optional: true
+  validates :account, presence: true
+end

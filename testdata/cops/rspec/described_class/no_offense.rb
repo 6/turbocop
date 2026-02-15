@@ -12,3 +12,15 @@ end
 
 describe MyClass do
 end
+
+# include/extend/prepend are intentional module inclusions, not flagged
+describe MyModule do
+  controller(ApplicationController) do
+    include MyModule
+  end
+end
+
+describe MyModule do
+  extend MyModule
+  prepend MyModule
+end

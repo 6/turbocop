@@ -1,9 +1,31 @@
-use crate::cop::util::{has_keyword_arg, is_dsl_call};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct RedundantAllowNil;
+
+/// Find a keyword pair (key + value) by key name in a call's arguments.
+/// Returns (pair_start_offset, value_node).
+fn find_keyword_pair<'a>(
+    call: &ruby_prism::CallNode<'a>,
+    key: &[u8],
+) -> Option<(usize, ruby_prism::Node<'a>)> {
+    let args = call.arguments()?;
+    for arg in args.arguments().iter() {
+        if let Some(kw) = arg.as_keyword_hash_node() {
+            for elem in kw.elements().iter() {
+                if let Some(assoc) = elem.as_assoc_node() {
+                    if let Some(sym) = assoc.key().as_symbol_node() {
+                        if sym.unescaped() == key {
+                            return Some((assoc.key().location().start_offset(), assoc.value()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
 
 impl Cop for RedundantAllowNil {
     fn name(&self) -> &'static str {
@@ -26,24 +48,48 @@ impl Cop for RedundantAllowNil {
             None => return Vec::new(),
         };
 
-        if !is_dsl_call(&call, b"validates") {
+        let name = call.name().as_slice();
+        if name != b"validates" && name != b"validates!" {
+            return Vec::new();
+        }
+        if call.receiver().is_some() {
             return Vec::new();
         }
 
-        if has_keyword_arg(&call, b"presence") && has_keyword_arg(&call, b"allow_nil") {
-            let loc = call.message_loc().unwrap_or(call.location());
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
-                source,
-                line,
-                column,
-                "Remove redundant `allow_nil` when `presence` validation is also specified."
-                    .to_string(),
-            )];
-        }
+        let (nil_offset, allow_nil_val) = match find_keyword_pair(&call, b"allow_nil") {
+            Some(v) => v,
+            None => return Vec::new(),
+        };
+        let (_blank_offset, allow_blank_val) = match find_keyword_pair(&call, b"allow_blank") {
+            Some(v) => v,
+            None => return Vec::new(),
+        };
 
-        Vec::new()
+        // Compare boolean values
+        let nil_is_true = is_true_literal(&allow_nil_val);
+        let nil_is_false = is_false_literal(&allow_nil_val);
+        let blank_is_true = is_true_literal(&allow_blank_val);
+        let blank_is_false = is_false_literal(&allow_blank_val);
+
+        let msg = if (nil_is_true && blank_is_true) || (nil_is_false && blank_is_false) {
+            "`allow_nil` is redundant when `allow_blank` has the same value."
+        } else if nil_is_false && blank_is_true {
+            "`allow_nil: false` is redundant when `allow_blank` is true."
+        } else {
+            return Vec::new();
+        };
+
+        let (line, column) = source.offset_to_line_col(nil_offset);
+        vec![self.diagnostic(source, line, column, msg.to_string())]
     }
+}
+
+fn is_true_literal(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_true_node().is_some()
+}
+
+fn is_false_literal(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_false_node().is_some()
 }
 
 #[cfg(test)]

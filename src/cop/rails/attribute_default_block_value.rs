@@ -36,13 +36,13 @@ impl Cop for AttributeDefaultBlockValue {
             None => return Vec::new(),
         };
 
-        // Flag mutable default values that should use a block:
-        // Arrays, Hashes, and String literals are mutable
-        // Note: keyword_hash_node (keyword args) intentionally not handled —
-        // the default: value is always a standalone expression, never keyword args.
+        // Flag mutable/dynamic default values that should use a block:
+        // Arrays, Hashes, and method calls (send nodes) are flagged.
+        // String/symbol/integer/float literals and constants are accepted.
         let is_mutable = default_value.as_array_node().is_some()
             || default_value.as_hash_node().is_some()
-            || default_value.as_string_node().is_some();
+            || default_value.as_keyword_hash_node().is_some()
+            || default_value.as_call_node().is_some();
 
         if is_mutable {
             let loc = call.message_loc().unwrap_or(call.location());

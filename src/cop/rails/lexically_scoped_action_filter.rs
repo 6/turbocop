@@ -95,6 +95,8 @@ impl Cop for LexicallyScopedActionFilter {
 
 /// Extract action names (as symbol values) from the :only or :except keyword arg.
 /// Returns (name_bytes, symbol_offset) pairs.
+/// RuboCop's pattern requires the keyword hash to contain ONLY the only:/except: pair,
+/// so we skip hashes that have additional keys like `if:`, `unless:`, etc.
 fn extract_action_names_from_keyword(
     call: &ruby_prism::CallNode<'_>,
     key: &[u8],
@@ -111,32 +113,38 @@ fn extract_action_names_from_keyword(
             Some(k) => k,
             None => continue,
         };
-        for elem in kw.elements().iter() {
-            let assoc = match elem.as_assoc_node() {
-                Some(a) => a,
-                None => continue,
-            };
-            let key_sym = match assoc.key().as_symbol_node() {
-                Some(s) => s,
-                None => continue,
-            };
-            if key_sym.unescaped() != key {
-                continue;
-            }
 
-            let value = assoc.value();
+        // RuboCop's NodePattern `(hash (pair (sym {:only :except}) $_))`
+        // matches only when the hash has exactly one pair
+        let elements: Vec<_> = kw.elements().iter().collect();
+        if elements.len() != 1 {
+            continue;
+        }
 
-            // Single symbol: `only: :show`
-            if let Some(sym) = value.as_symbol_node() {
-                results.push((sym.unescaped().to_vec(), sym.location().start_offset()));
-            }
+        let assoc = match elements[0].as_assoc_node() {
+            Some(a) => a,
+            None => continue,
+        };
+        let key_sym = match assoc.key().as_symbol_node() {
+            Some(s) => s,
+            None => continue,
+        };
+        if key_sym.unescaped() != key {
+            continue;
+        }
 
-            // Array of symbols: `only: [:show, :edit]`
-            if let Some(arr) = value.as_array_node() {
-                for elem in arr.elements().iter() {
-                    if let Some(sym) = elem.as_symbol_node() {
-                        results.push((sym.unescaped().to_vec(), sym.location().start_offset()));
-                    }
+        let value = assoc.value();
+
+        // Single symbol: `only: :show`
+        if let Some(sym) = value.as_symbol_node() {
+            results.push((sym.unescaped().to_vec(), sym.location().start_offset()));
+        }
+
+        // Array of symbols: `only: [:show, :edit]`
+        if let Some(arr) = value.as_array_node() {
+            for elem in arr.elements().iter() {
+                if let Some(sym) = elem.as_symbol_node() {
+                    results.push((sym.unescaped().to_vec(), sym.location().start_offset()));
                 }
             }
         }

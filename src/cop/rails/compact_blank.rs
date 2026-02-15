@@ -46,10 +46,28 @@ impl Cop for CompactBlank {
             None => return Vec::new(),
         };
 
-        // Block should have parameters (|x|)
-        if block_node.parameters().is_none() {
+        // Block should have exactly one simple (non-destructured) parameter
+        let params = match block_node.parameters() {
+            Some(p) => p,
+            None => return Vec::new(),
+        };
+        let block_params = match params.as_block_parameters_node() {
+            Some(bp) => bp,
+            None => return Vec::new(),
+        };
+        let param_list = match block_params.parameters() {
+            Some(pl) => pl,
+            None => return Vec::new(),
+        };
+        let requireds: Vec<_> = param_list.requireds().iter().collect();
+        if requireds.len() != 1 {
             return Vec::new();
         }
+        let param_node = match requireds[0].as_required_parameter_node() {
+            Some(p) => p,
+            None => return Vec::new(), // Destructured params won't match
+        };
+        let param_name = param_node.name().as_slice();
 
         // Block body should be a single call to .blank? or .present?
         let body = match block_node.body() {
@@ -73,6 +91,19 @@ impl Cop for CompactBlank {
         };
 
         if body_call.name().as_slice() != expected_predicate {
+            return Vec::new();
+        }
+
+        // The receiver of .blank?/.present? must be the block parameter
+        let recv = match body_call.receiver() {
+            Some(r) => r,
+            None => return Vec::new(),
+        };
+        let recv_lvar = match recv.as_local_variable_read_node() {
+            Some(lv) => lv,
+            None => return Vec::new(),
+        };
+        if recv_lvar.name().as_slice() != param_name {
             return Vec::new();
         }
 

@@ -5,13 +5,67 @@ use crate::parse::source::SourceFile;
 
 pub struct DurationArithmetic;
 
-const TIME_METHODS: &[&[u8]] = &[b"now", b"current"];
 const DURATION_METHODS: &[&[u8]] = &[
     b"second", b"seconds", b"minute", b"minutes",
     b"hour", b"hours", b"day", b"days",
-    b"week", b"weeks", b"month", b"months",
-    b"year", b"years",
+    b"week", b"weeks", b"fortnight", b"fortnights",
+    b"month", b"months", b"year", b"years",
 ];
+
+/// Check if a node matches Time.current or Time.zone.now (or ::Time variants).
+/// Note: Time.now is NOT matched — only Time.current and Time.zone.now per RuboCop.
+fn is_time_current(node: &ruby_prism::Node<'_>) -> bool {
+    let call = match node.as_call_node() {
+        Some(c) => c,
+        None => return false,
+    };
+
+    let method = call.name().as_slice();
+    let recv = match call.receiver() {
+        Some(r) => r,
+        None => return false,
+    };
+
+    // Pattern 1: Time.current or ::Time.current
+    if method == b"current" {
+        return util::constant_name(&recv) == Some(b"Time");
+    }
+
+    // Pattern 2: Time.zone.now or ::Time.zone.now
+    if method == b"now" {
+        if let Some(zone_call) = recv.as_call_node() {
+            if zone_call.name().as_slice() == b"zone" {
+                if let Some(time_recv) = zone_call.receiver() {
+                    return util::constant_name(&time_recv) == Some(b"Time");
+                }
+            }
+        }
+    }
+
+    false
+}
+
+/// Check if a node is a duration method call (e.g., 1.day, 2.5.weeks)
+fn is_duration(node: &ruby_prism::Node<'_>) -> bool {
+    let call = match node.as_call_node() {
+        Some(c) => c,
+        None => return false,
+    };
+
+    if !DURATION_METHODS.contains(&call.name().as_slice()) {
+        return false;
+    }
+
+    let recv = match call.receiver() {
+        Some(r) => r,
+        None => return false,
+    };
+
+    // Receiver must be int, float, or a method call (e.g., a variable)
+    recv.as_integer_node().is_some()
+        || recv.as_float_node().is_some()
+        || (recv.as_call_node().is_some() && recv.as_call_node().unwrap().receiver().is_none())
+}
 
 impl Cop for DurationArithmetic {
     fn name(&self) -> &'static str {
@@ -39,24 +93,12 @@ impl Cop for DurationArithmetic {
             return Vec::new();
         }
 
-        // Receiver should be Time.now or Time.current
+        // Receiver should be Time.current or Time.zone.now
         let recv = match call.receiver() {
             Some(r) => r,
             None => return Vec::new(),
         };
-        let recv_call = match recv.as_call_node() {
-            Some(c) => c,
-            None => return Vec::new(),
-        };
-        if !TIME_METHODS.contains(&recv_call.name().as_slice()) {
-            return Vec::new();
-        }
-        let time_recv = match recv_call.receiver() {
-            Some(r) => r,
-            None => return Vec::new(),
-        };
-        // Handle both ConstantReadNode (Time) and ConstantPathNode (::Time)
-        if util::constant_name(&time_recv) != Some(b"Time") {
+        if !is_time_current(&recv) {
             return Vec::new();
         }
 
@@ -70,11 +112,7 @@ impl Cop for DurationArithmetic {
             return Vec::new();
         }
 
-        let arg_call = match arg_list[0].as_call_node() {
-            Some(c) => c,
-            None => return Vec::new(),
-        };
-        if !DURATION_METHODS.contains(&arg_call.name().as_slice()) {
+        if !is_duration(&arg_list[0]) {
             return Vec::new();
         }
 
@@ -84,7 +122,7 @@ impl Cop for DurationArithmetic {
             source,
             line,
             column,
-            "Use `1.day.from_now` instead of `Time.now + 1.day`.".to_string(),
+            "Do not add or subtract duration.".to_string(),
         )]
     }
 }

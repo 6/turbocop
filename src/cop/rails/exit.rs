@@ -1,8 +1,12 @@
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct Exit;
+
+const EXIT_METHODS: &[&[u8]] = &[b"exit", b"exit!", b"abort"];
+const EXPLICIT_RECEIVERS: &[&[u8]] = &[b"Kernel", b"Process"];
 
 impl Cop for Exit {
     fn name(&self) -> &'static str {
@@ -25,15 +29,33 @@ impl Cop for Exit {
             None => return Vec::new(),
         };
 
-        // Only receiverless calls
-        if call.receiver().is_some() {
+        let name = call.name().as_slice();
+        if !EXIT_METHODS.iter().any(|&m| m == name) {
             return Vec::new();
         }
 
-        let name = call.name().as_slice();
-        if name != b"exit" && name != b"exit!" {
-            return Vec::new();
+        // Check argument count (must be 0 or 1)
+        if let Some(args) = call.arguments() {
+            let arg_list: Vec<_> = args.arguments().iter().collect();
+            if arg_list.len() > 1 {
+                return Vec::new();
+            }
         }
+
+        // Check receiver: must be nil, Kernel, or Process
+        if let Some(receiver) = call.receiver() {
+            let is_allowed_receiver =
+                if let Some(name) = util::constant_name(&receiver) {
+                    EXPLICIT_RECEIVERS.iter().any(|&r| r == name)
+                } else {
+                    false
+                };
+            if !is_allowed_receiver {
+                return Vec::new();
+            }
+        }
+
+        let name_str = std::str::from_utf8(name).unwrap_or("exit");
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -41,7 +63,7 @@ impl Cop for Exit {
             source,
             line,
             column,
-            "Do not use `exit` in Rails applications.".to_string(),
+            format!("Do not use `{name_str}` in Rails applications."),
         )]
     }
 }

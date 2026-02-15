@@ -14,4 +14,8 @@ RSpec.describe 'test' do
   it 'allows change by variable' do
     expect { foo }.to change(Foo, :bar).by(n)
   end
+
+  it 'allows complex block body with by(0)' do
+    expect { foo }.to change { Foo.bar + Baz.quux }.by(0)
+  end
 end

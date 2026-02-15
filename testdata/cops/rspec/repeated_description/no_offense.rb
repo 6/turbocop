@@ -12,3 +12,14 @@ describe 'doing y' do
   it { foo }
   it { bar }
 end
+
+# shared_examples are not checked for repeated descriptions
+shared_examples 'default locale' do
+  it 'sets available and preferred language' do
+    1
+  end
+
+  it 'sets available and preferred language' do
+    2
+  end
+end

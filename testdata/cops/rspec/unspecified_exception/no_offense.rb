@@ -22,4 +22,11 @@ RSpec.describe User do
   it 'allows to_not raise_error without args' do
     expect { safe_method }.to_not raise_error
   end
+
+  # do/end block on .to — the block has params so exception is handled
+  it 'allows raise_error with do/end block args' do
+    expect { raise StandardError }.to raise_error do |error|
+      expect(error).to be_a(StandardError)
+    end
+  end
 end

@@ -1,3 +1,4 @@
+use crate::cop::util::keyword_arg_value;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -33,34 +34,18 @@ impl Cop for AddColumnIndex {
             return Vec::new();
         }
 
-        let args = match call.arguments() {
-            Some(a) => a,
-            None => return Vec::new(),
-        };
-
-        let arg_list: Vec<_> = args.arguments().iter().collect();
-        if arg_list.len() < 2 {
+        // Check if there's an `index` keyword argument
+        if keyword_arg_value(&call, b"index").is_none() {
             return Vec::new();
         }
 
-        // Second arg is the column name (symbol)
-        let col_str = match arg_list[1].as_symbol_node() {
-            Some(s) => {
-                let name = s.unescaped();
-                if !name.ends_with(b"_id") {
-                    return Vec::new();
-                }
-                String::from_utf8_lossy(name).to_string()
-            }
-            None => return Vec::new(),
-        };
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         vec![self.diagnostic(
             source,
             line,
             column,
-            format!("Add an index for the `{col_str}` column."),
+            "`add_column` does not accept an `index` key, use `add_index` instead.".to_string(),
         )]
     }
 }

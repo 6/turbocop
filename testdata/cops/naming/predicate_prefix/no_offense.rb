@@ -9,3 +9,7 @@ end
 def empty?
   @items.empty?
 end
+
+def is_a?(klass)
+  super
+end

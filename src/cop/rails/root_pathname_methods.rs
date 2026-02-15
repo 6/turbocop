@@ -65,6 +65,11 @@ impl Cop for RootPathnameMethods {
             return Vec::new();
         }
 
+        // The receiver of .join must be Rails.root (not File.join or anything else)
+        if !is_rails_root(arg_call.receiver()) {
+            return Vec::new();
+        }
+
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         vec![self.diagnostic(
@@ -74,6 +79,26 @@ impl Cop for RootPathnameMethods {
             "Use `Rails.root.join(...).read` instead of `File.read(Rails.root.join(...))`.".to_string(),
         )]
     }
+}
+
+/// Check if a node is `Rails.root`
+fn is_rails_root(node: Option<ruby_prism::Node<'_>>) -> bool {
+    let node = match node {
+        Some(n) => n,
+        None => return false,
+    };
+    let call = match node.as_call_node() {
+        Some(c) => c,
+        None => return false,
+    };
+    if call.name().as_slice() != b"root" {
+        return false;
+    }
+    let recv = match call.receiver() {
+        Some(r) => r,
+        None => return false,
+    };
+    util::constant_name(&recv) == Some(b"Rails")
 }
 
 #[cfg(test)]

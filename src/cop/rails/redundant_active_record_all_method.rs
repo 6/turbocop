@@ -12,6 +12,12 @@ const REDUNDANT_AFTER_ALL: &[&[u8]] = &[
     b"any?", b"none?", b"empty?",
 ];
 
+/// Methods that could be Enumerable block methods instead of AR query methods.
+/// When called with a block, these should NOT be flagged as redundant `all`.
+const POSSIBLE_ENUMERABLE_BLOCK_METHODS: &[&[u8]] = &[
+    b"any?", b"count", b"find", b"none?", b"one?", b"select", b"sum",
+];
+
 impl Cop for RedundantActiveRecordAllMethod {
     fn name(&self) -> &'static str {
         "Rails/RedundantActiveRecordAllMethod"
@@ -41,6 +47,24 @@ impl Cop for RedundantActiveRecordAllMethod {
 
         if !REDUNDANT_AFTER_ALL.contains(&chain.outer_method) {
             return Vec::new();
+        }
+
+        // Skip when a possible Enumerable block method is called with a block
+        // (e.g., `all.select { |r| r.active? }` uses Ruby's Enumerable#select)
+        if POSSIBLE_ENUMERABLE_BLOCK_METHODS.contains(&chain.outer_method) {
+            let outer_call = match node.as_call_node() {
+                Some(c) => c,
+                None => return Vec::new(),
+            };
+            if outer_call.block().is_some() {
+                return Vec::new();
+            }
+            // Also check for block pass: all.select(&:active?)
+            if let Some(args) = outer_call.arguments() {
+                if args.arguments().iter().any(|a| a.as_block_argument_node().is_some()) {
+                    return Vec::new();
+                }
+            }
         }
 
         // Skip if receiver of the `all` call is in AllowedReceivers

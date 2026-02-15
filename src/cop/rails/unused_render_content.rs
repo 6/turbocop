@@ -4,8 +4,22 @@ use crate::parse::source::SourceFile;
 
 pub struct UnusedRenderContent;
 
-const HEAD_ONLY_STATUSES: &[&[u8]] = &[
-    b"no_content", b"not_modified", b"reset_content",
+const NON_CONTENT_SYMBOLS: &[&[u8]] = &[
+    b"continue",
+    b"switching_protocols",
+    b"processing",
+    b"no_content",
+    b"reset_content",
+    b"not_modified",
+];
+
+fn is_non_content_code(code: i64) -> bool {
+    (100..=199).contains(&code) || code == 204 || code == 205 || code == 304
+}
+
+const BODY_OPTIONS: &[&[u8]] = &[
+    b"action", b"body", b"content_type", b"file", b"html", b"inline", b"json", b"js", b"layout",
+    b"plain", b"raw", b"template", b"text", b"xml",
 ];
 
 impl Cop for UnusedRenderContent {
@@ -14,7 +28,7 @@ impl Cop for UnusedRenderContent {
     }
 
     fn default_severity(&self) -> Severity {
-        Severity::Convention
+        Severity::Warning
     }
 
     fn check_node(
@@ -37,13 +51,12 @@ impl Cop for UnusedRenderContent {
             return Vec::new();
         }
 
-        // Check if there's a `status:` keyword arg with a head-only status
         let args = match call.arguments() {
             Some(a) => a,
             None => return Vec::new(),
         };
 
-        let mut has_head_only_status = false;
+        let mut has_non_content_status = false;
         let mut has_content_keys = false;
 
         for arg in args.arguments().iter() {
@@ -62,28 +75,38 @@ impl Cop for UnusedRenderContent {
                 };
                 let key_name = key.unescaped();
                 if key_name == b"status" {
-                    // Check if value is a head-only symbol
+                    // Check symbol status
                     if let Some(sym) = assoc.value().as_symbol_node() {
-                        if HEAD_ONLY_STATUSES.contains(&sym.unescaped().as_ref()) {
-                            has_head_only_status = true;
+                        if NON_CONTENT_SYMBOLS.contains(&sym.unescaped().as_ref()) {
+                            has_non_content_status = true;
                         }
                     }
-                } else if key_name == b"json" || key_name == b"html" || key_name == b"body"
-                    || key_name == b"plain" || key_name == b"xml"
-                {
+                    // Check numeric status
+                    if let Some(_int) = assoc.value().as_integer_node() {
+                        let int_loc = assoc.value().location();
+                        let code_text =
+                            std::str::from_utf8(int_loc.as_slice()).unwrap_or("");
+                        if let Ok(code_num) = code_text.parse::<i64>() {
+                            if is_non_content_code(code_num) {
+                                has_non_content_status = true;
+                            }
+                        }
+                    }
+                } else if BODY_OPTIONS.contains(&key_name.as_ref()) {
                     has_content_keys = true;
                 }
             }
         }
 
-        if has_head_only_status && has_content_keys {
+        if has_non_content_status && has_content_keys {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             return vec![self.diagnostic(
                 source,
                 line,
                 column,
-                "Do not pass content to `render` with a head-only status.".to_string(),
+                "Do not specify body content for a response with a non-content status code"
+                    .to_string(),
             )];
         }
 

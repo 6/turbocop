@@ -51,12 +51,70 @@ fn walk_directory(dir: &Path, config: &ResolvedConfig) -> Result<Vec<PathBuf>> {
     for entry in builder.build() {
         let entry = entry.context("error walking directory")?;
         let path = entry.path();
-        if path.is_file() && path.extension().is_some_and(|ext| ext == "rb") {
+        if path.is_file() && is_ruby_file(path) {
             files.push(path.to_path_buf());
         }
     }
 
     Ok(files)
+}
+
+/// RuboCop-compatible Ruby file extensions (from AllCops.Include defaults).
+const RUBY_EXTENSIONS: &[&str] = &[
+    "rb", "arb", "axlsx", "builder", "fcgi", "gemfile", "gemspec", "god", "jb", "jbuilder",
+    "mspec", "opal", "pluginspec", "podspec", "rabl", "rake", "rbuild", "rbw", "rbx", "ru",
+    "ruby", "schema", "spec", "thor", "watchr",
+];
+
+/// Extensionless filenames that RuboCop treats as Ruby (from AllCops.Include defaults).
+const RUBY_FILENAMES: &[&str] = &[
+    ".irbrc",
+    ".pryrc",
+    ".simplecov",
+    "buildfile",
+    "Appraisals",
+    "Berksfile",
+    "Brewfile",
+    "Buildfile",
+    "Capfile",
+    "Cheffile",
+    "Dangerfile",
+    "Deliverfile",
+    "Fastfile",
+    "Gemfile",
+    "Guardfile",
+    "Jarfile",
+    "Mavenfile",
+    "Podfile",
+    "Puppetfile",
+    "Rakefile",
+    "rakefile",
+    "Schemafile",
+    "Snapfile",
+    "Steepfile",
+    "Thorfile",
+    "Vagabondfile",
+    "Vagrantfile",
+];
+
+fn is_ruby_file(path: &Path) -> bool {
+    // Check by extension
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        if RUBY_EXTENSIONS.iter().any(|&r| r.eq_ignore_ascii_case(ext)) {
+            return true;
+        }
+    }
+    // Check by filename (for extensionless Ruby files like Gemfile)
+    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        if RUBY_FILENAMES.contains(&name) {
+            return true;
+        }
+        // Also match *Fastfile pattern (e.g., Matchfile, Appfile that end in "Fastfile")
+        if name.ends_with("Fastfile") || name.ends_with("fastfile") {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]

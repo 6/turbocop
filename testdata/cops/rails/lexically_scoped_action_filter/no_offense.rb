@@ -4,3 +4,11 @@ class UsersController < ApplicationController
   def index
   end
 end
+
+class Auth::PasswordsController < Devise::PasswordsController
+  before_action :redirect, only: :edit, unless: :token_valid?
+
+  def update
+    super
+  end
+end

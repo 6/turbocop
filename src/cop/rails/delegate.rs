@@ -27,6 +27,11 @@ impl Cop for Delegate {
             None => return Vec::new(),
         };
 
+        // Skip class/module methods (def self.foo)
+        if def_node.receiver().is_some() {
+            return Vec::new();
+        }
+
         // Must have no parameters (or empty parens)
         if let Some(params) = def_node.parameters() {
             let has_params = params.requireds().iter().next().is_some()
@@ -84,7 +89,8 @@ impl Cop for Delegate {
         // Receiver must be a delegatable target:
         // - Instance variable (@foo.bar → delegate :bar, to: :foo)
         // - Simple method/local variable (foo.bar → delegate :bar, to: :foo)
-        // NOT: constants, literals, chained calls, self, etc.
+        // - Constant (Setting.bar → delegate :bar, to: :Setting)
+        // NOT: literals, chained calls, self, etc.
         let is_delegatable_receiver = if receiver.as_instance_variable_read_node().is_some() {
             true
         } else if let Some(recv_call) = receiver.as_call_node() {
@@ -93,6 +99,10 @@ impl Cop for Delegate {
                 && recv_call.arguments().is_none()
                 && recv_call.block().is_none()
         } else if receiver.as_local_variable_read_node().is_some() {
+            true
+        } else if receiver.as_constant_read_node().is_some()
+            || receiver.as_constant_path_node().is_some()
+        {
             true
         } else {
             false

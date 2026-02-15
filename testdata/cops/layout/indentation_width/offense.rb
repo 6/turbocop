@@ -23,3 +23,10 @@ when 1
       do_something
       ^^^ Layout/IndentationWidth: Use 2 (not 6) spaces for indentation.
 end
+
+source.passive_relationships
+      .where(account: Account.local)
+      .in_batches do |follows|
+  process(follows)
+  ^^^ Layout/IndentationWidth: Use 2 (not -4) spaces for indentation.
+end

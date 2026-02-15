@@ -3,3 +3,5 @@ File.read("config/database.yml")
 File.read(some_path)
 Pathname.new("config").exist?
 File.exist?("config/database.yml")
+File.read(File.join(file_fixture_path, 'data.csv'))
+File.read(File.join(some_dir, 'file.txt'))

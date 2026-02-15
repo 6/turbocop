@@ -56,7 +56,7 @@ impl Cop for RepeatedSubjectCall {
 
         // Find all `subject` calls in the example body, tracking which are in blocks
         let mut subject_calls: Vec<(usize, usize, bool)> = Vec::new(); // (line, col, is_in_block)
-        collect_subject_calls(source, &body, false, &mut subject_calls);
+        collect_subject_calls(source, &body, false, false, &mut subject_calls);
 
         if subject_calls.len() <= 1 {
             return Vec::new();
@@ -94,11 +94,12 @@ fn collect_subject_calls(
     source: &SourceFile,
     node: &ruby_prism::Node<'_>,
     in_block: bool,
+    is_receiver: bool,
     results: &mut Vec<(usize, usize, bool)>,
 ) {
     if let Some(stmts) = node.as_statements_node() {
         for stmt in stmts.body().iter() {
-            collect_subject_calls(source, &stmt, in_block, results);
+            collect_subject_calls(source, &stmt, in_block, false, results);
         }
         return;
     }
@@ -106,23 +107,24 @@ fn collect_subject_calls(
     if let Some(call) = node.as_call_node() {
         let name = call.name().as_slice();
 
-        // Check if this is a bare `subject` call (no receiver, no args)
-        if name == b"subject" && call.receiver().is_none() {
-            // Check if subject is used as a block argument (expect { subject })
+        // Check if this is a bare `subject` call (no receiver, no args).
+        // Skip chained calls like `subject.something` — RuboCop's cop skips
+        // calls where subject is chained (used as a receiver of another call).
+        if name == b"subject" && call.receiver().is_none() && !is_receiver {
             let loc = call.location();
             let (line, col) = source.offset_to_line_col(loc.start_offset());
             results.push((line, col, in_block));
         }
 
-        // Check receiver for nested subject calls
+        // Recurse into receiver, marking it as a receiver context
         if let Some(recv) = call.receiver() {
-            collect_subject_calls(source, &recv, in_block, results);
+            collect_subject_calls(source, &recv, in_block, true, results);
         }
 
         // Check arguments
         if let Some(args) = call.arguments() {
             for arg in args.arguments().iter() {
-                collect_subject_calls(source, &arg, in_block, results);
+                collect_subject_calls(source, &arg, in_block, false, results);
             }
         }
 
@@ -130,7 +132,7 @@ fn collect_subject_calls(
         if let Some(block) = call.block() {
             if let Some(block_node) = block.as_block_node() {
                 if let Some(body) = block_node.body() {
-                    collect_subject_calls(source, &body, true, results);
+                    collect_subject_calls(source, &body, true, false, results);
                 }
             }
         }
