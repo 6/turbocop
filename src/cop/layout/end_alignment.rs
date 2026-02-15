@@ -92,18 +92,8 @@ impl Cop for EndAlignment {
             );
         }
 
-        if let Some(begin_node) = node.as_begin_node() {
-            if let Some(begin_kw_loc) = begin_node.begin_keyword_loc() {
-                if let Some(end_kw_loc) = begin_node.end_keyword_loc() {
-                    return self.check_keyword_end(
-                        source,
-                        begin_kw_loc.start_offset(),
-                        end_kw_loc.start_offset(),
-                        "begin",
-                    );
-                }
-            }
-        }
+        // NOTE: `begin` blocks are not checked here — that's handled by
+        // Layout/BeginEndAlignment which supports variable-aligned `end`.
 
         Vec::new()
     }
@@ -117,8 +107,13 @@ impl EndAlignment {
         end_offset: usize,
         keyword: &str,
     ) -> Vec<Diagnostic> {
-        let (_, kw_col) = source.offset_to_line_col(kw_offset);
+        let (kw_line, kw_col) = source.offset_to_line_col(kw_offset);
         let (end_line, end_col) = source.offset_to_line_col(end_offset);
+
+        // Skip single-line constructs (e.g., `class Foo; end`)
+        if kw_line == end_line {
+            return Vec::new();
+        }
 
         if end_col != kw_col {
             return vec![self.diagnostic(

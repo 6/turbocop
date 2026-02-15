@@ -2,6 +2,7 @@ use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 use std::collections::HashSet;
 
 /// RSpec/LetSetup: Flag `let!` that is not referenced in tests (only used for side effects).
@@ -54,14 +55,9 @@ impl Cop for LetSetup {
             None => return Vec::new(),
         };
 
-        // Collect let! names and check if they are referenced in the same scope
-        let mut let_bang_decls: Vec<(Vec<u8>, usize, usize)> = Vec::new(); // (name, line, col)
-
-        // Collect all identifiers used in examples, hooks, and other calls
+        // Collect let! names and all identifiers used in the same scope
+        let mut let_bang_decls: Vec<(Vec<u8>, usize, usize)> = Vec::new();
         let mut used_names: HashSet<Vec<u8>> = HashSet::new();
-
-        // Also check if any ancestor scope defines the same let! (override case)
-        // We'll collect names from nested groups that override, skip those
 
         for stmt in stmts.body().iter() {
             if let Some(c) = stmt.as_call_node() {
@@ -73,11 +69,17 @@ impl Cop for LetSetup {
                         let_bang_decls.push((let_name, line, col));
                     }
                 } else {
-                    // Collect all identifiers used in this statement
-                    collect_identifiers(source, &stmt, &mut used_names);
+                    // Use Visit trait to walk entire subtree
+                    let mut collector = IdentifierCollector {
+                        names: &mut used_names,
+                    };
+                    collector.visit(&stmt);
                 }
             } else {
-                collect_identifiers(source, &stmt, &mut used_names);
+                let mut collector = IdentifierCollector {
+                    names: &mut used_names,
+                };
+                collector.visit(&stmt);
             }
         }
 
@@ -109,37 +111,27 @@ fn extract_let_name(call: &ruby_prism::CallNode<'_>) -> Option<Vec<u8>> {
     None
 }
 
-fn collect_identifiers(source: &SourceFile, node: &ruby_prism::Node<'_>, names: &mut HashSet<Vec<u8>>) {
-    // Look for bare method calls (receiverless calls that could reference let variables)
-    if let Some(call) = node.as_call_node() {
-        if call.receiver().is_none() {
-            let name = call.name().as_slice();
-            names.insert(name.to_vec());
+/// Walks the entire AST subtree, collecting all receiverless call names and
+/// local variable reads. This ensures `let!` references are found in any
+/// nested structure (conditionals, blocks, string interpolations, etc.).
+struct IdentifierCollector<'a> {
+    names: &'a mut HashSet<Vec<u8>>,
+}
+
+impl<'pr> Visit<'pr> for IdentifierCollector<'_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if node.receiver().is_none() {
+            self.names.insert(node.name().as_slice().to_vec());
         }
-        // Recurse into receiver
-        if let Some(recv) = call.receiver() {
-            collect_identifiers(source, &recv, names);
-        }
-        // Recurse into arguments
-        if let Some(args) = call.arguments() {
-            for arg in args.arguments().iter() {
-                collect_identifiers(source, &arg, names);
-            }
-        }
-        // Recurse into block
-        if let Some(block) = call.block() {
-            if let Some(block_node) = block.as_block_node() {
-                if let Some(body) = block_node.body() {
-                    collect_identifiers(source, &body, names);
-                }
-            }
-        }
-    } else if let Some(stmts) = node.as_statements_node() {
-        for stmt in stmts.body().iter() {
-            collect_identifiers(source, &stmt, names);
-        }
-    } else if let Some(lvar) = node.as_local_variable_read_node() {
-        names.insert(lvar.name().as_slice().to_vec());
+        ruby_prism::visit_call_node(self, node);
+    }
+
+    fn visit_local_variable_read_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableReadNode<'pr>,
+    ) {
+        self.names.insert(node.name().as_slice().to_vec());
+        ruby_prism::visit_local_variable_read_node(self, node);
     }
 }
 

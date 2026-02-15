@@ -38,18 +38,23 @@ impl Cop for ArgumentAlignment {
         let (first_line, first_col) = source.offset_to_line_col(first_arg.location().start_offset());
 
         let mut diagnostics = Vec::new();
+        let mut checked_lines = std::collections::HashSet::new();
+        checked_lines.insert(first_line);
 
         for arg in arg_list.iter().skip(1) {
             let (arg_line, arg_col) = source.offset_to_line_col(arg.location().start_offset());
-            // Only check arguments on different lines than the first
-            if arg_line != first_line && arg_col != first_col {
-                diagnostics.push(self.diagnostic(
-                    source,
-                    arg_line,
-                    arg_col,
-                    "Align the arguments of a method call if they span more than one line."
-                        .to_string(),
-                ));
+            // Only check the FIRST argument on each new line
+            if !checked_lines.contains(&arg_line) {
+                checked_lines.insert(arg_line);
+                if arg_col != first_col {
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        arg_line,
+                        arg_col,
+                        "Align the arguments of a method call if they span more than one line."
+                            .to_string(),
+                    ));
+                }
             }
         }
 
