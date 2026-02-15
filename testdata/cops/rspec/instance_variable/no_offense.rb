@@ -7,4 +7,14 @@ describe MyClass do
     bar = compute_something
     expect(bar).to eq(42)
   end
+
+  # Instance variables inside method definitions are OK
+  def helper_method
+    @internal_state = 42
+    @other_var
+  end
+
+  def compute
+    @result ||= expensive_call
+  end
 end

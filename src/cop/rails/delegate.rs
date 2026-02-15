@@ -59,6 +59,14 @@ impl Cop for Delegate {
             None => return Vec::new(),
         };
 
+        // The delegated method name must match the defined method name
+        // def foo; bar.foo; end → delegate :foo, to: :bar
+        // def foo; bar.baz; end → NOT a delegation
+        let def_name = def_node.name().as_slice();
+        if call.name().as_slice() != def_name {
+            return Vec::new();
+        }
+
         // Must have a receiver (delegating to another object)
         let receiver = match call.receiver() {
             Some(r) => r,

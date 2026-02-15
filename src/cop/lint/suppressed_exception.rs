@@ -18,7 +18,7 @@ impl Cop for SuppressedException {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
         // RescueNode is visited via visit_begin_node's specific method,
         // not via the generic visit() dispatch. So we match BeginNode
@@ -40,6 +40,38 @@ impl Cop for SuppressedException {
 
         if !body_empty {
             return Vec::new();
+        }
+
+        // AllowComments: if true (default), skip rescue bodies that contain only comments
+        let allow_comments = config.get_bool("AllowComments", true);
+        if allow_comments {
+            // Find the line range between rescue keyword and the next keyword (end/else/ensure/rescue)
+            let (rescue_line, _) = source.offset_to_line_col(rescue_node.keyword_loc().start_offset());
+            let clause_end_line = if let Some(sub) = rescue_node.subsequent() {
+                source.offset_to_line_col(sub.keyword_loc().start_offset()).0
+            } else if let Some(else_clause) = begin_node.else_clause() {
+                source.offset_to_line_col(else_clause.location().start_offset()).0
+            } else if let Some(ensure_clause) = begin_node.ensure_clause() {
+                source.offset_to_line_col(ensure_clause.location().start_offset()).0
+            } else if let Some(end_loc) = begin_node.end_keyword_loc() {
+                source.offset_to_line_col(end_loc.start_offset()).0
+            } else {
+                rescue_line + 1 // no end keyword found, can't check
+            };
+
+            let lines: Vec<&[u8]> = source.lines().collect();
+            // Check lines between rescue keyword and end of clause (1-indexed)
+            for line_num in (rescue_line + 1)..clause_end_line {
+                if let Some(line) = lines.get(line_num - 1) {
+                    let trimmed = line.iter()
+                        .position(|&b| b != b' ' && b != b'\t')
+                        .map(|start| &line[start..])
+                        .unwrap_or(&[]);
+                    if trimmed.starts_with(b"#") {
+                        return Vec::new(); // Has a comment, allow it
+                    }
+                }
+            }
         }
 
         let kw_loc = rescue_node.keyword_loc();

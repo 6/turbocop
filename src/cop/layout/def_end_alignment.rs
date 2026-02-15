@@ -28,6 +28,13 @@ impl Cop for DefEndAlignment {
             None => return Vec::new(),
         };
 
+        // Skip single-line defs (e.g., `def foo; 42; end`)
+        let (def_line, _) = source.offset_to_line_col(def_node.def_keyword_loc().start_offset());
+        let (end_line, _) = source.offset_to_line_col(end_kw_loc.start_offset());
+        if def_line == end_line {
+            return Vec::new();
+        }
+
         util::check_keyword_end_alignment(
             self.name(),
             source,

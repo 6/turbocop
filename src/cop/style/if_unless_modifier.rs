@@ -24,6 +24,11 @@ impl Cop for IfUnlessModifier {
                     Some(loc) => loc,
                     None => return Vec::new(), // ternary
                 };
+                // Skip elsif nodes — they are visited as IfNode but can't be
+                // converted to modifier form independently
+                if kw_loc.as_slice() == b"elsif" {
+                    return Vec::new();
+                }
                 (
                     kw_loc,
                     if_node.predicate(),
@@ -67,6 +72,14 @@ impl Cop for IfUnlessModifier {
 
         // Check if already modifier form: keyword starts after body
         if kw_loc.start_offset() > body_node.location().start_offset() {
+            return Vec::new();
+        }
+
+        // Body must be on a single line to be eligible for modifier form
+        let (body_start_line, _) = source.offset_to_line_col(body_node.location().start_offset());
+        let body_end_off = body_node.location().end_offset().saturating_sub(1).max(body_node.location().start_offset());
+        let (body_end_line, _) = source.offset_to_line_col(body_end_off);
+        if body_start_line != body_end_line {
             return Vec::new();
         }
 

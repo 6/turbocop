@@ -20,3 +20,12 @@ end
 def find_user
   User.find_by_email(email)
 end
+
+# Method name doesn't match delegated method — not a simple delegation
+def valid?
+  json.present?
+end
+
+def cdn_host
+  config.asset_host
+end

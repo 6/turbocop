@@ -2,6 +2,7 @@ use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 pub struct InstanceVariable;
 
@@ -18,36 +19,127 @@ impl Cop for InstanceVariable {
         RSPEC_DEFAULT_INCLUDE
     }
 
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // Detect @ivar reads and writes in spec files
-        let loc = if let Some(n) = node.as_instance_variable_read_node() {
-            n.location()
-        } else if let Some(n) = node.as_instance_variable_write_node() {
-            n.location()
-        } else if let Some(n) = node.as_instance_variable_operator_write_node() {
-            n.location()
-        } else if let Some(n) = node.as_instance_variable_or_write_node() {
-            n.location()
-        } else if let Some(n) = node.as_instance_variable_and_write_node() {
-            n.location()
-        } else {
-            return Vec::new();
-        };
-
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        let mut visitor = IvarChecker {
             source,
-            line,
-            column,
-            "Avoid instance variables - use let, a method call, or a local variable (if possible)."
-                .to_string(),
-        )]
+            cop: self,
+            in_def: false,
+            diagnostics: Vec::new(),
+        };
+        visitor.visit(&parse_result.node());
+        visitor.diagnostics
+    }
+}
+
+struct IvarChecker<'a> {
+    source: &'a SourceFile,
+    cop: &'a InstanceVariable,
+    in_def: bool,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl<'pr> Visit<'pr> for IvarChecker<'_> {
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        let was = self.in_def;
+        self.in_def = true;
+        ruby_prism::visit_def_node(self, node);
+        self.in_def = was;
+    }
+
+    fn visit_instance_variable_read_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableReadNode<'pr>,
+    ) {
+        if !self.in_def {
+            let loc = node.location();
+            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                "Avoid instance variables - use let, a method call, or a local variable (if possible)."
+                    .to_string(),
+            ));
+        }
+        ruby_prism::visit_instance_variable_read_node(self, node);
+    }
+
+    fn visit_instance_variable_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableWriteNode<'pr>,
+    ) {
+        if !self.in_def {
+            let loc = node.location();
+            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                "Avoid instance variables - use let, a method call, or a local variable (if possible)."
+                    .to_string(),
+            ));
+        }
+        ruby_prism::visit_instance_variable_write_node(self, node);
+    }
+
+    fn visit_instance_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableOperatorWriteNode<'pr>,
+    ) {
+        if !self.in_def {
+            let loc = node.location();
+            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                "Avoid instance variables - use let, a method call, or a local variable (if possible)."
+                    .to_string(),
+            ));
+        }
+        ruby_prism::visit_instance_variable_operator_write_node(self, node);
+    }
+
+    fn visit_instance_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableOrWriteNode<'pr>,
+    ) {
+        if !self.in_def {
+            let loc = node.location();
+            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                "Avoid instance variables - use let, a method call, or a local variable (if possible)."
+                    .to_string(),
+            ));
+        }
+        ruby_prism::visit_instance_variable_or_write_node(self, node);
+    }
+
+    fn visit_instance_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableAndWriteNode<'pr>,
+    ) {
+        if !self.in_def {
+            let loc = node.location();
+            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                "Avoid instance variables - use let, a method call, or a local variable (if possible)."
+                    .to_string(),
+            ));
+        }
+        ruby_prism::visit_instance_variable_and_write_node(self, node);
     }
 }
 
