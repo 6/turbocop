@@ -38,6 +38,35 @@ cargo run -- --debug .
 - Cop trait is `Send + Sync`; cops needing mutable visitor state create a temporary `Visit` struct internally
 - Edition 2024 (Rust 1.85+)
 
+## Keeping in Sync with RuboCop
+
+RuboCop is a moving target — new cops, changed behavior, and evolving NodePattern definitions. The vendor submodules (`vendor/rubocop`, `vendor/rubocop-rails`, etc.) pin specific versions. To update:
+
+1. `cd vendor/rubocop && git fetch && git checkout v1.XX.0` (repeat for each plugin)
+2. Run `cargo test config_audit -- --nocapture` — reports YAML config keys that cops don't read yet
+3. Run `cargo test prism_pitfalls -- --nocapture` — flags cops missing `KeywordHashNode` or `ConstantPathNode` handling
+4. Fix flagged cops, add test coverage, re-run `cargo run --release --bin bench_rblint -- conform` to verify FP counts
+
+## Common Prism Pitfalls
+
+These are the most frequent sources of false negatives (45% of historical bugs):
+- `const` in Parser gem splits into `ConstantReadNode` (simple `Foo`) AND `ConstantPathNode` (qualified `Foo::Bar`) — must handle both
+- `begin` is overloaded: explicit `begin..end` → `BeginNode`, implicit method body → `StatementsNode`
+- `hash` splits into `HashNode` (literal `{}`) and `KeywordHashNode` (keyword args `foo(a: 1)`)
+- `send`/`csend` merge into `CallNode` — check `.call_operator()` for safe-navigation `&.`
+- `nil?` in NodePattern means "child is absent" (`receiver().is_none()`), NOT a `NilNode` literal
+
+See `docs/node_pattern_analysis.md` for the full Parser→Prism mapping table.
+
+## Quality Checks
+
+Two baseline-gated integration tests catch regressions automatically:
+
+- **`cargo test config_audit`** — cross-references vendor YAML config keys against `config.get_str/get_usize/get_bool/get_string_array` calls in Rust source. Baseline: `tests/baselines/config_audit.txt`.
+- **`cargo test prism_pitfalls`** — scans cop source for `as_hash_node` without `keyword_hash_node` and `as_constant_read_node` without `constant_path_node`. Baseline: `tests/baselines/prism_pitfalls.txt`.
+
+Both tests **fail if new gaps appear** (regressions). To fix: either fix the cop or add the entry to the baseline file. Stale baseline entries (gaps that have been fixed) are printed as warnings — remove them after confirming the fix.
+
 ## Fixture Format
 
 Each cop has a test fixture directory under `testdata/cops/<dept>/<cop_name>/` with:

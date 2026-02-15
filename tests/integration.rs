@@ -1744,7 +1744,16 @@ fn config_audit() {
     }
 
     // For each cop in the registry, check which YAML keys the Rust source reads
-    let mut report_lines: Vec<String> = Vec::new();
+    // Load baseline
+    let baseline_path = manifest.join("tests/baselines/config_audit.txt");
+    let baseline: std::collections::HashSet<String> = fs::read_to_string(&baseline_path)
+        .unwrap_or_else(|e| panic!("Failed to read {}: {e}", baseline_path.display()))
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| l.to_string())
+        .collect();
+
+    let mut current_gaps: Vec<String> = Vec::new();
 
     for cop_name in registry.names() {
         let yaml_keys = match yaml_cop_keys.get(cop_name) {
@@ -1777,19 +1786,47 @@ fn config_audit() {
         }
 
         if !missing.is_empty() {
-            report_lines.push(format!("  {cop_name}: missing config reads for: {}", missing.join(", ")));
+            current_gaps.push(format!("{cop_name}: {}", missing.join(", ")));
         }
     }
 
-    if !report_lines.is_empty() {
+    let current_set: std::collections::HashSet<String> = current_gaps.iter().cloned().collect();
+
+    // Regressions: new gaps not in baseline
+    let mut regressions: Vec<&String> = current_gaps.iter().filter(|g| !baseline.contains(*g)).collect();
+    regressions.sort();
+
+    // Stale: baseline entries no longer in current gaps (gaps that were fixed)
+    let mut stale: Vec<&String> = baseline.iter().filter(|b| !current_set.contains(*b)).collect();
+    stale.sort();
+
+    if !stale.is_empty() {
         eprintln!(
-            "\n[config_audit] YAML config keys not found in Rust source ({} cops):\n{}",
-            report_lines.len(),
-            report_lines.join("\n")
+            "\n[config_audit] Stale baseline entries (fixed — remove from tests/baselines/config_audit.txt):"
         );
-    } else {
-        eprintln!("\n[config_audit] All YAML config keys are read by Rust source.");
+        for s in &stale {
+            eprintln!("  {s}");
+        }
     }
+
+    if !current_gaps.is_empty() {
+        eprintln!(
+            "\n[config_audit] YAML config keys not found in Rust source ({} cops):",
+            current_gaps.len()
+        );
+        for line in &current_gaps {
+            eprintln!("  {line}");
+        }
+    }
+
+    assert!(
+        regressions.is_empty(),
+        "\n[config_audit] REGRESSION: {} new config gap(s) not in baseline:\n{}\n\n\
+         Either fix the cop to read these config keys, or add the entries to \
+         tests/baselines/config_audit.txt",
+        regressions.len(),
+        regressions.iter().map(|r| format!("  {r}")).collect::<Vec<_>>().join("\n")
+    );
 }
 
 // ---------- Prism pitfalls ----------
@@ -1799,7 +1836,16 @@ fn prism_pitfalls() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let registry = CopRegistry::default_registry();
 
-    let mut report_lines: Vec<String> = Vec::new();
+    // Load baseline
+    let baseline_path = manifest.join("tests/baselines/prism_pitfalls.txt");
+    let baseline: std::collections::HashSet<String> = fs::read_to_string(&baseline_path)
+        .unwrap_or_else(|e| panic!("Failed to read {}: {e}", baseline_path.display()))
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| l.to_string())
+        .collect();
+
+    let mut current_gaps: Vec<String> = Vec::new();
 
     for cop_name in registry.names() {
         let parts: Vec<&str> = cop_name.split('/').collect();
@@ -1818,28 +1864,56 @@ fn prism_pitfalls() {
 
         // Pitfall 1: KeywordHashNode gap
         if source.contains("as_hash_node") && !source.contains("keyword_hash_node") {
-            report_lines.push(format!(
-                "  {cop_name}: handles Hash literals (as_hash_node) but misses keyword arguments (keyword_hash_node)"
+            current_gaps.push(format!(
+                "{cop_name}: handles Hash literals (as_hash_node) but misses keyword arguments (keyword_hash_node)"
             ));
         }
 
         // Pitfall 2: ConstantPathNode gap
         if source.contains("as_constant_read_node") && !source.contains("constant_path_node") {
-            report_lines.push(format!(
-                "  {cop_name}: handles simple constants (as_constant_read_node) but misses qualified constants (constant_path_node)"
+            current_gaps.push(format!(
+                "{cop_name}: handles simple constants (as_constant_read_node) but misses qualified constants (constant_path_node)"
             ));
         }
     }
 
-    if !report_lines.is_empty() {
+    let current_set: std::collections::HashSet<String> = current_gaps.iter().cloned().collect();
+
+    // Regressions: new gaps not in baseline
+    let mut regressions: Vec<&String> = current_gaps.iter().filter(|g| !baseline.contains(*g)).collect();
+    regressions.sort();
+
+    // Stale: baseline entries no longer in current gaps (gaps that were fixed)
+    let mut stale: Vec<&String> = baseline.iter().filter(|b| !current_set.contains(*b)).collect();
+    stale.sort();
+
+    if !stale.is_empty() {
         eprintln!(
-            "\n[prism_pitfalls] Potential pitfalls found ({} issues):\n{}",
-            report_lines.len(),
-            report_lines.join("\n")
+            "\n[prism_pitfalls] Stale baseline entries (fixed — remove from tests/baselines/prism_pitfalls.txt):"
         );
-    } else {
-        eprintln!("\n[prism_pitfalls] No known pitfalls detected.");
+        for s in &stale {
+            eprintln!("  {s}");
+        }
     }
+
+    if !current_gaps.is_empty() {
+        eprintln!(
+            "\n[prism_pitfalls] Potential pitfalls found ({} issues):",
+            current_gaps.len()
+        );
+        for line in &current_gaps {
+            eprintln!("  {line}");
+        }
+    }
+
+    assert!(
+        regressions.is_empty(),
+        "\n[prism_pitfalls] REGRESSION: {} new pitfall(s) not in baseline:\n{}\n\n\
+         Either fix the cop to handle both node types, or add the entries to \
+         tests/baselines/prism_pitfalls.txt",
+        regressions.len(),
+        regressions.iter().map(|r| format!("  {r}")).collect::<Vec<_>>().join("\n")
+    );
 }
 
 // ---------- NodePattern codegen integration tests ----------

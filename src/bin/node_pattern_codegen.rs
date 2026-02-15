@@ -1,7 +1,23 @@
-//! NodePattern codegen binary.
+//! NodePattern codegen — experimental prototype.
 //!
-//! Parses RuboCop's NodePattern DSL from Ruby cop source files and generates
-//! Rust matching functions targeting Prism AST nodes.
+//! Status: NOT used in CI or the standard cop-writing workflow. Kept in-tree
+//! as a reference implementation of the NodePattern DSL parser.
+//!
+//! What works:
+//!   - Lexer and parser for the NodePattern DSL
+//!   - Parser→Prism node type mapping table
+//!   - Code generation for simple single-type patterns without captures
+//!
+//! What does NOT work:
+//!   - Alternatives codegen (e.g. `{send | csend}`)
+//!   - Capture variables (`$name`)
+//!   - Literal value matching (`:symbol`, `"string"`, integers)
+//!   - `nil?` / `cbase` handling
+//!   - Verify mode (stub — always reports "not implemented")
+//!
+//! For writing cops, the mapping table in `docs/node_pattern_analysis.md` is
+//! the more useful reference — it shows which Prism node types and accessors
+//! correspond to each Parser gem node type.
 //!
 //! Usage:
 //!   cargo run --bin node_pattern_codegen -- generate <ruby_file>
