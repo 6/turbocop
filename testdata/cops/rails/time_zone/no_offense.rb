@@ -3,3 +3,7 @@ Time.zone.now
 foo.now
 DateTime.current
 Process.clock_gettime(Process::CLOCK_MONOTONIC)
+Time.now.utc
+Time.now.in_time_zone
+Time.now.getutc
+Time.now.to_i

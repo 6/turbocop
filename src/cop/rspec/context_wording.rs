@@ -25,7 +25,7 @@ impl Cop for ContextWording {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -58,8 +58,16 @@ impl Cop for ContextWording {
             Err(_) => return Vec::new(),
         };
 
+        // Read Prefixes from config, fall back to defaults
+        let config_prefixes = config.get_string_array("Prefixes");
+        let prefixes: Vec<&str> = if let Some(ref arr) = config_prefixes {
+            arr.iter().map(|s| s.as_str()).collect()
+        } else {
+            DEFAULT_PREFIXES.to_vec()
+        };
+
         // Check if description starts with any allowed prefix followed by a word boundary
-        for prefix in DEFAULT_PREFIXES {
+        for prefix in &prefixes {
             if content_str.starts_with(prefix) {
                 let after = &content_str[prefix.len()..];
                 if after.is_empty()
@@ -72,14 +80,18 @@ impl Cop for ContextWording {
             }
         }
 
+        let prefix_display: Vec<String> =
+            prefixes.iter().map(|p| format!("/^{p}\\b/")).collect();
         let loc = arg_list[0].location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         vec![self.diagnostic(
             source,
             line,
             column,
-            "Context description should match /^when\\b/, /^with\\b/, or /^without\\b/."
-                .to_string(),
+            format!(
+                "Context description should match {}.",
+                prefix_display.join(", ")
+            ),
         )]
     }
 }

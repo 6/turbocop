@@ -26,7 +26,7 @@ impl Cop for ExampleWithoutDescription {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -46,6 +46,8 @@ impl Cop for ExampleWithoutDescription {
         if call.block().is_none() {
             return Vec::new();
         }
+
+        let style = config.get_str("EnforcedStyle", "always_allow");
 
         let args = call.arguments();
 
@@ -72,26 +74,48 @@ impl Cop for ExampleWithoutDescription {
             }
         }
 
-        // No description argument — flag multi-line `it do ... end` (single_line_only default)
-        let block = call.block().unwrap();
-        let block_loc = block.location();
-        let (start_line, _) = source.offset_to_line_col(block_loc.start_offset());
-        let end_off = block_loc.end_offset().saturating_sub(1).max(block_loc.start_offset());
-        let (end_line, _) = source.offset_to_line_col(end_off);
+        // No description argument — behavior depends on EnforcedStyle
+        match style {
+            "always_allow" => {
+                // No description is always OK
+                Vec::new()
+            }
+            "disallow" => {
+                // All examples must have descriptions
+                let loc = call.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Add a description.".to_string(),
+                )]
+            }
+            _ => {
+                // "single_line_only": single-line OK, multi-line flagged
+                let block = call.block().unwrap();
+                let block_loc = block.location();
+                let (start_line, _) =
+                    source.offset_to_line_col(block_loc.start_offset());
+                let end_off = block_loc
+                    .end_offset()
+                    .saturating_sub(1)
+                    .max(block_loc.start_offset());
+                let (end_line, _) = source.offset_to_line_col(end_off);
 
-        if start_line != end_line {
-            // Multi-line with no description
-            let loc = call.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
-                source,
-                line,
-                column,
-                "Add a description.".to_string(),
-            )];
+                if start_line != end_line {
+                    let loc = call.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Add a description.".to_string(),
+                    )];
+                }
+                Vec::new()
+            }
         }
-
-        Vec::new()
     }
 }
 

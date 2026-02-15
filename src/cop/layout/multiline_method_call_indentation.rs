@@ -35,40 +35,95 @@ impl Cop for MultilineMethodCallIndentation {
         };
 
         let receiver_loc = receiver.location();
-        let (recv_line, _) = source.offset_to_line_col(receiver_loc.start_offset());
+        let (recv_end_line, _) = source.offset_to_line_col(receiver_loc.end_offset());
         let (msg_line, msg_col) = source.offset_to_line_col(dot_loc.start_offset());
 
-        // Only check multiline chained calls
-        if msg_line == recv_line {
+        // Only check when the dot is on a different line than the end of its receiver.
+        // This handles `foo(\n  ...\n).bar` where `.bar` is on the same line as `)`.
+        if msg_line == recv_end_line {
             return Vec::new();
         }
 
+        let style = config.get_str("EnforcedStyle", "aligned");
         let width = config.get_usize("IndentationWidth", 2);
 
-        // Find the start of the chain: walk up receivers to find the first receiver
-        // that starts on a different line or has no receiver itself
-        let chain_start_line = find_chain_start_line(source, &receiver);
-        let chain_line_bytes = source.lines().nth(chain_start_line - 1).unwrap_or(b"");
-        let chain_indent = indentation_of(chain_line_bytes);
-        let expected = chain_indent + width;
+        let expected = match style {
+            "indented" => {
+                let chain_start_line = find_chain_start_line(source, &receiver);
+                let chain_line_bytes =
+                    source.lines().nth(chain_start_line - 1).unwrap_or(b"");
+                indentation_of(chain_line_bytes) + width
+            }
+            "indented_relative_to_receiver" => {
+                let chain_start_line = find_chain_start_line(source, &receiver);
+                let chain_line_bytes =
+                    source.lines().nth(chain_start_line - 1).unwrap_or(b"");
+                indentation_of(chain_line_bytes) + width
+            }
+            _ => {
+                // "aligned" (default): dot should align with the first dot in the chain
+                match find_alignment_dot_col(source, &receiver, msg_line) {
+                    Some(col) => col,
+                    // First multiline step — no previous dot to align with;
+                    // accept whatever position the user chose
+                    None => return Vec::new(),
+                }
+            }
+        };
 
-        // Account for the dot: msg_col points at `.`, so the indent should
-        // be measured from the dot position
         if msg_col != expected {
-            return vec![self.diagnostic(
-                source,
-                msg_line,
-                msg_col,
-                format!(
-                    "Use {} (not {}) spaces for indentation of a chained method call.",
-                    width,
-                    msg_col.saturating_sub(chain_indent)
-                ),
-            )];
+            let msg = match style {
+                "aligned" => {
+                    "Align `.` with `.` on the previous line of the chain.".to_string()
+                }
+                _ => {
+                    let chain_start_line = find_chain_start_line(source, &receiver);
+                    let chain_line_bytes =
+                        source.lines().nth(chain_start_line - 1).unwrap_or(b"");
+                    let chain_indent = indentation_of(chain_line_bytes);
+                    format!(
+                        "Use {} (not {}) spaces for indentation of a chained method call.",
+                        width,
+                        msg_col.saturating_sub(chain_indent)
+                    )
+                }
+            };
+            return vec![self.diagnostic(source, msg_line, msg_col, msg)];
         }
 
         Vec::new()
     }
+}
+
+/// For `aligned` style: find the column of the dot (call operator) from the
+/// nearest ancestor in the chain that is on a previous line.
+fn find_alignment_dot_col(
+    source: &SourceFile,
+    receiver: &ruby_prism::Node<'_>,
+    current_dot_line: usize,
+) -> Option<usize> {
+    // Walk up the receiver chain looking for a dot on a different (earlier) line
+    if let Some(call) = receiver.as_call_node() {
+        if let Some(dot_loc) = call.call_operator_loc() {
+            let (dot_line, dot_col) = source.offset_to_line_col(dot_loc.start_offset());
+            if dot_line < current_dot_line {
+                // Found a dot on a previous line — this is the alignment target.
+                // But check if there's an even earlier one (to get the first dot).
+                if let Some(recv) = call.receiver() {
+                    if let Some(earlier) = find_alignment_dot_col(source, &recv, dot_line)
+                    {
+                        return Some(earlier);
+                    }
+                }
+                return Some(dot_col);
+            }
+            // Dot is on the same line as current; keep looking up
+            if let Some(recv) = call.receiver() {
+                return find_alignment_dot_col(source, &recv, current_dot_line);
+            }
+        }
+    }
+    None
 }
 
 fn find_chain_start_line(source: &SourceFile, node: &ruby_prism::Node<'_>) -> usize {

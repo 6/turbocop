@@ -1,5 +1,7 @@
+I18n.t("foo.bar.baz")
 I18n.t(:foo)
 I18n.t("foo")
-I18n.t(:foo, scope: [:bar, :baz])
+I18n.translate("users.show.title")
 t(:hello)
 t("simple_key")
+t("admin.reports.processed_msg", id: 1)

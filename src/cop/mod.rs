@@ -79,6 +79,17 @@ impl CopConfig {
             .and_then(|v| v.as_bool())
             .unwrap_or(default)
     }
+
+    /// Get a string array option. Returns None if the key is absent.
+    pub fn get_string_array(&self, key: &str) -> Option<Vec<String>> {
+        self.options.get(key).and_then(|v| {
+            v.as_sequence().map(|seq| {
+                seq.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+        })
+    }
 }
 
 /// A lint rule. Implementations must be Send + Sync so they can be shared

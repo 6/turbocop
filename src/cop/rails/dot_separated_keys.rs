@@ -30,47 +30,53 @@ impl Cop for DotSeparatedKeys {
             return Vec::new();
         }
 
-        // Receiver should be I18n
-        let recv = match call.receiver() {
-            Some(r) => r,
-            None => return Vec::new(),
-        };
-        let const_read = match recv.as_constant_read_node() {
-            Some(c) => c,
-            None => return Vec::new(),
-        };
-        if const_read.name().as_slice() != b"I18n" {
-            return Vec::new();
+        // Receiver can be I18n or absent (Rails helper `t`)
+        if let Some(recv) = call.receiver() {
+            let is_i18n = recv
+                .as_constant_read_node()
+                .is_some_and(|c| c.name().as_slice() == b"I18n");
+            if !is_i18n {
+                return Vec::new();
+            }
         }
 
-        // First argument should be a string containing dots
+        // Look for a `scope:` keyword argument — this cop flags scope-based keys
+        // and suggests using dot-separated string keys instead.
         let args = match call.arguments() {
             Some(a) => a,
             None => return Vec::new(),
         };
-        let arg_list: Vec<_> = args.arguments().iter().collect();
-        if arg_list.is_empty() {
-            return Vec::new();
+
+        for arg in args.arguments().iter() {
+            let hash = if let Some(h) = arg.as_keyword_hash_node() {
+                h.elements()
+            } else {
+                continue;
+            };
+            for elem in hash.iter() {
+                let assoc = match elem.as_assoc_node() {
+                    Some(a) => a,
+                    None => continue,
+                };
+                let is_scope_key = if let Some(sym) = assoc.key().as_symbol_node() {
+                    sym.unescaped() == b"scope"
+                } else {
+                    false
+                };
+                if is_scope_key {
+                    let loc = assoc.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Use dot-separated keys instead of the `:scope` option.".to_string(),
+                    )];
+                }
+            }
         }
 
-        let string_node = match arg_list[0].as_string_node() {
-            Some(s) => s,
-            None => return Vec::new(),
-        };
-
-        let content = string_node.unescaped();
-        if !content.contains(&b'.') {
-            return Vec::new();
-        }
-
-        let loc = node.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
-            source,
-            line,
-            column,
-            "Use symbol keys or scope option instead of dot-separated string keys.".to_string(),
-        )]
+        Vec::new()
     }
 }
 

@@ -1,8 +1,8 @@
-I18n.t("foo.bar.baz")
-^^^^^^^^^^^^^^^^^^^^^ Rails/DotSeparatedKeys: Use symbol keys or scope option instead of dot-separated string keys.
+I18n.t(:foo, scope: [:bar, :baz])
+             ^^^^^^^^^^^^^^^^^^^^ Rails/DotSeparatedKeys: Use dot-separated keys instead of the `:scope` option.
 
-I18n.translate("users.show.title")
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/DotSeparatedKeys: Use symbol keys or scope option instead of dot-separated string keys.
+I18n.translate(:title, scope: [:users, :show])
+                       ^^^^^^^^^^^^^^^^^^^^^^^ Rails/DotSeparatedKeys: Use dot-separated keys instead of the `:scope` option.
 
-I18n.t("errors.messages.blank")
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/DotSeparatedKeys: Use symbol keys or scope option instead of dot-separated string keys.
+t(:blank, scope: [:errors, :messages])
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/DotSeparatedKeys: Use dot-separated keys instead of the `:scope` option.
