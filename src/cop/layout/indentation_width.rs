@@ -6,10 +6,14 @@ use crate::parse::source::SourceFile;
 pub struct IndentationWidth;
 
 impl IndentationWidth {
+    /// Check body indentation.
+    /// `keyword_offset` is used to determine which line the keyword is on (for same-line skip).
+    /// `base_col` is the column that expected indentation is relative to.
     fn check_body_indentation(
         &self,
         source: &SourceFile,
         keyword_offset: usize,
+        base_col: usize,
         body: Option<ruby_prism::Node<'_>>,
         width: usize,
     ) -> Vec<Diagnostic> {
@@ -28,8 +32,8 @@ impl IndentationWidth {
             return Vec::new();
         }
 
-        let (kw_line, kw_col) = source.offset_to_line_col(keyword_offset);
-        let expected = expected_indent_for_body(kw_col, width);
+        let (kw_line, _) = source.offset_to_line_col(keyword_offset);
+        let expected = expected_indent_for_body(base_col, width);
 
         for child in &children {
             let loc = child.location();
@@ -47,7 +51,7 @@ impl IndentationWidth {
                     child_col,
                     format!(
                         "Use {} (not {}) spaces for indentation.",
-                        width, child_col.saturating_sub(kw_col)
+                        width, child_col.saturating_sub(base_col)
                     ),
                 )];
             }
@@ -116,27 +120,42 @@ impl Cop for IndentationWidth {
         let width = config.get_usize("Width", 2);
 
         if let Some(class_node) = node.as_class_node() {
+            let kw_offset = class_node.class_keyword_loc().start_offset();
+            let (_, kw_col) = source.offset_to_line_col(kw_offset);
             return self.check_body_indentation(
                 source,
-                class_node.class_keyword_loc().start_offset(),
+                kw_offset,
+                kw_col,
                 class_node.body(),
                 width,
             );
         }
 
         if let Some(module_node) = node.as_module_node() {
+            let kw_offset = module_node.module_keyword_loc().start_offset();
+            let (_, kw_col) = source.offset_to_line_col(kw_offset);
             return self.check_body_indentation(
                 source,
-                module_node.module_keyword_loc().start_offset(),
+                kw_offset,
+                kw_col,
                 module_node.body(),
                 width,
             );
         }
 
         if let Some(def_node) = node.as_def_node() {
+            let kw_offset = def_node.def_keyword_loc().start_offset();
+            // Use `end` keyword column as base — handles cases like
+            // `private_class_method def self.foo` where def is mid-line.
+            let base_col = if let Some(end_loc) = def_node.end_keyword_loc() {
+                source.offset_to_line_col(end_loc.start_offset()).1
+            } else {
+                source.offset_to_line_col(kw_offset).1
+            };
             return self.check_body_indentation(
                 source,
-                def_node.def_keyword_loc().start_offset(),
+                kw_offset,
+                base_col,
                 def_node.body(),
                 width,
             );
@@ -154,40 +173,31 @@ impl Cop for IndentationWidth {
         }
 
         if let Some(block_node) = node.as_block_node() {
+            let opening_offset = block_node.opening_loc().start_offset();
+            // For blocks, indentation is relative to the `end`/`}` keyword
+            // column, which aligns with the start of the expression (handles
+            // multiline chained calls where `do` is on a continuation line).
+            let closing_offset = block_node.closing_loc().start_offset();
+            let (_, base_col) = source.offset_to_line_col(closing_offset);
             return self.check_body_indentation(
                 source,
-                block_node.opening_loc().start_offset(),
+                opening_offset,
+                base_col,
                 block_node.body(),
                 width,
             );
         }
 
-        if let Some(case_node) = node.as_case_node() {
-            // Check that when clauses are indented from the case keyword
-            let kw_offset = case_node.case_keyword_loc().start_offset();
-            let (kw_line, kw_col) = source.offset_to_line_col(kw_offset);
-            let expected = expected_indent_for_body(kw_col, width);
-
-            for condition in case_node.conditions().iter() {
-                let loc = condition.location();
-                let (cond_line, cond_col) = source.offset_to_line_col(loc.start_offset());
-
-                if cond_line == kw_line {
-                    return Vec::new();
-                }
-
-                if cond_col != expected {
-                    return vec![self.diagnostic(
-                        source,
-                        cond_line,
-                        cond_col,
-                        format!(
-                            "Use {} (not {}) spaces for indentation.",
-                            width, cond_col.saturating_sub(kw_col)
-                        ),
-                    )];
-                }
-            }
+        // Check body indentation inside when clauses (when keyword
+        // positioning is handled by Layout/CaseIndentation, not here).
+        if let Some(when_node) = node.as_when_node() {
+            let kw_offset = when_node.keyword_loc().start_offset();
+            return self.check_statements_indentation(
+                source,
+                kw_offset,
+                when_node.statements(),
+                width,
+            );
         }
 
         if let Some(while_node) = node.as_while_node() {

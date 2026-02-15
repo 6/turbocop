@@ -12,3 +12,14 @@ if true
       z = 3
       ^^^ Layout/IndentationWidth: Use 2 (not 6) spaces for indentation.
 end
+
+items.each do |item|
+      process(item)
+      ^^^ Layout/IndentationWidth: Use 2 (not 6) spaces for indentation.
+end
+
+case x
+when 1
+      do_something
+      ^^^ Layout/IndentationWidth: Use 2 (not 6) spaces for indentation.
+end
