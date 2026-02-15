@@ -164,6 +164,32 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
     // Merge project config on top of rubocop defaults
     merge_layer_into(&mut base, &project_layer, None);
 
+    let disabled_by_default = base.disabled_by_default.unwrap_or(false);
+
+    // When DisabledByDefault is true, cops enabled only by rubocop's defaults
+    // (not by the project config) should be treated as Unset (i.e., disabled).
+    // Only cops explicitly enabled in the project layer remain enabled.
+    if disabled_by_default {
+        for (cop_name, cop_cfg) in base.cop_configs.iter_mut() {
+            if cop_cfg.enabled == EnabledState::True {
+                // Check if the project layer explicitly set this cop to True
+                let project_enabled = project_layer
+                    .cop_configs
+                    .get(cop_name)
+                    .is_some_and(|c| c.enabled == EnabledState::True);
+                // Also check department-level config
+                let dept = cop_name.split('/').next().unwrap_or("");
+                let dept_enabled = project_layer
+                    .department_configs
+                    .get(dept)
+                    .is_some_and(|dc| dc.enabled == EnabledState::True);
+                if !project_enabled && !dept_enabled {
+                    cop_cfg.enabled = EnabledState::Unset;
+                }
+            }
+        }
+    }
+
     Ok(ResolvedConfig {
         cop_configs: base.cop_configs,
         department_configs: base.department_configs,
@@ -173,7 +199,7 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
             Some("enable") => NewCopsPolicy::Enable,
             _ => NewCopsPolicy::Disable,
         },
-        disabled_by_default: base.disabled_by_default.unwrap_or(false),
+        disabled_by_default,
     })
 }
 
