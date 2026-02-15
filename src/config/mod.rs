@@ -83,6 +83,11 @@ struct ConfigLayer {
     new_cops: Option<String>,
     disabled_by_default: Option<bool>,
     inherit_mode: InheritMode,
+    /// Cop names where Enabled:true came from `require:` gem defaults
+    /// (used to distinguish user-explicit enables from gem defaults under DisabledByDefault).
+    require_enabled_cops: HashSet<String>,
+    /// Department names where Enabled:true came from `require:` gem defaults.
+    require_enabled_depts: HashSet<String>,
 }
 
 impl ConfigLayer {
@@ -94,6 +99,8 @@ impl ConfigLayer {
             new_cops: None,
             disabled_by_default: None,
             inherit_mode: InheritMode::default(),
+            require_enabled_cops: HashSet::new(),
+            require_enabled_depts: HashSet::new(),
         }
     }
 }
@@ -166,24 +173,45 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
 
     let disabled_by_default = base.disabled_by_default.unwrap_or(false);
 
-    // When DisabledByDefault is true, cops enabled only by rubocop's defaults
-    // (not by the project config) should be treated as Unset (i.e., disabled).
-    // Only cops explicitly enabled in the project layer remain enabled.
+    // When DisabledByDefault is true, only cops that are *explicitly* enabled
+    // in user config files (inherit_gem, inherit_from, local settings) should
+    // remain enabled. Cops enabled only by gem defaults (rubocop's own defaults
+    // or `require:` plugin defaults) should be treated as Unset (= disabled).
+    //
+    // We check the project_layer, but since `require:` defaults are merged into
+    // it, we must also distinguish. The project_layer's `require_enabled_cops`
+    // field tracks cops set to Enabled:true specifically by `require:` defaults,
+    // which we exclude.
     if disabled_by_default {
+        // Reset department-level enabled states that came from require: defaults
+        for (dept_name, dept_cfg) in base.department_configs.iter_mut() {
+            if dept_cfg.enabled == EnabledState::True {
+                let user_enabled = project_layer
+                    .department_configs
+                    .get(dept_name)
+                    .is_some_and(|dc| dc.enabled == EnabledState::True)
+                    && !project_layer.require_enabled_depts.contains(dept_name.as_str());
+                if !user_enabled {
+                    dept_cfg.enabled = EnabledState::Unset;
+                }
+            }
+        }
+
+        // Reset cop-level enabled states that came from defaults (not user config)
         for (cop_name, cop_cfg) in base.cop_configs.iter_mut() {
             if cop_cfg.enabled == EnabledState::True {
-                // Check if the project layer explicitly set this cop to True
-                let project_enabled = project_layer
+                let user_enabled = project_layer
                     .cop_configs
                     .get(cop_name)
-                    .is_some_and(|c| c.enabled == EnabledState::True);
-                // Also check department-level config
+                    .is_some_and(|c| c.enabled == EnabledState::True)
+                    && !project_layer.require_enabled_cops.contains(cop_name);
                 let dept = cop_name.split('/').next().unwrap_or("");
                 let dept_enabled = project_layer
                     .department_configs
                     .get(dept)
-                    .is_some_and(|dc| dc.enabled == EnabledState::True);
-                if !project_enabled && !dept_enabled {
+                    .is_some_and(|dc| dc.enabled == EnabledState::True)
+                    && !project_layer.require_enabled_depts.contains(dept);
+                if !user_enabled && !dept_enabled {
                     cop_cfg.enabled = EnabledState::Unset;
                 }
             }
@@ -320,6 +348,23 @@ fn load_config_recursive(
                 }
             }
         }
+
+        // Record cops/depts enabled by require: defaults (for DisabledByDefault).
+        // Under DisabledByDefault, these are NOT considered "explicitly enabled".
+        let require_cops: HashSet<String> = base_layer
+            .cop_configs
+            .iter()
+            .filter(|(_, c)| c.enabled == EnabledState::True)
+            .map(|(n, _)| n.clone())
+            .collect();
+        let require_depts: HashSet<String> = base_layer
+            .department_configs
+            .iter()
+            .filter(|(_, c)| c.enabled == EnabledState::True)
+            .map(|(n, _)| n.clone())
+            .collect();
+        base_layer.require_enabled_cops = require_cops;
+        base_layer.require_enabled_depts = require_depts;
 
         // 1. Process inherit_gem
         if let Some(gem_value) = map.get(&Value::String("inherit_gem".to_string())) {
@@ -491,6 +536,8 @@ fn parse_config_layer(raw: &Value) -> ConfigLayer {
         new_cops,
         disabled_by_default,
         inherit_mode,
+        require_enabled_cops: HashSet::new(),
+        require_enabled_depts: HashSet::new(),
     }
 }
 
@@ -545,6 +592,23 @@ fn merge_layer_into(
                 base.cop_configs
                     .insert(cop_name.clone(), overlay_config.clone());
             }
+        }
+        // Track require-originated enabled state through merges.
+        if overlay.require_enabled_cops.contains(cop_name) {
+            // Cop was enabled by require: defaults in overlay chain — propagate
+            base.require_enabled_cops.insert(cop_name.clone());
+        } else if overlay_config.enabled != EnabledState::Unset {
+            // User config explicitly set Enabled — remove from require set
+            base.require_enabled_cops.remove(cop_name);
+        }
+    }
+
+    // Same for departments
+    for (dept_name, overlay_dept) in &overlay.department_configs {
+        if overlay.require_enabled_depts.contains(dept_name) {
+            base.require_enabled_depts.insert(dept_name.clone());
+        } else if overlay_dept.enabled != EnabledState::Unset {
+            base.require_enabled_depts.remove(dept_name);
         }
     }
 }
