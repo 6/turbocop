@@ -39,6 +39,37 @@ impl Cop for RedundantMatch {
             return Vec::new();
         }
 
+        // Don't flag if the call has a block (MatchData is passed to it)
+        if call.block().is_some() {
+            return Vec::new();
+        }
+
+        // Don't flag if the result is chained (e.g., .match(x)[1], .match(x).to_s)
+        let call_end = call.location().end_offset();
+        let bytes = source.as_bytes();
+        let mut pos = call_end;
+        while pos < bytes.len() && (bytes[pos] == b' ' || bytes[pos] == b'\t') {
+            pos += 1;
+        }
+        if pos < bytes.len() {
+            let next = bytes[pos];
+            // Result is chained (.method), indexed ([]), or safe-navigated (&.)
+            if next == b'.' || next == b'[' || next == b'&' {
+                return Vec::new();
+            }
+        }
+
+        // Don't flag if the result is assigned (e.g., m = str.match(x))
+        let receiver = call.receiver().unwrap(); // checked above
+        let (_, recv_col) = source.offset_to_line_col(receiver.location().start_offset());
+        let call_line_num = source.offset_to_line_col(call.location().start_offset()).0;
+        if let Some(line_bytes) = source.lines().nth(call_line_num - 1) {
+            let before_recv = &line_bytes[..recv_col.min(line_bytes.len())];
+            if before_recv.iter().any(|&b| b == b'=') {
+                return Vec::new();
+            }
+        }
+
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         vec![self.diagnostic(source, line, column, "Use `match?` instead of `match` when `MatchData` is not used.".to_string())]

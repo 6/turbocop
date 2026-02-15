@@ -83,23 +83,41 @@ impl Cop for EmptyLineBetweenDefs {
             return Vec::new();
         }
 
-        let prev_line = match line_at(source, def_line - 1) {
-            Some(l) => l,
-            None => return Vec::new(),
-        };
-
-        // No offense if the previous line is blank
-        if is_blank(prev_line) {
-            return Vec::new();
-        }
-
-        // No offense if previous line is an opening keyword (class, module, def, do, begin, {)
-        if is_opening_line(prev_line) {
-            return Vec::new();
-        }
-
-        // No offense if previous line is a comment (typically a doc comment for this method)
-        if is_comment_line(prev_line) {
+        // Scan backwards from the def line to find the first non-blank, non-comment line.
+        // Only flag if it's `end` (indicating consecutive method definitions).
+        let mut check_line = def_line - 1; // 1-indexed
+        loop {
+            if check_line < 1 {
+                return Vec::new();
+            }
+            let line = match line_at(source, check_line) {
+                Some(l) => l,
+                None => return Vec::new(),
+            };
+            if is_blank(line) {
+                // Found blank line before reaching `end` — no offense
+                return Vec::new();
+            }
+            if is_comment_line(line) {
+                // Skip comment lines
+                check_line -= 1;
+                continue;
+            }
+            // Check if this is an opening line (class, module, def, etc.)
+            if is_opening_line(line) {
+                return Vec::new();
+            }
+            // Check if this line is `end` (with optional leading whitespace)
+            let trimmed: Vec<u8> = line
+                .iter()
+                .copied()
+                .skip_while(|&b| b == b' ' || b == b'\t')
+                .collect();
+            if trimmed == b"end" || trimmed.starts_with(b"end ") || trimmed.starts_with(b"end\t") {
+                // Previous method ended here — flag the missing empty line
+                break;
+            }
+            // Something else (e.g., LONG_DESC, attr_accessor, etc.) — don't flag
             return Vec::new();
         }
 

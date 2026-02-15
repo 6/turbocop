@@ -17,7 +17,8 @@ impl<'pr> Visit<'pr> for NestedDefFinder {
     fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
         let is_scope = node.as_class_node().is_some()
             || node.as_module_node().is_some()
-            || node.as_singleton_class_node().is_some();
+            || node.as_singleton_class_node().is_some()
+            || is_scope_creating_call(&node);
         self.scope_stack.push(is_scope);
         if is_scope {
             self.skip_depth += 1;
@@ -32,6 +33,45 @@ impl<'pr> Visit<'pr> for NestedDefFinder {
             self.skip_depth -= 1;
         }
     }
+}
+
+/// Check if a node is a scope-creating call like Module.new, Class.new,
+/// define_method, class_eval, etc. that creates a new method scope.
+fn is_scope_creating_call(node: &ruby_prism::Node<'_>) -> bool {
+    let call = match node.as_call_node() {
+        Some(c) => c,
+        None => return false,
+    };
+    // Must have a block for defs inside to be in a new scope
+    if call.block().is_none() {
+        return false;
+    }
+    let method_name = call.name().as_slice();
+    // Metaprogramming methods that create new scopes
+    if matches!(
+        method_name,
+        b"define_method"
+            | b"class_eval"
+            | b"module_eval"
+            | b"instance_eval"
+            | b"class_exec"
+            | b"module_exec"
+            | b"instance_exec"
+    ) {
+        return true;
+    }
+    // Module.new, Class.new, Struct.new
+    if method_name == b"new" {
+        if let Some(receiver) = call.receiver() {
+            if let Some(cr) = receiver.as_constant_read_node() {
+                let name = cr.name().as_slice();
+                if name == b"Module" || name == b"Class" || name == b"Struct" {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 impl Cop for NestedMethodDefinition {
