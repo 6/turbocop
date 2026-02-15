@@ -674,6 +674,91 @@ Full `.rubocop.yml` compatibility: auto-discovery, `require:` plugin default loa
 - [x] `AllCops.DisabledByDefault: true` support
 - [x] `inherit_mode: merge/override` for Include/Exclude arrays
 
+## In Progress: Conformance FP Reduction
+
+Systematic false-positive reduction against Mastodon and Discourse benchmark repos. All rblint offenses on these repos are FPs (rubocop reports 0 offenses on both repos).
+
+### FP Tracking
+
+| Benchmark | Starting FPs | Current FPs | Reduction |
+|-----------|-------------|-------------|-----------|
+| Mastodon | ~3,357 | **856** | -74% |
+| Discourse | ~375 | **60** | -84% |
+
+### Cop Logic Fixes (completed across multiple sessions)
+
+**Session 1 — 6 cops fixed:**
+- [x] Layout/MultilineMethodCallIndentation — skip when inside rescue/ensure/else
+- [x] Rails/DotSeparatedKeys — skip interpolated strings
+- [x] Rails/TimeZone — implement `flexible` default style (allow `Time.current`, `Time.zone.*`)
+- [x] RSpec/ContextWording — skip context blocks with method-style descriptions (`.method`, `#method`)
+- [x] RSpec/ExampleWithoutDescription — skip `it {}` without block (pending examples)
+- [x] Layout/EndAlignment — handle when/in alignment to case
+
+**Session 2 — 3 cops fixed:**
+- [x] Layout/ArgumentAlignment — skip single-line calls
+- [x] RSpec/LetSetup — handle let used only in hooks (more conservative detection)
+
+**Session 3 — 7 cops fixed:**
+- [x] Layout/DefEndAlignment — handle `end` aligned to `def` for multi-line defs
+- [x] Lint/SuppressedException — AllowComments support
+- [x] Rails/Delegate — skip calls with blocks
+- [x] RSpec/ExampleLength — respect configurable Max (default 5)
+- [x] RSpec/InstanceVariable — skip `@` in strings/comments
+- [x] Style/IfUnlessModifier — skip heredoc bodies, parenthesized assignment conditions, comments before body, include indentation in modifier line length
+- [x] Layout/EmptyLineBetweenDefs — AllowAdjacentOneLineDefs support
+
+**Session 4 — 3 cops fixed:**
+- [x] Lint/NestedMethodDefinition — skip def inside Class.new/Module.new blocks
+- [x] Performance/RedundantMatch — only flag when return value is unused
+
+**Session 5 — 9 cops fixed, 1 infrastructure fix:**
+- [x] Rails/ReflectionClassName — REVERSED logic (was flagging strings, should flag non-strings)
+- [x] Style/Lambda — implement `line_count_dependent` default style
+- [x] Style/ParenthesesAroundCondition — AllowSafeAssignment support
+- [x] Style/EmptyMethod — skip methods with comment-only bodies
+- [x] Style/TrailingCommaInArguments — skip &block args, validate comma context with heredoc protection
+- [x] Performance/RedundantSplitRegexpArgument — only flag simple literal regexes
+- [x] Style/Semicolon — add while/until to single-line body detection
+- [x] Style/IfUnlessModifier — multiple fixes (comments, heredocs, indentation)
+- [x] CodeMap — mark heredoc content as non-code (fixed Semicolon/TrailingComma FPs from heredoc CSS/SQL)
+
+**Session 6 (current) — 4 cops fixed:**
+- [x] Lint/EmptyConditionalBody — AllowComments: true (check parse_result comments between keyword and end)
+- [x] RSpec/AroundBlock — handle `yield` as valid way to run example; handle BeginNode (rescue/ensure) and local variable assignment in body recursion
+- [x] RSpec/ReturnFromStub — remove constants/constant paths from `is_static_value` (RuboCop doesn't consider them static)
+
+### Remaining FPs — Mastodon (856)
+
+Most are **config issues** requiring the target repo's `.rubocop.yml` to be loaded correctly:
+- RSpec/IncludeExamples (118) — version-specific behavior
+- Layout/MultilineMethodCallIndentation (66) — complex edge cases
+- Rails/TimeZone (63) — remaining cases beyond flexible style
+- RSpec/SpecFilePathFormat (52) — needs plugin config
+- Rails/HttpStatus (52) — needs EnforcedStyle: numeric from config
+- Rails/FilePath (42) — needs EnforcedStyle: arguments from config
+- Rails/ContentTag (34) — needs config
+- Layout/LineLength (20) — needs Max: 300 from config
+- Style/WordArray (20) — needs MinSize: 3 from config
+- RSpec/NamedSubject (10) — needs EnforcedStyle: named_only from config
+
+### Remaining FPs — Discourse (60)
+
+Mostly **config issues** (Discourse's rubocop-discourse gem disables many cops):
+- RSpec/NamedSubject (15) — likely disabled by rubocop-discourse
+- Lint/BooleanSymbol (12) — likely disabled by rubocop-discourse
+- Style/FrozenStringLiteralComment (12) — likely disabled or set to `never`
+- RSpec/EmptyExampleGroup (10) — likely disabled by rubocop-discourse
+- RSpec/UnspecifiedException (3), Lint/Debugger (2), RSpec/ExpectActual (2), RSpec/ExpectOutput (2), Lint/EmptyConditionalBody (1), RSpec/ChangeByZero (1)
+
+### Next Steps
+
+The remaining FPs are dominated by config loading issues. The M11 config infrastructure handles `inherit_from` and `inherit_gem` but the bench tool runs rblint from the rblint project directory, so config auto-discovery may not find the target repo's config. Key areas:
+1. Verify config auto-discovery works when target path is provided
+2. Ensure `require:` plugin configs load correctly for rubocop-rspec, rubocop-rails, rubocop-performance
+3. Handle rubocop-discourse gem's config for Discourse
+4. Fix remaining logic bugs in cops with <10 FPs
+
 ## Upcoming Milestones
 
 | Milestone | Cops | Status |

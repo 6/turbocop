@@ -4,6 +4,17 @@ use crate::parse::source::SourceFile;
 
 pub struct EmptyConditionalBody;
 
+/// Check if there are any comments within a byte offset range.
+fn has_comment_in_range(parse_result: &ruby_prism::ParseResult<'_>, start: usize, end: usize) -> bool {
+    for comment in parse_result.comments() {
+        let comment_start = comment.location().start_offset();
+        if comment_start >= start && comment_start < end {
+            return true;
+        }
+    }
+    false
+}
+
 impl Cop for EmptyConditionalBody {
     fn name(&self) -> &'static str {
         "Lint/EmptyConditionalBody"
@@ -17,9 +28,11 @@ impl Cop for EmptyConditionalBody {
         &self,
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let allow_comments = config.get_bool("AllowComments", true);
+
         // Check IfNode
         if let Some(if_node) = node.as_if_node() {
             // Only check keyword if, not ternaries
@@ -34,6 +47,20 @@ impl Cop for EmptyConditionalBody {
             };
 
             if body_empty {
+                if allow_comments {
+                    // Check if there are comments between the predicate and else/end
+                    let body_start = if_node.predicate().location().end_offset();
+                    let body_end = if let Some(sub) = if_node.subsequent() {
+                        sub.location().start_offset()
+                    } else if let Some(end_kw) = if_node.end_keyword_loc() {
+                        end_kw.start_offset()
+                    } else {
+                        node.location().end_offset()
+                    };
+                    if has_comment_in_range(parse_result, body_start, body_end) {
+                        return Vec::new();
+                    }
+                }
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
                 return vec![self.diagnostic(
                     source,
@@ -52,6 +79,19 @@ impl Cop for EmptyConditionalBody {
             };
 
             if body_empty {
+                if allow_comments {
+                    let body_start = unless_node.predicate().location().end_offset();
+                    let body_end = if let Some(else_clause) = unless_node.else_clause() {
+                        else_clause.location().start_offset()
+                    } else if let Some(end_kw) = unless_node.end_keyword_loc() {
+                        end_kw.start_offset()
+                    } else {
+                        node.location().end_offset()
+                    };
+                    if has_comment_in_range(parse_result, body_start, body_end) {
+                        return Vec::new();
+                    }
+                }
                 let kw_loc = unless_node.keyword_loc();
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
                 return vec![self.diagnostic(

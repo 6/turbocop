@@ -14,3 +14,10 @@ it do
   bar = 42
   allow(Foo).to receive(:bar) { bar }
 end
+# Constants are not static values — they can change at runtime
+it do
+  allow(Foo).to receive(:bar) { SomeConstant }
+end
+it do
+  allow(Foo).to receive(:bar) { Module::CONSTANT }
+end

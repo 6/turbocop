@@ -158,8 +158,6 @@ fn is_static_value(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_true_node().is_some()
         || node.as_false_node().is_some()
         || node.as_nil_node().is_some()
-        || node.as_constant_read_node().is_some()
-        || node.as_constant_path_node().is_some()
     {
         return true;
     }

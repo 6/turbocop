@@ -52,8 +52,8 @@ impl Cop for AroundBlock {
         match param_name {
             None => {
                 // No block parameter — flag the whole around call
-                // (unless the body uses _1.run or _1.call)
-                if body_uses_numbered_param_run(&block_node) {
+                // (unless the body uses _1.run/_1.call or yield)
+                if body_uses_numbered_param_run(&block_node) || body_contains_yield(&block_node) {
                     return Vec::new();
                 }
                 let loc = node.location();
@@ -66,8 +66,8 @@ impl Cop for AroundBlock {
                 )]
             }
             Some(name) => {
-                // Has a block parameter — check if it's used with .run or .call
-                if body_uses_param_correctly(&block_node, &name) {
+                // Has a block parameter — check if it's used with .run or .call (or yield)
+                if body_uses_param_correctly(&block_node, &name) || body_contains_yield(&block_node) {
                     return Vec::new();
                 }
 
@@ -121,16 +121,64 @@ fn body_uses_param_correctly(block: &ruby_prism::BlockNode<'_>, param_name: &[u8
         Some(b) => b,
         None => return false,
     };
-    let stmts = match body.as_statements_node() {
-        Some(s) => s,
-        None => return false,
-    };
+    node_tree_uses_param(&body, param_name)
+}
 
-    for stmt in stmts.body().iter() {
-        if node_uses_param_correctly(&stmt, param_name) {
+/// Recursively search a node tree (including BeginNode, StatementsNode) for param usage.
+fn node_tree_uses_param(node: &ruby_prism::Node<'_>, param_name: &[u8]) -> bool {
+    if node_uses_param_correctly(node, param_name) {
+        return true;
+    }
+
+    // Handle StatementsNode
+    if let Some(stmts) = node.as_statements_node() {
+        for stmt in stmts.body().iter() {
+            if node_tree_uses_param(&stmt, param_name) {
+                return true;
+            }
+        }
+    }
+
+    // Handle BeginNode (for blocks with rescue/ensure)
+    if let Some(begin_node) = node.as_begin_node() {
+        if let Some(stmts) = begin_node.statements() {
+            for s in stmts.body().iter() {
+                if node_tree_uses_param(&s, param_name) {
+                    return true;
+                }
+            }
+        }
+        // Check rescue clauses
+        let mut rescue = begin_node.rescue_clause();
+        while let Some(rc) = rescue {
+            if let Some(stmts) = rc.statements() {
+                for s in stmts.body().iter() {
+                    if node_tree_uses_param(&s, param_name) {
+                        return true;
+                    }
+                }
+            }
+            rescue = rc.subsequent();
+        }
+        // Check ensure clause
+        if let Some(ensure_clause) = begin_node.ensure_clause() {
+            if let Some(stmts) = ensure_clause.statements() {
+                for s in stmts.body().iter() {
+                    if node_tree_uses_param(&s, param_name) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    // Handle local variable assignments (e.g., measurement = Benchmark.measure { example.run })
+    if let Some(lv) = node.as_local_variable_write_node() {
+        if node_tree_uses_param(&lv.value(), param_name) {
             return true;
         }
     }
+
     false
 }
 
@@ -166,16 +214,12 @@ fn node_uses_param_correctly(node: &ruby_prism::Node<'_>, param_name: &[u8]) -> 
             }
         }
 
-        // Recurse into block body
+        // Recurse into block body (handles StatementsNode, BeginNode, etc.)
         if let Some(block) = call.block() {
             if let Some(bn) = block.as_block_node() {
                 if let Some(body) = bn.body() {
-                    if let Some(stmts) = body.as_statements_node() {
-                        for s in stmts.body().iter() {
-                            if node_uses_param_correctly(&s, param_name) {
-                                return true;
-                            }
-                        }
+                    if node_tree_uses_param(&body, param_name) {
+                        return true;
                     }
                 }
             }
@@ -183,7 +227,7 @@ fn node_uses_param_correctly(node: &ruby_prism::Node<'_>, param_name: &[u8]) -> 
 
         // Recurse into receiver
         if let Some(recv) = call.receiver() {
-            if node_uses_param_correctly(&recv, param_name) {
+            if node_tree_uses_param(&recv, param_name) {
                 return true;
             }
         }
@@ -195,6 +239,134 @@ fn node_uses_param_correctly(node: &ruby_prism::Node<'_>, param_name: &[u8]) -> 
             for arg in args.arguments().iter() {
                 if is_param_ref(&arg, param_name) {
                     return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
+fn body_contains_yield(block: &ruby_prism::BlockNode<'_>) -> bool {
+    let body = match block.body() {
+        Some(b) => b,
+        None => return false,
+    };
+    node_tree_contains_yield(&body)
+}
+
+/// Recursively search a node tree (including BeginNode, StatementsNode) for yield.
+fn node_tree_contains_yield(node: &ruby_prism::Node<'_>) -> bool {
+    if node_contains_yield(node) {
+        return true;
+    }
+
+    if let Some(stmts) = node.as_statements_node() {
+        for stmt in stmts.body().iter() {
+            if node_tree_contains_yield(&stmt) {
+                return true;
+            }
+        }
+    }
+
+    if let Some(begin_node) = node.as_begin_node() {
+        if let Some(stmts) = begin_node.statements() {
+            for s in stmts.body().iter() {
+                if node_tree_contains_yield(&s) {
+                    return true;
+                }
+            }
+        }
+        let mut rescue = begin_node.rescue_clause();
+        while let Some(rc) = rescue {
+            if let Some(stmts) = rc.statements() {
+                for s in stmts.body().iter() {
+                    if node_tree_contains_yield(&s) {
+                        return true;
+                    }
+                }
+            }
+            rescue = rc.subsequent();
+        }
+        if let Some(ensure_clause) = begin_node.ensure_clause() {
+            if let Some(stmts) = ensure_clause.statements() {
+                for s in stmts.body().iter() {
+                    if node_tree_contains_yield(&s) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(lv) = node.as_local_variable_write_node() {
+        if node_tree_contains_yield(&lv.value()) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn node_contains_yield(node: &ruby_prism::Node<'_>) -> bool {
+    // Direct yield node
+    if node.as_yield_node().is_some() {
+        return true;
+    }
+
+    // Check inside call nodes (e.g., in method chain or block)
+    if let Some(call) = node.as_call_node() {
+        if let Some(recv) = call.receiver() {
+            if node_contains_yield(&recv) {
+                return true;
+            }
+        }
+        if let Some(args) = call.arguments() {
+            for arg in args.arguments().iter() {
+                if node_contains_yield(&arg) {
+                    return true;
+                }
+            }
+        }
+        if let Some(block) = call.block() {
+            if let Some(bn) = block.as_block_node() {
+                if let Some(body) = bn.body() {
+                    if let Some(stmts) = body.as_statements_node() {
+                        for s in stmts.body().iter() {
+                            if node_contains_yield(&s) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Check inside begin/rescue/ensure
+    if let Some(begin_node) = node.as_begin_node() {
+        if let Some(stmts) = begin_node.statements() {
+            for s in stmts.body().iter() {
+                if node_contains_yield(&s) {
+                    return true;
+                }
+            }
+        }
+        if let Some(rescue) = begin_node.rescue_clause() {
+            if let Some(stmts) = rescue.statements() {
+                for s in stmts.body().iter() {
+                    if node_contains_yield(&s) {
+                        return true;
+                    }
+                }
+            }
+        }
+        if let Some(ensure) = begin_node.ensure_clause() {
+            if let Some(stmts) = ensure.statements() {
+                for s in stmts.body().iter() {
+                    if node_contains_yield(&s) {
+                        return true;
+                    }
                 }
             }
         }
