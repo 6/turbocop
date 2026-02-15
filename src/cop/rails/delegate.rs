@@ -65,6 +65,14 @@ impl Cop for Delegate {
             None => return Vec::new(),
         };
 
+        // Receiver must be an instance-level reference (local variable, method call,
+        // instance variable), NOT a constant (class methods can't use `delegate`).
+        if receiver.as_constant_read_node().is_some()
+            || receiver.as_constant_path_node().is_some()
+        {
+            return Vec::new();
+        }
+
         // The receiver should be a simple reference, not a chained call.
         // e.g., `client.name` is OK (client is receiverless), but
         // `client.name.upcase` is not (upcase's receiver is client.name).
