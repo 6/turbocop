@@ -16,12 +16,22 @@ fn is_opening_line(line: &[u8]) -> bool {
         .copied()
         .skip_while(|&b| b == b' ' || b == b'\t')
         .collect();
+    // Strip trailing whitespace for end-of-line checks
+    let end_trimmed = trimmed
+        .iter()
+        .rposition(|&b| b != b' ' && b != b'\t' && b != b'\n' && b != b'\r')
+        .map_or(&[] as &[u8], |i| &trimmed[..=i]);
+
     trimmed.starts_with(b"class ")
         || trimmed.starts_with(b"module ")
         || trimmed.starts_with(b"def ")
         || trimmed.starts_with(b"do")
         || trimmed.starts_with(b"begin")
         || trimmed.starts_with(b"{")
+        // Lines ending with `do` or `do |...|` (block opening)
+        || end_trimmed.ends_with(b" do")
+        || end_trimmed.ends_with(b"|")
+            && end_trimmed.windows(4).any(|w| w == b" do ")
 }
 
 /// Check if a line is a comment line.
@@ -44,7 +54,7 @@ impl Cop for EmptyLineBetweenDefs {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -53,6 +63,20 @@ impl Cop for EmptyLineBetweenDefs {
 
         let def_loc = def_node.def_keyword_loc();
         let (def_line, def_col) = source.offset_to_line_col(def_loc.start_offset());
+
+        // AllowAdjacentOneLineDefs: skip if this def is a single-line def
+        // and the previous def-ending line is also from a single-line def
+        let allow_adjacent = config.get_bool("AllowAdjacentOneLineDefs", true);
+        if allow_adjacent {
+            let end_line = def_node
+                .end_keyword_loc()
+                .map(|loc| source.offset_to_line_col(loc.start_offset()).0)
+                .unwrap_or(def_line);
+            if end_line == def_line {
+                // This is a single-line def — skip it
+                return Vec::new();
+            }
+        }
 
         // Skip if def is on the first line
         if def_line <= 1 {
