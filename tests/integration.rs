@@ -1800,15 +1800,6 @@ fn config_audit() {
     let mut stale: Vec<&String> = baseline.iter().filter(|b| !current_set.contains(*b)).collect();
     stale.sort();
 
-    if !stale.is_empty() {
-        eprintln!(
-            "\n[config_audit] Stale baseline entries (fixed — remove from tests/baselines/config_audit.txt):"
-        );
-        for s in &stale {
-            eprintln!("  {s}");
-        }
-    }
-
     if !current_gaps.is_empty() {
         eprintln!(
             "\n[config_audit] YAML config keys not found in Rust source ({} cops):",
@@ -1826,6 +1817,14 @@ fn config_audit() {
          tests/baselines/config_audit.txt",
         regressions.len(),
         regressions.iter().map(|r| format!("  {r}")).collect::<Vec<_>>().join("\n")
+    );
+
+    assert!(
+        stale.is_empty(),
+        "\n[config_audit] STALE: {} baseline entries no longer match current gaps \
+         (remove from tests/baselines/config_audit.txt):\n{}",
+        stale.len(),
+        stale.iter().map(|s| format!("  {s}")).collect::<Vec<_>>().join("\n")
     );
 }
 
@@ -1887,15 +1886,6 @@ fn prism_pitfalls() {
     let mut stale: Vec<&String> = baseline.iter().filter(|b| !current_set.contains(*b)).collect();
     stale.sort();
 
-    if !stale.is_empty() {
-        eprintln!(
-            "\n[prism_pitfalls] Stale baseline entries (fixed — remove from tests/baselines/prism_pitfalls.txt):"
-        );
-        for s in &stale {
-            eprintln!("  {s}");
-        }
-    }
-
     if !current_gaps.is_empty() {
         eprintln!(
             "\n[prism_pitfalls] Potential pitfalls found ({} issues):",
@@ -1913,6 +1903,14 @@ fn prism_pitfalls() {
          tests/baselines/prism_pitfalls.txt",
         regressions.len(),
         regressions.iter().map(|r| format!("  {r}")).collect::<Vec<_>>().join("\n")
+    );
+
+    assert!(
+        stale.is_empty(),
+        "\n[prism_pitfalls] STALE: {} baseline entries no longer match current gaps \
+         (remove from tests/baselines/prism_pitfalls.txt):\n{}",
+        stale.len(),
+        stale.iter().map(|s| format!("  {s}")).collect::<Vec<_>>().join("\n")
     );
 }
 

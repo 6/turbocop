@@ -65,7 +65,7 @@ Two baseline-gated integration tests catch regressions automatically:
 - **`cargo test config_audit`** — cross-references vendor YAML config keys against `config.get_str/get_usize/get_bool/get_string_array` calls in Rust source. Baseline: `tests/baselines/config_audit.txt`.
 - **`cargo test prism_pitfalls`** — scans cop source for `as_hash_node` without `keyword_hash_node` and `as_constant_read_node` without `constant_path_node`. Baseline: `tests/baselines/prism_pitfalls.txt`.
 
-Both tests **fail if new gaps appear** (regressions). To fix: either fix the cop or add the entry to the baseline file. Stale baseline entries (gaps that have been fixed) are printed as warnings — remove them after confirming the fix.
+Both tests **fail if new gaps appear** (regressions) or if **baseline entries become stale** (gaps that were fixed but not removed from the baseline). To fix a regression: either fix the cop or add the entry to the baseline file. To fix a stale entry: remove the line from the baseline file.
 
 ## Fixture Format
 
