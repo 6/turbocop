@@ -23,13 +23,11 @@ impl Cop for FrozenStringLiteralComment {
             return Vec::new();
         }
 
-        if lines.is_empty() || (lines.len() == 1 && lines[0].is_empty()) {
-            let msg = if enforced_style == "always_true" {
-                "Missing magic comment `# frozen_string_literal: true`."
-            } else {
-                "Missing frozen string literal comment."
-            };
-            return vec![self.diagnostic(source, 1, 0, msg.to_string())];
+        // Skip empty files — RuboCop returns early when there are no tokens.
+        // Lint/EmptyFile handles these instead.
+        let has_content = lines.iter().any(|l| !l.iter().all(|&b| b == b' ' || b == b'\t' || b == b'\r'));
+        if !has_content {
+            return Vec::new();
         }
 
         let mut idx = 0;
@@ -69,9 +67,17 @@ fn is_encoding_comment(line: &[u8]) -> bool {
         Ok(s) => s,
         Err(_) => return false,
     };
-    s.starts_with("# encoding:")
-        || s.starts_with("# coding:")
-        || (s.starts_with("# -*-") && (s.contains("encoding:") || s.contains("coding:")))
+    // Explicit encoding/coding directive: `# encoding: utf-8` or `# coding: utf-8`
+    if s.starts_with("# encoding:") || s.starts_with("# coding:") {
+        return true;
+    }
+    // Emacs-style mode line: `# -*- encoding: utf-8 -*-` or `# -*- coding: utf-8 -*-`
+    // The space before the colon is optional: `# -*- encoding : utf-8 -*-`
+    if s.starts_with("# -*-") {
+        let lower = s.to_ascii_lowercase();
+        return lower.contains("encoding") || lower.contains("coding");
+    }
+    false
 }
 
 fn is_frozen_string_literal_comment(line: &[u8]) -> bool {
@@ -79,7 +85,10 @@ fn is_frozen_string_literal_comment(line: &[u8]) -> bool {
         Ok(s) => s,
         Err(_) => return false,
     };
-    s.starts_with("# frozen_string_literal:")
+    // Accept both `# frozen_string_literal:` and `#frozen_string_literal:` (no space)
+    let trimmed = s.strip_prefix('#').unwrap_or("");
+    let trimmed = trimmed.trim_start();
+    trimmed.starts_with("frozen_string_literal:")
 }
 
 fn is_frozen_string_literal_true(line: &[u8]) -> bool {
@@ -87,7 +96,10 @@ fn is_frozen_string_literal_true(line: &[u8]) -> bool {
         Ok(s) => s,
         Err(_) => return false,
     };
-    s.strip_prefix("# frozen_string_literal:")
+    // Accept both `# frozen_string_literal: true` and `#frozen_string_literal: true`
+    let trimmed = s.strip_prefix('#').unwrap_or("");
+    let trimmed = trimmed.trim_start();
+    trimmed.strip_prefix("frozen_string_literal:")
         .map(|rest| rest.trim() == "true")
         .unwrap_or(false)
 }
@@ -176,9 +188,10 @@ mod tests {
 
     #[test]
     fn empty_file() {
+        // Empty files should not be flagged — Lint/EmptyFile handles them
         let source = SourceFile::from_bytes("test.rb", b"".to_vec());
         let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
-        assert_eq!(diags.len(), 1);
+        assert!(diags.is_empty(), "Empty files should not be flagged");
     }
 
     #[test]
@@ -189,6 +202,17 @@ mod tests {
         );
         let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn emacs_encoding_with_spaces() {
+        // Emacs mode line with spaces around colon: `# -*- encoding : utf-8 -*-`
+        let source = SourceFile::from_bytes(
+            "test.rb",
+            b"# -*- encoding : utf-8 -*-\n# frozen_string_literal: true\nputs 'hello'\n".to_vec(),
+        );
+        let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
+        assert!(diags.is_empty(), "Should recognize encoding comment with spaces around colon");
     }
 
     #[test]

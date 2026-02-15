@@ -49,9 +49,21 @@ impl Cop for HashAlignment {
 
         let mut diagnostics = Vec::new();
 
+        let mut last_checked_line = first_line;
+
         for elem in elements.iter().skip(1) {
             let (elem_line, elem_col) = source.offset_to_line_col(elem.location().start_offset());
-            if elem_line != first_line && elem_col != first_col {
+            // Only check the first element on each new line
+            if elem_line == last_checked_line {
+                continue;
+            }
+            last_checked_line = elem_line;
+            // Skip elements that don't begin their line (e.g. `}, status: 200`
+            // where `}` is first on the line, not `status:`)
+            if !crate::cop::util::begins_its_line(source, elem.location().start_offset()) {
+                continue;
+            }
+            if elem_col != first_col {
                 diagnostics.push(self.diagnostic(
                     source,
                     elem_line,

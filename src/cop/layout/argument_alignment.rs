@@ -60,6 +60,12 @@ impl Cop for ArgumentAlignment {
             // Only check the FIRST argument on each new line
             if !checked_lines.contains(&arg_line) {
                 checked_lines.insert(arg_line);
+                // Skip arguments that don't begin their line (matching RuboCop's
+                // begins_its_line? check). For example, in `}, suffix: :action`
+                // the suffix: argument is not first on its line.
+                if !crate::cop::util::begins_its_line(source, arg.location().start_offset()) {
+                    continue;
+                }
                 if arg_col != expected_col {
                     diagnostics.push(self.diagnostic(
                         source,

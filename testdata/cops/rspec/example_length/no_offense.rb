@@ -17,4 +17,13 @@ RSpec.describe Foo do
   specify do
     expect(subject).to be_valid
   end
+
+  # Example with exactly 5 lines (the default Max)
+  it 'uses multi-line code at limit' do
+    a = setup_data
+    b = process(a)
+    c = transform(b)
+    d = finalize(c)
+    expect(d).to be_valid
+  end
 end

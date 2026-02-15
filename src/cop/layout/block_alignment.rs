@@ -34,19 +34,27 @@ impl Cop for BlockAlignment {
 
         // Find the indentation of the line containing the block opener.
         let bytes = source.as_bytes();
-        let mut line_start = opening_loc.start_offset();
-        while line_start > 0 && bytes[line_start - 1] != b'\n' {
-            line_start -= 1;
-        }
-        let mut start_of_line_indent = 0;
-        while line_start + start_of_line_indent < bytes.len()
-            && bytes[line_start + start_of_line_indent] == b' '
-        {
-            start_of_line_indent += 1;
-        }
+        let start_of_line_indent = line_indent(bytes, opening_loc.start_offset());
+
+        // For `start_of_line` and `either` styles, RuboCop walks up the
+        // expression tree to find the outermost ancestor that starts on a
+        // different line. For a chained method like:
+        //   @account.things
+        //            .where(...)
+        //            .in_batches do |b|
+        //     ...
+        //   end
+        // The `end` should align with `@account` (col 2), not `.in_batches` line.
+        // Since Prism doesn't give parent pointers, we scan backwards through
+        // source lines for continuation patterns (lines starting with `.`).
+        let expression_start_indent = find_chain_expression_start(bytes, opening_loc.start_offset());
 
         // Get the column of `do` keyword itself
         let (_, do_col) = source.offset_to_line_col(opening_loc.start_offset());
+
+        // Find the column of the call expression that owns this block.
+        // Walk backward from `do` to find the start of the method call chain.
+        let call_expr_col = find_call_expression_col(bytes, opening_loc.start_offset());
 
         let (end_line, end_col) = source.offset_to_line_col(closing_loc.start_offset());
 
@@ -68,8 +76,8 @@ impl Cop for BlockAlignment {
                 }
             }
             "start_of_line" => {
-                // `end` must align with start of the line containing `do`
-                if end_col != start_of_line_indent {
+                // `end` must align with start of the expression
+                if end_col != expression_start_indent {
                     return vec![self.diagnostic(
                         source,
                         end_line,
@@ -80,8 +88,16 @@ impl Cop for BlockAlignment {
                 }
             }
             _ => {
-                // "either" (default): accept either alignment
-                if end_col != start_of_line_indent && end_col != do_col {
+                // "either" (default): accept alignment with:
+                // - the do-line indent, OR
+                // - the do keyword column, OR
+                // - the expression start indent, OR
+                // - the call expression column (for hash-value blocks)
+                if end_col != start_of_line_indent
+                    && end_col != do_col
+                    && end_col != expression_start_indent
+                    && end_col != call_expr_col
+                {
                     return vec![self.diagnostic(
                         source,
                         end_line,
@@ -95,6 +111,109 @@ impl Cop for BlockAlignment {
 
         Vec::new()
     }
+}
+
+/// Get the indentation (number of leading spaces) for the line containing the given byte offset.
+fn line_indent(bytes: &[u8], offset: usize) -> usize {
+    let mut line_start = offset;
+    while line_start > 0 && bytes[line_start - 1] != b'\n' {
+        line_start -= 1;
+    }
+    let mut indent = 0;
+    while line_start + indent < bytes.len() && bytes[line_start + indent] == b' ' {
+        indent += 1;
+    }
+    indent
+}
+
+/// Walk backward from the `do` keyword on the same line to find the column where
+/// the call expression starts. This handles cases like:
+///   key: value.map do |x|
+///        ^--- call_expr_col (aligned with value.map)
+/// Returns the column of the first character of the call expression.
+fn find_call_expression_col(bytes: &[u8], do_offset: usize) -> usize {
+    // Find start of current line
+    let mut line_start = do_offset;
+    while line_start > 0 && bytes[line_start - 1] != b'\n' {
+        line_start -= 1;
+    }
+
+    // Walk backward from `do` to skip whitespace before it
+    let mut pos = do_offset;
+    while pos > line_start && bytes[pos - 1] == b' ' {
+        pos -= 1;
+    }
+
+    // Now walk backward through the call expression.
+    // We need to handle balanced parens/brackets and stop at unbalanced
+    // delimiters or spaces not inside parens.
+    let mut paren_depth: i32 = 0;
+    while pos > line_start {
+        let ch = bytes[pos - 1];
+        match ch {
+            b')' | b']' => { paren_depth += 1; pos -= 1; }
+            b'(' | b'[' => {
+                if paren_depth > 0 { paren_depth -= 1; pos -= 1; }
+                else { break; }
+            }
+            _ if paren_depth > 0 => { pos -= 1; } // inside parens, eat everything
+            _ if ch.is_ascii_alphanumeric() || ch == b'_' || ch == b'.'
+                || ch == b'?' || ch == b'!' || ch == b'@' || ch == b'$' => {
+                pos -= 1;
+            }
+            // `::` namespace separator
+            b':' if pos >= 2 + line_start && bytes[pos - 2] == b':' => {
+                pos -= 2;
+            }
+            _ => break,
+        }
+    }
+
+    pos - line_start
+}
+
+/// Walk backwards from the do-line to find the start of the method chain expression.
+/// If previous lines are continuations (e.g., starting with `.`), keep going up.
+fn find_chain_expression_start(bytes: &[u8], do_offset: usize) -> usize {
+    // Find start of the line containing `do`
+    let mut line_start = do_offset;
+    while line_start > 0 && bytes[line_start - 1] != b'\n' {
+        line_start -= 1;
+    }
+
+    // Look at previous lines to check if they're part of the same chain
+    loop {
+        if line_start == 0 {
+            break;
+        }
+        // Go to previous line
+        let prev_line_end = line_start - 1; // the \n
+        let mut prev_line_start = prev_line_end;
+        while prev_line_start > 0 && bytes[prev_line_start - 1] != b'\n' {
+            prev_line_start -= 1;
+        }
+
+        // Check if current line (the one at line_start) is a continuation
+        // (starts with whitespace + `.`)
+        let mut pos = line_start;
+        while pos < bytes.len() && (bytes[pos] == b' ' || bytes[pos] == b'\t') {
+            pos += 1;
+        }
+        if pos < bytes.len() && bytes[pos] == b'.' {
+            // This line starts with `.`, so the expression continues from the previous line
+            line_start = prev_line_start;
+            continue;
+        }
+
+        break;
+    }
+
+    // Return the indent of the expression start line
+    let mut indent = 0;
+    while line_start + indent < bytes.len() && bytes[line_start + indent] == b' ' {
+        indent += 1;
+    }
+    indent
 }
 
 #[cfg(test)]

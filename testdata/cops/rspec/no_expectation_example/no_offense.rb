@@ -12,4 +12,15 @@ RSpec.describe Foo do
   end
 
   it 'not implemented'
+
+  # assert_* methods are recognized as expectations (name.starts_with("assert"))
+  it 'runs assert_difference' do
+    assert_difference 'User.count', 1 do
+      create_user
+    end
+  end
+
+  it 'uses assert_equal' do
+    assert_equal(expected, actual)
+  end
 end

@@ -70,7 +70,13 @@ impl Cop for LetBeforeExamples {
             if let Some(c) = stmt.as_call_node() {
                 let name = c.name().as_slice();
                 if c.receiver().is_none() {
-                    if is_rspec_example(name) || is_rspec_example_group(name) {
+                    // Only count actual examples and non-shared example groups
+                    // (with blocks) as "seen example". Shared groups
+                    // (shared_examples, shared_context) don't count.
+                    let is_example_or_group_with_block = (is_rspec_example(name)
+                        || is_non_shared_example_group(name))
+                        && c.block().is_some();
+                    if is_example_or_group_with_block {
                         seen_example = true;
                     } else if is_example_include(name) {
                         seen_example = true;
@@ -91,6 +97,26 @@ impl Cop for LetBeforeExamples {
 
         diagnostics
     }
+}
+
+/// Check if a method name is an RSpec example group but NOT a shared group.
+/// Shared groups (shared_examples, shared_examples_for, shared_context) don't
+/// count as "examples seen" for the LetBeforeExamples cop because they define
+/// reusable code, not actual test groups.
+fn is_non_shared_example_group(name: &[u8]) -> bool {
+    matches!(
+        name,
+        b"describe"
+            | b"context"
+            | b"feature"
+            | b"example_group"
+            | b"xdescribe"
+            | b"xcontext"
+            | b"xfeature"
+            | b"fdescribe"
+            | b"fcontext"
+            | b"ffeature"
+    )
 }
 
 fn is_example_include(name: &[u8]) -> bool {

@@ -14,3 +14,6 @@ foo(option: true)
 { "string_key" => "value", :symbol_key => 1 }
 
 { "@type" => "Person", :name => "Alice", :age => 30 }
+
+# Setter method symbol key — can't use 1.9 syntax
+{ :timeouts= => nil }

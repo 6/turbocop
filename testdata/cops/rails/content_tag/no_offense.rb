@@ -1,5 +1,7 @@
-tag.p("Hello")
-tag.div(class: "foo") { "bar" }
-tag.span(user.name)
-helper.content_tag(:p, "Hello")
-tag.br
+tag.p
+tag.br(class: "classname")
+tag(name, class: "classname")
+content_tag(:p, "Hello")
+content_tag(:div, "World", class: "container")
+content_tag(:span, user.name)
+helper.tag(:br)

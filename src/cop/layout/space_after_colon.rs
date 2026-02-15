@@ -21,6 +21,12 @@ impl Cop for SpaceAfterColon {
             None => return Vec::new(),
         };
 
+        // Skip value-omission shorthand hash syntax (Ruby 3.1+): { url:, driver: }
+        // In Prism, when value is omitted, the value node is an ImplicitNode.
+        if assoc.value().as_implicit_node().is_some() {
+            return Vec::new();
+        }
+
         let key = assoc.key();
         let sym = match key.as_symbol_node() {
             Some(s) => s,
@@ -34,14 +40,18 @@ impl Cop for SpaceAfterColon {
 
         let bytes = source.as_bytes();
         let after_colon = colon_loc.end_offset();
-        if bytes.get(after_colon) != Some(&b' ') {
-            let (line, column) = source.offset_to_line_col(colon_loc.start_offset());
-            return vec![self.diagnostic(
-                source,
-                line,
-                column,
-                "Space missing after colon.".to_string(),
-            )];
+        // RuboCop accepts any whitespace after colon (space, newline, tab)
+        match bytes.get(after_colon) {
+            Some(b) if b.is_ascii_whitespace() => {}
+            _ => {
+                let (line, column) = source.offset_to_line_col(colon_loc.start_offset());
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Space missing after colon.".to_string(),
+                )];
+            }
         }
         Vec::new()
     }

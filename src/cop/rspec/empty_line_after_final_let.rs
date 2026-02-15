@@ -84,20 +84,42 @@ impl Cop for EmptyLineAfterFinalLet {
             return Vec::new(); // let is the last statement
         }
 
-        // Get the end line of the last let
+        // Get the start line of the next sibling after the last let
+        let next_sibling = &nodes[last_idx + 1];
+        let next_start_line = {
+            let loc = next_sibling.location();
+            let (line, _) = source.offset_to_line_col(loc.start_offset());
+            line
+        };
+
+        // Get the end line of the last let (report location)
         let last_let = &nodes[last_idx];
         let loc = last_let.location();
         let end_offset = loc.end_offset().saturating_sub(1).max(loc.start_offset());
         let (end_line, _) = source.offset_to_line_col(end_offset);
 
-        // Check if next line is blank
-        let next_line = end_line + 1;
-        if let Some(line) = line_at(source, next_line) {
-            if is_blank_line(line) {
-                return Vec::new();
+        // Check if the line before the next sibling is blank
+        // This handles heredocs where the let node's end_offset may not
+        // cover the heredoc body.
+        let check_line = next_start_line.saturating_sub(1);
+        if check_line > end_line {
+            // There's at least one line between the let end and next sibling start.
+            // Check if ANY of those lines is blank.
+            if let Some(line) = line_at(source, check_line) {
+                if is_blank_line(line) {
+                    return Vec::new();
+                }
             }
         } else {
-            return Vec::new();
+            // Same or adjacent line — check the line right after the let
+            let next_line = end_line + 1;
+            if let Some(line) = line_at(source, next_line) {
+                if is_blank_line(line) {
+                    return Vec::new();
+                }
+            } else {
+                return Vec::new();
+            }
         }
 
         let let_name = if let Some(c) = last_let.as_call_node() {

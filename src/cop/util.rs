@@ -399,10 +399,23 @@ pub fn check_keyword_end_alignment(
     keyword_offset: usize,
     end_offset: usize,
 ) -> Vec<Diagnostic> {
-    let (_, kw_col) = source.offset_to_line_col(keyword_offset);
+    // Use the indentation of the line containing the keyword (not the keyword column),
+    // because modifiers like `private_class_method def ...` put `def` further right.
+    let line_indent = {
+        let bytes = source.as_bytes();
+        let mut line_start = keyword_offset;
+        while line_start > 0 && bytes[line_start - 1] != b'\n' {
+            line_start -= 1;
+        }
+        let mut indent = 0;
+        while line_start + indent < bytes.len() && bytes[line_start + indent] == b' ' {
+            indent += 1;
+        }
+        indent
+    };
     let (end_line, end_col) = source.offset_to_line_col(end_offset);
 
-    if end_col != kw_col {
+    if end_col != line_indent {
         return vec![Diagnostic {
             path: source.path_str().to_string(),
             location: Location { line: end_line, column: end_col },
@@ -413,6 +426,23 @@ pub fn check_keyword_end_alignment(
     }
 
     Vec::new()
+}
+
+/// Check if the given byte offset is the first non-whitespace character on its line.
+/// Matches RuboCop's `begins_its_line?` helper.
+pub fn begins_its_line(source: &SourceFile, offset: usize) -> bool {
+    let bytes = source.as_bytes();
+    let mut pos = offset;
+    while pos > 0 && bytes[pos - 1] != b'\n' {
+        pos -= 1;
+    }
+    while pos < offset {
+        if bytes[pos] != b' ' && bytes[pos] != b'\t' {
+            return false;
+        }
+        pos += 1;
+    }
+    true
 }
 
 /// Check first element indentation relative to an opening delimiter.

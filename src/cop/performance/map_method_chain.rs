@@ -1,9 +1,20 @@
-use crate::cop::util::as_method_chain;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct MapMethodChain;
+
+/// Check if a call node has a block_pass argument with a symbol (e.g., `&:foo`).
+fn has_symbol_block_pass(call: &ruby_prism::CallNode<'_>) -> bool {
+    if let Some(block) = call.block() {
+        if let Some(bp) = block.as_block_argument_node() {
+            if let Some(expr) = bp.expression() {
+                return expr.as_symbol_node().is_some();
+            }
+        }
+    }
+    false
+}
 
 impl Cop for MapMethodChain {
     fn name(&self) -> &'static str {
@@ -21,12 +32,35 @@ impl Cop for MapMethodChain {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let chain = match as_method_chain(node) {
+        let outer_call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
         };
 
-        if chain.outer_method != b"map" || chain.inner_method != b"map" {
+        let outer_method = outer_call.name().as_slice();
+        if outer_method != b"map" && outer_method != b"collect" {
+            return Vec::new();
+        }
+
+        // Outer call must have a block_pass with symbol arg (e.g., map(&:foo))
+        if !has_symbol_block_pass(&outer_call) {
+            return Vec::new();
+        }
+
+        // Inner call (receiver) must also be map/collect with symbol block_pass
+        let inner_node = match outer_call.receiver() {
+            Some(r) => r,
+            None => return Vec::new(),
+        };
+        let inner_call = match inner_node.as_call_node() {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+        let inner_method = inner_call.name().as_slice();
+        if inner_method != b"map" && inner_method != b"collect" {
+            return Vec::new();
+        }
+        if !has_symbol_block_pass(&inner_call) {
             return Vec::new();
         }
 

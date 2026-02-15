@@ -72,7 +72,14 @@ impl Cop for LineLength {
                 }
             }
 
-            if line.len() <= max {
+            // RuboCop measures line length in characters, not bytes.
+            // For multi-byte UTF-8 (e.g. accented chars), byte length > char length.
+            let char_len = match std::str::from_utf8(line) {
+                Ok(s) => s.chars().count(),
+                Err(_) => line.len(), // fallback to bytes for invalid UTF-8
+            };
+
+            if char_len <= max {
                 continue;
             }
 
@@ -80,10 +87,8 @@ impl Cop for LineLength {
             if allow_cop_directives {
                 if let Ok(line_str) = std::str::from_utf8(line) {
                     if let Some(comment_start) = line_str.find("# rubocop:") {
-                        let without_directive = &line[..comment_start].iter()
-                            .rposition(|&b| b != b' ' && b != b'\t')
-                            .map_or(0, |p| p + 1);
-                        if *without_directive <= max {
+                        let without_directive_chars = line_str[..comment_start].trim_end().chars().count();
+                        if without_directive_chars <= max {
                             continue;
                         }
                     }
@@ -96,13 +101,11 @@ impl Cop for LineLength {
                     if let Some(comment_start) = line_str.find("#:") {
                         // Check that #: is actually an RBS annotation (preceded by space or at start)
                         let is_rbs = comment_start == 0
-                            || line[comment_start - 1] == b' '
-                            || line[comment_start - 1] == b'\t';
+                            || line_str.as_bytes()[comment_start - 1] == b' '
+                            || line_str.as_bytes()[comment_start - 1] == b'\t';
                         if is_rbs {
-                            let without_rbs = &line[..comment_start].iter()
-                                .rposition(|&b| b != b' ' && b != b'\t')
-                                .map_or(0, |p| p + 1);
-                            if *without_rbs <= max {
+                            let without_rbs_chars = line_str[..comment_start].trim_end().chars().count();
+                            if without_rbs_chars <= max {
                                 continue;
                             }
                         }
@@ -117,8 +120,8 @@ impl Cop for LineLength {
                         let prefix = format!("{scheme}://");
                         if let Some(start) = line_str.find(&prefix) {
                             let uri_end = line_str[start..].find(|c: char| c.is_whitespace()).unwrap_or(line_str.len() - start);
-                            let without_uri_len = line.len() - uri_end;
-                            without_uri_len <= max
+                            let without_uri_char_len = char_len - line_str[start..start + uri_end].chars().count();
+                            without_uri_char_len <= max
                         } else {
                             false
                         }
@@ -152,7 +155,7 @@ impl Cop for LineLength {
                 source,
                 i + 1,
                 max,
-                format!("Line is too long. [{}/{}]", line.len(), max),
+                format!("Line is too long. [{}/{}]", char_len, max),
             ));
         }
         diagnostics
@@ -179,7 +182,7 @@ mod tests {
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].location.line, 2);
         assert_eq!(diags[0].location.column, 10);
-        assert_eq!(diags[0].message, "Line is too long. [28/10]");
+        assert_eq!(diags[0].message, "Line is too long. [28/10]"); // all ASCII, so chars == bytes
     }
 
     #[test]

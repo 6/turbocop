@@ -56,6 +56,16 @@ impl Cop for MatchArray {
             return Vec::new();
         }
 
+        // Don't flag percent literals (%w, %i, %W, %I) — RuboCop skips these
+        // because they can't be splatted into contain_exactly arguments.
+        // Percent literals have opening_loc starting with '%'.
+        if let Some(open) = array_node.opening_loc() {
+            let open_bytes = open.as_slice();
+            if open_bytes.starts_with(b"%") {
+                return Vec::new();
+            }
+        }
+
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         vec![self.diagnostic(

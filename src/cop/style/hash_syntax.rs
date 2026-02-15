@@ -284,9 +284,11 @@ fn is_convertible_symbol_key(name: &[u8]) -> bool {
         return false;
     }
     // Rest must be word characters, optionally ending with ? or !
+    // Note: `=` ending symbols (setter methods like `:foo=`) cannot use
+    // Ruby 1.9 hash syntax, so they are NOT convertible.
     let (body, _suffix) = if name.len() > 1 {
         let last = name[name.len() - 1];
-        if last == b'?' || last == b'!' || last == b'=' {
+        if last == b'?' || last == b'!' {
             (&name[1..name.len() - 1], Some(last))
         } else {
             (&name[1..], None)

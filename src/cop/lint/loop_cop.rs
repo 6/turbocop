@@ -21,44 +21,31 @@ impl Cop for Loop {
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
         // Check WhileNode for begin..end while form
+        // Prism sets the PM_LOOP_FLAGS_BEGIN_MODIFIER flag for this pattern.
         if let Some(while_node) = node.as_while_node() {
-            let kw_loc = while_node.keyword_loc();
-            // In a post-condition loop (begin..end while), the keyword comes
-            // after the body. Check if statements exist and start before keyword.
-            if let Some(stmts) = while_node.statements() {
-                let body = stmts.body();
-                if let Some(first_stmt) = body.first() {
-                    let first_stmt_offset = first_stmt.location().start_offset();
-                    if kw_loc.start_offset() > first_stmt_offset {
-                        let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                        return vec![self.diagnostic(
-                            source,
-                            line,
-                            column,
-                            "Use `Kernel#loop` with `break` rather than `begin/end/while(until)`.".to_string(),
-                        )];
-                    }
-                }
+            if while_node.is_begin_modifier() {
+                let kw_loc = while_node.keyword_loc();
+                let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use `Kernel#loop` with `break` rather than `begin/end/while(until)`.".to_string(),
+                )];
             }
         }
 
         // Check UntilNode for begin..end until form
         if let Some(until_node) = node.as_until_node() {
-            let kw_loc = until_node.keyword_loc();
-            if let Some(stmts) = until_node.statements() {
-                let body = stmts.body();
-                if let Some(first_stmt) = body.first() {
-                    let first_stmt_offset = first_stmt.location().start_offset();
-                    if kw_loc.start_offset() > first_stmt_offset {
-                        let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                        return vec![self.diagnostic(
-                            source,
-                            line,
-                            column,
-                            "Use `Kernel#loop` with `break` rather than `begin/end/while(until)`.".to_string(),
-                        )];
-                    }
-                }
+            if until_node.is_begin_modifier() {
+                let kw_loc = until_node.keyword_loc();
+                let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use `Kernel#loop` with `break` rather than `begin/end/while(until)`.".to_string(),
+                )];
             }
         }
 

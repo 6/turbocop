@@ -79,8 +79,22 @@ impl Cop for NoExpectationExample {
             None => return Vec::new(),
         };
 
+        // Build compiled allowed patterns for method-name matching
+        // Default patterns are ^expect_ and ^assert_ (from rubocop-rspec default config)
+        let method_patterns: Vec<regex::Regex> = if let Some(ref patterns) = allowed_patterns {
+            patterns
+                .iter()
+                .filter_map(|p| regex::Regex::new(p).ok())
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         // Check if the block body contains any expectation
-        let mut finder = ExpectationFinder { found: false };
+        let mut finder = ExpectationFinder {
+            found: false,
+            method_patterns: &method_patterns,
+        };
         if let Some(body) = block.body() {
             finder.visit(&body);
         }
@@ -100,11 +114,12 @@ impl Cop for NoExpectationExample {
     }
 }
 
-struct ExpectationFinder {
+struct ExpectationFinder<'a> {
     found: bool,
+    method_patterns: &'a [regex::Regex],
 }
 
-impl<'pr> Visit<'pr> for ExpectationFinder {
+impl<'pr> Visit<'pr> for ExpectationFinder<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         if self.found {
             return;
@@ -126,6 +141,19 @@ impl<'pr> Visit<'pr> for ExpectationFinder {
         if name == b"should" || name == b"should_not" {
             self.found = true;
             return;
+        }
+        // Check AllowedPatterns against method names (e.g. ^expect_, ^assert_)
+        // This matches RuboCop behavior where AllowedPatterns apply to
+        // method call names within the example body.
+        if node.receiver().is_none() && !self.method_patterns.is_empty() {
+            if let Ok(name_str) = std::str::from_utf8(name) {
+                for pat in self.method_patterns {
+                    if pat.is_match(name_str) {
+                        self.found = true;
+                        return;
+                    }
+                }
+            }
         }
         ruby_prism::visit_call_node(self, node);
     }

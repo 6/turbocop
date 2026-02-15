@@ -1,5 +1,3 @@
-// Handles both as_constant_read_node and as_constant_path_node (qualified constants like ::String)
-use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -36,12 +34,19 @@ impl Cop for UnfreezeString {
             None => return Vec::new(),
         };
 
-        let recv_name = match constant_name(&receiver) {
-            Some(n) => n,
-            None => return Vec::new(),
+        // Only match bare `String` or `::String`, not qualified paths like
+        // `ActiveModel::Type::String` (which is a different class).
+        let is_bare_string = if let Some(cr) = receiver.as_constant_read_node() {
+            cr.name().as_slice() == b"String"
+        } else if let Some(cp) = receiver.as_constant_path_node() {
+            // ::String (rooted constant path with no parent)
+            cp.parent().is_none()
+                && cp.name().map(|n| n.as_slice()) == Some(b"String")
+        } else {
+            false
         };
 
-        if recv_name != b"String" {
+        if !is_bare_string {
             return Vec::new();
         }
 

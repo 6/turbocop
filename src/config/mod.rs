@@ -78,17 +78,64 @@ impl CopFilter {
 pub struct CopFilterSet {
     global_exclude: GlobSet,
     filters: Vec<CopFilter>, // indexed by cop position in registry
+    /// Config directory for relativizing file paths before glob matching.
+    /// Cop Include/Exclude patterns are relative to the project root
+    /// (where `.rubocop.yml` lives), but file paths may include a prefix
+    /// when running from outside the project root.
+    config_dir: Option<PathBuf>,
 }
 
 impl CopFilterSet {
     /// Check whether a file is globally excluded (AllCops.Exclude).
     pub fn is_globally_excluded(&self, path: &Path) -> bool {
-        self.global_exclude.is_match(path)
+        if self.global_exclude.is_match(path) {
+            return true;
+        }
+        // Also try matching against the path relativized to config_dir.
+        // This handles running from outside the project root, where file
+        // paths include a prefix (e.g., `bench/repos/mastodon/vendor/foo.rb`
+        // needs to match a pattern like `vendor/**`).
+        if let Some(ref cd) = self.config_dir {
+            if let Ok(rel) = path.strip_prefix(cd) {
+                return self.global_exclude.is_match(rel);
+            }
+        }
+        false
     }
 
     /// Get the pre-compiled filter for a cop by its registry index.
     pub fn cop_filter(&self, index: usize) -> &CopFilter {
         &self.filters[index]
+    }
+
+    /// Check whether a cop (by registry index) should run on the given file.
+    /// Tries matching against both the original path and a path relativized
+    /// to the config directory, to handle running from outside the project root.
+    pub fn is_cop_match(&self, index: usize, path: &Path) -> bool {
+        let filter = &self.filters[index];
+        if !filter.enabled {
+            return false;
+        }
+
+        // Try with original path first — covers absolute patterns and
+        // cases where rblint runs from the project root
+        if filter.is_match(path) {
+            return true;
+        }
+
+        // If original path didn't match, try relativized against config_dir.
+        // This handles running from outside the project root where file paths
+        // have a prefix (e.g., `bench/repos/mastodon/spec/foo.rb` needs to
+        // match patterns like `spec/**`).
+        if let Some(ref cd) = self.config_dir {
+            if let Ok(rel) = path.strip_prefix(cd) {
+                if filter.is_match(rel) {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 }
 
@@ -126,6 +173,12 @@ pub struct ResolvedConfig {
     new_cops: NewCopsPolicy,
     /// When true, cops without explicit `Enabled: true` are disabled.
     disabled_by_default: bool,
+    /// All cop names mentioned in `require:` gem default configs.
+    /// Cops from plugin departments not in this set are treated as non-existent
+    /// (the installed gem version doesn't include them).
+    require_known_cops: HashSet<String>,
+    /// Department names that had gems loaded via `require:`.
+    require_departments: HashSet<String>,
 }
 
 impl ResolvedConfig {
@@ -137,6 +190,8 @@ impl ResolvedConfig {
             config_dir: None,
             new_cops: NewCopsPolicy::Disable,
             disabled_by_default: false,
+            require_known_cops: HashSet::new(),
+            require_departments: HashSet::new(),
         }
     }
 }
@@ -155,6 +210,11 @@ struct ConfigLayer {
     require_enabled_cops: HashSet<String>,
     /// Department names where Enabled:true came from `require:` gem defaults.
     require_enabled_depts: HashSet<String>,
+    /// ALL cop names mentioned in `require:` gem default configs (regardless of enabled state).
+    /// Used to determine which cops exist in the installed gem version.
+    require_known_cops: HashSet<String>,
+    /// Department names that had gems loaded via `require:`.
+    require_departments: HashSet<String>,
 }
 
 impl ConfigLayer {
@@ -168,6 +228,8 @@ impl ConfigLayer {
             inherit_mode: InheritMode::default(),
             require_enabled_cops: HashSet::new(),
             require_enabled_depts: HashSet::new(),
+            require_known_cops: HashSet::new(),
+            require_departments: HashSet::new(),
         }
     }
 }
@@ -295,6 +357,8 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
             _ => NewCopsPolicy::Disable,
         },
         disabled_by_default,
+        require_known_cops: base.require_known_cops,
+        require_departments: base.require_departments,
     })
 }
 
@@ -432,6 +496,20 @@ fn load_config_recursive(
             .collect();
         base_layer.require_enabled_cops = require_cops;
         base_layer.require_enabled_depts = require_depts;
+
+        // Track ALL cops mentioned in require: gem configs (for version awareness).
+        // Cops from plugin departments not in this set don't exist in the
+        // installed gem version and should be treated as disabled.
+        base_layer.require_known_cops = base_layer
+            .cop_configs
+            .keys()
+            .cloned()
+            .collect();
+        base_layer.require_departments = base_layer
+            .department_configs
+            .keys()
+            .cloned()
+            .collect();
 
         // 1. Process inherit_gem
         if let Some(gem_value) = map.get(&Value::String("inherit_gem".to_string())) {
@@ -605,6 +683,8 @@ fn parse_config_layer(raw: &Value) -> ConfigLayer {
         inherit_mode,
         require_enabled_cops: HashSet::new(),
         require_enabled_depts: HashSet::new(),
+        require_known_cops: HashSet::new(),
+        require_departments: HashSet::new(),
     }
 }
 
@@ -677,6 +757,14 @@ fn merge_layer_into(
         } else if overlay_dept.enabled != EnabledState::Unset {
             base.require_enabled_depts.remove(dept_name);
         }
+    }
+
+    // Propagate require-known cops and departments (union — once known, always known)
+    for cop in &overlay.require_known_cops {
+        base.require_known_cops.insert(cop.clone());
+    }
+    for dept in &overlay.require_departments {
+        base.require_departments.insert(dept.clone());
     }
 }
 
@@ -828,6 +916,15 @@ impl ResolvedConfig {
             EnabledState::True => {}
         }
 
+        // Plugin version awareness: cop from require: department but not in gem config
+        if !self.require_departments.is_empty()
+            && self.require_departments.contains(dept)
+            && !self.require_known_cops.contains(name)
+            && config.is_none_or(|c| c.enabled == EnabledState::Unset)
+        {
+            return false;
+        }
+
         // 2. Global excludes
         for pattern in &self.global_excludes {
             if glob_matches(pattern, path) {
@@ -919,12 +1016,25 @@ impl ResolvedConfig {
                     },
                 };
 
-                let enabled = match enabled_state {
+                let mut enabled = match enabled_state {
                     EnabledState::False => false,
                     EnabledState::Pending => self.new_cops == NewCopsPolicy::Enable,
                     EnabledState::Unset => !self.disabled_by_default,
                     EnabledState::True => true,
                 };
+
+                // Plugin version awareness: if this cop's department comes from a
+                // `require:` gem but the cop itself is NOT mentioned in the installed
+                // gem's config/default.yml, the cop doesn't exist in that gem version.
+                // Disable it unless the user explicitly configured it.
+                if enabled
+                    && !self.require_departments.is_empty()
+                    && self.require_departments.contains(dept)
+                    && !self.require_known_cops.contains(name)
+                    && config.is_none_or(|c| c.enabled == EnabledState::Unset)
+                {
+                    enabled = false;
+                }
 
                 if !enabled {
                     return CopFilter {
@@ -971,6 +1081,7 @@ impl ResolvedConfig {
         CopFilterSet {
             global_exclude,
             filters,
+            config_dir: self.config_dir.clone(),
         }
     }
 

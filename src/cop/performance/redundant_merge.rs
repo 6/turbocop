@@ -46,9 +46,18 @@ impl Cop for RedundantMerge {
         // Count key-value pairs in the merge! argument
         let kv_count = if args.len() == 1 {
             let first = args.iter().next().unwrap();
-            if let Some(kw_hash) = first.as_keyword_hash_node() {
-                kw_hash.elements().len()
-            } else if let Some(hash) = first.as_hash_node() {
+            // Don't flag if argument contains a splat (**hash)
+            if first.as_keyword_hash_node().is_some() {
+                let kw = first.as_keyword_hash_node().unwrap();
+                if kw.elements().iter().any(|e| e.as_assoc_splat_node().is_some()) {
+                    return Vec::new();
+                }
+                kw.elements().len()
+            } else if first.as_hash_node().is_some() {
+                let hash = first.as_hash_node().unwrap();
+                if hash.elements().iter().any(|e| e.as_assoc_splat_node().is_some()) {
+                    return Vec::new();
+                }
                 hash.elements().len()
             } else {
                 0
@@ -59,6 +68,54 @@ impl Cop for RedundantMerge {
 
         if kv_count == 0 || kv_count > max_kv_pairs {
             return Vec::new();
+        }
+
+        // RuboCop: when pairs > 1, only flag if receiver is "pure" (a simple
+        // local variable). Method calls, indexing etc. could have side effects.
+        let receiver = call.receiver().unwrap();
+        if kv_count > 1 {
+            let is_pure = receiver.as_local_variable_read_node().is_some();
+            if !is_pure {
+                return Vec::new();
+            }
+        }
+
+        // Don't flag if the return value of merge! appears to be used.
+        // merge! returns the hash, while []= returns the assigned value —
+        // they're not interchangeable when the result is used.
+        let call_end = call.location().end_offset();
+        let bytes = source.as_bytes();
+        let mut pos = call_end;
+        while pos < bytes.len() && (bytes[pos] == b' ' || bytes[pos] == b'\t') {
+            pos += 1;
+        }
+        if pos < bytes.len() {
+            let next = bytes[pos];
+            // Result is chained, used as sub-expression, or otherwise consumed
+            if next == b'.' || next == b')' || next == b']' || next == b'&' {
+                return Vec::new();
+            }
+        }
+        // Check if merge! is the last expression in a block (its return value
+        // becomes the block's return value). Look for `end`/`}` on the next
+        // non-blank/non-comment line after the merge! line. This also handles
+        // modifier conditionals like `h.merge!(k: v) if cond`.
+        let (call_line, _) = source.offset_to_line_col(call.location().start_offset());
+        let all_lines: Vec<&[u8]> = source.lines().collect();
+        for next_line_idx in call_line..all_lines.len() {
+            if let Some(nl) = all_lines.get(next_line_idx) {
+                let nt = nl.iter()
+                    .position(|&b| b != b' ' && b != b'\t')
+                    .map(|start| &nl[start..])
+                    .unwrap_or(&[]);
+                if nt.is_empty() || nt.starts_with(b"#") {
+                    continue;
+                }
+                if nt.starts_with(b"end") || nt.starts_with(b"}") {
+                    return Vec::new();
+                }
+                break;
+            }
         }
 
         let loc = call.location();
@@ -82,14 +139,14 @@ mod tests {
         use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
 
-        // Default MaxKeyValuePairs:2 should flag merge! with 2 KV pairs
+        // Default MaxKeyValuePairs:2 should flag merge! with 2 KV pairs on a local var
         let config = CopConfig {
             options: HashMap::from([
                 ("MaxKeyValuePairs".into(), serde_yml::Value::Number(2.into())),
             ]),
             ..CopConfig::default()
         };
-        let source = b"hash.merge!(a: 1, b: 2)\n";
+        let source = b"h = {}\nh.merge!(a: 1, b: 2)\n";
         let diags = run_cop_full_with_config(&RedundantMerge, source, config);
         assert!(!diags.is_empty(), "Should flag merge! with 2 pairs when MaxKeyValuePairs:2");
     }
@@ -106,7 +163,7 @@ mod tests {
             ]),
             ..CopConfig::default()
         };
-        let source = b"hash.merge!(a: 1, b: 2, c: 3)\n";
+        let source = b"h = {}\nh.merge!(a: 1, b: 2, c: 3)\n";
         let diags = run_cop_full_with_config(&RedundantMerge, source, config);
         assert!(diags.is_empty(), "Should not flag merge! with 3 pairs when MaxKeyValuePairs:2");
     }
@@ -116,15 +173,32 @@ mod tests {
         use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
 
-        // MaxKeyValuePairs:5 should flag merge! with up to 5 KV pairs
+        // MaxKeyValuePairs:5 should flag merge! with up to 5 KV pairs on a local var
         let config = CopConfig {
             options: HashMap::from([
                 ("MaxKeyValuePairs".into(), serde_yml::Value::Number(5.into())),
             ]),
             ..CopConfig::default()
         };
-        let source = b"hash.merge!(a: 1, b: 2, c: 3)\n";
+        let source = b"h = {}\nh.merge!(a: 1, b: 2, c: 3)\n";
         let diags = run_cop_full_with_config(&RedundantMerge, source, config);
         assert!(!diags.is_empty(), "Should flag merge! with 3 pairs when MaxKeyValuePairs:5");
+    }
+
+    #[test]
+    fn non_pure_receiver_multi_pair_not_flagged() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("MaxKeyValuePairs".into(), serde_yml::Value::Number(2.into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Method call receiver — not a local variable, should not be flagged with 2 pairs
+        let source = b"obj.options.merge!(a: 1, b: 2)\n";
+        let diags = run_cop_full_with_config(&RedundantMerge, source, config);
+        assert!(diags.is_empty(), "Should not flag non-pure receiver with multiple pairs");
     }
 }

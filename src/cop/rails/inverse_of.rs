@@ -45,11 +45,20 @@ impl Cop for InverseOf {
                 args.arguments().iter().any(|a| a.as_lambda_node().is_some())
             });
 
-            // Only flag when :foreign_key or :as is specified without :inverse_of,
-            // OR when a scope is present (and IgnoreScopes is false)
+            // Skip associations with :through or :polymorphic — these don't
+            // need :inverse_of (RuboCop's options_ignoring_inverse_of?)
+            let has_through = has_keyword_arg(call, b"through");
+            let has_polymorphic = has_keyword_arg(call, b"polymorphic");
+            if has_through || has_polymorphic {
+                continue;
+            }
+
+            // Only flag when :foreign_key or :conditions is specified without :inverse_of,
+            // OR when a scope is present (and IgnoreScopes is false).
+            // Note: For Rails 5.2+, :as alone doesn't require :inverse_of.
             let has_foreign_key = has_keyword_arg(call, b"foreign_key");
-            let has_as = has_keyword_arg(call, b"as");
-            let needs_inverse = has_foreign_key || has_as || (has_scope && !ignore_scopes);
+            let has_conditions = has_keyword_arg(call, b"conditions");
+            let needs_inverse = has_foreign_key || has_conditions || (has_scope && !ignore_scopes);
 
             if needs_inverse && !has_keyword_arg(call, b"inverse_of") {
                 let loc = call.message_loc().unwrap_or(call.location());

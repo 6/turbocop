@@ -48,16 +48,18 @@ impl Cop for EmptyConditionalBody {
 
             if body_empty {
                 if allow_comments {
-                    // Check if there are comments between the predicate and else/end
-                    let body_start = if_node.predicate().location().end_offset();
-                    let body_end = if let Some(sub) = if_node.subsequent() {
+                    // Check if there are comments anywhere within the if/elsif node.
+                    // RuboCop considers any comment within the node range (including
+                    // inside the predicate) as sufficient to skip the offense.
+                    let range_start = kw_loc.start_offset();
+                    let range_end = if let Some(sub) = if_node.subsequent() {
                         sub.location().start_offset()
                     } else if let Some(end_kw) = if_node.end_keyword_loc() {
                         end_kw.start_offset()
                     } else {
                         node.location().end_offset()
                     };
-                    if has_comment_in_range(parse_result, body_start, body_end) {
+                    if has_comment_in_range(parse_result, range_start, range_end) {
                         return Vec::new();
                     }
                 }

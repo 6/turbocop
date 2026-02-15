@@ -70,7 +70,10 @@ impl Cop for HooksBeforeExamples {
             if let Some(c) = stmt.as_call_node() {
                 let name = c.name().as_slice();
                 if c.receiver().is_none() {
-                    if is_rspec_example(name) || is_rspec_example_group(name) {
+                    if is_rspec_example(name)
+                        || (is_rspec_example_group(name)
+                            && !is_shared_group(name))
+                    {
                         seen_example = true;
                     } else if is_example_include(name) {
                         seen_example = true;
@@ -93,6 +96,13 @@ impl Cop for HooksBeforeExamples {
 
         diagnostics
     }
+}
+
+fn is_shared_group(name: &[u8]) -> bool {
+    matches!(
+        name,
+        b"shared_examples" | b"shared_examples_for" | b"shared_context"
+    )
 }
 
 fn is_example_include(name: &[u8]) -> bool {

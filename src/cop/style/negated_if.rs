@@ -65,7 +65,7 @@ impl Cop for NegatedIf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{run_cop_full_with_config, run_cop_full};
+    use crate::testutil::run_cop_full_with_config;
 
     crate::cop_fixture_tests!(NegatedIf, "cops/style/negated_if");
 

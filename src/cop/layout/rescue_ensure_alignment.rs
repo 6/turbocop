@@ -23,13 +23,34 @@ impl Cop for RescueEnsureAlignment {
                 Some(loc) => loc,
                 None => return Vec::new(),
             };
-            let (_, begin_col) = source.offset_to_line_col(begin_kw_loc.start_offset());
+            let (begin_line, begin_col) = source.offset_to_line_col(begin_kw_loc.start_offset());
+
+            // When begin is used as an assignment value (e.g., `x = begin`),
+            // RuboCop aligns rescue/ensure with the start of the line (the variable),
+            // not with the `begin` keyword.
+            let align_col = {
+                let bytes = source.as_bytes();
+                let mut line_start = begin_kw_loc.start_offset();
+                while line_start > 0 && bytes[line_start - 1] != b'\n' {
+                    line_start -= 1;
+                }
+                let mut indent = 0;
+                while line_start + indent < bytes.len()
+                    && bytes[line_start + indent] == b' '
+                {
+                    indent += 1;
+                }
+                // If begin is NOT at the start of the line, the line likely has
+                // an assignment (e.g., `x = begin`). Use the line's indent.
+                if indent != begin_col { indent } else { begin_col }
+            };
+            let _ = begin_line;
 
             if let Some(rescue_node) = begin_node.rescue_clause() {
                 let rescue_kw_loc = rescue_node.keyword_loc();
                 let (rescue_line, rescue_col) =
                     source.offset_to_line_col(rescue_kw_loc.start_offset());
-                if rescue_col != begin_col {
+                if rescue_col != align_col {
                     diagnostics.push(self.diagnostic(
                         source,
                         rescue_line,
@@ -43,7 +64,7 @@ impl Cop for RescueEnsureAlignment {
                 let ensure_kw_loc = ensure_node.ensure_keyword_loc();
                 let (ensure_line, ensure_col) =
                     source.offset_to_line_col(ensure_kw_loc.start_offset());
-                if ensure_col != begin_col {
+                if ensure_col != align_col {
                     diagnostics.push(self.diagnostic(
                         source,
                         ensure_line,

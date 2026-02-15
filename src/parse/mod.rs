@@ -1,4 +1,5 @@
 pub mod codemap;
+pub mod directives;
 pub mod source;
 
 /// Parse Ruby source bytes using Prism.

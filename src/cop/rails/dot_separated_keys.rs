@@ -41,6 +41,8 @@ impl Cop for DotSeparatedKeys {
 
         // Look for a `scope:` keyword argument — this cop flags scope-based keys
         // and suggests using dot-separated string keys instead.
+        // Only flag when scope value is an array (of literals) or a symbol.
+        // String scope values are already dot-separated notation.
         let args = match call.arguments() {
             Some(a) => a,
             None => return Vec::new(),
@@ -63,6 +65,23 @@ impl Cop for DotSeparatedKeys {
                     false
                 };
                 if is_scope_key {
+                    let value = assoc.value();
+                    // Only flag when scope is a symbol or an array of all literals
+                    if value.as_symbol_node().is_some() {
+                        // scope: :invitation — should be dot-separated
+                    } else if let Some(array) = value.as_array_node() {
+                        // scope: [:foo, :bar] — only flag if all elements are literals
+                        let all_literals = array.elements().iter().all(|e| {
+                            e.as_symbol_node().is_some() || e.as_string_node().is_some()
+                        });
+                        if !all_literals {
+                            continue;
+                        }
+                    } else {
+                        // scope: 'string' or scope: variable — don't flag
+                        continue;
+                    }
+
                     let loc = assoc.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
                     return vec![self.diagnostic(

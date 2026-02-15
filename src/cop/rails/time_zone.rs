@@ -28,10 +28,11 @@ impl Cop for TimeZone {
 
         let method = call.name().as_slice();
 
-        // Methods that are timezone-unsafe on Time
+        // Methods that are timezone-unsafe on Time (matches RuboCop's DANGEROUS_METHODS)
+        // Note: utc, gm, mktime are NOT dangerous — they already produce UTC times
         let is_unsafe_method = matches!(
             method,
-            b"now" | b"parse" | b"at" | b"new" | b"mktime" | b"local" | b"gm" | b"utc"
+            b"now" | b"parse" | b"at" | b"new" | b"local"
         );
         if !is_unsafe_method {
             return Vec::new();
@@ -100,7 +101,7 @@ fn starts_with_tz_safe_method(bytes: &[u8]) -> bool {
             let after = bytes.get(method.len()).copied();
             // Must be followed by non-identifier char or EOF
             if after.is_none()
-                || matches!(after, Some(b'(' | b' ' | b'\n' | b'\r' | b'\t' | b'.' | b','))
+                || !after.unwrap().is_ascii_alphanumeric() && after != Some(b'_')
             {
                 return true;
             }

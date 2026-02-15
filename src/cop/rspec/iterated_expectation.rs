@@ -81,19 +81,31 @@ impl Cop for IteratedExpectation {
             }
         }
 
-        // Check if the block body contains an `expect` call
+        // Check if the block body is expect(block_param).to ...
         let body = match block.body() {
             Some(b) => b,
             None => return Vec::new(),
         };
 
-        if contains_expect(&body) {
-            // Flag the receiver + `.each` part
+        // Get block parameter name
+        let param_name = if let Some(first_param) = requireds.first() {
+            if let Some(req) = first_param.as_required_parameter_node() {
+                req.name().as_slice().to_vec()
+            } else {
+                return Vec::new();
+            }
+        } else {
+            return Vec::new();
+        };
+
+        // RuboCop requires ALL statements in the block body to be
+        // expect(block_param).to ... where block_param is a bare lvar.
+        if is_single_expectation_with_param(&body, &param_name)
+            || is_all_expectations_with_param(&body, &param_name)
+        {
             let recv = call.receiver().unwrap();
             let loc = recv.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            let each_end = call.message_loc().map(|m| m.end_offset()).unwrap_or(loc.end_offset());
-            let _ = each_end;
             return vec![self.diagnostic(
                 source,
                 line,
@@ -106,31 +118,70 @@ impl Cop for IteratedExpectation {
     }
 }
 
-fn contains_expect(node: &ruby_prism::Node<'_>) -> bool {
-    if let Some(call) = node.as_call_node() {
-        if call.receiver().is_none() {
-            let name = call.name().as_slice();
-            if name == b"expect" || name == b"expect_any_instance_of" {
-                return true;
-            }
-        }
-        // Check the receiver chain
-        if let Some(recv) = call.receiver() {
-            if contains_expect(&recv) {
-                return true;
-            }
-        }
+/// Check if a node is `expect(param).to ...` where param is a bare local variable.
+fn is_expectation_with_param(node: &ruby_prism::Node<'_>, param_name: &[u8]) -> bool {
+    let call = match node.as_call_node() {
+        Some(c) => c,
+        None => return false,
+    };
+
+    // Should be something.to(...) or something.to_not(...) or something.not_to(...)
+    let method = call.name().as_slice();
+    if method != b"to" && method != b"to_not" && method != b"not_to" {
+        return false;
     }
 
+    // The receiver should be `expect(param)`
+    let recv = match call.receiver() {
+        Some(r) => r,
+        None => return false,
+    };
+
+    let expect_call = match recv.as_call_node() {
+        Some(c) => c,
+        None => return false,
+    };
+
+    if expect_call.receiver().is_some() || expect_call.name().as_slice() != b"expect" {
+        return false;
+    }
+
+    // The argument to expect should be a bare local variable matching the block param
+    let args = match expect_call.arguments() {
+        Some(a) => a,
+        None => return false,
+    };
+
+    let arg_list: Vec<_> = args.arguments().iter().collect();
+    if arg_list.len() != 1 {
+        return false;
+    }
+
+    if let Some(lvar) = arg_list[0].as_local_variable_read_node() {
+        lvar.name().as_slice() == param_name
+    } else {
+        false
+    }
+}
+
+/// Check if a single node is an expectation with the param.
+fn is_single_expectation_with_param(node: &ruby_prism::Node<'_>, param_name: &[u8]) -> bool {
+    is_expectation_with_param(node, param_name)
+}
+
+/// Check if all statements in a begin/statements node are expectations with the param.
+fn is_all_expectations_with_param(node: &ruby_prism::Node<'_>, param_name: &[u8]) -> bool {
     if let Some(stmts) = node.as_statements_node() {
-        for child in stmts.body().iter() {
-            if contains_expect(&child) {
-                return true;
-            }
+        let children: Vec<_> = stmts.body().iter().collect();
+        if children.is_empty() {
+            return false;
         }
+        children
+            .iter()
+            .all(|child| is_expectation_with_param(child, param_name))
+    } else {
+        false
     }
-
-    false
 }
 
 #[cfg(test)]

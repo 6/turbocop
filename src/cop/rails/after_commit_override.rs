@@ -35,31 +35,54 @@ impl Cop for AfterCommitOverride {
         };
 
         let calls = class_body_calls(&class_node);
+        // Collect after_commit calls that have a symbol as first argument
         let after_commit_calls: Vec<_> = calls
             .iter()
             .filter(|c| {
                 c.receiver().is_none()
                     && AFTER_COMMIT_METHODS.contains(&c.name().as_slice())
             })
+            .filter(|c| {
+                // Only consider calls with a symbol first argument (named callbacks)
+                if let Some(args) = c.arguments() {
+                    let arg_list: Vec<_> = args.arguments().iter().collect();
+                    if let Some(first) = arg_list.first() {
+                        return first.as_symbol_node().is_some();
+                    }
+                }
+                false
+            })
             .collect();
 
-        if after_commit_calls.len() >= 2 {
-            // Flag the second and subsequent occurrences
-            let mut diagnostics = Vec::new();
-            for call in &after_commit_calls[1..] {
+        // Group by callback name and flag duplicates
+        let mut seen: std::collections::HashMap<Vec<u8>, bool> = std::collections::HashMap::new();
+        let mut diagnostics = Vec::new();
+
+        for call in &after_commit_calls {
+            let args = call.arguments().unwrap();
+            let arg_list: Vec<_> = args.arguments().iter().collect();
+            let sym = arg_list[0].as_symbol_node().unwrap();
+            let name = sym.unescaped().to_vec();
+
+            if seen.contains_key(&name) {
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
+                let name_str = String::from_utf8_lossy(&name);
                 diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
-                    "Multiple `after_commit` callbacks may override each other.".to_string(),
+                    format!(
+                        "There can only be one `after_*_commit :{}` hook defined for a model.",
+                        name_str
+                    ),
                 ));
+            } else {
+                seen.insert(name, true);
             }
-            return diagnostics;
         }
 
-        Vec::new()
+        diagnostics
     }
 }
 

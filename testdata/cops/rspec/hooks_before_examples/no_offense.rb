@@ -11,3 +11,17 @@ RSpec.describe User do
 
   include_examples 'shared stuff'
 end
+
+# shared_examples are NOT example groups for this cop's purposes
+# so hooks after shared_examples are allowed
+RSpec.describe Widget do
+  shared_examples 'common behavior' do
+    it 'works' do
+      expect(true).to be true
+    end
+  end
+
+  before { setup_widget }
+
+  it_behaves_like 'common behavior'
+end

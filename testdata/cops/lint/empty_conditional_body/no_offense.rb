@@ -21,3 +21,13 @@ if something
 else
   fallback
 end
+# Comment inside a complex predicate (begin..rescue..end in condition)
+if first_check
+  do_something
+elsif second_check &&
+      begin
+        process
+      rescue StandardError
+        # Silently ignore errors
+      end
+end

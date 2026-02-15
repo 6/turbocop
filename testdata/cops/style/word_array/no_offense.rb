@@ -11,3 +11,6 @@
 ['has\nescapes', 'foo']
 
 []
+
+# Array with empty string — can't be represented in %w
+['es', 'fr', '']

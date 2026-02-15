@@ -5,9 +5,7 @@ use crate::parse::source::SourceFile;
 pub struct RedundantEqualityComparisonBlock;
 
 const FLAGGED_METHODS: &[&[u8]] = &[
-    b"all?", b"any?", b"count", b"detect", b"filter", b"find",
-    b"find_index", b"include?", b"max", b"min", b"none?", b"one?",
-    b"reject", b"select",
+    b"all?", b"any?", b"one?", b"none?",
 ];
 
 impl Cop for RedundantEqualityComparisonBlock {

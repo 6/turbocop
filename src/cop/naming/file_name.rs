@@ -154,7 +154,10 @@ impl Cop for FileName {
             }
         }
 
-        if !is_snake_case(check_name.as_bytes()) {
+        // RuboCop allows dots in filenames (e.g., show.html.haml_spec).
+        // Check snake_case on each dot-separated segment individually.
+        let all_segments_snake = check_name.split('.').all(|seg| is_snake_case(seg.as_bytes()));
+        if !all_segments_snake {
             return vec![self.diagnostic(
                 source,
                 1,

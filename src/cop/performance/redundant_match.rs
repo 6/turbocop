@@ -30,12 +30,31 @@ impl Cop for RedundantMatch {
         }
 
         // Must have a receiver (x.match)
-        if call.receiver().is_none() {
-            return Vec::new();
-        }
+        let receiver = match call.receiver() {
+            Some(r) => r,
+            None => return Vec::new(),
+        };
 
         // Must have arguments (x.match(y))
-        if call.arguments().is_none() {
+        let arguments = match call.arguments() {
+            Some(a) => a,
+            None => return Vec::new(),
+        };
+
+        // RuboCop only flags when a string or regexp literal appears on one side.
+        // This avoids false positives on e.g. `pattern.match(variable)` where
+        // both sides are non-literals.
+        let first_arg = match arguments.arguments().iter().next() {
+            Some(a) => a,
+            None => return Vec::new(),
+        };
+
+        let recv_is_literal = receiver.as_string_node().is_some()
+            || receiver.as_regular_expression_node().is_some();
+        let arg_is_literal = first_arg.as_string_node().is_some()
+            || first_arg.as_regular_expression_node().is_some();
+
+        if !recv_is_literal && !arg_is_literal {
             return Vec::new();
         }
 
@@ -53,14 +72,14 @@ impl Cop for RedundantMatch {
         }
         if pos < bytes.len() {
             let next = bytes[pos];
-            // Result is chained (.method), indexed ([]), or safe-navigated (&.)
-            if next == b'.' || next == b'[' || next == b'&' {
+            // Result is chained (.method), indexed ([]), safe-navigated (&.),
+            // or used as a sub-expression / argument (closing paren)
+            if next == b'.' || next == b'[' || next == b'&' || next == b')' {
                 return Vec::new();
             }
         }
 
         // Don't flag if the result is assigned (e.g., m = str.match(x))
-        let receiver = call.receiver().unwrap(); // checked above
         let (_, recv_col) = source.offset_to_line_col(receiver.location().start_offset());
         let call_line_num = source.offset_to_line_col(call.location().start_offset()).0;
         if let Some(line_bytes) = source.lines().nth(call_line_num - 1) {

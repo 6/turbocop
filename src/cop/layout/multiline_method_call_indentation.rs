@@ -97,6 +97,9 @@ impl Cop for MultilineMethodCallIndentation {
 
 /// For `aligned` style: find the column of the dot (call operator) from the
 /// nearest ancestor in the chain that is on a previous line.
+/// Only considers dots that are "continuation dots" — at the start of their line
+/// (after whitespace). Inline dots like `foo.bar` on the same expression line
+/// are not valid alignment targets.
 fn find_alignment_dot_col(
     source: &SourceFile,
     receiver: &ruby_prism::Node<'_>,
@@ -107,15 +110,26 @@ fn find_alignment_dot_col(
         if let Some(dot_loc) = call.call_operator_loc() {
             let (dot_line, dot_col) = source.offset_to_line_col(dot_loc.start_offset());
             if dot_line < current_dot_line {
-                // Found a dot on a previous line — this is the alignment target.
-                // But check if there's an even earlier one (to get the first dot).
-                if let Some(recv) = call.receiver() {
-                    if let Some(earlier) = find_alignment_dot_col(source, &recv, dot_line)
-                    {
-                        return Some(earlier);
+                // Found a dot on a previous line.
+                // Only use it as alignment target if it's a "continuation dot"
+                // (i.e., it's the first non-whitespace on its line).
+                if is_continuation_dot(source, dot_loc.start_offset()) {
+                    // Check if there's an even earlier continuation dot
+                    if let Some(recv) = call.receiver() {
+                        if let Some(earlier) =
+                            find_alignment_dot_col(source, &recv, dot_line)
+                        {
+                            return Some(earlier);
+                        }
                     }
+                    return Some(dot_col);
                 }
-                return Some(dot_col);
+                // Dot is inline (not a continuation dot); keep looking for earlier dots
+                if let Some(recv) = call.receiver() {
+                    return find_alignment_dot_col(source, &recv, current_dot_line);
+                }
+                // No continuation dot found anywhere in the chain
+                return None;
             }
             // Dot is on the same line as current; keep looking up
             if let Some(recv) = call.receiver() {
@@ -124,6 +138,25 @@ fn find_alignment_dot_col(
         }
     }
     None
+}
+
+/// Check whether the dot at the given byte offset is the first non-whitespace
+/// character on its line (a "continuation dot").
+fn is_continuation_dot(source: &SourceFile, dot_offset: usize) -> bool {
+    let bytes = source.as_bytes();
+    let mut pos = dot_offset;
+    // Walk backwards to start of line
+    while pos > 0 && bytes[pos - 1] != b'\n' {
+        pos -= 1;
+    }
+    // Check if everything between line start and dot is whitespace
+    while pos < dot_offset {
+        if bytes[pos] != b' ' && bytes[pos] != b'\t' {
+            return false;
+        }
+        pos += 1;
+    }
+    true
 }
 
 fn find_chain_start_line(source: &SourceFile, node: &ruby_prism::Node<'_>) -> usize {

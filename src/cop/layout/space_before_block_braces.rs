@@ -95,7 +95,7 @@ mod tests {
     #[test]
     fn no_space_style_accepts_no_space() {
         use std::collections::HashMap;
-        use crate::testutil::{run_cop_full_with_config, assert_cop_no_offenses_full_with_config};
+        use crate::testutil::assert_cop_no_offenses_full_with_config;
 
         let config = CopConfig {
             options: HashMap::from([

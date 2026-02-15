@@ -60,8 +60,13 @@ impl Cop for WordArray {
                 return Vec::new();
             }
 
-            // Content must not contain spaces
+            // Content must not be empty (empty strings can't be in %w)
             let content = string_node.content_loc().as_slice();
+            if content.is_empty() {
+                return Vec::new();
+            }
+
+            // Content must not contain spaces
             if content.contains(&b' ') {
                 return Vec::new();
             }

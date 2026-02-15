@@ -29,3 +29,15 @@ end
 def cdn_host
   config.asset_host
 end
+
+# Safe navigation is ignored
+def author_url
+  structured_data&.author_url
+end
+
+# Private methods are ignored
+private
+
+def custom_filter
+  object.custom_filter
+end

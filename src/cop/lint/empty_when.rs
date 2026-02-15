@@ -35,24 +35,37 @@ impl Cop for EmptyWhen {
         }
 
         // AllowComments: when true, `when` bodies containing only comments are not offenses
-        let allow_comments = config.get_bool("AllowComments", false);
+        let allow_comments = config.get_bool("AllowComments", true);
         if allow_comments {
             let kw_loc = when_node.keyword_loc();
             let (when_line, _) = source.offset_to_line_col(kw_loc.start_offset());
-            // Find the end of this when clause by looking at the then_keyword or the next node
-            let when_end_offset = when_node.location().end_offset();
-            let (when_end_line, _) = source.offset_to_line_col(when_end_offset);
+            // Scan lines after the when clause looking for comments.
+            // The when_node location may end at the conditions (before any comment),
+            // so we scan forward from the when line until we hit the next keyword
+            // (when/else/end) or non-blank/non-comment content.
             let lines: Vec<&[u8]> = source.lines().collect();
-            for line_num in (when_line + 1)..when_end_line {
-                if let Some(line_bytes) = lines.get(line_num - 1) {
+            for line_idx in when_line..lines.len() {
+                // line_idx is 0-based (when_line is 1-based, so when_line as index = line after when)
+                if let Some(line_bytes) = lines.get(line_idx) {
                     let trimmed = line_bytes
                         .iter()
                         .position(|&b| b != b' ' && b != b'\t')
                         .map(|start| &line_bytes[start..])
                         .unwrap_or(&[]);
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    // Stop at the next when/else/end keyword
+                    if trimmed.starts_with(b"when ") || trimmed.starts_with(b"when\n")
+                        || trimmed.starts_with(b"else") || trimmed.starts_with(b"end")
+                    {
+                        break;
+                    }
                     if trimmed.starts_with(b"#") {
                         return Vec::new();
                     }
+                    // Non-comment content found — shouldn't happen for empty when
+                    break;
                 }
             }
         }

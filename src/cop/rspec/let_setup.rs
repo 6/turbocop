@@ -68,19 +68,16 @@ impl Cop for LetSetup {
                         let (line, col) = source.offset_to_line_col(loc.start_offset());
                         let_bang_decls.push((let_name, line, col));
                     }
-                } else {
-                    // Use Visit trait to walk entire subtree
-                    let mut collector = IdentifierCollector {
-                        names: &mut used_names,
-                    };
-                    collector.visit(&stmt);
                 }
-            } else {
-                let mut collector = IdentifierCollector {
-                    names: &mut used_names,
-                };
-                collector.visit(&stmt);
             }
+            // Walk ALL siblings (including let! bodies) for identifier
+            // collection. This matches RuboCop behavior where method_called?
+            // searches the entire example group block, so a let! name used
+            // inside a sibling let! body is not flagged.
+            let mut collector = IdentifierCollector {
+                names: &mut used_names,
+            };
+            collector.visit(&stmt);
         }
 
         let mut diagnostics = Vec::new();

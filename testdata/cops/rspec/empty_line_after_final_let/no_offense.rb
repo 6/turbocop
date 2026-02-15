@@ -21,3 +21,13 @@ end
 
   it { expect(w).to be_valid }
 end
+
+# Heredoc in let — the blank line should be detected correctly
+RSpec.describe HeredocCase do
+  let(:template) { <<~TEXT }
+    some long text here
+    and more text
+  TEXT
+
+  it { expect(template).to include('some') }
+end

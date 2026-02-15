@@ -75,6 +75,12 @@ impl Cop for Delegate {
             None => return Vec::new(),
         };
 
+        // Safe navigation (&.) is ignored — Rails' delegate with allow_nil
+        // has different semantics than safe navigation
+        if call.call_operator_loc().is_some_and(|op: ruby_prism::Location<'_>| op.as_slice() == b"&.") {
+            return Vec::new();
+        }
+
         // Receiver must be a delegatable target:
         // - Instance variable (@foo.bar → delegate :bar, to: :foo)
         // - Simple method/local variable (foo.bar → delegate :bar, to: :foo)
@@ -119,6 +125,13 @@ impl Cop for Delegate {
             }
         }
 
+        // Skip private/protected methods — RuboCop only flags public methods.
+        // Check if there's a `private` or `protected` declaration on the same line
+        // or on a standalone line above this method.
+        if is_private_or_protected(source, node.location().start_offset()) {
+            return Vec::new();
+        }
+
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         vec![self.diagnostic(
@@ -128,6 +141,43 @@ impl Cop for Delegate {
             "Use `delegate` to define delegations.".to_string(),
         )]
     }
+}
+
+/// Check if a method at the given offset is likely private or protected.
+/// Looks for:
+/// - `private def foo` (inline) on the same line
+/// - Standalone `private` or `protected` on any preceding line (without a subsequent `public`)
+fn is_private_or_protected(source: &SourceFile, def_offset: usize) -> bool {
+    let bytes = source.as_bytes();
+    let (def_line, _) = source.offset_to_line_col(def_offset);
+
+    // Check inline: the same line might start with `private ` or `protected `
+    let mut line_start = def_offset;
+    while line_start > 0 && bytes[line_start - 1] != b'\n' {
+        line_start -= 1;
+    }
+    let line_to_def = &bytes[line_start..def_offset];
+    let trimmed = line_to_def.iter().copied().skip_while(|&b| b == b' ' || b == b'\t').collect::<Vec<u8>>();
+    if trimmed.starts_with(b"private ") || trimmed.starts_with(b"protected ") {
+        return true;
+    }
+
+    // Check preceding lines for standalone `private` or `protected`
+    let lines: Vec<&[u8]> = source.lines().collect();
+    let mut in_private = false;
+    for line_idx in 0..def_line.saturating_sub(1) {
+        let line = lines[line_idx];
+        let trimmed: Vec<u8> = line.iter().copied().skip_while(|&b| b == b' ' || b == b'\t').collect();
+        if trimmed == b"private" || trimmed.starts_with(b"private ") || trimmed.starts_with(b"private\n") {
+            in_private = true;
+        } else if trimmed == b"protected" || trimmed.starts_with(b"protected ") || trimmed.starts_with(b"protected\n") {
+            in_private = true;
+        } else if trimmed == b"public" || trimmed.starts_with(b"public ") || trimmed.starts_with(b"public\n") {
+            in_private = false;
+        }
+    }
+
+    in_private
 }
 
 #[cfg(test)]

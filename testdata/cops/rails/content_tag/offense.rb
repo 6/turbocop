@@ -1,8 +1,8 @@
-content_tag(:p, "Hello")
-^^^^^^^^^^^^^^^^^^^^^^^^ Rails/ContentTag: Use `tag.tag_name` instead of `content_tag`.
+tag(:p)
+^^^^^^^ Rails/ContentTag: Use `tag.p` instead of `tag(:p)`.
 
-content_tag(:div, "World", class: "container")
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/ContentTag: Use `tag.tag_name` instead of `content_tag`.
+tag(:br, class: "classname")
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/ContentTag: Use `tag.br` instead of `tag(:br)`.
 
-content_tag(:span, user.name)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/ContentTag: Use `tag.tag_name` instead of `content_tag`.
+tag(:div)
+^^^^^^^^^ Rails/ContentTag: Use `tag.div` instead of `tag(:div)`.

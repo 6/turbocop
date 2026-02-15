@@ -1,40 +1,43 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 pub struct IfUnlessModifier;
 
-/// Check if a node (or its children) contains a heredoc.
+/// Check if a node (or any descendant) contains a heredoc.
 /// Heredoc locations in Prism only cover the delimiter, so the actual
 /// source spans more lines than the node location suggests.
 fn node_contains_heredoc(node: &ruby_prism::Node<'_>) -> bool {
-    // Direct heredoc node
-    if node.as_interpolated_string_node().is_some() {
-        // Check if it starts with << (heredoc syntax)
-        if let Some(open) = node.as_interpolated_string_node().unwrap().opening_loc() {
+    let mut finder = HeredocFinder { found: false };
+    finder.visit(node);
+    finder.found
+}
+
+struct HeredocFinder {
+    found: bool,
+}
+
+impl<'pr> Visit<'pr> for HeredocFinder {
+    fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
+        if let Some(open) = node.opening_loc() {
             if open.as_slice().starts_with(b"<<") {
-                return true;
+                self.found = true;
+                return;
             }
         }
+        ruby_prism::visit_interpolated_string_node(self, node);
     }
-    if let Some(sn) = node.as_string_node() {
-        if let Some(open) = sn.opening_loc() {
+
+    fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+        if let Some(open) = node.opening_loc() {
             if open.as_slice().starts_with(b"<<") {
-                return true;
+                self.found = true;
+                return;
             }
         }
+        ruby_prism::visit_string_node(self, node);
     }
-    // Check call arguments for heredocs
-    if let Some(call) = node.as_call_node() {
-        if let Some(args) = call.arguments() {
-            for arg in args.arguments().iter() {
-                if node_contains_heredoc(&arg) {
-                    return true;
-                }
-            }
-        }
-    }
-    false
 }
 
 impl Cop for IfUnlessModifier {

@@ -38,14 +38,41 @@ cargo run -- --debug .
 - Cop trait is `Send + Sync`; cops needing mutable visitor state create a temporary `Visit` struct internally
 - Edition 2024 (Rust 1.85+)
 
+## Plugin Cop Version Awareness
+
+rblint compiles ALL cops into the binary, including cops from plugin gems (rubocop-rspec, rubocop-rails, rubocop-performance). But target projects may use older gem versions that don't include newer cops. The vendor submodules pin the latest versions we support — they are NOT the versions the target project uses.
+
+When rblint processes `require: [rubocop-rspec]`, it runs `bundle info --path rubocop-rspec` in the target project to find the *installed* gem version, then loads that gem's `config/default.yml`. Plugin cops not mentioned in the installed gem's `config/default.yml` should be treated as non-existent (disabled), because the target project's gem version doesn't include them. This matches RuboCop's behavior where only cops that exist in the installed gem are registered.
+
 ## Keeping in Sync with RuboCop
 
-RuboCop is a moving target — new cops, changed behavior, and evolving NodePattern definitions. The vendor submodules (`vendor/rubocop`, `vendor/rubocop-rails`, etc.) pin specific versions. To update:
+RuboCop is a moving target — new cops, changed behavior, and evolving NodePattern definitions. The vendor submodules (`vendor/rubocop`, `vendor/rubocop-rails`, etc.) pin specific release tags. **Submodules must always point to a proper release tag** (e.g., `v1.84.2`, `v2.34.3`), never arbitrary commits on `master`.
 
-1. `cd vendor/rubocop && git fetch && git checkout v1.XX.0` (repeat for each plugin)
-2. Run `cargo test config_audit -- --nocapture` — reports YAML config keys that cops don't read yet
-3. Run `cargo test prism_pitfalls -- --nocapture` — flags cops missing `KeywordHashNode` or `ConstantPathNode` handling
-4. Fix flagged cops, add test coverage, re-run `cargo run --release --bin bench_rblint -- conform` to verify FP counts
+### Updating vendor submodules
+
+```bash
+cd vendor/rubocop && git fetch --tags && git checkout v1.XX.0    # repeat for each plugin
+cd vendor/rubocop-rails && git fetch --tags && git checkout v2.XX.0
+cd vendor/rubocop-rspec && git fetch --tags && git checkout v3.XX.0
+cd vendor/rubocop-performance && git fetch --tags && git checkout v1.XX.0
+```
+
+### Updating bench repo dependencies
+
+After updating submodules, update the bench repos to use the same gem versions:
+
+```bash
+ruby bench/update_rubocop_deps.rb          # update all bench repos
+ruby bench/update_rubocop_deps.rb --dry-run # preview changes
+```
+
+This script reads `version.rb` from each vendor submodule, pins those versions in bench repo Gemfiles, and runs `bundle update`. It also verifies submodules are on proper release tags.
+
+### Verification after updates
+
+1. `cargo test config_audit -- --nocapture` — reports YAML config keys that cops don't read yet
+2. `cargo test prism_pitfalls -- --nocapture` — flags cops missing `KeywordHashNode` or `ConstantPathNode` handling
+3. Fix flagged cops, add test coverage, re-run `cargo run --release --bin bench_rblint -- conform` to verify FP counts
 
 ## Common Prism Pitfalls
 

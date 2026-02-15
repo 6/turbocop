@@ -46,10 +46,17 @@ impl Cop for ArrayAlignment {
         };
 
         let mut diagnostics = Vec::new();
+        let mut last_checked_line = first_line;
 
         for elem in elements.iter().skip(1) {
             let (elem_line, elem_col) = source.offset_to_line_col(elem.location().start_offset());
-            if elem_line != first_line && elem_col != expected_col {
+            // Only check the first element on each new line; subsequent elements
+            // on the same line are just comma-separated and not alignment targets.
+            if elem_line == last_checked_line {
+                continue;
+            }
+            last_checked_line = elem_line;
+            if elem_col != expected_col {
                 diagnostics.push(self.diagnostic(
                     source,
                     elem_line,

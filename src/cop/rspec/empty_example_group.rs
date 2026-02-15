@@ -35,10 +35,15 @@ impl Cop for EmptyExampleGroup {
         let method_name = call.name().as_slice();
 
         // Check for example group calls (including RSpec.describe / ::RSpec.describe)
+        // Exclude shared groups (shared_examples, shared_context) — they define
+        // reusable code and are not checked for emptiness.
         let is_example_group = if let Some(recv) = call.receiver() {
             util::constant_name(&recv).map_or(false, |n| n == b"RSpec") && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name)
+                && method_name != b"shared_examples"
+                && method_name != b"shared_examples_for"
+                && method_name != b"shared_context"
         };
 
         if !is_example_group {

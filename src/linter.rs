@@ -128,5 +128,11 @@ fn lint_source_inner(
         diagnostics.extend(walker.diagnostics);
     }
 
+    // Filter out diagnostics suppressed by inline disable comments
+    let disabled = crate::parse::directives::DisabledRanges::from_comments(source, &parse_result);
+    if !disabled.is_empty() {
+        diagnostics.retain(|d| !disabled.is_disabled(&d.cop_name, d.location.line));
+    }
+
     diagnostics
 }

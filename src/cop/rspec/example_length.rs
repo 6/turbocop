@@ -144,6 +144,32 @@ fn count_node_reduction(
         }
     }
 
+    if count_as_one.iter().any(|s| s == "method_call") {
+        if let Some(call) = node.as_call_node() {
+            // Only count multi-line calls that don't have blocks (blocks are not method_call)
+            if call.block().is_none() {
+                let span = node_line_span(source, &node.location());
+                if span > 1 {
+                    reduction += span - 1;
+                }
+                return reduction;
+            }
+        }
+    }
+
+    // Recurse into the node to find nested multi-line constructs
+    // (e.g., an array inside a method call argument)
+    if let Some(call) = node.as_call_node() {
+        if let Some(args) = call.arguments() {
+            for arg in args.arguments().iter() {
+                reduction += count_node_reduction(source, &arg, count_as_one);
+            }
+        }
+        if let Some(recv) = call.receiver() {
+            reduction += count_node_reduction(source, &recv, count_as_one);
+        }
+    }
+
     reduction
 }
 
