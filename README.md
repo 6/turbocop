@@ -3,7 +3,7 @@
 A fast Ruby linter written in Rust, targeting drop-in [RuboCop](https://rubocop.org/) compatibility.
 
 - **364 cops** across 8 departments (Layout, Lint, Metrics, Naming, Performance, Rails, RSpec, Style)
-- **2-3x faster** than RuboCop on real-world codebases
+- **1.5-2.7x faster** than RuboCop on real-world codebases
 - Reads your existing `.rubocop.yml` — no migration needed
 - Uses [Prism](https://github.com/ruby/prism) (Ruby's official parser) via `ruby-prism` crate
 - Parallel file processing with [rayon](https://github.com/rayon-rs/rayon)
@@ -43,8 +43,8 @@ Measured on Apple Silicon, median of 5 runs via [hyperfine](https://github.com/s
 
 | Repo | .rb files | rblint | RuboCop | Speedup |
 |------|----------:|-------:|--------:|--------:|
-| [Mastodon](https://github.com/mastodon/mastodon) | 2,526 | **1.04s** | 2.52s | **2.4x** |
-| [Discourse](https://github.com/discourse/discourse) | 5,831 | **3.69s** | 4.27s | **1.2x** |
+| [Mastodon](https://github.com/mastodon/mastodon) | 2,526 | **1.61s** | 2.49s | **1.5x** |
+| [Discourse](https://github.com/discourse/discourse) | 5,831 | **1.26s** | 3.45s | **2.7x** |
 
 Run `cargo run --release --bin bench_rblint` to reproduce. See [bench/results.md](bench/results.md) for full details.
 
