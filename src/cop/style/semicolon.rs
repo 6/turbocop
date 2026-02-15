@@ -74,7 +74,10 @@ fn trim_bytes(b: &[u8]) -> &[u8] {
 fn is_single_line_body(trimmed: &[u8]) -> bool {
     let starts_keyword = trimmed.starts_with(b"def ")
         || trimmed.starts_with(b"class ")
-        || trimmed.starts_with(b"module ");
+        || trimmed.starts_with(b"module ")
+        || trimmed.starts_with(b"while ")
+        || trimmed.starts_with(b"until ")
+        || trimmed.starts_with(b"begin");
     starts_keyword && trimmed.ends_with(b"; end")
 }
 

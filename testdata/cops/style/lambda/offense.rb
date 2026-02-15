@@ -1,15 +1,8 @@
 f = lambda { |x| x + 1 }
-    ^^^^^^ Style/Lambda: Use the `-> {}` lambda literal syntax for all lambdas.
+    ^^^^^^ Style/Lambda: Use the `-> {}` lambda literal syntax for single-line lambdas.
 
 g = lambda { puts "hello" }
-    ^^^^^^ Style/Lambda: Use the `-> {}` lambda literal syntax for all lambdas.
+    ^^^^^^ Style/Lambda: Use the `-> {}` lambda literal syntax for single-line lambdas.
 
-h = lambda do |x|
-    ^^^^^^ Style/Lambda: Use the `-> {}` lambda literal syntax for all lambdas.
-  x * 2
-end
-
-i = lambda do
-    ^^^^^^ Style/Lambda: Use the `-> {}` lambda literal syntax for all lambdas.
-  puts "world"
-end
+h = lambda { |a, b| a + b }
+    ^^^^^^ Style/Lambda: Use the `-> {}` lambda literal syntax for single-line lambdas.

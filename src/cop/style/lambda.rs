@@ -14,7 +14,7 @@ impl Cop for Lambda {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -30,9 +30,46 @@ impl Cop for Lambda {
             return Vec::new();
         }
 
-        let loc = call.message_loc().unwrap_or_else(|| call.location());
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, "Use the `-> {}` lambda literal syntax for all lambdas.".to_string())]
+        let style = config.get_str("EnforcedStyle", "line_count_dependent");
+
+        match style {
+            "literal" => {
+                // Always flag `lambda` — use `->` instead
+                let loc = call.message_loc().unwrap_or_else(|| call.location());
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                vec![self.diagnostic(source, line, column, "Use the `-> {}` lambda literal syntax for all lambdas.".to_string())]
+            }
+            "lambda" => {
+                // Never flag `lambda` — it's preferred
+                Vec::new()
+            }
+            _ => {
+                // "line_count_dependent" (default): only flag single-line `lambda`
+                // Multi-line `lambda do...end` is the preferred style for multi-line.
+                // Single-line `lambda { }` should use `-> { }` instead.
+                let block = match call.block() {
+                    Some(b) => b,
+                    None => return Vec::new(),
+                };
+                let block_node = match block.as_block_node() {
+                    Some(bn) => bn,
+                    None => return Vec::new(),
+                };
+
+                let (start_line, _) = source.offset_to_line_col(block_node.location().start_offset());
+                let (end_line, _) = source.offset_to_line_col(block_node.location().end_offset().saturating_sub(1).max(block_node.location().start_offset()));
+
+                if start_line == end_line {
+                    // Single-line lambda — flag it
+                    let loc = call.message_loc().unwrap_or_else(|| call.location());
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    vec![self.diagnostic(source, line, column, "Use the `-> {}` lambda literal syntax for single-line lambdas.".to_string())]
+                } else {
+                    // Multi-line lambda — this is correct for `line_count_dependent`
+                    Vec::new()
+                }
+            }
+        }
     }
 }
 

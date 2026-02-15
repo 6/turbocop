@@ -1,9 +1,27 @@
-use crate::cop::util::has_trailing_comma;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct TrailingCommaInArguments;
+
+/// Check if a byte range contains only whitespace and exactly one comma.
+/// Returns false if there are other non-whitespace characters (e.g., heredoc content).
+fn is_only_whitespace_and_comma(bytes: &[u8]) -> bool {
+    let mut found_comma = false;
+    for &b in bytes {
+        match b {
+            b',' => {
+                if found_comma {
+                    return false; // Multiple commas
+                }
+                found_comma = true;
+            }
+            b' ' | b'\t' | b'\n' | b'\r' => {}
+            _ => return false, // Non-whitespace, non-comma character
+        }
+    }
+    found_comma
+}
 
 impl Cop for TrailingCommaInArguments {
     fn name(&self) -> &'static str {
@@ -41,7 +59,23 @@ impl Cop for TrailingCommaInArguments {
         let last_end = last_arg.location().end_offset();
         let closing_start = closing_loc.start_offset();
         let bytes = source.as_bytes();
-        let has_comma = has_trailing_comma(bytes, last_end, closing_start);
+
+        // Skip if there's a block argument (&block) between last arg and closing paren.
+        // The comma before &block is a separator, not a trailing comma.
+        if let Some(block) = call_node.block() {
+            if block.as_block_argument_node().is_some() {
+                return Vec::new();
+            }
+        }
+
+        // Check for a trailing comma between the last argument and closing paren.
+        // Ensure only whitespace surrounds the comma — reject ranges that contain
+        // heredoc content or other code (which may have incidental commas).
+        if last_end >= closing_start || closing_start > bytes.len() {
+            return Vec::new();
+        }
+        let search_range = &bytes[last_end..closing_start];
+        let has_comma = is_only_whitespace_and_comma(search_range);
 
         let style = config.get_str("EnforcedStyleForMultiline", "no_comma");
         let last_line = source.offset_to_line_col(last_end).0;
@@ -63,7 +97,6 @@ impl Cop for TrailingCommaInArguments {
             }
             _ => {
                 if has_comma {
-                    let search_range = &bytes[last_end..closing_start];
                     if let Some(comma_offset) =
                         search_range.iter().position(|&b| b == b',')
                     {

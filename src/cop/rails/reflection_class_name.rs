@@ -39,14 +39,16 @@ impl Cop for ReflectionClassName {
             return Vec::new();
         }
         if let Some(value) = keyword_arg_value(&call, b"class_name") {
-            if value.as_string_node().is_some() {
-                let loc = node.location();
+            // RuboCop flags non-string values (constants, method calls) for class_name.
+            // ActiveRecord expects class_name to be a string.
+            if value.as_string_node().is_none() {
+                let loc = value.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 return vec![self.diagnostic(
                     source,
                     line,
                     column,
-                    "Use a constant instead of a string for `class_name`.".to_string(),
+                    "Use a string value for `class_name`.".to_string(),
                 )];
             }
         }

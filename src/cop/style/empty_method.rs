@@ -46,13 +46,28 @@ impl Cop for EmptyMethod {
             }
         };
 
-        if is_empty {
-            let loc = def_node.def_keyword_loc();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(source, line, column, "Put empty method definitions on a single line.".to_string())];
+        if !is_empty {
+            return Vec::new();
         }
 
-        Vec::new()
+        // Check for comment lines between def and end.
+        // Prism treats comments as not part of the AST body, so a method with
+        // only comments will have an empty/None body. RuboCop does not flag
+        // methods that contain comments.
+        for line_num in (def_line + 1)..end_line {
+            if let Some(line) = source.lines().nth(line_num - 1) {
+                let trimmed = line.iter().skip_while(|&&b| b == b' ' || b == b'\t');
+                let trimmed_bytes: Vec<u8> = trimmed.copied().collect();
+                if !trimmed_bytes.is_empty() && trimmed_bytes[0] == b'#' {
+                    // Has a comment — don't flag
+                    return Vec::new();
+                }
+            }
+        }
+
+        let loc = def_node.def_keyword_loc();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        vec![self.diagnostic(source, line, column, "Put empty method definitions on a single line.".to_string())]
     }
 }
 

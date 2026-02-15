@@ -4,6 +4,39 @@ use crate::parse::source::SourceFile;
 
 pub struct IfUnlessModifier;
 
+/// Check if a node (or its children) contains a heredoc.
+/// Heredoc locations in Prism only cover the delimiter, so the actual
+/// source spans more lines than the node location suggests.
+fn node_contains_heredoc(node: &ruby_prism::Node<'_>) -> bool {
+    // Direct heredoc node
+    if node.as_interpolated_string_node().is_some() {
+        // Check if it starts with << (heredoc syntax)
+        if let Some(open) = node.as_interpolated_string_node().unwrap().opening_loc() {
+            if open.as_slice().starts_with(b"<<") {
+                return true;
+            }
+        }
+    }
+    if let Some(sn) = node.as_string_node() {
+        if let Some(open) = sn.opening_loc() {
+            if open.as_slice().starts_with(b"<<") {
+                return true;
+            }
+        }
+    }
+    // Check call arguments for heredocs
+    if let Some(call) = node.as_call_node() {
+        if let Some(args) = call.arguments() {
+            for arg in args.arguments().iter() {
+                if node_contains_heredoc(&arg) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 impl Cop for IfUnlessModifier {
     fn name(&self) -> &'static str {
         "Style/IfUnlessModifier"
@@ -75,11 +108,31 @@ impl Cop for IfUnlessModifier {
             return Vec::new();
         }
 
+        // Skip if the condition is a parenthesized assignment — these need the
+        // full if/end form to capture the assignment value used in the body
+        if predicate.as_parentheses_node().is_some() {
+            return Vec::new();
+        }
+
         // Body must be on a single line to be eligible for modifier form
         let (body_start_line, _) = source.offset_to_line_col(body_node.location().start_offset());
         let body_end_off = body_node.location().end_offset().saturating_sub(1).max(body_node.location().start_offset());
         let (body_end_line, _) = source.offset_to_line_col(body_end_off);
         if body_start_line != body_end_line {
+            return Vec::new();
+        }
+
+        // If there are comment lines between keyword and body, don't suggest modifier form.
+        // Converting would lose the comments.
+        let (kw_line, _) = source.offset_to_line_col(kw_loc.start_offset());
+        if body_start_line > kw_line + 1 {
+            return Vec::new();
+        }
+
+        // Check if body contains a heredoc argument. Prism's node location for heredoc
+        // references only covers the opening delimiter (<<~FOO), not the heredoc content.
+        // The actual output would span more lines than the AST suggests.
+        if node_contains_heredoc(&body_node) {
             return Vec::new();
         }
 
@@ -91,7 +144,9 @@ impl Cop for IfUnlessModifier {
         let cond_text = &source.as_bytes()
             [predicate.location().start_offset()..predicate.location().end_offset()];
 
-        let modifier_len = body_text.len() + 1 + keyword.len() + 1 + cond_text.len();
+        // Include indentation in the modifier line length estimate
+        let (_, body_col) = source.offset_to_line_col(body_node.location().start_offset());
+        let modifier_len = body_col + body_text.len() + 1 + keyword.len() + 1 + cond_text.len();
 
         if modifier_len <= max_line_length {
             let (line, column) = source.offset_to_line_col(kw_loc.start_offset());

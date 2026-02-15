@@ -73,19 +73,54 @@ impl NonCodeCollector<'_> {
     fn collect_from_node(&mut self, node: &ruby_prism::Node<'_>) {
         // Collect the full range of string/regex/symbol nodes.
         // This marks the entire literal (including delimiters) as non-code.
-        let loc = match node {
-            ruby_prism::Node::StringNode { .. }
-            | ruby_prism::Node::InterpolatedStringNode { .. }
-            | ruby_prism::Node::RegularExpressionNode { .. }
+        match node {
+            ruby_prism::Node::StringNode { .. } => {
+                let sn = node.as_string_node().unwrap();
+                let loc = node.location();
+                self.ranges.push((loc.start_offset(), loc.end_offset()));
+                // For heredocs, the location only covers the opening delimiter (<<~FOO).
+                // We need to also cover the content and closing terminator.
+                if let Some(open) = sn.opening_loc() {
+                    if open.as_slice().starts_with(b"<<") {
+                        let content_loc = sn.content_loc();
+                        if let Some(close) = sn.closing_loc() {
+                            self.ranges.push((content_loc.start_offset(), close.end_offset()));
+                        } else {
+                            self.ranges.push((content_loc.start_offset(), content_loc.end_offset()));
+                        }
+                    }
+                }
+            }
+            ruby_prism::Node::InterpolatedStringNode { .. } => {
+                let isn = node.as_interpolated_string_node().unwrap();
+                let loc = node.location();
+                self.ranges.push((loc.start_offset(), loc.end_offset()));
+                // For heredocs, also cover the content parts and closing terminator.
+                if let Some(open) = isn.opening_loc() {
+                    if open.as_slice().starts_with(b"<<") {
+                        let parts = isn.parts();
+                        if !parts.is_empty() {
+                            let first_start = parts.iter().next().unwrap().location().start_offset();
+                            if let Some(close) = isn.closing_loc() {
+                                self.ranges.push((first_start, close.end_offset()));
+                            } else {
+                                let last = parts.iter().last().unwrap();
+                                self.ranges.push((first_start, last.location().end_offset()));
+                            }
+                        }
+                    }
+                }
+            }
+            ruby_prism::Node::RegularExpressionNode { .. }
             | ruby_prism::Node::InterpolatedRegularExpressionNode { .. }
             | ruby_prism::Node::XStringNode { .. }
             | ruby_prism::Node::InterpolatedXStringNode { .. }
             | ruby_prism::Node::SymbolNode { .. }
-            | ruby_prism::Node::InterpolatedSymbolNode { .. } => Some(node.location()),
-            _ => None,
-        };
-        if let Some(loc) = loc {
-            self.ranges.push((loc.start_offset(), loc.end_offset()));
+            | ruby_prism::Node::InterpolatedSymbolNode { .. } => {
+                let loc = node.location();
+                self.ranges.push((loc.start_offset(), loc.end_offset()));
+            }
+            _ => {}
         }
     }
 }
@@ -202,6 +237,27 @@ mod tests {
     fn merge_no_overlap() {
         let merged = merge_ranges(vec![(0, 3), (5, 8)]);
         assert_eq!(merged, vec![(0, 3), (5, 8)]);
+    }
+
+    #[test]
+    fn heredoc_content_is_non_code() {
+        let source = b"x = <<~FOO\n  font-weight: 500;\nFOO\n";
+        let pr = parse_source(source);
+        let cm = CodeMap::from_parse_result(source, &pr);
+
+        // The semicolon inside the heredoc is NOT code
+        let semi_offset = source.iter().position(|&b| b == b';').unwrap();
+        assert!(!cm.is_code(semi_offset), "Semicolon inside heredoc should be non-code, offset={semi_offset}");
+    }
+
+    #[test]
+    fn heredoc_with_method_is_non_code() {
+        let source = b"x = <<~FOO.squish\n  font-weight: 500;\nFOO\n";
+        let pr = parse_source(source);
+        let cm = CodeMap::from_parse_result(source, &pr);
+
+        let semi_offset = source.iter().position(|&b| b == b';').unwrap();
+        assert!(!cm.is_code(semi_offset), "Semicolon inside heredoc.squish should be non-code, offset={semi_offset}");
     }
 
     #[test]
