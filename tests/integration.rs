@@ -1672,3 +1672,280 @@ fn list_cops_prints_all_registered_cops() {
         "Should contain RSpec/Focus"
     );
 }
+
+// ---------- Config audit ----------
+
+#[test]
+fn config_audit() {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let registry = CopRegistry::default_registry();
+
+    // Parse each vendor default YAML
+    let yaml_paths = [
+        manifest.join("vendor/rubocop/config/default.yml"),
+        manifest.join("vendor/rubocop-performance/config/default.yml"),
+        manifest.join("vendor/rubocop-rails/config/default.yml"),
+        manifest.join("vendor/rubocop-rspec/config/default.yml"),
+    ];
+
+    let infrastructure_keys: std::collections::HashSet<&str> = [
+        "Enabled",
+        "Description",
+        "StyleGuide",
+        "Reference",
+        "VersionAdded",
+        "VersionChanged",
+        "SafeAutoCorrect",
+        "AutoCorrect",
+        "SupportedStyles",
+        "SupportedStylesForMultiline",
+        "Exclude",
+        "Include",
+        "Safe",
+        "DocumentationBaseURL",
+        "inherit_mode",
+    ]
+    .into_iter()
+    .collect();
+
+    // Build a map of cop name -> YAML child keys (config options only)
+    let mut yaml_cop_keys: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+
+    for yaml_path in &yaml_paths {
+        let content = fs::read_to_string(yaml_path)
+            .unwrap_or_else(|e| panic!("Failed to read {}: {e}", yaml_path.display()));
+        let doc: serde_yml::Value = serde_yml::from_str(&content)
+            .unwrap_or_else(|e| panic!("Failed to parse {}: {e}", yaml_path.display()));
+
+        if let serde_yml::Value::Mapping(map) = doc {
+            for (key, value) in &map {
+                let key_str = match key.as_str() {
+                    Some(s) => s,
+                    None => continue,
+                };
+                // Only cop names contain '/'
+                if !key_str.contains('/') {
+                    continue;
+                }
+                if let serde_yml::Value::Mapping(child_map) = value {
+                    let config_keys: Vec<String> = child_map
+                        .keys()
+                        .filter_map(|k| k.as_str())
+                        .filter(|k| !infrastructure_keys.contains(k))
+                        .map(|k| k.to_string())
+                        .collect();
+                    if !config_keys.is_empty() {
+                        yaml_cop_keys.insert(key_str.to_string(), config_keys);
+                    }
+                }
+            }
+        }
+    }
+
+    // For each cop in the registry, check which YAML keys the Rust source reads
+    let mut report_lines: Vec<String> = Vec::new();
+
+    for cop_name in registry.names() {
+        let yaml_keys = match yaml_cop_keys.get(cop_name) {
+            Some(keys) => keys,
+            None => continue, // No YAML config for this cop
+        };
+
+        let parts: Vec<&str> = cop_name.split('/').collect();
+        let dept = parts[0].to_lowercase();
+        let name = to_snake_case(parts[1]);
+
+        // Try to find the source file
+        let src_path = manifest.join(format!("src/cop/{dept}/{name}.rs"));
+        let src_path_alt = manifest.join(format!("src/cop/{dept}/{name}_cop.rs"));
+        let source = if src_path.exists() {
+            fs::read_to_string(&src_path).unwrap()
+        } else if src_path_alt.exists() {
+            fs::read_to_string(&src_path_alt).unwrap()
+        } else {
+            continue; // Source not found, skip
+        };
+
+        let mut missing: Vec<&str> = Vec::new();
+        for key in yaml_keys {
+            // Check if the Rust source references this config key via any get_ method
+            let pattern = format!("\"{key}\"");
+            if !source.contains(&pattern) {
+                missing.push(key);
+            }
+        }
+
+        if !missing.is_empty() {
+            report_lines.push(format!("  {cop_name}: missing config reads for: {}", missing.join(", ")));
+        }
+    }
+
+    if !report_lines.is_empty() {
+        eprintln!(
+            "\n[config_audit] YAML config keys not found in Rust source ({} cops):\n{}",
+            report_lines.len(),
+            report_lines.join("\n")
+        );
+    } else {
+        eprintln!("\n[config_audit] All YAML config keys are read by Rust source.");
+    }
+}
+
+// ---------- Prism pitfalls ----------
+
+#[test]
+fn prism_pitfalls() {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let registry = CopRegistry::default_registry();
+
+    let mut report_lines: Vec<String> = Vec::new();
+
+    for cop_name in registry.names() {
+        let parts: Vec<&str> = cop_name.split('/').collect();
+        let dept = parts[0].to_lowercase();
+        let name = to_snake_case(parts[1]);
+
+        let src_path = manifest.join(format!("src/cop/{dept}/{name}.rs"));
+        let src_path_alt = manifest.join(format!("src/cop/{dept}/{name}_cop.rs"));
+        let source = if src_path.exists() {
+            fs::read_to_string(&src_path).unwrap()
+        } else if src_path_alt.exists() {
+            fs::read_to_string(&src_path_alt).unwrap()
+        } else {
+            continue;
+        };
+
+        // Pitfall 1: KeywordHashNode gap
+        if source.contains("as_hash_node") && !source.contains("keyword_hash_node") {
+            report_lines.push(format!(
+                "  {cop_name}: handles Hash literals (as_hash_node) but misses keyword arguments (keyword_hash_node)"
+            ));
+        }
+
+        // Pitfall 2: ConstantPathNode gap
+        if source.contains("as_constant_read_node") && !source.contains("constant_path_node") {
+            report_lines.push(format!(
+                "  {cop_name}: handles simple constants (as_constant_read_node) but misses qualified constants (constant_path_node)"
+            ));
+        }
+    }
+
+    if !report_lines.is_empty() {
+        eprintln!(
+            "\n[prism_pitfalls] Potential pitfalls found ({} issues):\n{}",
+            report_lines.len(),
+            report_lines.join("\n")
+        );
+    } else {
+        eprintln!("\n[prism_pitfalls] No known pitfalls detected.");
+    }
+}
+
+// ---------- NodePattern codegen integration tests ----------
+
+#[test]
+fn codegen_generates_output_for_vendor_file() {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let vendor_file = manifest.join("vendor/rubocop-rails/lib/rubocop/cop/rails/inverse_of.rb");
+
+    if !vendor_file.exists() {
+        eprintln!("Skipping codegen integration test: vendor file not found");
+        return;
+    }
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_node_pattern_codegen"))
+        .args(["generate", vendor_file.to_str().unwrap()])
+        .output()
+        .expect("Failed to execute node_pattern_codegen");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "codegen should exit 0 for a file with patterns, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // inverse_of.rb has multiple def_node_matcher patterns
+    assert!(
+        stdout.contains("Auto-generated by node_pattern_codegen"),
+        "Output should contain header comment"
+    );
+    assert!(
+        stdout.contains("fn "),
+        "Output should contain generated Rust functions"
+    );
+    assert!(
+        stdout.contains("as_call_node") || stdout.contains("as_"),
+        "Output should contain Prism cast methods"
+    );
+    // Should extract several patterns
+    assert!(
+        stdout.matches("def_node_matcher").count() >= 3,
+        "Should reference at least 3 patterns from inverse_of.rb"
+    );
+}
+
+#[test]
+fn codegen_handles_file_with_no_patterns() {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // Use a file that likely has no def_node_matcher
+    let test_file = manifest.join("testdata/cops/layout/trailing_whitespace/offense.rb");
+
+    if !test_file.exists() {
+        eprintln!("Skipping codegen no-patterns test: test file not found");
+        return;
+    }
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_node_pattern_codegen"))
+        .args(["generate", test_file.to_str().unwrap()])
+        .output()
+        .expect("Failed to execute node_pattern_codegen");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "codegen should exit 0 even with no patterns"
+    );
+    assert!(
+        stdout.is_empty(),
+        "No output expected for file without patterns, got: {stdout}"
+    );
+    assert!(
+        stderr.contains("No def_node_matcher"),
+        "Should print informational message to stderr, got: {stderr}"
+    );
+}
+
+#[test]
+fn codegen_exits_nonzero_for_missing_file() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_node_pattern_codegen"))
+        .args(["generate", "/nonexistent/file.rb"])
+        .output()
+        .expect("Failed to execute node_pattern_codegen");
+
+    assert!(
+        !output.status.success(),
+        "codegen should exit non-zero for missing file"
+    );
+}
+
+#[test]
+fn codegen_exits_nonzero_without_args() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_node_pattern_codegen"))
+        .output()
+        .expect("Failed to execute node_pattern_codegen");
+
+    assert!(
+        !output.status.success(),
+        "codegen should exit non-zero without arguments"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Usage"),
+        "Should print usage, got: {stderr}"
+    );
+}
