@@ -759,6 +759,50 @@ The remaining FPs are dominated by config loading issues. The M11 config infrast
 3. Handle rubocop-discourse gem's config for Discourse
 4. Fix remaining logic bugs in cops with <10 FPs
 
+## Completed: Config Audit + Prism Pitfalls — Zero Gaps
+
+Eliminated all config audit (126 → 0) and prism pitfalls (68 → 0) gaps. Every YAML config key read by RuboCop cops is now implemented in the Rust source, and every cop correctly handles both `ConstantPathNode` and `KeywordHashNode` variants.
+
+### Infrastructure Changes
+
+- [x] **tests/integration.rs** — Removed baseline mechanism; both tests now assert zero gaps directly
+- [x] **tests/baselines/** — Deleted entirely (no longer needed)
+- [x] **src/cop/mod.rs** — Added `get_string_hash()` to CopConfig for hash-type YAML configs (CustomTransform, IgnoreMetadata)
+- [x] **tests/integration.rs** — Expanded `infrastructure_keys` filter: `Supported*` prefix, `References`, `Severity`
+
+### Prism Pitfalls Fixed (68 → 0)
+
+- [x] **ConstantPathNode** (58 entries, 49 cops) — All cops now handle qualified constants (`Foo::Bar`) via `as_constant_path_node()` or `util::constant_name()`
+- [x] **KeywordHashNode** (10 entries, 9 cops) — All cops now handle keyword args alongside hash literals
+
+### Config Audit Fixed (126 → 0)
+
+All config keys across all 364 cops now have real implementations with behavioral tests:
+
+**Layout (25 cops):** EmptyLineBetweenDefs (DefLikeMacros), IndentationWidth (EnforcedStyleAlignWith), LineLength (AllowRBSInlineAnnotation), HashAlignment (7 keys), and 21 others
+
+**Lint (8 cops):** EmptyConditionalBody (AllowComments), EmptyWhen (AllowComments), SuppressedException (AllowNil), NestedMethodDefinition (AllowedMethods/Patterns), Debugger (DebuggerMethods/Requires), and 3 others
+
+**Metrics (6 cops):** MethodLength/BlockLength/ClassLength/ModuleLength (AllowedMethods, AllowedPatterns, CountAsOne), CyclomaticComplexity/PerceivedComplexity (AllowedMethods/Patterns)
+
+**Naming (4 cops):** FileName (ExpectMatchingDefinition, Regex, IgnoreExecutableScripts), AsciiIdentifiers (AsciiConstants), and 2 others
+
+**Performance (5 cops):** FlatMap (EnabledForFlattenWithoutParams), Sum (OnlySumOrWithInitialValue), DoubleStartEndWith (IncludeActiveSupportAliases), and 2 others
+
+**Rails (17 cops):** Delegate (EnforceForPrefixed), FindBy (IgnoreWhereFirst), InverseOf (IgnoreScopes), RenderPlainText (ContentTypeCompatibility), SafeNavigation (ConvertTry), and 12 others
+
+**RSpec (24 cops):** DescribedClass (OnlyStaticConstants, SkipBlocks), ExampleWording (CustomTransform), PredicateMatcher (AllowedExplicitMatchers), SpecFilePathFormat (CustomTransform, IgnoreMetadata, IgnoreMethods), and 20 others
+
+**Style (18 cops):** FrozenStringLiteralComment (EnforcedStyle), EmptyMethod (EnforcedStyle), HashSyntax (EnforcedShorthandSyntax), TrailingCommaIn* (EnforcedStyleForMultiline), and 14 others
+
+### Summary
+
+- [x] 1,302 tests passing (1,210 lib + 50 codegen + 42 integration)
+- [x] `cargo test config_audit` — 0 gaps (was 126)
+- [x] `cargo test prism_pitfalls` — 0 gaps (was 68)
+- [x] Zero compiler warnings
+- [x] Only 2 intentional no-ops: `SplitStrings` (autocorrection-only), `InflectorPath` (Ruby-specific Zeitwerk)
+
 ## Upcoming Milestones
 
 | Milestone | Cops | Status |

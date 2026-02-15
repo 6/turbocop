@@ -23,9 +23,9 @@ cargo run -- --debug .
 
 - `src/diagnostic.rs` — Severity, Location, Diagnostic types
 - `src/parse/` — Prism wrapper + SourceFile (line offsets, byte→line:col)
-- `src/cop/` — `Cop` trait (`check_lines`/`check_node`), `CopRegistry`, department modules (`layout/`, `style/`)
+- `src/cop/` — `Cop` trait (`check_lines`/`check_node`/`check_source`), `CopRegistry`, department modules (`layout/`, `lint/`, `metrics/`, `naming/`, `performance/`, `rails/`, `rspec/`, `style/`)
 - `src/testutil.rs` — `#[cfg(test)]` fixture parser (annotations, `# rblint-expect:`, `# rblint-filename:`) + assertion helpers
-- `src/config/` — `.rubocop.yml` loading (stub: no inherit_from yet)
+- `src/config/` — `.rubocop.yml` loading with `inherit_from`, `inherit_gem`, `inherit_mode`, auto-discovery
 - `src/fs/` — File discovery via `ignore` crate (.gitignore-aware)
 - `src/linter.rs` — Parallel orchestration (parse per-thread since ParseResult is !Send)
 - `src/formatter/` — Text (RuboCop-compatible) and JSON output
@@ -60,12 +60,12 @@ See `docs/node_pattern_analysis.md` for the full Parser→Prism mapping table.
 
 ## Quality Checks
 
-Two baseline-gated integration tests catch regressions automatically:
+Two zero-tolerance integration tests enforce implementation completeness:
 
-- **`cargo test config_audit`** — cross-references vendor YAML config keys against `config.get_str/get_usize/get_bool/get_string_array` calls in Rust source. Baseline: `tests/baselines/config_audit.txt`.
-- **`cargo test prism_pitfalls`** — scans cop source for `as_hash_node` without `keyword_hash_node` and `as_constant_read_node` without `constant_path_node`. Baseline: `tests/baselines/prism_pitfalls.txt`.
+- **`cargo test config_audit`** — cross-references vendor YAML config keys against `config.get_str/get_usize/get_bool/get_string_array/get_string_hash` calls in Rust source. Fails if any key is missing from the cop's source.
+- **`cargo test prism_pitfalls`** — scans cop source for `as_hash_node` without `keyword_hash_node` and `as_constant_read_node` without `constant_path_node`. Fails if any cop handles one node type but not the other.
 
-Both tests **fail if new gaps appear** (regressions) or if **baseline entries become stale** (gaps that were fixed but not removed from the baseline). To fix a regression: either fix the cop or add the entry to the baseline file. To fix a stale entry: remove the line from the baseline file.
+Both tests require **zero gaps** — any new cop or config key must be fully implemented before tests pass.
 
 ## Fixture Format
 
