@@ -6,7 +6,6 @@ target/
 # rustfmt backup files
 **/*.rs.bk
 
-# Benchmark repos, results, and generated reports
+# Benchmark repos and raw result cache
 bench/repos/
 bench/results/
-bench/results.md
