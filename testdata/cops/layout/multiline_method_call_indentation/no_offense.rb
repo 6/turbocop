@@ -27,3 +27,13 @@ expect(response)
 ActiveRecord::Base.configurations.configs_for(env_name: Rails.env).first.configuration_hash
   .dup
   .tap { |config| config['pool'] = 1 }
+
+# Block chain continuation: aligned with the block-bearing call's dot
+frequencies.map.with_index { |f, i| [f / total, hex[i]] }
+               .sort_by { |r| -r[0] }
+               .reject { |r| r[1].size == 8 }
+
+# Hash pair value chain: correctly aligned
+foo(bar: baz
+         .qux
+         .quux)

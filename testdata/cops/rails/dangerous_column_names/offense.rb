@@ -1,6 +1,10 @@
-add_column :users, :type, :string
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/DangerousColumnNames: Avoid using `type` as a column name. It conflicts with ActiveRecord internals.
+add_column :users, :save, :string
+                   ^^^^^ Rails/DangerousColumnNames: Avoid dangerous column names.
 add_column :users, :class, :string
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/DangerousColumnNames: Avoid using `class` as a column name. It conflicts with ActiveRecord internals.
+                   ^^^^^^ Rails/DangerousColumnNames: Avoid dangerous column names.
 add_column :users, :id, :integer
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/DangerousColumnNames: Avoid using `id` as a column name. It conflicts with ActiveRecord internals.
+                   ^^^ Rails/DangerousColumnNames: Avoid dangerous column names.
+t.string :errors
+         ^^^^^^^ Rails/DangerousColumnNames: Avoid dangerous column names.
+t.integer :destroy
+          ^^^^^^^^ Rails/DangerousColumnNames: Avoid dangerous column names.

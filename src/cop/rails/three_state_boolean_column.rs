@@ -1,4 +1,4 @@
-use crate::cop::util::has_keyword_arg;
+use crate::cop::util::keyword_arg_value;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -46,6 +46,25 @@ impl Cop for ThreeStateBooleanColumn {
             arg_list[2]
                 .as_symbol_node()
                 .is_some_and(|s| s.unescaped() == b"boolean")
+        } else if method == b"column" {
+            // t.column :col, :boolean
+            if call.receiver().is_none() {
+                return Vec::new();
+            }
+            let args = match call.arguments() {
+                Some(a) => a,
+                None => return Vec::new(),
+            };
+            let arg_list: Vec<_> = args.arguments().iter().collect();
+            if arg_list.len() < 2 {
+                return Vec::new();
+            }
+            arg_list[1]
+                .as_symbol_node()
+                .is_some_and(|s| s.unescaped() == b"boolean")
+                || arg_list[1]
+                    .as_string_node()
+                    .is_some_and(|s| s.unescaped() == b"boolean")
         } else if method == b"boolean" {
             // t.boolean :col — receiver should be present (the block variable)
             call.receiver().is_some()
@@ -57,8 +76,15 @@ impl Cop for ThreeStateBooleanColumn {
             return Vec::new();
         }
 
-        // Check if null: false is present
-        if has_keyword_arg(&call, b"null") {
+        // Vendor requires BOTH default: (non-nil) AND null: false to skip.
+        let has_default = keyword_arg_value(&call, b"default")
+            .is_some_and(|v| v.as_nil_node().is_none());
+        let has_null_false = keyword_arg_value(&call, b"null")
+            .is_some_and(|v| {
+                v.as_false_node().is_some()
+            });
+
+        if has_default && has_null_false {
             return Vec::new();
         }
 
@@ -68,7 +94,8 @@ impl Cop for ThreeStateBooleanColumn {
             source,
             line,
             column,
-            "Add `null: false` to boolean columns to avoid three-state booleans.".to_string(),
+            "Boolean columns should always have a default value and a `NOT NULL` constraint."
+                .to_string(),
         )]
     }
 }

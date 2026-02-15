@@ -201,9 +201,6 @@ pub struct ResolvedConfig {
     require_known_cops: HashSet<String>,
     /// Department names that had gems loaded via `require:`.
     require_departments: HashSet<String>,
-    /// Cops from `require:` (legacy) plugin defaults with `Enabled: pending`.
-    /// NOT enabled by `NewCops: enable` (rubocop 1.82+ behavior).
-    require_pending_cops: HashSet<String>,
 }
 
 impl ResolvedConfig {
@@ -217,7 +214,6 @@ impl ResolvedConfig {
             disabled_by_default: false,
             require_known_cops: HashSet::new(),
             require_departments: HashSet::new(),
-            require_pending_cops: HashSet::new(),
         }
     }
 }
@@ -241,8 +237,6 @@ struct ConfigLayer {
     require_known_cops: HashSet<String>,
     /// Department names that had gems loaded via `require:`.
     require_departments: HashSet<String>,
-    /// Cops from `require:` plugin defaults with `Enabled: pending`.
-    require_pending_cops: HashSet<String>,
 }
 
 impl ConfigLayer {
@@ -258,7 +252,6 @@ impl ConfigLayer {
             require_enabled_depts: HashSet::new(),
             require_known_cops: HashSet::new(),
             require_departments: HashSet::new(),
-            require_pending_cops: HashSet::new(),
         }
     }
 }
@@ -409,7 +402,6 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
         disabled_by_default,
         require_known_cops: base.require_known_cops,
         require_departments: base.require_departments,
-        require_pending_cops: base.require_pending_cops,
     })
 }
 
@@ -493,7 +485,6 @@ fn load_config_recursive(
 
     if let Value::Mapping(ref map) = raw {
         // 0. Process require: / plugins: — load plugin default configs (lowest priority).
-        let is_legacy_require = map.contains_key(&Value::String("require".to_string()));
         let require_value = map
             .get(&Value::String("require".to_string()))
             .or_else(|| map.get(&Value::String("plugins".to_string())));
@@ -566,15 +557,6 @@ fn load_config_recursive(
             .cloned()
             .collect();
 
-        // Track cops with Enabled: pending from require: (legacy) plugins.
-        if is_legacy_require {
-            base_layer.require_pending_cops = base_layer
-                .cop_configs
-                .iter()
-                .filter(|(_, c)| c.enabled == EnabledState::Pending)
-                .map(|(n, _)| n.clone())
-                .collect();
-        }
 
         // 1. Process inherit_gem
         if let Some(gem_value) = map.get(&Value::String("inherit_gem".to_string())) {
@@ -750,7 +732,6 @@ fn parse_config_layer(raw: &Value) -> ConfigLayer {
         require_enabled_depts: HashSet::new(),
         require_known_cops: HashSet::new(),
         require_departments: HashSet::new(),
-        require_pending_cops: HashSet::new(),
     }
 }
 
@@ -829,9 +810,6 @@ fn merge_layer_into(
     }
     for dept in &overlay.require_departments {
         base.require_departments.insert(dept.clone());
-    }
-    for cop_name in &overlay.require_pending_cops {
-        base.require_pending_cops.insert(cop_name.clone());
     }
 }
 
@@ -1085,7 +1063,9 @@ impl ResolvedConfig {
 
                 let mut enabled = match enabled_state {
                     EnabledState::False => false,
-                    EnabledState::Pending => self.new_cops == NewCopsPolicy::Enable,
+                    EnabledState::Pending => {
+                        self.new_cops == NewCopsPolicy::Enable
+                    }
                     EnabledState::Unset => !self.disabled_by_default,
                     EnabledState::True => true,
                 };
@@ -1160,7 +1140,9 @@ impl ResolvedConfig {
             .filter(|(_name, config)| match config.enabled {
                 EnabledState::True => true,
                 EnabledState::Unset => !self.disabled_by_default,
-                EnabledState::Pending => self.new_cops == NewCopsPolicy::Enable,
+                EnabledState::Pending => {
+                    self.new_cops == NewCopsPolicy::Enable
+                }
                 EnabledState::False => false,
             })
             .map(|(name, _)| name.clone())

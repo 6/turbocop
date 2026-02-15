@@ -32,18 +32,28 @@ impl Cop for Delegate {
             return Vec::new();
         }
 
-        // Must have no parameters (or empty parens)
-        if let Some(params) = def_node.parameters() {
-            let has_params = params.requireds().iter().next().is_some()
-                || params.optionals().iter().next().is_some()
+        // Collect parameter names (for argument forwarding check)
+        let param_names: Vec<Vec<u8>> = if let Some(params) = def_node.parameters() {
+            // Only support simple required positional parameters for forwarding
+            let has_non_required = params.optionals().iter().next().is_some()
                 || params.rest().is_some()
                 || params.keywords().iter().next().is_some()
                 || params.keyword_rest().is_some()
                 || params.block().is_some();
-            if has_params {
+            if has_non_required {
                 return Vec::new();
             }
-        }
+            params
+                .requireds()
+                .iter()
+                .filter_map(|p| {
+                    p.as_required_parameter_node()
+                        .map(|rp| rp.name().as_slice().to_vec())
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         // Body must be a single call expression
         let body = match def_node.body() {
@@ -112,9 +122,36 @@ impl Cop for Delegate {
             return Vec::new();
         }
 
-        // The delegated call should have no arguments (simple forwarding)
-        if call.arguments().is_some() {
+        // Check argument forwarding: call args must match def params 1:1
+        let call_arg_names: Vec<Vec<u8>> = if let Some(args) = call.arguments() {
+            args.arguments()
+                .iter()
+                .filter_map(|a| {
+                    a.as_local_variable_read_node()
+                        .map(|lv| lv.name().as_slice().to_vec())
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        // Argument count must match and all must be simple lvar forwards
+        if call_arg_names.len() != param_names.len() {
             return Vec::new();
+        }
+        let call_arg_count = if let Some(args) = call.arguments() {
+            args.arguments().iter().count()
+        } else {
+            0
+        };
+        if call_arg_count != param_names.len() {
+            return Vec::new();
+        }
+        // Each param must forward to matching lvar in same order
+        for (param, arg) in param_names.iter().zip(call_arg_names.iter()) {
+            if param != arg {
+                return Vec::new();
+            }
         }
 
         // Should not have a block

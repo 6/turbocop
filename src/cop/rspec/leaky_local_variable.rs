@@ -164,6 +164,20 @@ fn check_scope_for_leaky_vars(
                         break;
                     }
                 }
+
+                // Check nested example groups (describe/context) — a variable
+                // assigned at an outer scope leaks into inner example groups'
+                // examples and hooks.
+                if is_rspec_example_group(name) && call.receiver().is_none() {
+                    if let Some(blk) = call.block() {
+                        if let Some(bn) = blk.as_block_node() {
+                            if var_used_in_nested_scopes(bn, &assign.name) {
+                                used_in_block = true;
+                                break;
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -190,6 +204,56 @@ fn check_scope_for_leaky_vars(
             }
         }
     }
+}
+
+/// Check if a variable is used inside examples/hooks/let/subject blocks within
+/// a nested example group block. Recurses into further nested example groups.
+fn var_used_in_nested_scopes(block: ruby_prism::BlockNode<'_>, var_name: &[u8]) -> bool {
+    let body = match block.body() {
+        Some(b) => b,
+        None => return false,
+    };
+    let stmts = match body.as_statements_node() {
+        Some(s) => s,
+        None => return false,
+    };
+
+    for stmt in stmts.body().iter() {
+        if let Some(call) = stmt.as_call_node() {
+            let name = call.name().as_slice();
+            let is_inner_scope = matches!(
+                name,
+                b"it" | b"specify" | b"example" | b"scenario"
+                    | b"xit" | b"xspecify" | b"xexample" | b"xscenario"
+                    | b"fit" | b"fspecify" | b"fexample" | b"fscenario"
+                    | b"before" | b"after" | b"around"
+                    | b"let" | b"let!"
+                    | b"subject" | b"subject!"
+            ) && call.receiver().is_none();
+
+            if is_inner_scope {
+                if let Some(blk) = call.block() {
+                    if let Some(bn) = blk.as_block_node() {
+                        if block_body_references_var(bn, var_name) {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            // Recurse into nested example groups
+            if is_rspec_example_group(name) && call.receiver().is_none() {
+                if let Some(blk) = call.block() {
+                    if let Some(bn) = blk.as_block_node() {
+                        if var_used_in_nested_scopes(bn, var_name) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
 }
 
 fn block_body_references_var(block: ruby_prism::BlockNode<'_>, var_name: &[u8]) -> bool {

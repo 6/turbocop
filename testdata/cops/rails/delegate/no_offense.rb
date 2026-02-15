@@ -35,6 +35,16 @@ def author_url
   structured_data&.author_url
 end
 
+# Argument forwarding with transformation (not simple delegation)
+def fetch(key)
+  client.fetch(key.to_s)
+end
+
+# Argument count mismatch
+def [](key, default)
+  @attrs[key]
+end
+
 # Private methods are ignored
 private
 
