@@ -15,8 +15,11 @@ impl Cop for AsciiIdentifiers {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // AsciiConstants: when true (default), also flag non-ASCII constants
+        let ascii_constants = config.get_bool("AsciiConstants", true);
+
         if let Some(def_node) = node.as_def_node() {
             let method_name = def_node.name().as_slice();
             if !is_ascii_name(method_name) {
@@ -45,6 +48,23 @@ impl Cop for AsciiIdentifiers {
             }
         }
 
+        // Check constants only when AsciiConstants is true
+        if ascii_constants {
+            if let Some(const_write) = node.as_constant_write_node() {
+                let const_name = const_write.name().as_slice();
+                if !is_ascii_name(const_name) {
+                    let loc = const_write.name_loc();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Use only ascii symbols in constants.".to_string(),
+                    )];
+                }
+            }
+        }
+
         Vec::new()
     }
 }
@@ -53,4 +73,36 @@ impl Cop for AsciiIdentifiers {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(AsciiIdentifiers, "cops/naming/ascii_identifiers");
+
+    #[test]
+    fn config_ascii_constants_true_flags_non_ascii_constant() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("AsciiConstants".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = "Caf\u{00e9} = 1\n".as_bytes();
+        let diags = run_cop_full_with_config(&AsciiIdentifiers, source, config);
+        assert!(!diags.is_empty(), "Should flag non-ASCII constant when AsciiConstants:true");
+    }
+
+    #[test]
+    fn config_ascii_constants_false_allows_non_ascii_constant() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("AsciiConstants".into(), serde_yml::Value::Bool(false)),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = "Caf\u{00e9} = 1\n".as_bytes();
+        let diags = run_cop_full_with_config(&AsciiIdentifiers, source, config);
+        assert!(diags.is_empty(), "Should not flag non-ASCII constant when AsciiConstants:false");
+    }
 }

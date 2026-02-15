@@ -6,3 +6,6 @@ Time.zone = "UTC"
 
 Time.zone = user.time_zone
 ^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/TimeZoneAssignment: Do not set `Time.zone` directly. Use `Time.use_zone` instead.
+
+::Time.zone = "Pacific"
+^^^^^^^^^^^^^^^^^^^^^^^ Rails/TimeZoneAssignment: Do not set `Time.zone` directly. Use `Time.use_zone` instead.

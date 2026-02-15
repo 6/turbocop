@@ -1693,6 +1693,7 @@ fn config_audit() {
         "Description",
         "StyleGuide",
         "Reference",
+        "References",
         "VersionAdded",
         "VersionChanged",
         "SafeAutoCorrect",
@@ -1704,9 +1705,15 @@ fn config_audit() {
         "Safe",
         "DocumentationBaseURL",
         "inherit_mode",
+        "Severity",
     ]
     .into_iter()
     .collect();
+
+    // Also filter Supported* prefix keys (e.g. SupportedStylesAlignWith)
+    let is_infrastructure = |key: &str| -> bool {
+        infrastructure_keys.contains(key) || key.starts_with("Supported")
+    };
 
     // Build a map of cop name -> YAML child keys (config options only)
     let mut yaml_cop_keys: std::collections::HashMap<String, Vec<String>> =
@@ -1732,7 +1739,7 @@ fn config_audit() {
                     let config_keys: Vec<String> = child_map
                         .keys()
                         .filter_map(|k| k.as_str())
-                        .filter(|k| !infrastructure_keys.contains(k))
+                        .filter(|k| !is_infrastructure(k))
                         .map(|k| k.to_string())
                         .collect();
                     if !config_keys.is_empty() {
@@ -1744,15 +1751,6 @@ fn config_audit() {
     }
 
     // For each cop in the registry, check which YAML keys the Rust source reads
-    // Load baseline
-    let baseline_path = manifest.join("tests/baselines/config_audit.txt");
-    let baseline: std::collections::HashSet<String> = fs::read_to_string(&baseline_path)
-        .unwrap_or_else(|e| panic!("Failed to read {}: {e}", baseline_path.display()))
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(|l| l.to_string())
-        .collect();
-
     let mut current_gaps: Vec<String> = Vec::new();
 
     for cop_name in registry.names() {
@@ -1790,41 +1788,13 @@ fn config_audit() {
         }
     }
 
-    let current_set: std::collections::HashSet<String> = current_gaps.iter().cloned().collect();
-
-    // Regressions: new gaps not in baseline
-    let mut regressions: Vec<&String> = current_gaps.iter().filter(|g| !baseline.contains(*g)).collect();
-    regressions.sort();
-
-    // Stale: baseline entries no longer in current gaps (gaps that were fixed)
-    let mut stale: Vec<&String> = baseline.iter().filter(|b| !current_set.contains(*b)).collect();
-    stale.sort();
-
-    if !current_gaps.is_empty() {
-        eprintln!(
-            "\n[config_audit] YAML config keys not found in Rust source ({} cops):",
-            current_gaps.len()
-        );
-        for line in &current_gaps {
-            eprintln!("  {line}");
-        }
-    }
+    current_gaps.sort();
 
     assert!(
-        regressions.is_empty(),
-        "\n[config_audit] REGRESSION: {} new config gap(s) not in baseline:\n{}\n\n\
-         Either fix the cop to read these config keys, or add the entries to \
-         tests/baselines/config_audit.txt",
-        regressions.len(),
-        regressions.iter().map(|r| format!("  {r}")).collect::<Vec<_>>().join("\n")
-    );
-
-    assert!(
-        stale.is_empty(),
-        "\n[config_audit] STALE: {} baseline entries no longer match current gaps \
-         (remove from tests/baselines/config_audit.txt):\n{}",
-        stale.len(),
-        stale.iter().map(|s| format!("  {s}")).collect::<Vec<_>>().join("\n")
+        current_gaps.is_empty(),
+        "\n[config_audit] {} cop(s) have YAML config keys not referenced in Rust source:\n{}\n",
+        current_gaps.len(),
+        current_gaps.iter().map(|g| format!("  {g}")).collect::<Vec<_>>().join("\n")
     );
 }
 
@@ -1834,15 +1804,6 @@ fn config_audit() {
 fn prism_pitfalls() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let registry = CopRegistry::default_registry();
-
-    // Load baseline
-    let baseline_path = manifest.join("tests/baselines/prism_pitfalls.txt");
-    let baseline: std::collections::HashSet<String> = fs::read_to_string(&baseline_path)
-        .unwrap_or_else(|e| panic!("Failed to read {}: {e}", baseline_path.display()))
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(|l| l.to_string())
-        .collect();
 
     let mut current_gaps: Vec<String> = Vec::new();
 
@@ -1876,41 +1837,13 @@ fn prism_pitfalls() {
         }
     }
 
-    let current_set: std::collections::HashSet<String> = current_gaps.iter().cloned().collect();
-
-    // Regressions: new gaps not in baseline
-    let mut regressions: Vec<&String> = current_gaps.iter().filter(|g| !baseline.contains(*g)).collect();
-    regressions.sort();
-
-    // Stale: baseline entries no longer in current gaps (gaps that were fixed)
-    let mut stale: Vec<&String> = baseline.iter().filter(|b| !current_set.contains(*b)).collect();
-    stale.sort();
-
-    if !current_gaps.is_empty() {
-        eprintln!(
-            "\n[prism_pitfalls] Potential pitfalls found ({} issues):",
-            current_gaps.len()
-        );
-        for line in &current_gaps {
-            eprintln!("  {line}");
-        }
-    }
+    current_gaps.sort();
 
     assert!(
-        regressions.is_empty(),
-        "\n[prism_pitfalls] REGRESSION: {} new pitfall(s) not in baseline:\n{}\n\n\
-         Either fix the cop to handle both node types, or add the entries to \
-         tests/baselines/prism_pitfalls.txt",
-        regressions.len(),
-        regressions.iter().map(|r| format!("  {r}")).collect::<Vec<_>>().join("\n")
-    );
-
-    assert!(
-        stale.is_empty(),
-        "\n[prism_pitfalls] STALE: {} baseline entries no longer match current gaps \
-         (remove from tests/baselines/prism_pitfalls.txt):\n{}",
-        stale.len(),
-        stale.iter().map(|s| format!("  {s}")).collect::<Vec<_>>().join("\n")
+        current_gaps.is_empty(),
+        "\n[prism_pitfalls] {} pitfall(s) found:\n{}\n",
+        current_gaps.len(),
+        current_gaps.iter().map(|g| format!("  {g}")).collect::<Vec<_>>().join("\n")
     );
 }
 

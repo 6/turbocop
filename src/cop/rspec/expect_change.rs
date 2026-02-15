@@ -23,17 +23,16 @@ impl Cop for ExpectChange {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // Default EnforcedStyle is method_call: flag `change { User.count }`
-        // and suggest `change(User, :count)`.
+        // Config: EnforcedStyle — "method_call" (default) or "block"
+        let enforced_style = config.get_str("EnforcedStyle", "method_call");
 
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
         };
 
-        // We're looking for a `change` call with a block
         if call.receiver().is_some() {
             return Vec::new();
         }
@@ -42,7 +41,36 @@ impl Cop for ExpectChange {
             return Vec::new();
         }
 
-        // Must have a block argument, not positional args
+        if enforced_style == "block" {
+            // "block" style: flag `change(Obj, :attr)` — prefer block form
+            let args = match call.arguments() {
+                Some(a) => a,
+                None => return Vec::new(),
+            };
+            let arg_list: Vec<_> = args.arguments().iter().collect();
+            if arg_list.len() != 2 {
+                return Vec::new();
+            }
+            // First arg should be a constant, second a symbol
+            let first = &arg_list[0];
+            if first.as_constant_read_node().is_none() && first.as_constant_path_node().is_none() {
+                return Vec::new();
+            }
+            if arg_list[1].as_symbol_node().is_none() {
+                return Vec::new();
+            }
+            let loc = call.location();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            return vec![self.diagnostic(
+                source,
+                line,
+                column,
+                "Prefer `change { }` over `change(obj, :attr)`.".to_string(),
+            )];
+        }
+
+        // Default: "method_call" style — flag `change { User.count }`
+        // and suggest `change(User, :count)`.
         let block_node_raw = match call.block() {
             Some(b) => b,
             None => return Vec::new(),
@@ -116,4 +144,39 @@ impl Cop for ExpectChange {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(ExpectChange, "cops/rspec/expect_change");
+
+    #[test]
+    fn block_style_flags_method_call_form() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("block".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"expect { x }.to change(User, :count)\n";
+        let diags = crate::testutil::run_cop_full_with_config(&ExpectChange, source, config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("change { }"));
+    }
+
+    #[test]
+    fn block_style_does_not_flag_block_form() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("block".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"expect { x }.to change { User.count }\n";
+        let diags = crate::testutil::run_cop_full_with_config(&ExpectChange, source, config);
+        assert!(diags.is_empty());
+    }
 }

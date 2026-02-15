@@ -1,4 +1,4 @@
-use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
+use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -43,9 +43,7 @@ impl Cop for PendingWithoutReason {
             let is_rspec = if call.receiver().is_none() {
                 true
             } else if let Some(recv) = call.receiver() {
-                recv.as_constant_read_node()
-                    .map(|c| c.name().as_slice() == b"RSpec")
-                    .unwrap_or(false)
+                util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
             } else {
                 false
             };

@@ -1,4 +1,4 @@
-use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
+use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -83,9 +83,7 @@ impl Cop for Pending {
         // Check for :skip or :pending metadata, or skip: true/string, pending: true/string
         if call.receiver().is_none() || {
             if let Some(recv) = call.receiver() {
-                recv.as_constant_read_node()
-                    .map(|c| c.name().as_slice() == b"RSpec")
-                    .unwrap_or(false)
+                util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
             } else {
                 false
             }

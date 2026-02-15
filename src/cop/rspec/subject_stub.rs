@@ -1,4 +1,4 @@
-use crate::cop::util::{is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::util::{self, is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -35,18 +35,10 @@ impl Cop for SubjectStub {
 
         let method_name = call.name().as_slice();
 
-        // Only process example group methods (describe, context, etc.)
-        let is_rspec_describe = if call.receiver().is_some() {
-            if let Some(recv) = call.receiver() {
-                if let Some(cr) = recv.as_constant_read_node() {
-                    cr.name().as_slice() == b"RSpec"
-                        && is_rspec_example_group(method_name)
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
+        // Only process example group methods (describe, context, etc., including ::RSpec)
+        let is_rspec_describe = if let Some(recv) = call.receiver() {
+            util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
+                && is_rspec_example_group(method_name)
         } else {
             false
         };

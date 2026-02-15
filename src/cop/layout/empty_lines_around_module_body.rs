@@ -15,20 +15,30 @@ impl Cop for EmptyLinesAroundModuleBody {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let style = config.get_str("EnforcedStyle", "no_empty_lines");
         let module_node = match node.as_module_node() {
             Some(m) => m,
             None => return Vec::new(),
         };
 
-        util::check_empty_lines_around_body(
-            self.name(),
-            source,
-            module_node.module_keyword_loc().start_offset(),
-            module_node.end_keyword_loc().start_offset(),
-            "module",
-        )
+        let kw_offset = module_node.module_keyword_loc().start_offset();
+        let end_offset = module_node.end_keyword_loc().start_offset();
+
+        match style {
+            "empty_lines" => {
+                util::check_missing_empty_lines_around_body(
+                    self.name(), source, kw_offset, end_offset, "module",
+                )
+            }
+            _ => {
+                // "no_empty_lines" (default)
+                util::check_empty_lines_around_body(
+                    self.name(), source, kw_offset, end_offset, "module",
+                )
+            }
+        }
     }
 }
 
@@ -54,5 +64,21 @@ mod tests {
         let src = b"module Foo\n\n  def bar; end\n\nend\n";
         let diags = run_cop_full(&EmptyLinesAroundModuleBody, src);
         assert_eq!(diags.len(), 2, "Should flag both beginning and end blank lines");
+    }
+
+    #[test]
+    fn empty_lines_style_requires_blank_lines() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("empty_lines".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let src = b"module Foo\n  def bar; end\nend\n";
+        let diags = run_cop_full_with_config(&EmptyLinesAroundModuleBody, src, config);
+        assert_eq!(diags.len(), 2, "empty_lines style should require blank lines at both ends");
     }
 }

@@ -15,16 +15,40 @@ impl Cop for ClassAndModuleCamelCase {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let allowed_names = config.get_string_array("AllowedNames");
+
         if let Some(class_node) = node.as_class_node() {
             let constant_path = class_node.constant_path();
-            return self.check_constant_path(source, &constant_path);
+            let diags = self.check_constant_path(source, &constant_path);
+            if !diags.is_empty() {
+                if let Some(allowed) = &allowed_names {
+                    let name = self.extract_name(&constant_path);
+                    if let Some(n) = name {
+                        if allowed.iter().any(|a| a == n) {
+                            return Vec::new();
+                        }
+                    }
+                }
+            }
+            return diags;
         }
 
         if let Some(module_node) = node.as_module_node() {
             let constant_path = module_node.constant_path();
-            return self.check_constant_path(source, &constant_path);
+            let diags = self.check_constant_path(source, &constant_path);
+            if !diags.is_empty() {
+                if let Some(allowed) = &allowed_names {
+                    let name = self.extract_name(&constant_path);
+                    if let Some(n) = name {
+                        if allowed.iter().any(|a| a == n) {
+                            return Vec::new();
+                        }
+                    }
+                }
+            }
+            return diags;
         }
 
         Vec::new()
@@ -32,6 +56,18 @@ impl Cop for ClassAndModuleCamelCase {
 }
 
 impl ClassAndModuleCamelCase {
+    fn extract_name<'a>(&self, node: &'a ruby_prism::Node<'a>) -> Option<&'a str> {
+        if let Some(read_node) = node.as_constant_read_node() {
+            std::str::from_utf8(read_node.name().as_slice()).ok()
+        } else if let Some(path_node) = node.as_constant_path_node() {
+            path_node
+                .name()
+                .and_then(|n| std::str::from_utf8(n.as_slice()).ok())
+        } else {
+            None
+        }
+    }
+
     fn check_constant_path(
         &self,
         source: &SourceFile,

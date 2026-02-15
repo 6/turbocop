@@ -57,6 +57,22 @@ impl Cop for PerceivedComplexity {
 
         let max = config.get_usize("Max", 8);
 
+        // AllowedMethods / AllowedPatterns: skip methods matching these
+        let allowed_methods = config.get_string_array("AllowedMethods");
+        let allowed_patterns = config.get_string_array("AllowedPatterns");
+        let method_name_str =
+            std::str::from_utf8(def_node.name().as_slice()).unwrap_or("");
+        if let Some(allowed) = &allowed_methods {
+            if allowed.iter().any(|m| m == method_name_str) {
+                return Vec::new();
+            }
+        }
+        if let Some(patterns) = &allowed_patterns {
+            if patterns.iter().any(|p| method_name_str.contains(p.as_str())) {
+                return Vec::new();
+            }
+        }
+
         let body = match def_node.body() {
             Some(b) => b,
             None => return Vec::new(),

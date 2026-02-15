@@ -6,3 +6,6 @@ Rails.root.join("config", "locales", "en.yml")
 
 Rails.root.join("db", "migrate")
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/FilePath: Use `Rails.root.join('app/models')` with a single path string.
+
+::Rails.root.join("log", "production.log")
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/FilePath: Use `Rails.root.join('app/models')` with a single path string.

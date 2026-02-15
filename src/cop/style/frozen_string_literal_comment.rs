@@ -9,11 +9,27 @@ impl Cop for FrozenStringLiteralComment {
         "Style/FrozenStringLiteralComment"
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+        let enforced_style = config.get_str("EnforcedStyle", "always");
         let lines: Vec<&[u8]> = source.lines().collect();
 
+        if enforced_style == "never" {
+            // Flag the presence of frozen_string_literal comment as unnecessary
+            for (i, line) in lines.iter().enumerate() {
+                if is_frozen_string_literal_comment(line) {
+                    return vec![self.diagnostic(source, i + 1, 0, "Unnecessary frozen string literal comment.".to_string())];
+                }
+            }
+            return Vec::new();
+        }
+
         if lines.is_empty() || (lines.len() == 1 && lines[0].is_empty()) {
-            return vec![self.diagnostic(source, 1, 0, "Missing frozen string literal comment.".to_string())];
+            let msg = if enforced_style == "always_true" {
+                "Missing magic comment `# frozen_string_literal: true`."
+            } else {
+                "Missing frozen string literal comment."
+            };
+            return vec![self.diagnostic(source, 1, 0, msg.to_string())];
         }
 
         let mut idx = 0;
@@ -30,10 +46,21 @@ impl Cop for FrozenStringLiteralComment {
 
         // Check for frozen_string_literal magic comment
         if idx < lines.len() && is_frozen_string_literal_comment(lines[idx]) {
+            if enforced_style == "always_true" {
+                // Must be set to true specifically
+                if !is_frozen_string_literal_true(lines[idx]) {
+                    return vec![self.diagnostic(source, idx + 1, 0, "Frozen string literal comment must be set to `true`.".to_string())];
+                }
+            }
             return Vec::new();
         }
 
-        vec![self.diagnostic(source, 1, 0, "Missing frozen string literal comment.".to_string())]
+        let msg = if enforced_style == "always_true" {
+            "Missing magic comment `# frozen_string_literal: true`."
+        } else {
+            "Missing frozen string literal comment."
+        };
+        vec![self.diagnostic(source, 1, 0, msg.to_string())]
     }
 }
 
@@ -53,6 +80,16 @@ fn is_frozen_string_literal_comment(line: &[u8]) -> bool {
         Err(_) => return false,
     };
     s.starts_with("# frozen_string_literal:")
+}
+
+fn is_frozen_string_literal_true(line: &[u8]) -> bool {
+    let s = match std::str::from_utf8(line) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    s.strip_prefix("# frozen_string_literal:")
+        .map(|rest| rest.trim() == "true")
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -152,5 +189,79 @@ mod tests {
         );
         let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn enforced_style_never_flags_presence() {
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("never".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = SourceFile::from_bytes(
+            "test.rb",
+            b"# frozen_string_literal: true\nputs 'hello'\n".to_vec(),
+        );
+        let diags = FrozenStringLiteralComment.check_lines(&source, &config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("Unnecessary"));
+    }
+
+    #[test]
+    fn enforced_style_never_allows_missing() {
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("never".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = SourceFile::from_bytes(
+            "test.rb",
+            b"puts 'hello'\n".to_vec(),
+        );
+        let diags = FrozenStringLiteralComment.check_lines(&source, &config);
+        assert!(diags.is_empty(), "Should not flag missing comment with 'never' style");
+    }
+
+    #[test]
+    fn enforced_style_always_true_flags_false() {
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("always_true".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = SourceFile::from_bytes(
+            "test.rb",
+            b"# frozen_string_literal: false\nputs 'hello'\n".to_vec(),
+        );
+        let diags = FrozenStringLiteralComment.check_lines(&source, &config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("must be set to `true`"));
+    }
+
+    #[test]
+    fn enforced_style_always_true_allows_true() {
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("always_true".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = SourceFile::from_bytes(
+            "test.rb",
+            b"# frozen_string_literal: true\nputs 'hello'\n".to_vec(),
+        );
+        let diags = FrozenStringLiteralComment.check_lines(&source, &config);
+        assert!(diags.is_empty(), "Should allow true with always_true style");
     }
 }

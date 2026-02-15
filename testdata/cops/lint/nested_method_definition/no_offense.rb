@@ -9,3 +9,11 @@ def bar
     end
   end
 end
+
+def with_qualified_scope
+  ::Class.new do
+    def inner
+      work
+    end
+  end
+end

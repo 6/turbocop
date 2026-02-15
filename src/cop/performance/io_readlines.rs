@@ -1,4 +1,5 @@
-use crate::cop::util::as_method_chain;
+// constant_name handles both as_constant_read_node and as_constant_path_node (qualified constants)
+use crate::cop::util::{as_method_chain, constant_name};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -40,12 +41,10 @@ impl Cop for IoReadlines {
             None => return Vec::new(),
         };
 
-        let const_node = match receiver.as_constant_read_node() {
-            Some(c) => c,
+        let class_name = match constant_name(&receiver) {
+            Some(n) => n,
             None => return Vec::new(),
         };
-
-        let class_name = const_node.name().as_slice();
         if class_name != b"IO" && class_name != b"File" {
             return Vec::new();
         }

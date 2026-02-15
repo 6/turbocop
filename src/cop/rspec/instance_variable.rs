@@ -24,12 +24,15 @@ impl Cop for InstanceVariable {
         source: &SourceFile,
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // Config: AssignmentOnly — only flag assignments, not reads
+        let assignment_only = config.get_bool("AssignmentOnly", false);
         let mut visitor = IvarChecker {
             source,
             cop: self,
             in_def: false,
+            assignment_only,
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
@@ -41,6 +44,7 @@ struct IvarChecker<'a> {
     source: &'a SourceFile,
     cop: &'a InstanceVariable,
     in_def: bool,
+    assignment_only: bool,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -56,7 +60,7 @@ impl<'pr> Visit<'pr> for IvarChecker<'_> {
         &mut self,
         node: &ruby_prism::InstanceVariableReadNode<'pr>,
     ) {
-        if !self.in_def {
+        if !self.in_def && !self.assignment_only {
             let loc = node.location();
             let (line, column) = self.source.offset_to_line_col(loc.start_offset());
             self.diagnostics.push(self.cop.diagnostic(
@@ -147,4 +151,38 @@ impl<'pr> Visit<'pr> for IvarChecker<'_> {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(InstanceVariable, "cops/rspec/instance_variable");
+
+    #[test]
+    fn assignment_only_skips_reads() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "AssignmentOnly".into(),
+                serde_yml::Value::Bool(true),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"describe Foo do\n  it 'reads' do\n    @bar\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&InstanceVariable, source, config);
+        assert!(diags.is_empty(), "AssignmentOnly should skip reads");
+    }
+
+    #[test]
+    fn assignment_only_still_flags_writes() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "AssignmentOnly".into(),
+                serde_yml::Value::Bool(true),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"describe Foo do\n  before { @bar = 1 }\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&InstanceVariable, source, config);
+        assert_eq!(diags.len(), 1);
+    }
 }

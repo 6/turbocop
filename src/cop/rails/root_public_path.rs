@@ -1,3 +1,4 @@
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -66,11 +67,8 @@ impl Cop for RootPublicPath {
             Some(r) => r,
             None => return Vec::new(),
         };
-        if rails_recv.as_constant_read_node().is_none() {
-            return Vec::new();
-        }
-        let const_name = rails_recv.as_constant_read_node().unwrap();
-        if const_name.name().as_slice() != b"Rails" {
+        // Handle both ConstantReadNode (Rails) and ConstantPathNode (::Rails)
+        if util::constant_name(&rails_recv) != Some(b"Rails") {
             return Vec::new();
         }
 

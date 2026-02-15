@@ -14,8 +14,9 @@ impl Cop for SingleLineMethods {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let allow_empty = config.get_bool("AllowIfMethodIsEmpty", true);
         let def_node = match node.as_def_node() {
             Some(d) => d,
             None => return Vec::new(),
@@ -27,7 +28,7 @@ impl Cop for SingleLineMethods {
             None => return Vec::new(),
         };
 
-        // Must have a body (non-empty)
+        // Check if the method has a body
         let has_body = match def_node.body() {
             None => false,
             Some(body) => {
@@ -39,7 +40,8 @@ impl Cop for SingleLineMethods {
             }
         };
 
-        if !has_body {
+        // AllowIfMethodIsEmpty: skip empty methods when enabled (default true)
+        if !has_body && allow_empty {
             return Vec::new();
         }
 
@@ -59,7 +61,7 @@ impl Cop for SingleLineMethods {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::run_cop_full;
+    use crate::testutil::{run_cop_full, run_cop_full_with_config};
 
     crate::cop_fixture_tests!(SingleLineMethods, "cops/style/single_line_methods");
 
@@ -75,5 +77,21 @@ mod tests {
         let source = b"def foo = 42\n";
         let diags = run_cop_full(&SingleLineMethods, source);
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn disallow_empty_single_line_methods() {
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("AllowIfMethodIsEmpty".into(), serde_yml::Value::Bool(false)),
+            ]),
+            ..CopConfig::default()
+        };
+        // Empty single-line `def foo; end` should be flagged when AllowIfMethodIsEmpty is false
+        let source = b"def foo; end\n";
+        let diags = run_cop_full_with_config(&SingleLineMethods, source, config);
+        assert_eq!(diags.len(), 1, "Should flag empty single-line method when AllowIfMethodIsEmpty is false");
     }
 }

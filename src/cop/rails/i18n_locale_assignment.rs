@@ -1,3 +1,4 @@
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -34,12 +35,8 @@ impl Cop for I18nLocaleAssignment {
             None => return Vec::new(),
         };
 
-        let const_node = match recv.as_constant_read_node() {
-            Some(c) => c,
-            None => return Vec::new(),
-        };
-
-        if const_node.name().as_slice() != b"I18n" {
+        // Handle both ConstantReadNode (I18n) and ConstantPathNode (::I18n)
+        if util::constant_name(&recv) != Some(b"I18n") {
             return Vec::new();
         }
 

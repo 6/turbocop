@@ -50,13 +50,22 @@ impl Cop for TransactionExitStatement {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let transaction_methods = config.get_string_array("TransactionMethods");
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
         };
-        if call.name().as_slice() != b"transaction" {
+        let method_name = call.name().as_slice();
+        let is_transaction = if let Some(ref methods) = transaction_methods {
+            let name_str = std::str::from_utf8(method_name).unwrap_or("");
+            methods.iter().any(|m| m == name_str)
+        } else {
+            method_name == b"transaction"
+        };
+        if !is_transaction {
             return Vec::new();
         }
         let block = match call.block() {

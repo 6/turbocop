@@ -45,7 +45,9 @@ impl Cop for HttpPositionalArguments {
         // or if second arg is a hash literal (not keyword hash)
         if arg_list.len() >= 3 {
             // Check that the extra args are not keyword hashes (which would be fine)
-            // If we have 3+ args with a hash literal as 2nd, it's the old positional style
+            // If we have 3+ args with a hash literal as 2nd, it's the old positional style.
+            // Note: keyword_hash_node (keyword args like `get :index, params: {}`)
+            // intentionally not flagged — keyword style is the correct modern form.
             if arg_list[1].as_hash_node().is_some() {
                 let loc = node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());

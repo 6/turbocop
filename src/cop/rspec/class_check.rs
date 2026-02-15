@@ -1,4 +1,4 @@
-use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
+use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -40,7 +40,7 @@ impl Cop for ClassCheck {
                     // Must not have a non-expect-chain receiver (skip Foo.be_kind_of)
                     if let Some(recv) = call.receiver() {
                         if recv.as_call_node().is_none()
-                            && recv.as_constant_read_node().is_some()
+                            && util::constant_name(&recv).is_some()
                         {
                             return Vec::new();
                         }
@@ -62,7 +62,7 @@ impl Cop for ClassCheck {
                 if method == b"be_a" || method == b"be_an" {
                     if let Some(recv) = call.receiver() {
                         if recv.as_call_node().is_none()
-                            && recv.as_constant_read_node().is_some()
+                            && util::constant_name(&recv).is_some()
                         {
                             return Vec::new();
                         }

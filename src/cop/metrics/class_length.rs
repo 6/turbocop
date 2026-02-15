@@ -1,4 +1,4 @@
-use crate::cop::util::count_body_lines;
+use crate::cop::util::{count_body_lines, count_body_lines_ex, collect_foldable_ranges};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -24,10 +24,24 @@ impl Cop for ClassLength {
 
         let max = config.get_usize("Max", 100);
         let count_comments = config.get_bool("CountComments", false);
+        let count_as_one = config.get_string_array("CountAsOne");
 
         let start_offset = class_node.class_keyword_loc().start_offset();
         let end_offset = class_node.end_keyword_loc().start_offset();
-        let count = count_body_lines(source, start_offset, end_offset, count_comments);
+        let count = if let Some(cao) = &count_as_one {
+            if !cao.is_empty() {
+                if let Some(body) = class_node.body() {
+                    let foldable = collect_foldable_ranges(source, &body, cao);
+                    count_body_lines_ex(source, start_offset, end_offset, count_comments, &foldable)
+                } else {
+                    0
+                }
+            } else {
+                count_body_lines(source, start_offset, end_offset, count_comments)
+            }
+        } else {
+            count_body_lines(source, start_offset, end_offset, count_comments)
+        };
 
         if count > max {
             let (line, column) = source.offset_to_line_col(start_offset);
@@ -62,5 +76,26 @@ mod tests {
         let diags = run_cop_full_with_config(&ClassLength, source, config);
         assert!(!diags.is_empty(), "Should fire with Max:3 on 4-line class");
         assert!(diags[0].message.contains("[4/3]"));
+    }
+
+    #[test]
+    fn config_count_as_one_hash() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        // With CountAsOne: ["hash"], a multiline hash counts as 1 line
+        let config = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(3.into())),
+                ("CountAsOne".into(), serde_yml::Value::Sequence(vec![
+                    serde_yml::Value::String("hash".into()),
+                ])),
+            ]),
+            ..CopConfig::default()
+        };
+        // Body: a, b, { k: v, \n k2: v2 \n } = 2 + 1 folded = 3 lines
+        let source = b"class Foo\n  a = 1\n  b = 2\n  HASH = {\n    k: 1,\n    k2: 2\n  }\nend\n";
+        let diags = run_cop_full_with_config(&ClassLength, source, config);
+        assert!(diags.is_empty(), "Should not fire when hash is folded (3/3)");
     }
 }

@@ -1,4 +1,4 @@
-use crate::cop::util::{is_rspec_example, is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::util::{self, is_rspec_example, is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -37,13 +37,9 @@ impl Cop for MetadataStyle {
             return Vec::new();
         }
 
-        // Must be receiverless or RSpec.describe
+        // Must be receiverless or RSpec.describe / ::RSpec.describe
         if let Some(recv) = call.receiver() {
-            if let Some(cr) = recv.as_constant_read_node() {
-                if cr.name().as_slice() != b"RSpec" {
-                    return Vec::new();
-                }
-            } else {
+            if util::constant_name(&recv).map_or(true, |n| n != b"RSpec") {
                 return Vec::new();
             }
         }

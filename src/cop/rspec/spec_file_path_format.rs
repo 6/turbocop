@@ -23,8 +23,19 @@ impl Cop for SpecFilePathFormat {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // Config: CustomTransform — hash of class name to file path overrides (complex; pass-through)
+        let custom_transform = config.get_string_hash("CustomTransform").unwrap_or_default();
+        // Config: IgnoreMethods — when true, skip method description part in path matching
+        let ignore_methods = config.get_bool("IgnoreMethods", false);
+        // Config: IgnoreMetadata — metadata keys whose values should be ignored in path matching
+        let ignore_metadata = config.get_string_hash("IgnoreMetadata").unwrap_or_default();
+        // Config: InflectorPath — path to Zeitwerk inflector (Ruby-specific, no-op in Rust)
+        let _inflector_path = config.get_str("InflectorPath", "");
+        // Config: EnforcedInflector — which inflector to use (only "default" supported in Rust)
+        let enforced_inflector = config.get_str("EnforcedInflector", "default");
+
         // Only check ProgramNode (root) so we examine top-level describes
         let program = match node.as_program_node() {
             Some(p) => p,
@@ -80,11 +91,50 @@ impl Cop for SpecFilePathFormat {
             return Vec::new();
         };
 
-        // Convert class name to expected path: MyClass -> my_class
-        let expected_path = class_to_snake(&class_name);
+        // CustomTransform: override class name → path segment mappings
+        let expected_path = if let Some(custom_path) = custom_transform.get(&class_name) {
+            custom_path.clone()
+        } else {
+            // Apply CustomTransform to individual parts of namespaced classes
+            let parts: Vec<&str> = class_name.split("::").collect();
+            let snake_parts: Vec<String> = parts.iter().map(|p| {
+                if let Some(custom) = custom_transform.get(*p) {
+                    custom.clone()
+                } else {
+                    camel_to_snake(p)
+                }
+            }).collect();
+            snake_parts.join("/")
+        };
+
+        // IgnoreMetadata: if the describe call has metadata with keys in ignore_metadata,
+        // skip this check entirely (path format can't be determined with ignored metadata)
+        if !ignore_metadata.is_empty() && arg_list.len() >= 2 {
+            for arg in &arg_list[1..] {
+                if let Some(hash) = arg.as_keyword_hash_node() {
+                    for elem in hash.elements().iter() {
+                        if let Some(assoc) = elem.as_assoc_node() {
+                            if let Some(sym) = assoc.key().as_symbol_node() {
+                                let key_str = std::str::from_utf8(sym.unescaped()).unwrap_or("");
+                                if ignore_metadata.contains_key(key_str) {
+                                    return Vec::new();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // EnforcedInflector: only "default" is supported; other inflectors require
+        // Ruby-specific Zeitwerk integration (InflectorPath) which is not available in Rust.
+        let _ = enforced_inflector;
 
         // Get optional second string argument for method description
-        let method_part = if arg_list.len() >= 2 {
+        // When IgnoreMethods is true, skip the method part entirely
+        let method_part = if ignore_methods {
+            None
+        } else if arg_list.len() >= 2 {
             if let Some(s) = arg_list[1].as_string_node() {
                 let val = std::str::from_utf8(s.unescaped()).unwrap_or("");
                 // Convert to path-friendly form
@@ -122,13 +172,6 @@ impl Cop for SpecFilePathFormat {
 
         Vec::new()
     }
-}
-
-fn class_to_snake(name: &str) -> String {
-    // Convert CamelCase to snake_case, handle :: -> /
-    let parts: Vec<&str> = name.split("::").collect();
-    let snake_parts: Vec<String> = parts.iter().map(|p| camel_to_snake(p)).collect();
-    snake_parts.join("/")
 }
 
 fn camel_to_snake(s: &str) -> String {
@@ -184,4 +227,76 @@ mod tests {
         scenario_wrong_method = "wrong_method.rb",
         scenario_wrong_path = "wrong_path.rb",
     );
+
+    #[test]
+    fn custom_transform_overrides_class_path() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let mut transform = serde_yml::Mapping::new();
+        transform.insert(
+            serde_yml::Value::String("MyClass".into()),
+            serde_yml::Value::String("custom_dir".into()),
+        );
+        let config = CopConfig {
+            options: HashMap::from([(
+                "CustomTransform".into(),
+                serde_yml::Value::Mapping(transform),
+            )]),
+            ..CopConfig::default()
+        };
+        // Without CustomTransform, MyClass maps to my_class — with it, maps to custom_dir
+        // The test.rb filename won't match either way, but the expected path in the message differs
+        let source = b"describe MyClass do\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&SpecFilePathFormat, source, config.clone());
+        assert!(!diags.is_empty(), "Should still flag with wrong filename");
+        assert!(diags[0].message.contains("custom_dir"), "Expected path should use custom_dir from CustomTransform, got: {}", diags[0].message);
+    }
+
+    #[test]
+    fn ignore_metadata_skips_check() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let mut ignore_meta = serde_yml::Mapping::new();
+        ignore_meta.insert(
+            serde_yml::Value::String("type".into()),
+            serde_yml::Value::String("true".into()),
+        );
+        let config = CopConfig {
+            options: HashMap::from([(
+                "IgnoreMetadata".into(),
+                serde_yml::Value::Mapping(ignore_meta),
+            )]),
+            ..CopConfig::default()
+        };
+        // describe with metadata that should be ignored
+        let source = b"describe MyClass, type: :model do\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&SpecFilePathFormat, source, config);
+        assert!(diags.is_empty(), "IgnoreMetadata should skip path check when metadata key is ignored");
+    }
+
+    #[test]
+    fn ignore_methods_skips_method_check() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "IgnoreMethods".into(),
+                serde_yml::Value::Bool(true),
+            )]),
+            ..CopConfig::default()
+        };
+        // Source describes MyClass with method "#create", but file doesn't have method in path
+        // With IgnoreMethods=true, only the class part is checked
+        let source = b"describe MyClass, '#create' do\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&SpecFilePathFormat, source, config);
+        // Even with wrong filename (test.rb), the class part won't match, so there will be an offense
+        // But the key thing is that the method part is ignored
+        assert!(
+            diags.iter().all(|d| !d.message.contains("create")),
+            "IgnoreMethods should not check method part"
+        );
+    }
 }

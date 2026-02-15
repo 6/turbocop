@@ -60,11 +60,10 @@ fn is_scope_creating_call(node: &ruby_prism::Node<'_>) -> bool {
     ) {
         return true;
     }
-    // Module.new, Class.new, Struct.new
+    // Module.new, Class.new, Struct.new (also handles qualified like ::Module.new via constant_path_node)
     if method_name == b"new" {
         if let Some(receiver) = call.receiver() {
-            if let Some(cr) = receiver.as_constant_read_node() {
-                let name = cr.name().as_slice();
+            if let Some(name) = crate::cop::util::constant_name(&receiver) {
                 if name == b"Module" || name == b"Class" || name == b"Struct" {
                     return true;
                 }
@@ -88,12 +87,27 @@ impl Cop for NestedMethodDefinition {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let def_node = match node.as_def_node() {
             Some(n) => n,
             None => return Vec::new(),
         };
+
+        // AllowedMethods: skip offense if the enclosing method name is in the list
+        let allowed_methods = config.get_string_array("AllowedMethods");
+        let allowed_patterns = config.get_string_array("AllowedPatterns");
+        let method_name = std::str::from_utf8(def_node.name().as_slice()).unwrap_or("");
+        if let Some(allowed) = &allowed_methods {
+            if allowed.iter().any(|m| m == method_name) {
+                return Vec::new();
+            }
+        }
+        if let Some(patterns) = &allowed_patterns {
+            if patterns.iter().any(|p| method_name.contains(p.as_str())) {
+                return Vec::new();
+            }
+        }
 
         let body = match def_node.body() {
             Some(b) => b,

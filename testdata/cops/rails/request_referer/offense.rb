@@ -1,8 +1,8 @@
-request.referer
-^^^^^^^^^^^^^^^ Rails/RequestReferer: Use `request.referrer` instead of `request.referer`.
+request.referrer
+^^^^^^^^^^^^^^^^ Rails/RequestReferer: Use `request.referer` instead of `request.referrer`.
 
-url = request.referer
-      ^^^^^^^^^^^^^^^ Rails/RequestReferer: Use `request.referrer` instead of `request.referer`.
+url = request.referrer
+      ^^^^^^^^^^^^^^^^ Rails/RequestReferer: Use `request.referer` instead of `request.referrer`.
 
-redirect_to request.referer
-            ^^^^^^^^^^^^^^^ Rails/RequestReferer: Use `request.referrer` instead of `request.referer`.
+redirect_to request.referrer
+            ^^^^^^^^^^^^^^^^ Rails/RequestReferer: Use `request.referer` instead of `request.referrer`.

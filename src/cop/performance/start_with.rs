@@ -5,18 +5,29 @@ use crate::parse::source::SourceFile;
 pub struct StartWith;
 
 /// Check if regex content starts with \A and the rest is a simple literal.
-fn is_start_anchored_literal(content: &[u8]) -> bool {
-    if content.len() < 3 {
+fn is_start_anchored_literal(content: &[u8], safe_multiline: bool) -> bool {
+    if content.len() < 2 {
         return false;
     }
-    if content[0] != b'\\' || content[1] != b'A' {
-        return false;
+    // Check for \A anchor (always valid)
+    if content.len() >= 3 && content[0] == b'\\' && content[1] == b'A' {
+        let rest = &content[2..];
+        if !rest.is_empty() && is_literal_chars(rest) {
+            return true;
+        }
     }
-    let rest = &content[2..];
-    if rest.is_empty() {
-        return false;
+    // Check for ^ anchor (only when SafeMultiline is false)
+    if !safe_multiline && content[0] == b'^' {
+        let rest = &content[1..];
+        if !rest.is_empty() && is_literal_chars(rest) {
+            return true;
+        }
     }
-    for &b in rest {
+    false
+}
+
+fn is_literal_chars(bytes: &[u8]) -> bool {
+    for &b in bytes {
         match b {
             b'.' | b'*' | b'+' | b'?' | b'|' | b'(' | b')' | b'[' | b']' | b'{' | b'}'
             | b'^' | b'$' | b'\\' => return false,
@@ -40,8 +51,9 @@ impl Cop for StartWith {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let safe_multiline = config.get_bool("SafeMultiline", true);
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -72,7 +84,7 @@ impl Cop for StartWith {
         };
 
         let content = regex_node.content_loc().as_slice();
-        if !is_start_anchored_literal(content) {
+        if !is_start_anchored_literal(content, safe_multiline) {
             return Vec::new();
         }
 
@@ -87,4 +99,36 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(StartWith, "cops/performance/start_with");
+
+    #[test]
+    fn config_safe_multiline_false_flags_caret() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("SafeMultiline".into(), serde_yml::Value::Bool(false)),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = b"'abc'.match?(/^ab/)\n";
+        let diags = run_cop_full_with_config(&StartWith, source, config);
+        assert!(!diags.is_empty(), "Should flag ^anchor when SafeMultiline:false");
+    }
+
+    #[test]
+    fn config_safe_multiline_true_ignores_caret() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("SafeMultiline".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = b"'abc'.match?(/^ab/)\n";
+        let diags = run_cop_full_with_config(&StartWith, source, config);
+        assert!(diags.is_empty(), "Should not flag ^anchor when SafeMultiline:true");
+    }
 }

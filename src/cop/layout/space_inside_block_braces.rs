@@ -33,9 +33,55 @@ impl Cop for SpaceInsideBlockBraces {
         let open_end = opening.end_offset();
         let close_start = closing.start_offset();
 
-        // Skip empty blocks {}
+        let empty_style = config.get_str("EnforcedStyleForEmptyBraces", "no_space");
+        let space_before_params = config.get_bool("SpaceBeforeBlockParameters", true);
+
+        // Handle empty blocks {}
         if close_start == open_end {
-            return Vec::new();
+            // Empty block with no space: {}
+            match empty_style {
+                "space" => {
+                    let (line, column) = source.offset_to_line_col(opening.start_offset());
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Space inside empty braces missing.".to_string(),
+                    )];
+                }
+                _ => return Vec::new(), // no_space is fine for {}
+            }
+        }
+        // Check for { } (empty with space)
+        if close_start == open_end + 1 && bytes.get(open_end) == Some(&b' ') {
+            match empty_style {
+                "no_space" => {
+                    let (line, column) = source.offset_to_line_col(open_end);
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Space inside empty braces detected.".to_string(),
+                    )];
+                }
+                _ => return Vec::new(), // space is fine for { }
+            }
+        }
+
+        // SpaceBeforeBlockParameters: check space between { and |
+        if !space_before_params {
+            if let Some(params) = block.parameters() {
+                let pipe_start = params.location().start_offset();
+                if pipe_start == open_end + 1 && bytes.get(open_end) == Some(&b' ') {
+                    let (line, column) = source.offset_to_line_col(open_end);
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Space between { and | detected.".to_string(),
+                    )];
+                }
+            }
         }
 
         // Skip multiline blocks
@@ -105,4 +151,38 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(SpaceInsideBlockBraces, "cops/layout/space_inside_block_braces");
+
+    #[test]
+    fn empty_braces_space_style_flags_no_space() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyleForEmptyBraces".into(), serde_yml::Value::String("space".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let src = b"items.each {}\n";
+        let diags = run_cop_full_with_config(&SpaceInsideBlockBraces, src, config);
+        assert_eq!(diags.len(), 1, "space style for empty braces should flag braces");
+        assert!(diags[0].message.contains("missing"));
+    }
+
+    #[test]
+    fn space_before_block_params_false_flags_space() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("SpaceBeforeBlockParameters".into(), serde_yml::Value::Bool(false)),
+            ]),
+            ..CopConfig::default()
+        };
+        let src = b"items.each { |x| puts x }\n";
+        let diags = run_cop_full_with_config(&SpaceInsideBlockBraces, src, config);
+        assert!(diags.iter().any(|d| d.message.contains("{ and |")),
+            "SpaceBeforeBlockParameters:false should flag space between {{ and |");
+    }
 }

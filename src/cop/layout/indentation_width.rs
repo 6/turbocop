@@ -118,6 +118,24 @@ impl Cop for IndentationWidth {
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let width = config.get_usize("Width", 2);
+        let align_style = config.get_str("EnforcedStyleAlignWith", "start_of_line");
+        let allowed_patterns = config.get_string_array("AllowedPatterns").unwrap_or_default();
+
+        // Skip if the node's source line matches any allowed pattern
+        if !allowed_patterns.is_empty() {
+            let (node_line, _) = source.offset_to_line_col(node.location().start_offset());
+            if let Some(line_bytes) = source.lines().nth(node_line - 1) {
+                if let Ok(line_str) = std::str::from_utf8(line_bytes) {
+                    for pattern in &allowed_patterns {
+                        if let Ok(re) = regex::Regex::new(pattern) {
+                            if re.is_match(line_str) {
+                                return Vec::new();
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         if let Some(class_node) = node.as_class_node() {
             let kw_offset = class_node.class_keyword_loc().start_offset();
@@ -145,12 +163,17 @@ impl Cop for IndentationWidth {
 
         if let Some(def_node) = node.as_def_node() {
             let kw_offset = def_node.def_keyword_loc().start_offset();
-            // Use `end` keyword column as base — handles cases like
-            // `private_class_method def self.foo` where def is mid-line.
-            let base_col = if let Some(end_loc) = def_node.end_keyword_loc() {
-                source.offset_to_line_col(end_loc.start_offset()).1
-            } else {
+            let base_col = if align_style == "keyword" {
+                // EnforcedStyleAlignWith: keyword — indent relative to `def` keyword column
                 source.offset_to_line_col(kw_offset).1
+            } else {
+                // EnforcedStyleAlignWith: start_of_line (default) — indent relative to the
+                // start of the line, using `end` keyword column as proxy for line-start indent.
+                if let Some(end_loc) = def_node.end_keyword_loc() {
+                    source.offset_to_line_col(end_loc.start_offset()).1
+                } else {
+                    source.offset_to_line_col(kw_offset).1
+                }
             };
             return self.check_body_indentation(
                 source,
@@ -241,5 +264,41 @@ mod tests {
         let diags = run_cop_full_with_config(&IndentationWidth, source, config);
         assert_eq!(diags.len(), 1);
         assert!(diags[0].message.contains("Use 4 (not 2) spaces"));
+    }
+
+    #[test]
+    fn enforced_style_keyword_aligns_to_def() {
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyleAlignWith".into(), serde_yml::Value::String("keyword".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Body indented 2 from column 0, but `def` is at column 8 (after `private `)
+        // With keyword style, body should be at column 10 (8 + 2)
+        let source = b"private def foo\n  bar\nend\n";
+        let diags = run_cop_full_with_config(&IndentationWidth, source, config);
+        assert_eq!(diags.len(), 1, "keyword style should flag body not aligned with def keyword");
+        assert!(diags[0].message.contains("Use 2"));
+    }
+
+    #[test]
+    fn allowed_patterns_skips_matching() {
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("AllowedPatterns".into(), serde_yml::Value::Sequence(vec![
+                    serde_yml::Value::String("^\\s*module".into()),
+                ])),
+            ]),
+            ..CopConfig::default()
+        };
+        // Module with wrong indentation but matches AllowedPatterns
+        let source = b"module Foo\n      x = 1\nend\n";
+        let diags = run_cop_full_with_config(&IndentationWidth, source, config);
+        assert!(diags.is_empty(), "AllowedPatterns should skip matching lines");
     }
 }

@@ -23,8 +23,10 @@ impl Cop for VariableDefinition {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // Config: EnforcedStyle — "symbols" (default) or "strings"
+        let enforced_style = config.get_str("EnforcedStyle", "symbols");
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -48,22 +50,34 @@ impl Cop for VariableDefinition {
             None => return Vec::new(),
         };
 
-        // Default EnforcedStyle is :symbols — flag string names
         for arg in args.arguments().iter() {
             if arg.as_keyword_hash_node().is_some() {
                 continue;
             }
-            if let Some(s) = arg.as_string_node() {
-                // Flag string names — prefer symbols
-                // Skip interpolated strings (those would be InterpolatedStringNode)
-                let loc = s.location();
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Use symbols for variable names.".to_string(),
-                )];
+            if enforced_style == "strings" {
+                // "strings" style: flag symbol names, prefer strings
+                if arg.as_symbol_node().is_some() {
+                    let loc = arg.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Use strings for variable names.".to_string(),
+                    )];
+                }
+            } else {
+                // Default "symbols" style: flag string names, prefer symbols
+                if arg.as_string_node().is_some() {
+                    let loc = arg.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Use symbols for variable names.".to_string(),
+                    )];
+                }
             }
             break;
         }
@@ -76,4 +90,39 @@ impl Cop for VariableDefinition {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(VariableDefinition, "cops/rspec/variable_definition");
+
+    #[test]
+    fn strings_style_flags_symbol_names() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("strings".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"let(:foo) { 'bar' }\n";
+        let diags = crate::testutil::run_cop_full_with_config(&VariableDefinition, source, config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("strings"));
+    }
+
+    #[test]
+    fn strings_style_does_not_flag_string_names() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("strings".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"let('foo') { 'bar' }\n";
+        let diags = crate::testutil::run_cop_full_with_config(&VariableDefinition, source, config);
+        assert!(diags.is_empty());
+    }
 }

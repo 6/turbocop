@@ -1,3 +1,4 @@
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -18,8 +19,10 @@ impl Cop for ShortI18n {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let style = config.get_str("EnforcedStyle", "conservative");
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -34,17 +37,21 @@ impl Cop for ShortI18n {
             return Vec::new();
         };
 
-        // Receiver must be I18n
-        let recv = match call.receiver() {
-            Some(r) => r,
-            None => return Vec::new(),
-        };
-        let const_read = match recv.as_constant_read_node() {
-            Some(c) => c,
-            None => return Vec::new(),
-        };
-        if const_read.name().as_slice() != b"I18n" {
-            return Vec::new();
+        match call.receiver() {
+            Some(recv) => {
+                // Receiver must be I18n
+                // Handle both ConstantReadNode (I18n) and ConstantPathNode (::I18n)
+                if util::constant_name(&recv) != Some(b"I18n") {
+                    return Vec::new();
+                }
+            }
+            None => {
+                // Bare translate/localize without receiver:
+                // only flag in aggressive mode
+                if style != "aggressive" {
+                    return Vec::new();
+                }
+            }
         }
 
         let loc = node.location();
@@ -57,4 +64,50 @@ impl Cop for ShortI18n {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(ShortI18n, "cops/rails/short_i18n");
+
+    #[test]
+    fn conservative_style_skips_bare_translate() {
+        use crate::cop::CopConfig;
+        use crate::testutil::assert_cop_no_offenses_full_with_config;
+
+        let config = CopConfig::default();
+        let source = b"translate :key\nlocalize Time.now\n";
+        assert_cop_no_offenses_full_with_config(&ShortI18n, source, config);
+    }
+
+    #[test]
+    fn aggressive_style_flags_bare_translate() {
+        use crate::cop::CopConfig;
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".to_string(),
+                serde_yml::Value::String("aggressive".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"translate :key\n";
+        let diags = run_cop_full_with_config(&ShortI18n, source, config);
+        assert!(!diags.is_empty(), "aggressive style should flag bare translate");
+    }
+
+    #[test]
+    fn aggressive_style_flags_bare_localize() {
+        use crate::cop::CopConfig;
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".to_string(),
+                serde_yml::Value::String("aggressive".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"localize Time.now\n";
+        let diags = run_cop_full_with_config(&ShortI18n, source, config);
+        assert!(!diags.is_empty(), "aggressive style should flag bare localize");
+    }
 }

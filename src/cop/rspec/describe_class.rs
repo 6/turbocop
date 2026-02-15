@@ -25,7 +25,7 @@ impl Cop for DescribeClass {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let program = match node.as_program_node() {
             Some(p) => p,
@@ -36,7 +36,7 @@ impl Cop for DescribeClass {
         let mut diagnostics = Vec::new();
 
         for stmt in stmts.body().iter() {
-            check_top_level_describe(self, source, &stmt, &mut diagnostics, _config);
+            check_top_level_describe(self, source, &stmt, &mut diagnostics, config);
         }
 
         diagnostics
@@ -48,8 +48,10 @@ fn check_top_level_describe(
     source: &SourceFile,
     node: &ruby_prism::Node<'_>,
     diagnostics: &mut Vec<Diagnostic>,
-    _config: &CopConfig,
+    config: &CopConfig,
 ) {
+    // Config: IgnoredMetadata — metadata keys that make describe acceptable
+    let ignored_metadata = config.get_string_array("IgnoredMetadata");
     let call = match node.as_call_node() {
         Some(c) => c,
         None => return,
@@ -107,6 +109,13 @@ fn check_top_level_describe(
         return;
     }
 
+    // Check for IgnoredMetadata keys
+    if let Some(ref keys) = ignored_metadata {
+        if has_ignored_metadata(&arg_list, keys) {
+            return;
+        }
+    }
+
     // Flag the first argument
     let loc = first_arg.location();
     let (line, col) = source.offset_to_line_col(loc.start_offset());
@@ -147,6 +156,26 @@ fn looks_like_constant(value: &[u8]) -> bool {
     true
 }
 
+fn has_ignored_metadata(args: &[ruby_prism::Node<'_>], keys: &[String]) -> bool {
+    for arg in args {
+        if let Some(kw) = arg.as_keyword_hash_node() {
+            for elem in kw.elements().iter() {
+                if let Some(assoc) = elem.as_assoc_node() {
+                    if let Some(sym) = assoc.key().as_symbol_node() {
+                        let key_name = sym.unescaped();
+                        for k in keys {
+                            if key_name == k.as_bytes() {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 fn has_type_metadata(args: &[ruby_prism::Node<'_>]) -> bool {
     for arg in args {
         if let Some(kw) = arg.as_keyword_hash_node() {
@@ -169,4 +198,42 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(DescribeClass, "cops/rspec/describe_class");
+
+    #[test]
+    fn ignored_metadata_skips_describe_with_matching_key() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "IgnoredMetadata".into(),
+                serde_yml::Value::Sequence(vec![
+                    serde_yml::Value::String("feature".into()),
+                ]),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"describe 'some feature', feature: true do\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&DescribeClass, source, config);
+        assert!(diags.is_empty(), "Should skip when IgnoredMetadata key is present");
+    }
+
+    #[test]
+    fn ignored_metadata_still_flags_without_matching_key() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "IgnoredMetadata".into(),
+                serde_yml::Value::Sequence(vec![
+                    serde_yml::Value::String("feature".into()),
+                ]),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"describe 'some feature' do\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&DescribeClass, source, config);
+        assert_eq!(diags.len(), 1);
+    }
 }

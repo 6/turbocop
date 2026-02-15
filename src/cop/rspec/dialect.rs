@@ -1,4 +1,4 @@
-use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
+use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -58,12 +58,11 @@ impl Cop for Dialect {
                 None => return Vec::new(),
             };
 
-        // Must be receiverless or RSpec.method
+        // Must be receiverless or RSpec.method / ::RSpec.method
         let is_rspec_call = if call.receiver().is_none() {
             true
         } else if let Some(recv) = call.receiver() {
-            recv.as_constant_read_node()
-                .is_some_and(|cr| cr.name().as_slice() == b"RSpec")
+            util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
         } else {
             false
         };

@@ -14,14 +14,16 @@ impl Cop for EndAlignment {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let style = config.get_str("EnforcedStyleAlignWith", "keyword");
         if let Some(class_node) = node.as_class_node() {
             return self.check_keyword_end(
                 source,
                 class_node.class_keyword_loc().start_offset(),
                 class_node.end_keyword_loc().start_offset(),
                 "class",
+                style,
             );
         }
 
@@ -31,6 +33,7 @@ impl Cop for EndAlignment {
                 module_node.module_keyword_loc().start_offset(),
                 module_node.end_keyword_loc().start_offset(),
                 "module",
+                style,
             );
         }
 
@@ -54,6 +57,7 @@ impl Cop for EndAlignment {
                 kw_loc.start_offset(),
                 end_kw_loc.start_offset(),
                 keyword,
+                style,
             );
         }
 
@@ -65,6 +69,7 @@ impl Cop for EndAlignment {
                     kw_loc.start_offset(),
                     end_loc.start_offset(),
                     "while",
+                    style,
                 );
             }
         }
@@ -77,6 +82,7 @@ impl Cop for EndAlignment {
                     kw_loc.start_offset(),
                     end_loc.start_offset(),
                     "until",
+                    style,
                 );
             }
         }
@@ -89,6 +95,7 @@ impl Cop for EndAlignment {
                 kw_loc.start_offset(),
                 end_loc.start_offset(),
                 "case",
+                style,
             );
         }
 
@@ -106,6 +113,7 @@ impl EndAlignment {
         kw_offset: usize,
         end_offset: usize,
         keyword: &str,
+        style: &str,
     ) -> Vec<Diagnostic> {
         let (kw_line, kw_col) = source.offset_to_line_col(kw_offset);
         let (end_line, end_col) = source.offset_to_line_col(end_offset);
@@ -115,13 +123,45 @@ impl EndAlignment {
             return Vec::new();
         }
 
-        if end_col != kw_col {
-            return vec![self.diagnostic(
-                source,
-                end_line,
-                end_col,
-                format!("Align `end` with `{keyword}`."),
-            )];
+        let expected_col = match style {
+            "variable" => {
+                // For variable alignment: align with start of the assignment line
+                // Walk back from keyword to find start of line
+                let bytes = source.as_bytes();
+                let mut line_start = kw_offset;
+                while line_start > 0 && bytes[line_start - 1] != b'\n' {
+                    line_start -= 1;
+                }
+                let mut indent = 0;
+                while line_start + indent < bytes.len() && bytes[line_start + indent] == b' ' {
+                    indent += 1;
+                }
+                indent
+            }
+            "start_of_line" => {
+                // Align with the start of the line where the keyword appears
+                let bytes = source.as_bytes();
+                let mut line_start = kw_offset;
+                while line_start > 0 && bytes[line_start - 1] != b'\n' {
+                    line_start -= 1;
+                }
+                let mut indent = 0;
+                while line_start + indent < bytes.len() && bytes[line_start + indent] == b' ' {
+                    indent += 1;
+                }
+                indent
+            }
+            _ => kw_col, // "keyword" (default): align with keyword
+        };
+
+        if end_col != expected_col {
+            let msg = match style {
+                "variable" | "start_of_line" => {
+                    format!("Align `end` with `{keyword}`.")
+                }
+                _ => format!("Align `end` with `{keyword}`."),
+            };
+            return vec![self.diagnostic(source, end_line, end_col, msg)];
         }
 
         Vec::new()
@@ -140,5 +180,22 @@ mod tests {
         let source = b"x = 1 if true\n";
         let diags = run_cop_full(&EndAlignment, source);
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn variable_style_aligns_with_assignment() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyleAlignWith".into(), serde_yml::Value::String("variable".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // `x = if ...` with `end` at column 0 (start of line)
+        let src = b"x = if true\n  1\nend\n";
+        let diags = run_cop_full_with_config(&EndAlignment, src, config);
+        assert!(diags.is_empty(), "variable style should accept end at start of line");
     }
 }

@@ -122,6 +122,8 @@ fn count_node_reduction(
         }
     }
 
+    // Note: keyword_hash_node (keyword args) intentionally not handled for CountAsOne —
+    // only hash literals spanning multiple lines are collapsed to one line in the count.
     if count_as_one.iter().any(|s| s == "hash") {
         if let Some(hash) = node.as_hash_node() {
             let span = node_line_span(source, &hash.location());

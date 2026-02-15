@@ -6,14 +6,25 @@ use crate::parse::source::SourceFile;
 
 pub struct AbcSize;
 
-#[derive(Default)]
 struct AbcCounter {
     assignments: usize,
     branches: usize,
     conditions: usize,
+    count_repeated_attributes: bool,
+    seen_attributes: std::collections::HashSet<Vec<u8>>,
 }
 
 impl AbcCounter {
+    fn new(count_repeated_attributes: bool) -> Self {
+        Self {
+            assignments: 0,
+            branches: 0,
+            conditions: 0,
+            count_repeated_attributes,
+            seen_attributes: std::collections::HashSet::new(),
+        }
+    }
+
     fn count_node(&mut self, node: &ruby_prism::Node<'_>) {
         match node {
             // A (Assignments)
@@ -47,6 +58,20 @@ impl AbcCounter {
 
             // B (Branches)
             ruby_prism::Node::CallNode { .. } => {
+                if !self.count_repeated_attributes {
+                    // An "attribute" is a receiverless call with no arguments
+                    if let Some(call) = node.as_call_node() {
+                        let has_no_args = call.arguments().is_none();
+                        let is_receiverless = call.receiver().is_none();
+                        if has_no_args && is_receiverless {
+                            let name = call.name().as_slice().to_vec();
+                            if !self.seen_attributes.insert(name) {
+                                // Already seen this attribute, don't count again
+                                return;
+                            }
+                        }
+                    }
+                }
                 self.branches += 1;
             }
 
@@ -102,13 +127,30 @@ impl Cop for AbcSize {
         };
 
         let max = config.get_usize("Max", 17);
+        let count_repeated_attributes = config.get_bool("CountRepeatedAttributes", true);
+
+        // AllowedMethods / AllowedPatterns: skip methods matching these
+        let allowed_methods = config.get_string_array("AllowedMethods");
+        let allowed_patterns = config.get_string_array("AllowedPatterns");
+        let method_name_str =
+            std::str::from_utf8(def_node.name().as_slice()).unwrap_or("");
+        if let Some(allowed) = &allowed_methods {
+            if allowed.iter().any(|m| m == method_name_str) {
+                return Vec::new();
+            }
+        }
+        if let Some(patterns) = &allowed_patterns {
+            if patterns.iter().any(|p| method_name_str.contains(p.as_str())) {
+                return Vec::new();
+            }
+        }
 
         let body = match def_node.body() {
             Some(b) => b,
             None => return Vec::new(),
         };
 
-        let mut counter = AbcCounter::default();
+        let mut counter = AbcCounter::new(count_repeated_attributes);
         counter.visit(&body);
 
         let score = counter.score();
@@ -150,5 +192,60 @@ mod tests {
         let diags = run_cop_full_with_config(&AbcSize, source, config);
         assert!(!diags.is_empty(), "Should fire with Max:1 on method with high ABC");
         assert!(diags[0].message.contains("/1]"));
+    }
+
+    #[test]
+    fn config_count_repeated_attributes_false() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        // model is called 3 times; with CountRepeatedAttributes:false it counts as 1 branch
+        let source = b"def search\n  x = model\n  y = model\n  z = model\nend\n";
+
+        // With CountRepeatedAttributes:true (default), branches = 3
+        let config_true = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(3.into())),
+                ("CountRepeatedAttributes".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        let diags_true = run_cop_full_with_config(&AbcSize, source, config_true);
+
+        // With CountRepeatedAttributes:false, branches = 1
+        let config_false = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(3.into())),
+                ("CountRepeatedAttributes".into(), serde_yml::Value::Bool(false)),
+            ]),
+            ..CopConfig::default()
+        };
+        let _diags_false = run_cop_full_with_config(&AbcSize, source, config_false);
+
+        // ABC with true: A=3, B=3, C=0 => sqrt(9+9) = 4.24 > 3
+        assert!(!diags_true.is_empty(), "Should fire with CountRepeatedAttributes:true");
+        // ABC with false: A=3, B=1, C=0 => sqrt(9+1) = 3.16 > 3
+        // Actually this still fires. Let me use Max:4 instead
+        // A=3, B=1, C=0 => sqrt(9+1) = 3.16 which is > 3 but < 4
+        let config_false2 = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(4.into())),
+                ("CountRepeatedAttributes".into(), serde_yml::Value::Bool(false)),
+            ]),
+            ..CopConfig::default()
+        };
+        let diags_false2 = run_cop_full_with_config(&AbcSize, source, config_false2);
+        assert!(diags_false2.is_empty(), "Should not fire with CountRepeatedAttributes:false and Max:4");
+
+        // Same Max:4 but with true => A=3, B=3, C=0 => 4.24 > 4 => fires
+        let config_true2 = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(4.into())),
+                ("CountRepeatedAttributes".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        let diags_true2 = run_cop_full_with_config(&AbcSize, source, config_true2);
+        assert!(!diags_true2.is_empty(), "Should fire with CountRepeatedAttributes:true and Max:4");
     }
 }

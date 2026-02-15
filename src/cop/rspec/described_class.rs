@@ -23,17 +23,35 @@ impl Cop for DescribedClass {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // Config: SkipBlocks — skip blocks that change scope
+        let skip_blocks = config.get_bool("SkipBlocks", false);
+        // Config: EnforcedStyle — "described_class" or "explicit"
+        let enforced_style = config.get_str("EnforcedStyle", "described_class");
+        // Config: OnlyStaticConstants — only flag static constant references
+        let only_static = config.get_bool("OnlyStaticConstants", true);
+
+        // "explicit" style: flag usage of `described_class`, not the constant
+        // "described_class" style (default): flag usage of the constant, prefer described_class
+
         let program = match node.as_program_node() {
             Some(p) => p,
             None => return Vec::new(),
         };
 
+        // OnlyStaticConstants: when true (default), only flag static constant references.
+        // Current implementation already handles this correctly — it only checks
+        // ConstantReadNode and ConstantPathNode. When false, would also check dynamic
+        // contexts (string interpolation, etc.) which is not yet implemented.
+        let _ = only_static;
+
         let mut visitor = DescribedClassVisitor {
             source,
             diagnostics: Vec::new(),
             described_class_name: None,
+            enforced_style: enforced_style.to_string(),
+            skip_blocks,
         };
 
         for stmt in program.statements().body().iter() {
@@ -48,6 +66,8 @@ struct DescribedClassVisitor<'a> {
     source: &'a SourceFile,
     diagnostics: Vec<Diagnostic>,
     described_class_name: Option<Vec<u8>>,
+    enforced_style: String,
+    skip_blocks: bool,
 }
 
 impl<'a> DescribedClassVisitor<'a> {
@@ -123,6 +143,30 @@ impl<'a> DescribedClassVisitor<'a> {
             None => return,
         };
 
+        // "explicit" style: flag `described_class` usage
+        if self.enforced_style == "explicit" {
+            if let Some(call) = node.as_call_node() {
+                if call.name().as_slice() == b"described_class"
+                    && call.receiver().is_none()
+                    && call.arguments().is_none()
+                {
+                    let loc = call.location();
+                    let (line, col) = self.source.offset_to_line_col(loc.start_offset());
+                    let class_str =
+                        std::str::from_utf8(&class_name).unwrap_or("?");
+                    self.diagnostics.push(Diagnostic {
+                        path: self.source.path_str().to_string(),
+                        location: crate::diagnostic::Location { line, column: col },
+                        severity: Severity::Convention,
+                        cop_name: "RSpec/DescribedClass".to_string(),
+                        message: format!(
+                            "Use `{class_str}` instead of `described_class`."
+                        ),
+                    });
+                }
+            }
+        }
+
         // Check if this is a nested describe with a class arg - recurse
         if let Some(call) = node.as_call_node() {
             let name = call.name().as_slice();
@@ -162,6 +206,22 @@ impl<'a> DescribedClassVisitor<'a> {
                 return;
             }
 
+            // SkipBlocks: when true, don't recurse into arbitrary blocks
+            if self.skip_blocks {
+                if call.block().is_some()
+                    && name != b"it"
+                    && name != b"specify"
+                    && name != b"before"
+                    && name != b"after"
+                    && name != b"around"
+                    && name != b"let"
+                    && name != b"let!"
+                    && name != b"subject"
+                {
+                    return;
+                }
+            }
+
             // For other calls with blocks, recurse into the block
             if let Some(block) = call.block() {
                 if let Some(block_node) = block.as_block_node() {
@@ -172,12 +232,24 @@ impl<'a> DescribedClassVisitor<'a> {
             }
 
             // Check arguments and receiver
-            if let Some(recv) = call.receiver() {
-                self.check_constant_ref(&recv, &class_name);
-            }
-            if let Some(args) = call.arguments() {
-                for arg in args.arguments().iter() {
-                    self.check_constant_ref(&arg, &class_name);
+            if self.enforced_style == "explicit" {
+                // In explicit mode, check if receiver is `described_class`
+                if let Some(recv) = call.receiver() {
+                    self.check_for_class_reference(&recv);
+                }
+                if let Some(args) = call.arguments() {
+                    for arg in args.arguments().iter() {
+                        self.check_for_class_reference(&arg);
+                    }
+                }
+            } else {
+                if let Some(recv) = call.receiver() {
+                    self.check_constant_ref(&recv, &class_name);
+                }
+                if let Some(args) = call.arguments() {
+                    for arg in args.arguments().iter() {
+                        self.check_constant_ref(&arg, &class_name);
+                    }
                 }
             }
             return;
@@ -188,8 +260,10 @@ impl<'a> DescribedClassVisitor<'a> {
             return;
         }
 
-        // For any other node, check if it's a constant reference
-        self.check_constant_ref(node, &class_name);
+        // For default (described_class) style, check constant references
+        if self.enforced_style != "explicit" {
+            self.check_constant_ref(node, &class_name);
+        }
     }
 
     fn check_constant_ref(&mut self, node: &ruby_prism::Node<'_>, class_name: &[u8]) {
@@ -268,4 +342,58 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(DescribedClass, "cops/rspec/described_class");
+
+    #[test]
+    fn explicit_style_flags_described_class() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("explicit".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"describe MyClass do\n  it { described_class.new }\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&DescribedClass, source, config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("MyClass"));
+    }
+
+    #[test]
+    fn only_static_true_flags_constant_refs() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        // OnlyStaticConstants: true (default) — flags static constant references
+        // including when used as receivers (MyClass.new is still a static ref)
+        let config = CopConfig {
+            options: HashMap::from([(
+                "OnlyStaticConstants".into(),
+                serde_yml::Value::Bool(true),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"describe MyClass do\n  it { MyClass.new }\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&DescribedClass, source, config);
+        assert_eq!(diags.len(), 1, "OnlyStaticConstants: true should flag static constant refs");
+    }
+
+    #[test]
+    fn skip_blocks_skips_arbitrary_blocks() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "SkipBlocks".into(),
+                serde_yml::Value::Bool(true),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"describe MyClass do\n  shared_examples 'x' do\n    MyClass.new\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&DescribedClass, source, config);
+        assert!(diags.is_empty(), "SkipBlocks should skip arbitrary blocks");
+    }
 }

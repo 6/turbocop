@@ -1,4 +1,4 @@
-use crate::cop::util::{has_rspec_focus_metadata, is_rspec_focused, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::util::{self, has_rspec_focus_metadata, is_rspec_focused, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -65,16 +65,12 @@ impl Cop for Focus {
         }
 
         // Check for focus metadata on RSpec methods
-        // Must be a recognized RSpec method OR RSpec.describe
+        // Must be a recognized RSpec method OR RSpec.describe / ::RSpec.describe
         let is_rspec_method = if call.receiver().is_none() {
             is_focusable_method(method_name)
         } else if let Some(recv) = call.receiver() {
-            if let Some(recv_const) = recv.as_constant_read_node() {
-                recv_const.name().as_slice() == b"RSpec"
-                    && (method_name == b"describe" || method_name == b"fdescribe")
-            } else {
-                false
-            }
+            util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
+                && (method_name == b"describe" || method_name == b"fdescribe")
         } else {
             false
         };

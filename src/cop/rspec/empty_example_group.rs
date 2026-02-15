@@ -1,6 +1,6 @@
 use ruby_prism::Visit;
 
-use crate::cop::util::{is_rspec_example, is_rspec_example_group, is_rspec_hook, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::util::{self, is_rspec_example, is_rspec_example_group, is_rspec_hook, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -34,13 +34,9 @@ impl Cop for EmptyExampleGroup {
 
         let method_name = call.name().as_slice();
 
-        // Check for example group calls (including RSpec.describe)
+        // Check for example group calls (including RSpec.describe / ::RSpec.describe)
         let is_example_group = if let Some(recv) = call.receiver() {
-            if let Some(rc) = recv.as_constant_read_node() {
-                rc.name().as_slice() == b"RSpec" && method_name == b"describe"
-            } else {
-                false
-            }
+            util::constant_name(&recv).map_or(false, |n| n == b"RSpec") && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name)
         };
@@ -142,5 +138,6 @@ mod tests {
         scenario_empty_context = "empty_context.rb",
         scenario_empty_describe = "empty_describe.rb",
         scenario_hooks_only = "hooks_only.rb",
+        scenario_qualified_rspec = "qualified_rspec.rb",
     );
 }

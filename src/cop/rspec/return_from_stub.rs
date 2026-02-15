@@ -25,8 +25,11 @@ impl Cop for ReturnFromStub {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // Config: EnforcedStyle — "and_return" (default) or "block"
+        let enforced_style = config.get_str("EnforcedStyle", "and_return");
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -34,6 +37,31 @@ impl Cop for ReturnFromStub {
 
         let method_name = call.name().as_slice();
 
+        // "block" style: flag `.and_return(value)` — prefer block form
+        if enforced_style == "block" {
+            if method_name == b"and_return" {
+                if let Some(recv) = call.receiver() {
+                    if recv.as_call_node().is_some() {
+                        if let Some(args) = call.arguments() {
+                            let arg_list: Vec<_> = args.arguments().iter().collect();
+                            if !arg_list.is_empty() && arg_list.iter().all(|a| is_static_value(a)) {
+                                let loc = call.location();
+                                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                return vec![self.diagnostic(
+                                    source,
+                                    line,
+                                    column,
+                                    "Use a block for static values.".to_string(),
+                                )];
+                            }
+                        }
+                    }
+                }
+            }
+            return Vec::new();
+        }
+
+        // Default "and_return" style: flag block-style stubs returning static values
         // We need `.to` or `.not_to`
         if method_name != b"to" && method_name != b"not_to" && method_name != b"to_not" {
             return Vec::new();
@@ -170,6 +198,8 @@ fn is_static_value(node: &ruby_prism::Node<'_>) -> bool {
         return arr.elements().iter().all(|e| is_static_value(&e));
     }
 
+    // Note: keyword_hash_node (keyword args) intentionally not handled —
+    // only hash literals can appear as static return values in stubs.
     if let Some(hash) = node.as_hash_node() {
         return hash.elements().iter().all(|e| {
             if let Some(assoc) = e.as_assoc_node() {
@@ -187,4 +217,39 @@ fn is_static_value(node: &ruby_prism::Node<'_>) -> bool {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(ReturnFromStub, "cops/rspec/return_from_stub");
+
+    #[test]
+    fn block_style_flags_and_return() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("block".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"allow(foo).to receive(:bar).and_return(42)\n";
+        let diags = crate::testutil::run_cop_full_with_config(&ReturnFromStub, source, config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("block"));
+    }
+
+    #[test]
+    fn block_style_does_not_flag_block_form() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("block".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"allow(foo).to receive(:bar) { 42 }\n";
+        let diags = crate::testutil::run_cop_full_with_config(&ReturnFromStub, source, config);
+        assert!(diags.is_empty());
+    }
 }

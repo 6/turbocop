@@ -4,18 +4,29 @@ use crate::parse::source::SourceFile;
 
 pub struct DeleteSuffix;
 
-fn is_end_anchored_literal(content: &[u8]) -> bool {
-    if content.len() < 3 {
+fn is_end_anchored_literal(content: &[u8], safe_multiline: bool) -> bool {
+    if content.len() < 2 {
         return false;
     }
-    if content[content.len() - 2] != b'\\' || content[content.len() - 1] != b'z' {
-        return false;
+    // Check for \z anchor (always valid)
+    if content.len() >= 3 && content[content.len() - 2] == b'\\' && content[content.len() - 1] == b'z' {
+        let prefix = &content[..content.len() - 2];
+        if !prefix.is_empty() && is_literal_chars(prefix) {
+            return true;
+        }
     }
-    let prefix = &content[..content.len() - 2];
-    if prefix.is_empty() {
-        return false;
+    // Check for $ anchor (only when SafeMultiline is false)
+    if !safe_multiline && content[content.len() - 1] == b'$' {
+        let prefix = &content[..content.len() - 1];
+        if !prefix.is_empty() && is_literal_chars(prefix) {
+            return true;
+        }
     }
-    for &b in prefix {
+    false
+}
+
+fn is_literal_chars(bytes: &[u8]) -> bool {
+    for &b in bytes {
         match b {
             b'.' | b'*' | b'+' | b'?' | b'|' | b'(' | b')' | b'[' | b']' | b'{' | b'}'
             | b'^' | b'$' | b'\\' => return false,
@@ -39,8 +50,9 @@ impl Cop for DeleteSuffix {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let safe_multiline = config.get_bool("SafeMultiline", true);
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -76,7 +88,7 @@ impl Cop for DeleteSuffix {
         };
 
         let content = regex_node.content_loc().as_slice();
-        if !is_end_anchored_literal(content) {
+        if !is_end_anchored_literal(content, safe_multiline) {
             return Vec::new();
         }
 
@@ -100,4 +112,36 @@ impl Cop for DeleteSuffix {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(DeleteSuffix, "cops/performance/delete_suffix");
+
+    #[test]
+    fn config_safe_multiline_false_flags_dollar() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("SafeMultiline".into(), serde_yml::Value::Bool(false)),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = b"str.gsub(/suffix$/, '')\n";
+        let diags = run_cop_full_with_config(&DeleteSuffix, source, config);
+        assert!(!diags.is_empty(), "Should flag $anchor when SafeMultiline:false");
+    }
+
+    #[test]
+    fn config_safe_multiline_true_ignores_dollar() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("SafeMultiline".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = b"str.gsub(/suffix$/, '')\n";
+        let diags = run_cop_full_with_config(&DeleteSuffix, source, config);
+        assert!(diags.is_empty(), "Should not flag $anchor when SafeMultiline:true");
+    }
 }

@@ -23,9 +23,11 @@ impl Cop for ImplicitExpect {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // Default EnforcedStyle is is_expected — flag `should` and `should_not`
+        // Config: EnforcedStyle — "is_expected" (default) or "should"
+        let enforced_style = config.get_str("EnforcedStyle", "is_expected");
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -37,26 +39,41 @@ impl Cop for ImplicitExpect {
 
         let method_name = call.name().as_slice();
 
-        if method_name == b"should" {
-            let loc = call.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
-                source,
-                line,
-                column,
-                "Prefer `is_expected.to` over `should`.".to_string(),
-            )];
-        }
+        if enforced_style == "should" {
+            // "should" style: flag `is_expected`
+            if method_name == b"is_expected" {
+                let loc = call.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Prefer `should` over `is_expected.to`.".to_string(),
+                )];
+            }
+        } else {
+            // Default "is_expected" style: flag `should` and `should_not`
+            if method_name == b"should" {
+                let loc = call.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Prefer `is_expected.to` over `should`.".to_string(),
+                )];
+            }
 
-        if method_name == b"should_not" {
-            let loc = call.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
-                source,
-                line,
-                column,
-                "Prefer `is_expected.to_not` over `should_not`.".to_string(),
-            )];
+            if method_name == b"should_not" {
+                let loc = call.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Prefer `is_expected.to_not` over `should_not`.".to_string(),
+                )];
+            }
         }
 
         Vec::new()
@@ -67,4 +84,39 @@ impl Cop for ImplicitExpect {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(ImplicitExpect, "cops/rspec/implicit_expect");
+
+    #[test]
+    fn should_style_flags_is_expected() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("should".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"is_expected.to eq(1)\n";
+        let diags = crate::testutil::run_cop_full_with_config(&ImplicitExpect, source, config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("should"));
+    }
+
+    #[test]
+    fn should_style_does_not_flag_should() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("should".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"should eq(1)\n";
+        let diags = crate::testutil::run_cop_full_with_config(&ImplicitExpect, source, config);
+        assert!(diags.is_empty());
+    }
 }

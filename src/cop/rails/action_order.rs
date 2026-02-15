@@ -8,10 +8,6 @@ const STANDARD_ORDER: &[&[u8]] = &[
     b"index", b"show", b"new", b"edit", b"create", b"update", b"destroy",
 ];
 
-fn action_order_index(name: &[u8]) -> Option<usize> {
-    STANDARD_ORDER.iter().position(|&a| a == name)
-}
-
 impl Cop for ActionOrder {
     fn name(&self) -> &'static str {
         "Rails/ActionOrder"
@@ -30,7 +26,7 @@ impl Cop for ActionOrder {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let class = match node.as_class_node() {
             Some(c) => c,
@@ -46,13 +42,20 @@ impl Cop for ActionOrder {
             None => return Vec::new(),
         };
 
+        // Use configured order if provided, otherwise use standard order
+        let configured_order = config.get_string_array("ExpectedOrder");
+        let order_list: Vec<&[u8]> = match &configured_order {
+            Some(list) => list.iter().map(|s| s.as_bytes()).collect(),
+            None => STANDARD_ORDER.to_vec(),
+        };
+
         // Collect (method_name, order_index, offset) for standard actions
         let mut actions: Vec<(&[u8], usize, usize)> = Vec::new();
 
         for node in stmts.body().iter() {
             if let Some(def_node) = node.as_def_node() {
                 let name = def_node.name().as_slice();
-                if let Some(idx) = action_order_index(name) {
+                if let Some(idx) = order_list.iter().position(|&a| a == name) {
                     let offset = def_node.def_keyword_loc().start_offset();
                     actions.push((name, idx, offset));
                 }

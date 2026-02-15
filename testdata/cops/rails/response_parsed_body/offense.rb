@@ -6,3 +6,6 @@ data = JSON.parse(response.body)
 
 result = JSON.parse(response.body)
          ^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/ResponseParsedBody: Use `response.parsed_body` instead of `JSON.parse(response.body)`.
+
+::JSON.parse(response.body)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/ResponseParsedBody: Use `response.parsed_body` instead of `JSON.parse(response.body)`.

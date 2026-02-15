@@ -1,6 +1,6 @@
 use ruby_prism::Visit;
 
-use crate::cop::util::{is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::util::{self, is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -35,13 +35,9 @@ impl Cop for NestedGroups {
 
         let method_name = call.name().as_slice();
 
-        // Check for RSpec.describe or bare describe at top level
+        // Check for RSpec.describe / ::RSpec.describe or bare describe at top level
         let is_top_level = if let Some(recv) = call.receiver() {
-            if let Some(rc) = recv.as_constant_read_node() {
-                rc.name().as_slice() == b"RSpec" && method_name == b"describe"
-            } else {
-                false
-            }
+            util::constant_name(&recv).map_or(false, |n| n == b"RSpec") && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name)
         };
@@ -59,6 +55,8 @@ impl Cop for NestedGroups {
         };
 
         let max = config.get_usize("Max", 3);
+        // Config: AllowedGroups — group method names exempt from nesting count
+        let allowed_groups = config.get_string_array("AllowedGroups").unwrap_or_default();
         let mut diagnostics = Vec::new();
 
         // Walk the block body looking for nested groups
@@ -70,6 +68,7 @@ impl Cop for NestedGroups {
                 diagnostics: &mut diagnostics,
                 cop: self,
                 parse_result,
+                allowed_groups: &allowed_groups,
             };
             visitor.visit(&body);
         }
@@ -86,6 +85,7 @@ struct NestingVisitor<'a, 'pr> {
     cop: &'a NestedGroups,
     #[allow(dead_code)]
     parse_result: &'a ruby_prism::ParseResult<'pr>,
+    allowed_groups: &'a [String],
 }
 
 impl<'pr> Visit<'pr> for NestingVisitor<'_, 'pr> {
@@ -93,7 +93,8 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_, 'pr> {
         let method_name = node.name().as_slice();
 
         // Only count receiverless example group calls as nesting
-        if node.receiver().is_none() && is_rspec_example_group(method_name) {
+        let is_allowed = self.allowed_groups.iter().any(|g| g.as_bytes() == method_name);
+        if node.receiver().is_none() && is_rspec_example_group(method_name) && !is_allowed {
             let new_depth = self.depth + 1;
 
             if new_depth > self.max {
@@ -134,4 +135,24 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_, 'pr> {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(NestedGroups, "cops/rspec/nested_groups");
+
+    #[test]
+    fn allowed_groups_skips_matching() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(serde_yml::Number::from(1))),
+                ("AllowedGroups".into(), serde_yml::Value::Sequence(vec![
+                    serde_yml::Value::String("context".into()),
+                ])),
+            ]),
+            ..CopConfig::default()
+        };
+        // describe > context (allowed, not counted) — depth stays 1
+        let source = b"describe Foo do\n  context 'bar' do\n    it 'works' do\n    end\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&NestedGroups, source, config);
+        assert!(diags.is_empty(), "AllowedGroups should not count matching groups");
+    }
 }

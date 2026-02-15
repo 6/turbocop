@@ -19,24 +19,37 @@ impl Cop for RequestReferer {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let style = config.get_str("EnforcedStyle", "referer");
+
         let chain = match as_method_chain(node) {
             Some(c) => c,
             None => return Vec::new(),
         };
 
-        if chain.inner_method != b"request" || chain.outer_method != b"referer" {
+        if chain.inner_method != b"request" {
             return Vec::new();
         }
 
+        // Determine the "wrong" method based on style
+        let (wrong_method, preferred) = match style {
+            "referrer" => (b"referer" as &[u8], "referrer"),
+            _ => (b"referrer" as &[u8], "referer"),
+        };
+
+        if chain.outer_method != wrong_method {
+            return Vec::new();
+        }
+
+        let wrong_str = std::str::from_utf8(wrong_method).unwrap_or("?");
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         vec![self.diagnostic(
             source,
             line,
             column,
-            "Use `request.referrer` instead of `request.referer`.".to_string(),
+            format!("Use `request.{preferred}` instead of `request.{wrong_str}`."),
         )]
     }
 }
@@ -45,4 +58,40 @@ impl Cop for RequestReferer {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(RequestReferer, "cops/rails/request_referer");
+
+    #[test]
+    fn referrer_style_flags_referer() {
+        use crate::cop::CopConfig;
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".to_string(),
+                serde_yml::Value::String("referrer".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"request.referer\n";
+        let diags = run_cop_full_with_config(&RequestReferer, source, config);
+        assert!(!diags.is_empty(), "referrer style should flag request.referer");
+        assert!(diags[0].message.contains("referrer"));
+    }
+
+    #[test]
+    fn referrer_style_allows_referrer() {
+        use crate::cop::CopConfig;
+        use crate::testutil::assert_cop_no_offenses_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".to_string(),
+                serde_yml::Value::String("referrer".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"request.referrer\n";
+        assert_cop_no_offenses_full_with_config(&RequestReferer, source, config);
+    }
 }

@@ -18,8 +18,10 @@ impl Cop for RedundantMerge {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let max_kv_pairs = config.get_usize("MaxKeyValuePairs", 2);
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -41,28 +43,32 @@ impl Cop for RedundantMerge {
 
         let args = arguments.arguments();
 
-        // Check for single keyword argument: merge!(a: 1)
-        // In Prism, keyword args are wrapped in a KeywordHashNode
-        let is_single_kv = if args.len() == 1 {
+        // Count key-value pairs in the merge! argument
+        let kv_count = if args.len() == 1 {
             let first = args.iter().next().unwrap();
             if let Some(kw_hash) = first.as_keyword_hash_node() {
-                kw_hash.elements().len() == 1
+                kw_hash.elements().len()
             } else if let Some(hash) = first.as_hash_node() {
-                hash.elements().len() == 1
+                hash.elements().len()
             } else {
-                false
+                0
             }
         } else {
-            false
+            0
         };
 
-        if !is_single_kv {
+        if kv_count == 0 || kv_count > max_kv_pairs {
             return Vec::new();
         }
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, "Use `[]=` instead of `merge!` with a single key-value pair.".to_string())]
+        let msg = if kv_count == 1 {
+            "Use `[]=` instead of `merge!` with a single key-value pair.".to_string()
+        } else {
+            format!("Use `[]=` instead of `merge!` with {kv_count} key-value pairs.")
+        };
+        vec![self.diagnostic(source, line, column, msg)]
     }
 }
 
@@ -70,4 +76,55 @@ impl Cop for RedundantMerge {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(RedundantMerge, "cops/performance/redundant_merge");
+
+    #[test]
+    fn config_max_kv_pairs_flags_two() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        // Default MaxKeyValuePairs:2 should flag merge! with 2 KV pairs
+        let config = CopConfig {
+            options: HashMap::from([
+                ("MaxKeyValuePairs".into(), serde_yml::Value::Number(2.into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = b"hash.merge!(a: 1, b: 2)\n";
+        let diags = run_cop_full_with_config(&RedundantMerge, source, config);
+        assert!(!diags.is_empty(), "Should flag merge! with 2 pairs when MaxKeyValuePairs:2");
+    }
+
+    #[test]
+    fn config_max_kv_pairs_allows_three() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        // MaxKeyValuePairs:2 should NOT flag merge! with 3 KV pairs
+        let config = CopConfig {
+            options: HashMap::from([
+                ("MaxKeyValuePairs".into(), serde_yml::Value::Number(2.into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = b"hash.merge!(a: 1, b: 2, c: 3)\n";
+        let diags = run_cop_full_with_config(&RedundantMerge, source, config);
+        assert!(diags.is_empty(), "Should not flag merge! with 3 pairs when MaxKeyValuePairs:2");
+    }
+
+    #[test]
+    fn config_max_kv_pairs_higher() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        // MaxKeyValuePairs:5 should flag merge! with up to 5 KV pairs
+        let config = CopConfig {
+            options: HashMap::from([
+                ("MaxKeyValuePairs".into(), serde_yml::Value::Number(5.into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = b"hash.merge!(a: 1, b: 2, c: 3)\n";
+        let diags = run_cop_full_with_config(&RedundantMerge, source, config);
+        assert!(!diags.is_empty(), "Should flag merge! with 3 pairs when MaxKeyValuePairs:5");
+    }
 }

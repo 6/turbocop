@@ -21,8 +21,11 @@ impl Cop for FindEach {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let allowed_methods = config.get_string_array("AllowedMethods");
+        let allowed_patterns = config.get_string_array("AllowedPatterns");
+
         let chain = match as_method_chain(node) {
             Some(c) => c,
             None => return Vec::new(),
@@ -34,6 +37,22 @@ impl Cop for FindEach {
 
         if !AR_SCOPE_METHODS.contains(&chain.inner_method) {
             return Vec::new();
+        }
+
+        let inner_str = std::str::from_utf8(chain.inner_method).unwrap_or("");
+
+        // Skip if inner method is in AllowedMethods
+        if let Some(ref list) = allowed_methods {
+            if list.iter().any(|m| m == inner_str) {
+                return Vec::new();
+            }
+        }
+
+        // Skip if inner method matches any AllowedPatterns (substring match)
+        if let Some(ref patterns) = allowed_patterns {
+            if patterns.iter().any(|p| inner_str.contains(p.as_str())) {
+                return Vec::new();
+            }
         }
 
         // The outer call (each) should have a block
@@ -60,4 +79,24 @@ impl Cop for FindEach {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(FindEach, "cops/rails/find_each");
+
+    #[test]
+    fn allowed_patterns_suppresses_offense() {
+        use crate::cop::CopConfig;
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "AllowedPatterns".to_string(),
+                serde_yml::Value::Sequence(vec![
+                    serde_yml::Value::String("order".to_string()),
+                ]),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"User.order(:name).each { |u| puts u }\n";
+        let diags = run_cop_full_with_config(&FindEach, source, config);
+        assert!(diags.is_empty(), "AllowedPatterns should suppress offense for matching method");
+    }
 }

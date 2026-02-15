@@ -9,8 +9,30 @@ pub fn count_body_lines(
     end_offset: usize,
     count_comments: bool,
 ) -> usize {
+    count_body_lines_ex(source, start_offset, end_offset, count_comments, &[])
+}
+
+/// Count body lines with foldable line ranges.
+/// `foldable_ranges` contains (start_line, end_line) pairs (1-indexed) of multiline
+/// constructs that should count as a single line instead of their actual line count.
+pub fn count_body_lines_ex(
+    source: &SourceFile,
+    start_offset: usize,
+    end_offset: usize,
+    count_comments: bool,
+    foldable_ranges: &[(usize, usize)],
+) -> usize {
     let (start_line, _) = source.offset_to_line_col(start_offset);
     let (end_line, _) = source.offset_to_line_col(end_offset);
+
+    // Build a set of lines that are "folded away" (continuation lines of foldable constructs)
+    let mut folded_lines = std::collections::HashSet::new();
+    for &(fold_start, fold_end) in foldable_ranges {
+        // The first line counts as 1, additional lines are folded
+        for line in (fold_start + 1)..=fold_end {
+            folded_lines.insert(line);
+        }
+    }
 
     // Count lines between (exclusive of def/end lines)
     let lines: Vec<&[u8]> = source.lines().collect();
@@ -22,6 +44,12 @@ pub fn count_body_lines(
         if line_num > lines.len() {
             break;
         }
+
+        // Skip folded continuation lines
+        if folded_lines.contains(&line_num) {
+            continue;
+        }
+
         let line = lines[line_num - 1]; // convert to 0-indexed
         let trimmed = trim_bytes(line);
 
@@ -39,6 +67,57 @@ pub fn count_body_lines(
     }
 
     count
+}
+
+/// Collect line ranges of foldable constructs within a node.
+/// `count_as_one` contains type names like "array", "hash", "heredoc", "method_call".
+/// Returns pairs of (start_line, end_line) (1-indexed) for multiline foldable constructs.
+pub fn collect_foldable_ranges(
+    source: &SourceFile,
+    body_node: &ruby_prism::Node<'_>,
+    count_as_one: &[String],
+) -> Vec<(usize, usize)> {
+    use ruby_prism::Visit;
+    let mut visitor = FoldableVisitor {
+        source,
+        count_as_one,
+        ranges: Vec::new(),
+    };
+    visitor.visit(body_node);
+    visitor.ranges
+}
+
+struct FoldableVisitor<'a> {
+    source: &'a SourceFile,
+    count_as_one: &'a [String],
+    ranges: Vec<(usize, usize)>,
+}
+
+impl<'pr> ruby_prism::Visit<'pr> for FoldableVisitor<'_> {
+    fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
+        let is_foldable = match &node {
+            ruby_prism::Node::ArrayNode { .. } => self.count_as_one.iter().any(|s| s == "array"),
+            ruby_prism::Node::HashNode { .. } => self.count_as_one.iter().any(|s| s == "hash"),
+            ruby_prism::Node::InterpolatedStringNode { .. } => {
+                self.count_as_one.iter().any(|s| s == "heredoc")
+            }
+            ruby_prism::Node::CallNode { .. } => {
+                self.count_as_one.iter().any(|s| s == "method_call")
+            }
+            _ => false,
+        };
+
+        if is_foldable {
+            let loc = node.location();
+            let (start_line, _) = self.source.offset_to_line_col(loc.start_offset());
+            let end_off = loc.end_offset().saturating_sub(1).max(loc.start_offset());
+            let (end_line, _) = self.source.offset_to_line_col(end_off);
+            if end_line > start_line {
+                self.ranges.push((start_line, end_line));
+                return; // Don't recurse into foldable construct
+            }
+        }
+    }
 }
 
 fn trim_bytes(b: &[u8]) -> &[u8] {
@@ -248,6 +327,60 @@ pub fn check_empty_lines_around_body(
                         severity: Severity::Convention,
                         cop_name: cop_name.to_string(),
                         message: format!("Extra empty line detected at {body_kind} body end."),
+                    });
+                }
+            }
+        }
+    }
+
+    diagnostics
+}
+
+/// Check for MISSING empty lines at the beginning/end of a body.
+/// Used by EmptyLinesAround{Block,Class,Module}Body with "empty_lines" style.
+pub fn check_missing_empty_lines_around_body(
+    cop_name: &str,
+    source: &SourceFile,
+    keyword_offset: usize,
+    end_offset: usize,
+    body_kind: &str,
+) -> Vec<Diagnostic> {
+    let (keyword_line, _) = source.offset_to_line_col(keyword_offset);
+    let (end_line, _) = source.offset_to_line_col(end_offset);
+
+    // Skip single-line or empty bodies
+    if end_line <= keyword_line + 1 {
+        return Vec::new();
+    }
+
+    let mut diagnostics = Vec::new();
+
+    // Check for missing blank line after keyword
+    let after_keyword = keyword_line + 1;
+    if let Some(line) = line_at(source, after_keyword) {
+        if !is_blank_line(line) && after_keyword < end_line {
+            diagnostics.push(Diagnostic {
+                path: source.path_str().to_string(),
+                location: Location { line: after_keyword, column: 0 },
+                severity: Severity::Convention,
+                cop_name: cop_name.to_string(),
+                message: format!("Empty line missing at {body_kind} body beginning."),
+            });
+        }
+    }
+
+    // Check for missing blank line before end
+    if end_line > 1 {
+        let before_end = end_line - 1;
+        if before_end > keyword_line {
+            if let Some(line) = line_at(source, before_end) {
+                if !is_blank_line(line) {
+                    diagnostics.push(Diagnostic {
+                        path: source.path_str().to_string(),
+                        location: Location { line: before_end, column: 0 },
+                        severity: Severity::Convention,
+                        cop_name: cop_name.to_string(),
+                        message: format!("Empty line missing at {body_kind} body end."),
                     });
                 }
             }

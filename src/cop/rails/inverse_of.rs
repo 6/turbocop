@@ -19,8 +19,10 @@ impl Cop for InverseOf {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let ignore_scopes = config.get_bool("IgnoreScopes", false);
+
         let class = match node.as_class_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -38,11 +40,18 @@ impl Cop for InverseOf {
                 continue;
             }
 
-            // Only flag when :foreign_key or :as is specified without :inverse_of
+            // Check if the call has a scope (lambda argument)
+            let has_scope = call.arguments().is_some_and(|args| {
+                args.arguments().iter().any(|a| a.as_lambda_node().is_some())
+            });
+
+            // Only flag when :foreign_key or :as is specified without :inverse_of,
+            // OR when a scope is present (and IgnoreScopes is false)
             let has_foreign_key = has_keyword_arg(call, b"foreign_key");
             let has_as = has_keyword_arg(call, b"as");
+            let needs_inverse = has_foreign_key || has_as || (has_scope && !ignore_scopes);
 
-            if (has_foreign_key || has_as) && !has_keyword_arg(call, b"inverse_of") {
+            if needs_inverse && !has_keyword_arg(call, b"inverse_of") {
                 let loc = call.message_loc().unwrap_or(call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 diagnostics.push(self.diagnostic(
@@ -62,4 +71,32 @@ impl Cop for InverseOf {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(InverseOf, "cops/rails/inverse_of");
+
+    #[test]
+    fn ignore_scopes_true_allows_scope_without_inverse_of() {
+        use crate::cop::CopConfig;
+        use crate::testutil::assert_cop_no_offenses_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "IgnoreScopes".to_string(),
+                serde_yml::Value::Bool(true),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"class Blog < ApplicationRecord\n  has_many :posts, -> { order(:name) }\nend\n";
+        assert_cop_no_offenses_full_with_config(&InverseOf, source, config);
+    }
+
+    #[test]
+    fn ignore_scopes_false_flags_scope_without_inverse_of() {
+        use crate::cop::CopConfig;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig::default();
+        let source = b"class Blog < ApplicationRecord\n  has_many :posts, -> { order(:name) }\nend\n";
+        let diags = run_cop_full_with_config(&InverseOf, source, config);
+        assert!(!diags.is_empty(), "IgnoreScopes:false should flag scope without inverse_of");
+    }
 }

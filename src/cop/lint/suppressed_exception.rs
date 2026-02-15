@@ -33,12 +33,25 @@ impl Cop for SuppressedException {
             None => return Vec::new(),
         };
 
-        let body_empty = match rescue_node.statements() {
+        // AllowNil: when true, allow `rescue => e; nil; end`
+        let allow_nil = config.get_bool("AllowNil", false);
+
+        let body_stmts = rescue_node.statements();
+        let body_empty = match &body_stmts {
             None => true,
             Some(stmts) => stmts.body().is_empty(),
         };
 
         if !body_empty {
+            // If AllowNil and body is a single `nil` literal, allow it
+            if allow_nil {
+                if let Some(stmts) = &body_stmts {
+                    let body_nodes: Vec<_> = stmts.body().iter().collect();
+                    if body_nodes.len() == 1 && body_nodes[0].as_nil_node().is_some() {
+                        return Vec::new();
+                    }
+                }
+            }
             return Vec::new();
         }
 

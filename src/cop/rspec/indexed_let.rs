@@ -23,8 +23,15 @@ impl Cop for IndexedLet {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // Config: Max — maximum allowed index (default 1, meaning any index triggers)
+        let max = config.get_usize("Max", 1);
+        // Config: AllowedIdentifiers — identifiers to ignore
+        let allowed_ids = config.get_string_array("AllowedIdentifiers");
+        // Config: AllowedPatterns — regex patterns to ignore
+        let allowed_patterns = config.get_string_array("AllowedPatterns");
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -57,19 +64,46 @@ impl Cop for IndexedLet {
                 break;
             };
 
+            let name_str = std::str::from_utf8(&name).unwrap_or("");
+
+            // Check AllowedIdentifiers
+            if let Some(ref ids) = allowed_ids {
+                if ids.iter().any(|id| id == name_str) {
+                    break;
+                }
+            }
+
+            // Check AllowedPatterns
+            if let Some(ref patterns) = allowed_patterns {
+                let mut skip = false;
+                for pat in patterns {
+                    if let Ok(re) = regex::Regex::new(pat) {
+                        if re.is_match(name_str) {
+                            skip = true;
+                            break;
+                        }
+                    }
+                }
+                if skip {
+                    break;
+                }
+            }
+
             // Check if the name ends with a numeric suffix (e.g., item_1, item1)
-            if let Some(digit) = find_trailing_digit(&name) {
-                let loc = call.location();
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    format!(
-                        "This `let` statement uses `{}` in its name. Please give it a meaningful name.",
-                        digit
-                    ),
-                )];
+            if let Some(index) = find_trailing_index(&name) {
+                if index >= max {
+                    let loc = call.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        format!(
+                            "This `let` statement uses `{}` in its name. Please give it a meaningful name.",
+                            index
+                        ),
+                    )];
+                }
             }
             break;
         }
@@ -79,8 +113,8 @@ impl Cop for IndexedLet {
 }
 
 /// Find trailing numeric suffix in a name like `item_1` or `item1`.
-/// Returns the first digit found at the end of the name.
-fn find_trailing_digit(name: &[u8]) -> Option<char> {
+/// Returns the numeric value of the trailing digits.
+fn find_trailing_index(name: &[u8]) -> Option<usize> {
     // Walk backwards to find trailing digits
     let mut i = name.len();
     while i > 0 && name[i - 1].is_ascii_digit() {
@@ -88,7 +122,8 @@ fn find_trailing_digit(name: &[u8]) -> Option<char> {
     }
     if i < name.len() && i > 0 {
         // There's at least one trailing digit and something before it
-        Some(name[i] as char)
+        let digits = &name[i..];
+        std::str::from_utf8(digits).ok()?.parse().ok()
     } else {
         None
     }
@@ -98,4 +133,59 @@ fn find_trailing_digit(name: &[u8]) -> Option<char> {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(IndexedLet, "cops/rspec/indexed_let");
+
+    #[test]
+    fn max_config_allows_higher_indices() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "Max".into(),
+                serde_yml::Value::Number(serde_yml::Number::from(5)),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"let(:item_3) { 'x' }\n";
+        let diags = crate::testutil::run_cop_full_with_config(&IndexedLet, source, config);
+        assert!(diags.is_empty(), "Max=5 should allow index 3");
+    }
+
+    #[test]
+    fn allowed_identifiers_skips_matching() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "AllowedIdentifiers".into(),
+                serde_yml::Value::Sequence(vec![
+                    serde_yml::Value::String("item_1".into()),
+                ]),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"let(:item_1) { 'x' }\n";
+        let diags = crate::testutil::run_cop_full_with_config(&IndexedLet, source, config);
+        assert!(diags.is_empty(), "AllowedIdentifiers should skip matching names");
+    }
+
+    #[test]
+    fn allowed_patterns_skips_matching_regex() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "AllowedPatterns".into(),
+                serde_yml::Value::Sequence(vec![
+                    serde_yml::Value::String("^item_".into()),
+                ]),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"let(:item_2) { 'x' }\n";
+        let diags = crate::testutil::run_cop_full_with_config(&IndexedLet, source, config);
+        assert!(diags.is_empty(), "AllowedPatterns should skip matching regex");
+    }
 }

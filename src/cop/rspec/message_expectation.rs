@@ -24,8 +24,11 @@ impl Cop for MessageExpectation {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // Config: EnforcedStyle — "allow" (default) or "expect"
+        let enforced_style = config.get_str("EnforcedStyle", "allow");
+
         // Look for: expect(foo).to receive(:bar)
         // The pattern is a call chain: expect(foo).to(receive(:bar))
         // We flag the `expect(...)` part.
@@ -88,22 +91,37 @@ impl Cop for MessageExpectation {
         };
 
         let recv_name = recv_call.name().as_slice();
-        if recv_name != b"expect" {
-            return Vec::new();
-        }
-        // Must be receiverless expect (not obj.expect)
         if recv_call.receiver().is_some() {
             return Vec::new();
         }
 
-        let loc = recv_call.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
-            source,
-            line,
-            column,
-            "Prefer `allow` for setting message expectations.".to_string(),
-        )]
+        if enforced_style == "expect" {
+            // "expect" style: flag `allow(...).to receive(...)`, prefer `expect`
+            if recv_name != b"allow" {
+                return Vec::new();
+            }
+            let loc = recv_call.location();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            vec![self.diagnostic(
+                source,
+                line,
+                column,
+                "Prefer `expect` for setting message expectations.".to_string(),
+            )]
+        } else {
+            // Default "allow" style: flag `expect(...).to receive(...)`, prefer `allow`
+            if recv_name != b"expect" {
+                return Vec::new();
+            }
+            let loc = recv_call.location();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            vec![self.diagnostic(
+                source,
+                line,
+                column,
+                "Prefer `allow` for setting message expectations.".to_string(),
+            )]
+        }
     }
 }
 
@@ -111,4 +129,39 @@ impl Cop for MessageExpectation {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(MessageExpectation, "cops/rspec/message_expectation");
+
+    #[test]
+    fn expect_style_flags_allow_receive() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("expect".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"allow(foo).to receive(:bar)\n";
+        let diags = crate::testutil::run_cop_full_with_config(&MessageExpectation, source, config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("expect"));
+    }
+
+    #[test]
+    fn expect_style_does_not_flag_expect_receive() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("expect".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"expect(foo).to receive(:bar)\n";
+        let diags = crate::testutil::run_cop_full_with_config(&MessageExpectation, source, config);
+        assert!(diags.is_empty());
+    }
 }

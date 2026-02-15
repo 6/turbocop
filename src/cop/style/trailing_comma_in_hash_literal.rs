@@ -17,6 +17,8 @@ impl Cop for TrailingCommaInHashLiteral {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // Note: keyword_hash_node (keyword args like `foo(a: 1)`) intentionally not
+        // handled — this cop only applies to trailing commas in hash literals.
         let hash_node = match node.as_hash_node() {
             Some(h) => h,
             None => return Vec::new(),

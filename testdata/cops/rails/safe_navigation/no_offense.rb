@@ -3,3 +3,4 @@ obj.send(:method_name)
 obj&.foo&.bar
 record&.save
 user&.name
+obj.try(:method_name)

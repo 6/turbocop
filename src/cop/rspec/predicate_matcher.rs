@@ -25,9 +25,15 @@ impl Cop for PredicateMatcher {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // Inflected style: flag `expect(foo.predicate?).to be_truthy/be_falsey/be(true)/be(false)`
+        // Config: Strict — when false, also match be(true)/be(false) in addition to be_truthy/be_falsey
+        let strict = config.get_bool("Strict", true);
+        // Config: EnforcedStyle — "inflected" (default) or "explicit"
+        let enforced_style = config.get_str("EnforcedStyle", "inflected");
+        // Config: AllowedExplicitMatchers — matchers to allow in explicit style
+        let allowed_explicit = config.get_string_array("AllowedExplicitMatchers").unwrap_or_default();
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -38,7 +44,46 @@ impl Cop for PredicateMatcher {
             return Vec::new();
         }
 
-        // The matcher argument should be be_truthy, be_falsey, a_truthy_value, etc.
+        if enforced_style == "explicit" {
+            // Explicit style: flag `expect(foo).to be_valid` → prefer explicit predicate
+            let args = match call.arguments() {
+                Some(a) => a,
+                None => return Vec::new(),
+            };
+            let arg_list: Vec<_> = args.arguments().iter().collect();
+            if arg_list.is_empty() {
+                return Vec::new();
+            }
+            let matcher = &arg_list[0];
+            let matcher_call = match matcher.as_call_node() {
+                Some(c) => c,
+                None => return Vec::new(),
+            };
+            if matcher_call.receiver().is_some() {
+                return Vec::new();
+            }
+            let matcher_name = matcher_call.name().as_slice();
+            let matcher_str = std::str::from_utf8(matcher_name).unwrap_or("");
+            // Check for be_xxx or have_xxx pattern
+            if !(matcher_str.starts_with("be_") || matcher_str.starts_with("have_")) {
+                return Vec::new();
+            }
+            // AllowedExplicitMatchers: skip matchers in the allowlist
+            if allowed_explicit.iter().any(|m| m == matcher_str) {
+                return Vec::new();
+            }
+            let predicate = matcher_to_predicate(matcher_str);
+            let loc = node.location();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            return vec![self.diagnostic(
+                source,
+                line,
+                column,
+                format!("Prefer using `{predicate}` over `{matcher_str}` matcher."),
+            )];
+        }
+
+        // Inflected style (default): flag `expect(foo.predicate?).to be_truthy/be_falsey`
         let args = match call.arguments() {
             Some(a) => a,
             None => return Vec::new(),
@@ -49,7 +94,7 @@ impl Cop for PredicateMatcher {
         }
 
         let matcher = &arg_list[0];
-        if !is_boolean_matcher(matcher) {
+        if !is_boolean_matcher(matcher, strict) {
             return Vec::new();
         }
 
@@ -121,7 +166,19 @@ fn predicate_to_matcher(pred: &str) -> String {
     }
 }
 
-fn is_boolean_matcher(node: &ruby_prism::Node<'_>) -> bool {
+/// Convert an inflected matcher back to a predicate method.
+/// e.g. "be_valid" -> "valid?", "have_key" -> "has_key?"
+fn matcher_to_predicate(matcher: &str) -> String {
+    if let Some(rest) = matcher.strip_prefix("be_") {
+        format!("{rest}?")
+    } else if let Some(rest) = matcher.strip_prefix("have_") {
+        format!("has_{rest}?")
+    } else {
+        format!("{matcher}?")
+    }
+}
+
+fn is_boolean_matcher(node: &ruby_prism::Node<'_>, strict: bool) -> bool {
     let call = match node.as_call_node() {
         Some(c) => c,
         None => return false,
@@ -132,7 +189,8 @@ fn is_boolean_matcher(node: &ruby_prism::Node<'_>) -> bool {
     }
 
     let name = call.name().as_slice();
-    matches!(
+
+    if matches!(
         name,
         b"be_truthy"
             | b"be_falsey"
@@ -140,11 +198,88 @@ fn is_boolean_matcher(node: &ruby_prism::Node<'_>) -> bool {
             | b"a_truthy_value"
             | b"a_falsey_value"
             | b"a_falsy_value"
-    )
+    ) {
+        return true;
+    }
+
+    // In non-strict mode, also match be(true)/be(false)/eq(true)/eq(false)
+    if !strict && (name == b"be" || name == b"eq") {
+        if let Some(args) = call.arguments() {
+            let arg_list: Vec<_> = args.arguments().iter().collect();
+            if arg_list.len() == 1 {
+                if arg_list[0].as_true_node().is_some() || arg_list[0].as_false_node().is_some() {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(PredicateMatcher, "cops/rspec/predicate_matcher");
+
+    #[test]
+    fn explicit_style_flags_be_valid() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("explicit".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"expect(foo).to be_valid\n";
+        let diags = crate::testutil::run_cop_full_with_config(&PredicateMatcher, source, config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("valid?"));
+    }
+
+    #[test]
+    fn allowed_explicit_matchers_skips_listed() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("explicit".into())),
+                ("AllowedExplicitMatchers".into(), serde_yml::Value::Sequence(vec![
+                    serde_yml::Value::String("be_valid".into()),
+                ])),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = b"expect(foo).to be_valid\n";
+        let diags = crate::testutil::run_cop_full_with_config(&PredicateMatcher, source, config);
+        assert!(diags.is_empty(), "AllowedExplicitMatchers should skip listed matchers");
+    }
+
+    #[test]
+    fn strict_false_flags_be_true() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "Strict".into(),
+                serde_yml::Value::Bool(false),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"expect(foo.valid?).to be(true)\n";
+        let diags = crate::testutil::run_cop_full_with_config(&PredicateMatcher, source, config);
+        assert_eq!(diags.len(), 1);
+    }
+
+    #[test]
+    fn strict_true_does_not_flag_be_true() {
+        let source = b"expect(foo.valid?).to be(true)\n";
+        let diags = crate::testutil::run_cop_full(&PredicateMatcher, source);
+        assert!(diags.is_empty());
+    }
 }

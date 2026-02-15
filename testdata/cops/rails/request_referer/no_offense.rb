@@ -1,5 +1,5 @@
-request.referrer
+request.referer
 request.url
 request.host
-url = request.referrer
-redirect_to request.referrer
+url = request.referer
+redirect_to request.referer

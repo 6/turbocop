@@ -16,6 +16,8 @@ impl Cop for SpaceInsideHashLiteralBraces {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // Note: keyword_hash_node (keyword args like `foo(a: 1)`) intentionally not
+        // handled — this cop only applies to hash literals with `{ }` braces.
         let hash = match node.as_hash_node() {
             Some(h) => h,
             None => return Vec::new(),
@@ -33,9 +35,37 @@ impl Cop for SpaceInsideHashLiteralBraces {
         let open_end = opening.end_offset();
         let close_start = closing.start_offset();
 
-        // Skip empty hashes {}
+        let empty_style = config.get_str("EnforcedStyleForEmptyBraces", "no_space");
+
+        // Handle empty hashes {}
         if close_start == open_end {
-            return Vec::new();
+            match empty_style {
+                "space" => {
+                    let (line, column) = source.offset_to_line_col(opening.start_offset());
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Space inside empty hash literal braces missing.".to_string(),
+                    )];
+                }
+                _ => return Vec::new(),
+            }
+        }
+        // Check for { } (empty with space)
+        if close_start == open_end + 1 && bytes.get(open_end) == Some(&b' ') {
+            match empty_style {
+                "no_space" => {
+                    let (line, column) = source.offset_to_line_col(open_end);
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Space inside empty hash literal braces detected.".to_string(),
+                    )];
+                }
+                _ => return Vec::new(),
+            }
         }
 
         // Skip multiline hashes (opening and closing on different lines)
@@ -109,6 +139,22 @@ mod tests {
         SpaceInsideHashLiteralBraces,
         "cops/layout/space_inside_hash_literal_braces"
     );
+
+    #[test]
+    fn empty_braces_space_style_flags_no_space() {
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyleForEmptyBraces".into(), serde_yml::Value::String("space".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = b"x = {}\n";
+        let diags = run_cop_full_with_config(&SpaceInsideHashLiteralBraces, source, config);
+        assert_eq!(diags.len(), 1, "space style should flag empty hash without space");
+        assert!(diags[0].message.contains("missing"));
+    }
 
     #[test]
     fn config_no_space() {

@@ -39,9 +39,37 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
         let open_end = opening.end_offset();
         let close_start = closing.start_offset();
 
-        // Skip empty arrays []
+        let empty_style = config.get_str("EnforcedStyleForEmptyBrackets", "no_space");
+
+        // Handle empty arrays []
         if close_start == open_end {
-            return Vec::new();
+            match empty_style {
+                "space" => {
+                    let (line, column) = source.offset_to_line_col(opening.start_offset());
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Space inside empty array literal brackets missing.".to_string(),
+                    )];
+                }
+                _ => return Vec::new(),
+            }
+        }
+        // Check for [ ] (empty with space)
+        if close_start == open_end + 1 && bytes.get(open_end) == Some(&b' ') {
+            match empty_style {
+                "no_space" => {
+                    let (line, column) = source.offset_to_line_col(open_end);
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Space inside empty array literal brackets detected.".to_string(),
+                    )];
+                }
+                _ => return Vec::new(),
+            }
         }
 
         // Skip multiline arrays
@@ -114,4 +142,29 @@ mod tests {
         SpaceInsideArrayLiteralBrackets,
         "cops/layout/space_inside_array_literal_brackets"
     );
+
+    #[test]
+    fn empty_brackets_space_style_flags_no_space() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyleForEmptyBrackets".into(), serde_yml::Value::String("space".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let src = b"x = []\n";
+        let diags = run_cop_full_with_config(&SpaceInsideArrayLiteralBrackets, src, config);
+        assert_eq!(diags.len(), 1, "space style should flag empty [] without space");
+    }
+
+    #[test]
+    fn empty_brackets_no_space_is_default() {
+        use crate::testutil::run_cop_full;
+
+        let src = b"x = []\n";
+        let diags = run_cop_full(&SpaceInsideArrayLiteralBrackets, src);
+        assert!(diags.is_empty(), "Default no_space should accept []");
+    }
 }

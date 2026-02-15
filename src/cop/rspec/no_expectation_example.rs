@@ -25,8 +25,11 @@ impl Cop for NoExpectationExample {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // Config: AllowedPatterns — description patterns to exempt from this cop
+        let allowed_patterns = config.get_string_array("AllowedPatterns");
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -40,6 +43,32 @@ impl Cop for NoExpectationExample {
         // Skip `pending` and `skip` examples -- they intentionally have no expectations
         if method_name == b"pending" || method_name == b"skip" {
             return Vec::new();
+        }
+
+        // Check AllowedPatterns against the example description
+        if let Some(ref patterns) = allowed_patterns {
+            if let Some(args) = call.arguments() {
+                for arg in args.arguments().iter() {
+                    if arg.as_keyword_hash_node().is_some() {
+                        continue;
+                    }
+                    let desc_text = if let Some(s) = arg.as_string_node() {
+                        Some(std::str::from_utf8(s.unescaped()).unwrap_or("").to_string())
+                    } else {
+                        None
+                    };
+                    if let Some(ref desc) = desc_text {
+                        for pat in patterns {
+                            if let Ok(re) = regex::Regex::new(pat) {
+                                if re.is_match(desc) {
+                                    return Vec::new();
+                                }
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
         }
 
         let block = match call.block() {
@@ -106,4 +135,23 @@ impl<'pr> Visit<'pr> for ExpectationFinder {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(NoExpectationExample, "cops/rspec/no_expectation_example");
+
+    #[test]
+    fn allowed_patterns_skips_matching_description() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "AllowedPatterns".into(),
+                serde_yml::Value::Sequence(vec![
+                    serde_yml::Value::String("^triggers".into()),
+                ]),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"it 'triggers a callback' do\n  run_job\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&NoExpectationExample, source, config);
+        assert!(diags.is_empty(), "AllowedPatterns should skip matching descriptions");
+    }
 }

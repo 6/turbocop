@@ -1,3 +1,4 @@
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -64,8 +65,10 @@ impl<'a> Visit<'a> for RelativeDateFinder {
         let method_name = node.name().as_slice();
         if RELATIVE_TIME_METHODS.contains(&method_name) {
             if let Some(recv) = node.receiver() {
-                if let Some(cr) = recv.as_constant_read_node() {
-                    if TIME_CONSTANTS.contains(&cr.name().as_slice()) {
+                // Handle both ConstantReadNode and ConstantPathNode
+                let recv_node: ruby_prism::Node<'_> = recv;
+                if let Some(name) = util::constant_name(&recv_node) {
+                    if TIME_CONSTANTS.contains(&name) {
                         self.found = true;
                         return;
                     }

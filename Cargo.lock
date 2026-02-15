@@ -423,6 +423,7 @@ dependencies = [
  "globset",
  "ignore",
  "rayon",
+ "regex",
  "ruby-prism",
  "serde",
  "serde_json",

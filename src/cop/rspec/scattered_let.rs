@@ -1,4 +1,4 @@
-use crate::cop::util::{is_rspec_example_group, is_rspec_let, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::util::{self, is_rspec_example_group, is_rspec_let, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -32,13 +32,9 @@ impl Cop for ScatteredLet {
 
         let method_name = call.name().as_slice();
 
-        // Check for example group calls
+        // Check for example group calls (including ::RSpec.describe)
         let is_example_group = if let Some(recv) = call.receiver() {
-            if let Some(rc) = recv.as_constant_read_node() {
-                rc.name().as_slice() == b"RSpec" && method_name == b"describe"
-            } else {
-                false
-            }
+            util::constant_name(&recv).map_or(false, |n| n == b"RSpec") && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name)
         };

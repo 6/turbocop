@@ -21,3 +21,9 @@ begin
 rescue ArgumentError => e
   bar
 end
+
+begin
+  foo
+rescue ::RuntimeError
+  bar
+end

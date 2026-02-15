@@ -1,3 +1,4 @@
+use crate::cop::util;
 use crate::cop::util::as_method_chain;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -26,8 +27,10 @@ impl Cop for UnknownEnv {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let configured_envs = config.get_string_array("Environments");
+
         // Looking for Rails.env.staging? pattern (3-method chain or 2-method chain)
         // Rails.env is a method chain: ConstantReadNode(Rails).env
         // Then the predicate call on it: Rails.env.staging?
@@ -51,17 +54,19 @@ impl Cop for UnknownEnv {
             None => return Vec::new(),
         };
 
-        let const_node = match inner_recv.as_constant_read_node() {
-            Some(c) => c,
-            None => return Vec::new(),
-        };
-
-        if const_node.name().as_slice() != b"Rails" {
+        // Handle both ConstantReadNode (Rails) and ConstantPathNode (::Rails)
+        if util::constant_name(&inner_recv) != Some(b"Rails") {
             return Vec::new();
         }
 
-        // Check if the method is a known env
-        if KNOWN_ENVS.contains(&chain.outer_method) {
+        // Check if the method is a known env (configured or default)
+        if let Some(ref envs) = configured_envs {
+            let env_name = &chain.outer_method[..chain.outer_method.len() - 1];
+            let env_str = std::str::from_utf8(env_name).unwrap_or("");
+            if envs.iter().any(|e| e == env_str) {
+                return Vec::new();
+            }
+        } else if KNOWN_ENVS.contains(&chain.outer_method) {
             return Vec::new();
         }
 

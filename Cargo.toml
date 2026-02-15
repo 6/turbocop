@@ -3,6 +3,7 @@ name = "rblint"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
+default-run = "rblint"
 
 [[bin]]
 name = "rblint"
@@ -26,6 +27,7 @@ rayon = "1.11"
 ignore = "0.4"
 globset = "0.4"
 anyhow = "1.0"
+regex = "1"
 
 [profile.release]
 lto = true

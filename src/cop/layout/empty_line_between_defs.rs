@@ -56,26 +56,68 @@ impl Cop for EmptyLineBetweenDefs {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let def_node = match node.as_def_node() {
-            Some(d) => d,
-            None => return Vec::new(),
-        };
-
-        let def_loc = def_node.def_keyword_loc();
-        let (def_line, def_col) = source.offset_to_line_col(def_loc.start_offset());
-
-        // AllowAdjacentOneLineDefs: skip if this def is a single-line def
-        // and the previous def-ending line is also from a single-line def
+        let empty_between_methods = config.get_bool("EmptyLineBetweenMethodDefs", true);
+        let empty_between_classes = config.get_bool("EmptyLineBetweenClassDefs", true);
+        let empty_between_modules = config.get_bool("EmptyLineBetweenModuleDefs", true);
+        let def_like_macros = config.get_string_array("DefLikeMacros").unwrap_or_default();
+        let number_of_empty_lines = config.get_usize("NumberOfEmptyLines", 1);
         let allow_adjacent = config.get_bool("AllowAdjacentOneLineDefs", true);
-        if allow_adjacent {
-            let end_line = def_node
-                .end_keyword_loc()
-                .map(|loc| source.offset_to_line_col(loc.start_offset()).0)
-                .unwrap_or(def_line);
-            if end_line == def_line {
-                // This is a single-line def — skip it
+
+        // Determine what kind of definition node this is
+        let is_def_like_macro;
+        let (def_line, def_col, is_single_line) = if let Some(def_node) = node.as_def_node() {
+            if !empty_between_methods {
                 return Vec::new();
             }
+            is_def_like_macro = false;
+            let loc = def_node.def_keyword_loc();
+            let (line, col) = source.offset_to_line_col(loc.start_offset());
+            let end_line = if let Some(el) = def_node.end_keyword_loc() {
+                source.offset_to_line_col(el.start_offset()).0
+            } else {
+                line
+            };
+            (line, col, end_line == line)
+        } else if let Some(class_node) = node.as_class_node() {
+            if !empty_between_classes {
+                return Vec::new();
+            }
+            is_def_like_macro = false;
+            let loc = class_node.class_keyword_loc();
+            let (line, col) = source.offset_to_line_col(loc.start_offset());
+            let end_line = source.offset_to_line_col(class_node.end_keyword_loc().start_offset()).0;
+            (line, col, end_line == line)
+        } else if let Some(module_node) = node.as_module_node() {
+            if !empty_between_modules {
+                return Vec::new();
+            }
+            is_def_like_macro = false;
+            let loc = module_node.module_keyword_loc();
+            let (line, col) = source.offset_to_line_col(loc.start_offset());
+            let end_line = source.offset_to_line_col(module_node.end_keyword_loc().start_offset()).0;
+            (line, col, end_line == line)
+        } else if let Some(call_node) = node.as_call_node() {
+            // DefLikeMacros: treat matching call nodes as definition-like
+            if def_like_macros.is_empty() || call_node.receiver().is_some() {
+                return Vec::new();
+            }
+            let name = std::str::from_utf8(call_node.name().as_slice()).unwrap_or("");
+            if !def_like_macros.iter().any(|m| m == name) {
+                return Vec::new();
+            }
+            is_def_like_macro = true;
+            let loc = call_node.location();
+            let (line, col) = source.offset_to_line_col(loc.start_offset());
+            // Macro calls are always single-line definitions
+            (line, col, true)
+        } else {
+            return Vec::new();
+        };
+
+        // AllowAdjacentOneLineDefs: skip single-line defs (but not def-like macros,
+        // which are always single-line and should still require blank lines)
+        if allow_adjacent && is_single_line && !is_def_like_macro {
+            return Vec::new();
         }
 
         // Skip if def is on the first line
@@ -83,9 +125,10 @@ impl Cop for EmptyLineBetweenDefs {
             return Vec::new();
         }
 
-        // Scan backwards from the def line to find the first non-blank, non-comment line.
-        // Only flag if it's `end` (indicating consecutive method definitions).
+        // Scan backwards from the def line, counting blank lines.
+        // Only flag if we hit `end` or a previous def-like macro without enough blank lines.
         let mut check_line = def_line - 1; // 1-indexed
+        let mut blank_count = 0;
         loop {
             if check_line < 1 {
                 return Vec::new();
@@ -95,11 +138,11 @@ impl Cop for EmptyLineBetweenDefs {
                 None => return Vec::new(),
             };
             if is_blank(line) {
-                // Found blank line before reaching `end` — no offense
-                return Vec::new();
+                blank_count += 1;
+                check_line -= 1;
+                continue;
             }
             if is_comment_line(line) {
-                // Skip comment lines
                 check_line -= 1;
                 continue;
             }
@@ -114,19 +157,38 @@ impl Cop for EmptyLineBetweenDefs {
                 .skip_while(|&b| b == b' ' || b == b'\t')
                 .collect();
             if trimmed == b"end" || trimmed.starts_with(b"end ") || trimmed.starts_with(b"end\t") {
-                // Previous method ended here — flag the missing empty line
+                // Previous definition ended here — check blank line count
+                if blank_count >= number_of_empty_lines {
+                    return Vec::new();
+                }
                 break;
+            }
+            // Check if this line is a def-like macro call
+            if !def_like_macros.is_empty() {
+                let trimmed_str = std::str::from_utf8(&trimmed).unwrap_or("");
+                let is_macro_line = def_like_macros.iter().any(|m| {
+                    trimmed_str == m.as_str()
+                        || trimmed_str.starts_with(&format!("{m} "))
+                        || trimmed_str.starts_with(&format!("{m}("))
+                });
+                if is_macro_line {
+                    if blank_count >= number_of_empty_lines {
+                        return Vec::new();
+                    }
+                    break;
+                }
             }
             // Something else (e.g., LONG_DESC, attr_accessor, etc.) — don't flag
             return Vec::new();
         }
 
-        vec![self.diagnostic(
-            source,
-            def_line,
-            def_col,
-            "Use empty lines between method definitions.".to_string(),
-        )]
+        let msg = if number_of_empty_lines == 1 {
+            "Use empty lines between method definitions.".to_string()
+        } else {
+            format!("Use {number_of_empty_lines} empty lines between method definitions.")
+        };
+
+        vec![self.diagnostic(source, def_line, def_col, msg)]
     }
 }
 
@@ -150,5 +212,67 @@ mod tests {
         let diags = run_cop_full(&EmptyLineBetweenDefs, src);
         assert_eq!(diags.len(), 1, "Missing blank line between defs should trigger");
         assert_eq!(diags[0].location.line, 5);
+    }
+
+    #[test]
+    fn number_of_empty_lines_requires_multiple() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("NumberOfEmptyLines".into(), serde_yml::Value::Number(2.into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // One blank line between defs should be flagged when 2 required
+        let src = b"class Foo\n  def bar\n    1\n  end\n\n  def baz\n    2\n  end\nend\n";
+        let diags = run_cop_full_with_config(&EmptyLineBetweenDefs, src, config.clone());
+        assert_eq!(diags.len(), 1, "Should flag when fewer than NumberOfEmptyLines blank lines");
+
+        // Two blank lines should be accepted
+        let src2 = b"class Foo\n  def bar\n    1\n  end\n\n\n  def baz\n    2\n  end\nend\n";
+        let diags2 = run_cop_full_with_config(&EmptyLineBetweenDefs, src2, config);
+        assert!(diags2.is_empty(), "Should accept when NumberOfEmptyLines blank lines present");
+    }
+
+    #[test]
+    fn def_like_macros_flags_missing_blank_line() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("DefLikeMacros".into(), serde_yml::Value::Sequence(vec![
+                    serde_yml::Value::String("scope".into()),
+                ])),
+            ]),
+            ..CopConfig::default()
+        };
+        // Two scope macros without blank line
+        let src = b"class Foo\n  scope :active, -> { where(active: true) }\n  scope :recent, -> { where(recent: true) }\nend\n";
+        let diags = run_cop_full_with_config(&EmptyLineBetweenDefs, src, config.clone());
+        assert_eq!(diags.len(), 1, "Missing blank line between def-like macros should trigger");
+
+        // With blank line — no offense
+        let src2 = b"class Foo\n  scope :active, -> { where(active: true) }\n\n  scope :recent, -> { where(recent: true) }\nend\n";
+        let diags2 = run_cop_full_with_config(&EmptyLineBetweenDefs, src2, config);
+        assert!(diags2.is_empty(), "Blank line between def-like macros should be accepted");
+    }
+
+    #[test]
+    fn empty_between_method_defs_false_skips_methods() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EmptyLineBetweenMethodDefs".into(), serde_yml::Value::Bool(false)),
+            ]),
+            ..CopConfig::default()
+        };
+        let src = b"class Foo\n  def bar\n    1\n  end\n  def baz\n    2\n  end\nend\n";
+        let diags = run_cop_full_with_config(&EmptyLineBetweenDefs, src, config);
+        assert!(diags.is_empty(), "Should not flag when EmptyLineBetweenMethodDefs is false");
     }
 }

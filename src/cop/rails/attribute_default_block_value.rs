@@ -38,6 +38,8 @@ impl Cop for AttributeDefaultBlockValue {
 
         // Flag mutable default values that should use a block:
         // Arrays, Hashes, and String literals are mutable
+        // Note: keyword_hash_node (keyword args) intentionally not handled —
+        // the default: value is always a standalone expression, never keyword args.
         let is_mutable = default_value.as_array_node().is_some()
             || default_value.as_hash_node().is_some()
             || default_value.as_string_node().is_some();

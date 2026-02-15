@@ -30,8 +30,15 @@ impl Cop for ExampleWording {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // Config: CustomTransform — hash of word replacements (unused: requires hash config)
+        let custom_transform = config.get_string_hash("CustomTransform").unwrap_or_default();
+        // Config: IgnoredWords — words to ignore in description checking
+        let ignored_words = config.get_string_array("IgnoredWords");
+        // Config: DisallowedExamples — example descriptions to disallow entirely
+        let disallowed_examples = config.get_string_array("DisallowedExamples");
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -56,37 +63,77 @@ impl Cop for ExampleWording {
             if arg.as_keyword_hash_node().is_some() {
                 continue;
             }
-            // Check string nodes
-            if let Some(s) = arg.as_string_node() {
-                let desc = s.unescaped();
-                if starts_with_should(desc) {
-                    let loc = s.location();
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Do not use should when describing your tests.".to_string(),
-                    )];
-                }
-            }
-            // Also check interpolated strings
-            if let Some(interp) = arg.as_interpolated_string_node() {
-                // Check if the first part starts with "should"
+
+            // Extract the description text
+            let (desc_bytes, desc_loc) = if let Some(s) = arg.as_string_node() {
+                (Some(s.unescaped().to_vec()), Some(s.location()))
+            } else if let Some(interp) = arg.as_interpolated_string_node() {
                 let parts: Vec<_> = interp.parts().iter().collect();
                 if let Some(first) = parts.first() {
                     if let Some(s) = first.as_string_node() {
-                        if starts_with_should(s.unescaped()) {
-                            let loc = interp.location();
+                        (Some(s.unescaped().to_vec()), Some(interp.location()))
+                    } else {
+                        (None, None)
+                    }
+                } else {
+                    (None, None)
+                }
+            } else {
+                (None, None)
+            };
+
+            if let (Some(desc), Some(loc)) = (desc_bytes, desc_loc) {
+                let desc_str = std::str::from_utf8(&desc).unwrap_or("");
+
+                // Check DisallowedExamples
+                if let Some(ref disallowed) = disallowed_examples {
+                    let trimmed = desc_str.trim();
+                    for d in disallowed {
+                        if trimmed.eq_ignore_ascii_case(d) {
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
                             return vec![self.diagnostic(
                                 source,
                                 line,
                                 column,
-                                "Do not use should when describing your tests.".to_string(),
+                                format!("Avoid disallowed example description '{d}'."),
                             )];
                         }
                     }
+                }
+
+                // Check IgnoredWords — if description starts with an ignored word, skip should-check
+                let skip_should = if let Some(ref words) = ignored_words {
+                    let first_word = desc_str.split_whitespace().next().unwrap_or("");
+                    words.iter().any(|w| w.eq_ignore_ascii_case(first_word))
+                } else {
+                    false
+                };
+
+                if !skip_should && starts_with_should(&desc) {
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    // CustomTransform: suggest replacement for the word after "should"
+                    let msg = if !custom_transform.is_empty() {
+                        let after_should = desc_str.get(6..).unwrap_or("").trim_start();
+                        let next_word = after_should.split_whitespace().next().unwrap_or("");
+                        if let Some(replacement) = custom_transform.get(next_word) {
+                            let rest = after_should.get(next_word.len()..).unwrap_or("").trim_start();
+                            if replacement.is_empty() {
+                                format!("Do not use should when describing your tests. Use `{rest}` instead.")
+                            } else {
+                                format!("Do not use should when describing your tests. Use `{replacement} {rest}` instead.")
+                            }
+                        } else {
+                            "Do not use should when describing your tests.".to_string()
+                        }
+                    } else {
+                        "Do not use should when describing your tests.".to_string()
+                    };
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        msg,
+                    )];
                 }
             }
             break;
@@ -113,4 +160,66 @@ fn starts_with_should(desc: &[u8]) -> bool {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(ExampleWording, "cops/rspec/example_wording");
+
+    #[test]
+    fn disallowed_examples_flags_matching() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "DisallowedExamples".into(),
+                serde_yml::Value::Sequence(vec![
+                    serde_yml::Value::String("works".into()),
+                ]),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"it 'works' do\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&ExampleWording, source, config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("disallowed"));
+    }
+
+    #[test]
+    fn custom_transform_suggests_replacement() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let mut transform = serde_yml::Mapping::new();
+        transform.insert(
+            serde_yml::Value::String("be".into()),
+            serde_yml::Value::String("is".into()),
+        );
+        let config = CopConfig {
+            options: HashMap::from([(
+                "CustomTransform".into(),
+                serde_yml::Value::Mapping(transform),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"it 'should be valid' do\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&ExampleWording, source, config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("is valid"), "CustomTransform should suggest 'is valid' replacement, got: {}", diags[0].message);
+    }
+
+    #[test]
+    fn ignored_words_skips_should_check() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "IgnoredWords".into(),
+                serde_yml::Value::Sequence(vec![
+                    serde_yml::Value::String("should".into()),
+                ]),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"it 'should do something' do\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&ExampleWording, source, config);
+        assert!(diags.is_empty(), "IgnoredWords should skip 'should' check");
+    }
 }

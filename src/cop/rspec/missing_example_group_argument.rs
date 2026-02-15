@@ -1,4 +1,4 @@
-use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
+use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -45,15 +45,11 @@ impl Cop for MissingExampleGroupArgument {
             return Vec::new();
         }
 
-        // Must be receiverless or RSpec.describe
+        // Must be receiverless or RSpec.describe / ::RSpec.describe
         let is_rspec_call = if call.receiver().is_none() {
             true
         } else if let Some(recv) = call.receiver() {
-            if let Some(cr) = recv.as_constant_read_node() {
-                cr.name().as_slice() == b"RSpec"
-            } else {
-                false
-            }
+            util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
         } else {
             false
         };

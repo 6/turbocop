@@ -23,6 +23,14 @@ fn is_safe_assignment(node: &ruby_prism::ParenthesesNode<'_>) -> bool {
     is_assignment_node(&body)
 }
 
+fn is_multiline_paren(source: &SourceFile, paren: &ruby_prism::ParenthesesNode<'_>) -> bool {
+    let open_loc = paren.opening_loc();
+    let close_loc = paren.closing_loc();
+    let (open_line, _) = source.offset_to_line_col(open_loc.start_offset());
+    let (close_line, _) = source.offset_to_line_col(close_loc.start_offset());
+    open_line != close_line
+}
+
 fn is_assignment_node(node: &ruby_prism::Node<'_>) -> bool {
     node.as_local_variable_write_node().is_some()
         || node.as_instance_variable_write_node().is_some()
@@ -45,6 +53,7 @@ impl Cop for ParenthesesAroundCondition {
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let allow_safe_assignment = config.get_bool("AllowSafeAssignment", true);
+        let allow_multiline = config.get_bool("AllowInMultilineConditions", false);
 
         if let Some(if_node) = node.as_if_node() {
             // Must have `if` keyword (not ternary)
@@ -55,6 +64,9 @@ impl Cop for ParenthesesAroundCondition {
 
             if let Some(paren) = if_node.predicate().as_parentheses_node() {
                 if allow_safe_assignment && is_safe_assignment(&paren) {
+                    return Vec::new();
+                }
+                if allow_multiline && is_multiline_paren(source, &paren) {
                     return Vec::new();
                 }
                 let keyword = if kw_loc.as_slice() == b"unless" {
@@ -73,6 +85,9 @@ impl Cop for ParenthesesAroundCondition {
                 if allow_safe_assignment && is_safe_assignment(&paren) {
                     return Vec::new();
                 }
+                if allow_multiline && is_multiline_paren(source, &paren) {
+                    return Vec::new();
+                }
                 let open_loc = paren.opening_loc();
                 let (line, column) = source.offset_to_line_col(open_loc.start_offset());
                 return vec![self.diagnostic(source, line, column, "Don't use parentheses around the condition of a `while`.".to_string())];
@@ -80,6 +95,9 @@ impl Cop for ParenthesesAroundCondition {
         } else if let Some(until_node) = node.as_until_node() {
             if let Some(paren) = until_node.predicate().as_parentheses_node() {
                 if allow_safe_assignment && is_safe_assignment(&paren) {
+                    return Vec::new();
+                }
+                if allow_multiline && is_multiline_paren(source, &paren) {
                     return Vec::new();
                 }
                 let open_loc = paren.opening_loc();
@@ -95,6 +113,47 @@ impl Cop for ParenthesesAroundCondition {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::{run_cop_full_with_config, run_cop_full};
 
     crate::cop_fixture_tests!(ParenthesesAroundCondition, "cops/style/parentheses_around_condition");
+
+    #[test]
+    fn allow_multiline_conditions() {
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("AllowInMultilineConditions".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        // Multiline condition in parens should be allowed
+        let source = b"if (x > 10 &&\n   y > 10)\n  puts 'hi'\nend\n";
+        let diags = run_cop_full_with_config(&ParenthesesAroundCondition, source, config);
+        assert!(diags.is_empty(), "Should allow multiline conditions in parens");
+    }
+
+    #[test]
+    fn still_flags_single_line_with_allow_multiline() {
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("AllowInMultilineConditions".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        // Single-line parens should still be flagged
+        let source = b"if (x > 10)\n  puts 'hi'\nend\n";
+        let diags = run_cop_full_with_config(&ParenthesesAroundCondition, source, config);
+        assert_eq!(diags.len(), 1, "Should still flag single-line parens");
+    }
+
+    #[test]
+    fn flags_multiline_by_default() {
+        // Multiline parens should be flagged with default config
+        let source = b"if (x > 10 &&\n   y > 10)\n  puts 'hi'\nend\n";
+        let diags = run_cop_full(&ParenthesesAroundCondition, source);
+        assert_eq!(diags.len(), 1, "Should flag multiline parens by default");
+    }
 }

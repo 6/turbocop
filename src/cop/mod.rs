@@ -90,6 +90,21 @@ impl CopConfig {
             })
         })
     }
+
+    /// Get a string→string hash option. Returns None if the key is absent.
+    pub fn get_string_hash(&self, key: &str) -> Option<HashMap<String, String>> {
+        self.options.get(key).and_then(|v| {
+            v.as_mapping().map(|m| {
+                m.iter()
+                    .filter_map(|(k, v)| {
+                        let ks = k.as_str()?;
+                        let vs = v.as_str()?;
+                        Some((ks.to_string(), vs.to_string()))
+                    })
+                    .collect()
+            })
+        })
+    }
 }
 
 /// A lint rule. Implementations must be Send + Sync so they can be shared

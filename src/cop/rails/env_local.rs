@@ -1,3 +1,4 @@
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -34,12 +35,8 @@ fn is_rails_env_check(node: &ruby_prism::Node<'_>, env_method: &[u8]) -> bool {
         None => return false,
     };
 
-    let const_node = match rails_recv.as_constant_read_node() {
-        Some(c) => c,
-        None => return false,
-    };
-
-    const_node.name().as_slice() == b"Rails"
+    // Handle both ConstantReadNode (Rails) and ConstantPathNode (::Rails)
+    util::constant_name(&rails_recv) == Some(b"Rails")
 }
 
 impl Cop for EnvLocal {

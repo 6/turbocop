@@ -33,6 +33,16 @@ impl Cop for WordArray {
 
         let elements = array_node.elements();
         let min_size = config.get_usize("MinSize", 2);
+        let enforced_style = config.get_str("EnforcedStyle", "percent");
+        // WordRegex: custom regex for what constitutes a "word". When set, only
+        // strings matching this regex are considered words eligible for %w.
+        // Read for completeness; basic regex support is limited.
+        let word_regex = config.get_str("WordRegex", "");
+
+        // "brackets" style: never flag bracket arrays
+        if enforced_style == "brackets" {
+            return Vec::new();
+        }
 
         if elements.len() < min_size {
             return Vec::new();
@@ -59,6 +69,18 @@ impl Cop for WordArray {
             // Must not have escape sequences (backslash in content)
             if content.contains(&b'\\') {
                 return Vec::new();
+            }
+
+            // WordRegex: if set, check that content matches (simple contains check)
+            if !word_regex.is_empty() {
+                let content_str = std::str::from_utf8(content).unwrap_or("");
+                // Simple check: if WordRegex looks like a restrictive pattern,
+                // only flag if content matches basic word chars
+                if word_regex.contains("\\A") || word_regex.contains("\\w") {
+                    if !content_str.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                        return Vec::new();
+                    }
+                }
             }
         }
 
@@ -91,5 +113,21 @@ mod tests {
         let source2 = b"x = ['a', 'b', 'c', 'd']\n";
         let diags2 = run_cop_full_with_config(&WordArray, source2, config);
         assert!(diags2.is_empty(), "Should not fire on 4-element word array with MinSize:5");
+    }
+
+    #[test]
+    fn brackets_style_allows_bracket_arrays() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("brackets".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = b"x = ['a', 'b', 'c']\n";
+        let diags = run_cop_full_with_config(&WordArray, source, config);
+        assert!(diags.is_empty(), "Should not flag brackets with brackets style");
     }
 }

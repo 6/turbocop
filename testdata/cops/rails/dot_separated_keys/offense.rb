@@ -6,3 +6,6 @@ I18n.translate(:title, scope: [:users, :show])
 
 t(:blank, scope: [:errors, :messages])
           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/DotSeparatedKeys: Use dot-separated keys instead of the `:scope` option.
+
+::I18n.t(:name, scope: [:models, :user])
+                ^^^^^^^^^^^^^^^^^^^^^^^^ Rails/DotSeparatedKeys: Use dot-separated keys instead of the `:scope` option.

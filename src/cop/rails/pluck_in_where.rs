@@ -18,8 +18,10 @@ impl Cop for PluckInWhere {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let style = config.get_str("EnforcedStyle", "conservative");
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -36,7 +38,7 @@ impl Cop for PluckInWhere {
 
         // Look for pluck inside argument values (keyword hash args)
         for arg in args.arguments().iter() {
-            if self.has_pluck_call(&arg) {
+            if self.has_pluck_call(&arg, style) {
                 let loc = node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 return vec![self.diagnostic(
@@ -53,21 +55,52 @@ impl Cop for PluckInWhere {
 }
 
 impl PluckInWhere {
-    fn has_pluck_call(&self, node: &ruby_prism::Node<'_>) -> bool {
-        // Direct pluck call
+    /// Find the root receiver of a chained call (e.g., `User.active` -> `User`).
+    fn root_receiver<'a>(&self, node: &ruby_prism::Node<'a>) -> Option<ruby_prism::Node<'a>> {
+        if let Some(call) = node.as_call_node() {
+            if let Some(recv) = call.receiver() {
+                if recv.as_call_node().is_some() {
+                    return self.root_receiver(&recv);
+                }
+                return Some(recv);
+            }
+        }
+        None
+    }
+
+    fn is_const_rooted(&self, node: &ruby_prism::Node<'_>) -> bool {
+        if let Some(root) = self.root_receiver(node) {
+            return root.as_constant_read_node().is_some()
+                || root.as_constant_path_node().is_some();
+        }
+        false
+    }
+
+    fn check_pluck_node(&self, node: &ruby_prism::Node<'_>, style: &str) -> bool {
         if let Some(call) = node.as_call_node() {
             if call.name().as_slice() == b"pluck" {
+                if style == "conservative" {
+                    // Only flag if receiver chain is rooted in a constant (model)
+                    return self.is_const_rooted(node);
+                }
                 return true;
             }
+        }
+        false
+    }
+
+    fn has_pluck_call(&self, node: &ruby_prism::Node<'_>, style: &str) -> bool {
+        // Direct pluck call
+        if self.check_pluck_node(node, style) {
+            return true;
         }
         // Check keyword hash values
         if let Some(kw) = node.as_keyword_hash_node() {
             for elem in kw.elements().iter() {
                 if let Some(assoc) = elem.as_assoc_node() {
-                    if let Some(call) = assoc.value().as_call_node() {
-                        if call.name().as_slice() == b"pluck" {
-                            return true;
-                        }
+                    let val = assoc.value();
+                    if self.check_pluck_node(&val, style) {
+                        return true;
                     }
                 }
             }
@@ -76,10 +109,9 @@ impl PluckInWhere {
         if let Some(hash) = node.as_hash_node() {
             for elem in hash.elements().iter() {
                 if let Some(assoc) = elem.as_assoc_node() {
-                    if let Some(call) = assoc.value().as_call_node() {
-                        if call.name().as_slice() == b"pluck" {
-                            return true;
-                        }
+                    let val = assoc.value();
+                    if self.check_pluck_node(&val, style) {
+                        return true;
                     }
                 }
             }
@@ -92,4 +124,32 @@ impl PluckInWhere {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(PluckInWhere, "cops/rails/pluck_in_where");
+
+    #[test]
+    fn conservative_style_skips_non_constant_receiver() {
+        use crate::cop::CopConfig;
+        use crate::testutil::assert_cop_no_offenses_full_with_config;
+
+        let config = CopConfig::default();
+        let source = b"Post.where(user_id: active_users.pluck(:id))\n";
+        assert_cop_no_offenses_full_with_config(&PluckInWhere, source, config);
+    }
+
+    #[test]
+    fn aggressive_style_flags_non_constant_receiver() {
+        use crate::cop::CopConfig;
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".to_string(),
+                serde_yml::Value::String("aggressive".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"Post.where(user_id: active_users.pluck(:id))\n";
+        let diags = run_cop_full_with_config(&PluckInWhere, source, config);
+        assert!(!diags.is_empty(), "aggressive style should flag non-constant receiver pluck");
+    }
 }

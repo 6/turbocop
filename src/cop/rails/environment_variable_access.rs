@@ -1,3 +1,4 @@
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -18,14 +19,29 @@ impl Cop for EnvironmentVariableAccess {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let allow_reads = config.get_bool("AllowReads", false);
+        let allow_writes = config.get_bool("AllowWrites", false);
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
         };
 
-        if call.name().as_slice() != b"[]" {
+        let method = call.name().as_slice();
+
+        // AllowWrites: skip ENV[]= assignments
+        if allow_writes && method == b"[]=" {
+            return Vec::new();
+        }
+
+        // AllowReads: skip ENV[] reads
+        if allow_reads && method == b"[]" {
+            return Vec::new();
+        }
+
+        if method != b"[]" {
             return Vec::new();
         }
 
@@ -34,12 +50,8 @@ impl Cop for EnvironmentVariableAccess {
             None => return Vec::new(),
         };
 
-        let const_node = match recv.as_constant_read_node() {
-            Some(c) => c,
-            None => return Vec::new(),
-        };
-
-        if const_node.name().as_slice() != b"ENV" {
+        // Handle both ConstantReadNode (ENV) and ConstantPathNode (::ENV)
+        if util::constant_name(&recv) != Some(b"ENV") {
             return Vec::new();
         }
 

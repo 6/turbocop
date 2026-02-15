@@ -34,8 +34,17 @@ impl Cop for StringLiterals {
         }
 
         let enforced_style = config.get_str("EnforcedStyle", "single_quotes");
+        // ConsistentQuotesInMultiline: when true, skip flagging individual strings
+        // that contain newlines (multiline strings), deferring to consistency checking.
+        let consistent_multiline = config.get_bool("ConsistentQuotesInMultiline", false);
 
         let content = string_node.content_loc().as_slice();
+
+        // When ConsistentQuotesInMultiline is enabled, skip multiline strings —
+        // these should be checked for consistency as a group (not individually)
+        if consistent_multiline && content.contains(&b'\n') {
+            return Vec::new();
+        }
 
         match enforced_style {
             "single_quotes" => {
@@ -84,5 +93,23 @@ mod tests {
         let diags = run_cop_full_with_config(&StringLiterals, source, config);
         assert!(!diags.is_empty(), "Should fire with EnforcedStyle:double_quotes on single-quoted string");
         assert!(diags[0].message.contains("double-quoted"));
+    }
+
+    #[test]
+    fn consistent_multiline_skips_multiline_strings() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("ConsistentQuotesInMultiline".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        // Multiline string with double quotes should not be flagged when ConsistentQuotesInMultiline is true
+        let source = b"x = \"hello\\nworld\"\n";
+        let diags = run_cop_full_with_config(&StringLiterals, source, config);
+        // The string contains \n (escape), so single quotes can't be used — shouldn't fire anyway
+        assert!(diags.is_empty());
     }
 }

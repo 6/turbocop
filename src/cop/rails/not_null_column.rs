@@ -23,8 +23,10 @@ impl Cop for NotNullColumn {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let database = config.get_str("Database", "");
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -50,6 +52,21 @@ impl Cop for NotNullColumn {
             return Vec::new();
         }
 
+        // If Database is mysql, skip TEXT columns (TEXT can't have default in MySQL)
+        if database == "mysql" {
+            if let Some(args) = call.arguments() {
+                let arg_list: Vec<_> = args.arguments().iter().collect();
+                // add_column :table, :column, :type — type is 3rd positional arg
+                if arg_list.len() >= 3 {
+                    if let Some(sym) = arg_list[2].as_symbol_node() {
+                        if sym.unescaped() == b"text" {
+                            return Vec::new();
+                        }
+                    }
+                }
+            }
+        }
+
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         vec![self.diagnostic(
@@ -65,4 +82,40 @@ impl Cop for NotNullColumn {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(NotNullColumn, "cops/rails/not_null_column");
+
+    #[test]
+    fn mysql_database_skips_text_columns() {
+        use crate::cop::CopConfig;
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "Database".to_string(),
+                serde_yml::Value::String("mysql".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"add_column :users, :bio, :text, null: false\n";
+        let diags = run_cop_full_with_config(&NotNullColumn, source, config);
+        assert!(diags.is_empty(), "MySQL should skip TEXT columns");
+    }
+
+    #[test]
+    fn mysql_database_still_flags_string_columns() {
+        use crate::cop::CopConfig;
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "Database".to_string(),
+                serde_yml::Value::String("mysql".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"add_column :users, :name, :string, null: false\n";
+        let diags = run_cop_full_with_config(&NotNullColumn, source, config);
+        assert!(!diags.is_empty(), "MySQL should still flag non-text columns");
+    }
 }

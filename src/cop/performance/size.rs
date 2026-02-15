@@ -35,6 +35,8 @@ impl Cop for Size {
             None => return Vec::new(),
         };
 
+        // Note: keyword_hash_node (keyword args like `foo(a: 1)`) intentionally not
+        // handled — keyword hashes cannot be receivers of `.count`.
         if recv.as_array_node().is_none() && recv.as_hash_node().is_none() {
             return Vec::new();
         }

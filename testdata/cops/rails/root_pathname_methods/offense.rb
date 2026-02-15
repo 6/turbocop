@@ -6,3 +6,6 @@ File.exist?(Rails.root.join("tmp", "restart.txt"))
 
 File.delete(Rails.root.join("tmp", "pids", "server.pid"))
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RootPathnameMethods: Use `Rails.root.join(...).read` instead of `File.read(Rails.root.join(...))`.
+
+::File.read(Rails.root.join("config", "routes.rb"))
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RootPathnameMethods: Use `Rails.root.join(...).read` instead of `File.read(Rails.root.join(...))`.

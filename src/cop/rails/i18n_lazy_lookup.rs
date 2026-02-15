@@ -1,3 +1,4 @@
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -18,8 +19,10 @@ impl Cop for I18nLazyLookup {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let style = config.get_str("EnforcedStyle", "lazy");
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -28,11 +31,10 @@ impl Cop for I18nLazyLookup {
         let method = call.name().as_slice();
 
         // Match I18n.t("key") or bare t("key")
+        // Handle both ConstantReadNode (I18n) and ConstantPathNode (::I18n)
         let is_i18n_t = if method == b"t" {
             if let Some(recv) = call.receiver() {
-                // I18n.t
-                recv.as_constant_read_node()
-                    .is_some_and(|c| c.name().as_slice() == b"I18n")
+                util::constant_name(&recv) == Some(b"I18n")
             } else {
                 // bare t()
                 true
@@ -55,25 +57,43 @@ impl Cop for I18nLazyLookup {
             return Vec::new();
         }
 
-        // Check if first arg is a string with 3+ dot-separated segments
         if let Some(s) = arg_list[0].as_string_node() {
             let key = s.unescaped();
-            let dot_count = key.iter().filter(|&&b| b == b'.').count();
-            if dot_count < 2 {
-                return Vec::new();
+
+            match style {
+                "explicit" => {
+                    // Flag lazy lookups (keys starting with '.')
+                    if !key.starts_with(b".") {
+                        return Vec::new();
+                    }
+                    let loc = node.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Use explicit lookup for i18n keys.".to_string(),
+                    )];
+                }
+                _ => {
+                    // "lazy" (default): flag explicit lookups with 3+ dot-separated segments
+                    let dot_count = key.iter().filter(|&&b| b == b'.').count();
+                    if dot_count < 2 {
+                        return Vec::new();
+                    }
+                    let loc = node.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Use lazy lookup for i18n keys.".to_string(),
+                    )];
+                }
             }
-        } else {
-            return Vec::new();
         }
 
-        let loc = node.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
-            source,
-            line,
-            column,
-            "Use lazy lookup for i18n keys.".to_string(),
-        )]
+        Vec::new()
     }
 }
 
@@ -81,4 +101,39 @@ impl Cop for I18nLazyLookup {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(I18nLazyLookup, "cops/rails/i18n_lazy_lookup");
+
+    #[test]
+    fn explicit_style_flags_lazy_key() {
+        use crate::cop::CopConfig;
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".to_string(),
+                serde_yml::Value::String("explicit".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"t('.success')\n";
+        let diags = run_cop_full_with_config(&I18nLazyLookup, source, config);
+        assert!(!diags.is_empty(), "explicit style should flag lazy lookups");
+    }
+
+    #[test]
+    fn explicit_style_allows_explicit_key() {
+        use crate::cop::CopConfig;
+        use crate::testutil::assert_cop_no_offenses_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".to_string(),
+                serde_yml::Value::String("explicit".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"t('books.create.success')\n";
+        assert_cop_no_offenses_full_with_config(&I18nLazyLookup, source, config);
+    }
 }

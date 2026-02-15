@@ -14,8 +14,10 @@ impl Cop for ArrayAlignment {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let style = config.get_str("EnforcedStyle", "with_first_element");
+        let indent_width = config.get_usize("IndentationWidth", 2);
         let array_node = match node.as_array_node() {
             Some(a) => a,
             None => return Vec::new(),
@@ -32,11 +34,22 @@ impl Cop for ArrayAlignment {
         };
         let (first_line, first_col) = source.offset_to_line_col(first.location().start_offset());
 
+        // For "with_fixed_indentation", expected column is array line indent + indent_width
+        let expected_col = match style {
+            "with_fixed_indentation" => {
+                let open_loc = array_node.opening_loc().unwrap_or(first.location());
+                let (open_line, _) = source.offset_to_line_col(open_loc.start_offset());
+                let open_line_bytes = source.lines().nth(open_line - 1).unwrap_or(b"");
+                crate::cop::util::indentation_of(open_line_bytes) + indent_width
+            }
+            _ => first_col, // "with_first_element" (default)
+        };
+
         let mut diagnostics = Vec::new();
 
         for elem in elements.iter().skip(1) {
             let (elem_line, elem_col) = source.offset_to_line_col(elem.location().start_offset());
-            if elem_line != first_line && elem_col != first_col {
+            if elem_line != first_line && elem_col != expected_col {
                 diagnostics.push(self.diagnostic(
                     source,
                     elem_line,
@@ -63,5 +76,27 @@ mod tests {
         let source = b"x = [1, 2, 3]\n";
         let diags = run_cop_full(&ArrayAlignment, source);
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn with_fixed_indentation_style() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("with_fixed_indentation".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Elements at fixed indentation (2 spaces) should be accepted
+        let src = b"x = [\n  1,\n  2\n]\n";
+        let diags = run_cop_full_with_config(&ArrayAlignment, src, config.clone());
+        assert!(diags.is_empty(), "with_fixed_indentation should accept 2-space indent");
+
+        // Elements aligned with first element at column 4 should be flagged
+        let src2 = b"x = [1,\n     2]\n";
+        let diags2 = run_cop_full_with_config(&ArrayAlignment, src2, config);
+        assert_eq!(diags2.len(), 1, "with_fixed_indentation should flag first-element alignment");
     }
 }

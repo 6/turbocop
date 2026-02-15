@@ -1,10 +1,11 @@
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct EnvironmentComparison;
 
-/// Check if a node is `Rails.env` (CallNode `env` on ConstantReadNode `Rails`).
+/// Check if a node is `Rails.env` (CallNode `env` on ConstantReadNode/ConstantPathNode `Rails`).
 fn is_rails_env(node: &ruby_prism::Node<'_>) -> bool {
     let call = match node.as_call_node() {
         Some(c) => c,
@@ -17,11 +18,8 @@ fn is_rails_env(node: &ruby_prism::Node<'_>) -> bool {
         Some(r) => r,
         None => return false,
     };
-    let const_node = match recv.as_constant_read_node() {
-        Some(c) => c,
-        None => return false,
-    };
-    const_node.name().as_slice() == b"Rails"
+    // Handle both ConstantReadNode (Rails) and ConstantPathNode (::Rails)
+    util::constant_name(&recv) == Some(b"Rails")
 }
 
 impl Cop for EnvironmentComparison {

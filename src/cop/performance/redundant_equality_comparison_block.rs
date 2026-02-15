@@ -24,8 +24,9 @@ impl Cop for RedundantEqualityComparisonBlock {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let allow_regexp_match = config.get_bool("AllowRegexpMatch", true);
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -101,11 +102,15 @@ impl Cop for RedundantEqualityComparisonBlock {
             None => return Vec::new(),
         };
 
-        if eq_call.name().as_slice() != b"==" {
+        let eq_method = eq_call.name().as_slice();
+        let is_equality = eq_method == b"==";
+        let is_regexp = eq_method == b"=~" || eq_method == b"match?";
+
+        if !is_equality && !(is_regexp && !allow_regexp_match) {
             return Vec::new();
         }
 
-        // Check that one side of == is the block parameter
+        // Check that one side of the comparison is the block parameter
         let recv = match eq_call.receiver() {
             Some(r) => r,
             None => return Vec::new(),
@@ -135,7 +140,12 @@ impl Cop for RedundantEqualityComparisonBlock {
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, "Use `grep` or `===` comparison instead of block with `==`.".to_string())]
+        let msg = if is_regexp {
+            "Use `grep` instead of block with regexp comparison."
+        } else {
+            "Use `grep` or `===` comparison instead of block with `==`."
+        };
+        vec![self.diagnostic(source, line, column, msg.to_string())]
     }
 }
 
@@ -143,4 +153,36 @@ impl Cop for RedundantEqualityComparisonBlock {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(RedundantEqualityComparisonBlock, "cops/performance/redundant_equality_comparison_block");
+
+    #[test]
+    fn config_allow_regexp_match_false_flags_match() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("AllowRegexpMatch".into(), serde_yml::Value::Bool(false)),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = b"items.all? { |item| item =~ /pattern/ }\n";
+        let diags = run_cop_full_with_config(&RedundantEqualityComparisonBlock, source, config);
+        assert!(!diags.is_empty(), "Should flag =~ when AllowRegexpMatch:false");
+    }
+
+    #[test]
+    fn config_allow_regexp_match_true_allows_match() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("AllowRegexpMatch".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = b"items.all? { |item| item =~ /pattern/ }\n";
+        let diags = run_cop_full_with_config(&RedundantEqualityComparisonBlock, source, config);
+        assert!(diags.is_empty(), "Should not flag =~ when AllowRegexpMatch:true");
+    }
 }

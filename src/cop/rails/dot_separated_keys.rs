@@ -1,3 +1,4 @@
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -31,11 +32,9 @@ impl Cop for DotSeparatedKeys {
         }
 
         // Receiver can be I18n or absent (Rails helper `t`)
+        // Handle both ConstantReadNode (I18n) and ConstantPathNode (::I18n)
         if let Some(recv) = call.receiver() {
-            let is_i18n = recv
-                .as_constant_read_node()
-                .is_some_and(|c| c.name().as_slice() == b"I18n");
-            if !is_i18n {
+            if util::constant_name(&recv) != Some(b"I18n") {
                 return Vec::new();
             }
         }

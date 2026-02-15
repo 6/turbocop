@@ -23,8 +23,11 @@ impl Cop for ImplicitSubject {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // Config: EnforcedStyle — "single_line_only" (default), "single_statement_only", or "disallow"
+        let enforced_style = config.get_str("EnforcedStyle", "single_line_only");
+
         // Default EnforcedStyle is single_line_only:
         // Flag `is_expected` in multi-line examples, allow in single-line.
         // Also flag `should` / `should_not` in multi-line examples.
@@ -67,6 +70,16 @@ impl Cop for ImplicitSubject {
             .map(|s| &line_bytes[s..])
             .unwrap_or(b"");
 
+        // "disallow" style: flag all implicit subject usage
+        if enforced_style == "disallow" {
+            return vec![self.diagnostic(
+                source,
+                line,
+                column,
+                "Don't use implicit subject.".to_string(),
+            )];
+        }
+
         // If the line starts with `it {` or `it{`, it's a single-line example — OK
         // If the line IS `is_expected...` or `should...`, it's inside a multi-line block
         if trimmed.starts_with(b"it ") || trimmed.starts_with(b"it{") {
@@ -91,4 +104,22 @@ impl Cop for ImplicitSubject {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(ImplicitSubject, "cops/rspec/implicit_subject");
+
+    #[test]
+    fn disallow_style_flags_single_line_too() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("disallow".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"it { is_expected.to eq(1) }\n";
+        let diags = crate::testutil::run_cop_full_with_config(&ImplicitSubject, source, config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("Don't use implicit subject"));
+    }
 }

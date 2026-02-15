@@ -17,3 +17,9 @@ RSpec.describe Comment do
   ^^^^^^^^^^^^^^^^^^^^ RSpec/EmptyLineAfterFinalLet: Add an empty line after the last `let`.
   specify { expect(foo).to eq('foo') }
 end
+
+::RSpec.describe Widget do
+  let(:w) { Widget.new }
+  ^^^^^^^^^^^^^^^^^^^^^^ RSpec/EmptyLineAfterFinalLet: Add an empty line after the last `let`.
+  it { expect(w).to be_valid }
+end

@@ -1,3 +1,5 @@
+// Handles both as_constant_read_node and as_constant_path_node (qualified constants like ::OpenStruct)
+use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -20,16 +22,16 @@ impl Cop for OpenStruct {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let const_node = match node.as_constant_read_node() {
-            Some(c) => c,
+        let name = match constant_name(node) {
+            Some(n) => n,
             None => return Vec::new(),
         };
 
-        if const_node.name().as_slice() != b"OpenStruct" {
+        if name != b"OpenStruct" {
             return Vec::new();
         }
 
-        let loc = const_node.location();
+        let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         vec![self.diagnostic(source, line, column, "Use `Struct` instead of `OpenStruct`.".to_string())]
     }

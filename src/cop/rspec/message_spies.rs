@@ -24,8 +24,10 @@ impl Cop for MessageSpies {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // Config: EnforcedStyle — "have_received" (default) or "receive"
+        let enforced_style = config.get_str("EnforcedStyle", "have_received");
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -66,21 +68,38 @@ impl Cop for MessageSpies {
             None => return Vec::new(),
         };
 
-        if matcher_call.name().as_slice() != b"receive" || matcher_call.receiver().is_some() {
+        let matcher_name = matcher_call.name().as_slice();
+        if matcher_call.receiver().is_some() {
             return Vec::new();
         }
 
-        let loc = matcher_call.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        // Only flag the `receive` part
-        let len = b"receive".len();
-        let _ = len;
-        vec![self.diagnostic(
-            source,
-            line,
-            column,
-            "Prefer `have_received` for setting message expectations. Setup the object as a spy using `allow` or `instance_spy`.".to_string(),
-        )]
+        if enforced_style == "receive" {
+            // "receive" style: flag `have_received`, prefer `receive`
+            if matcher_name != b"have_received" {
+                return Vec::new();
+            }
+            let loc = matcher_call.location();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            vec![self.diagnostic(
+                source,
+                line,
+                column,
+                "Prefer `receive` for setting message expectations.".to_string(),
+            )]
+        } else {
+            // Default "have_received" style: flag `receive`, prefer `have_received`
+            if matcher_name != b"receive" {
+                return Vec::new();
+            }
+            let loc = matcher_call.location();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            vec![self.diagnostic(
+                source,
+                line,
+                column,
+                "Prefer `have_received` for setting message expectations. Setup the object as a spy using `allow` or `instance_spy`.".to_string(),
+            )]
+        }
     }
 }
 
@@ -102,4 +121,22 @@ fn find_root_call<'a>(node: &ruby_prism::Node<'a>) -> Option<ruby_prism::CallNod
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(MessageSpies, "cops/rspec/message_spies");
+
+    #[test]
+    fn receive_style_flags_have_received() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("receive".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"expect(foo).to have_received(:bar)\n";
+        let diags = crate::testutil::run_cop_full_with_config(&MessageSpies, source, config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("receive"));
+    }
 }

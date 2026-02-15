@@ -1,8 +1,8 @@
-User.where(name: "foo").first
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/FindBy: Use `find_by` instead of `where.first`.
+User.where(name: "foo").take
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/FindBy: Use `find_by` instead of `where.take`.
 
-Post.where(slug: "hello-world").first
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/FindBy: Use `find_by` instead of `where.first`.
+Post.where(slug: "hello-world").take
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/FindBy: Use `find_by` instead of `where.take`.
 
-Order.where(status: "pending").first
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/FindBy: Use `find_by` instead of `where.first`.
+Order.where(status: "pending").take
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/FindBy: Use `find_by` instead of `where.take`.

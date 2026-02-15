@@ -29,9 +29,11 @@ impl Cop for HookArgument {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // Default EnforcedStyle is :implicit — flag :each and :example arguments
+        // Config: EnforcedStyle — "implicit" (default), "each", or "example"
+        let enforced_style = config.get_str("EnforcedStyle", "implicit");
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -55,19 +57,70 @@ impl Cop for HookArgument {
             return Vec::new();
         }
 
-        let args = match call.arguments() {
-            Some(a) => a,
-            None => return Vec::new(), // No args = implicit style, fine
-        };
+        let args = call.arguments();
+        let arg_list: Vec<_> = args
+            .map(|a| a.arguments().iter().collect::<Vec<_>>())
+            .unwrap_or_default();
 
-        let arg_list: Vec<_> = args.arguments().iter().collect();
+        // For non-implicit styles with no arguments, flag the implicit usage
+        if enforced_style == "each" || enforced_style == "example" {
+            // No args = implicit — should have explicit arg
+            let has_scope_arg = if arg_list.is_empty() {
+                false
+            } else if let Some(sym) = arg_list[0].as_symbol_node() {
+                let val = sym.unescaped();
+                // Only flag if missing expected scope arg
+                val == b"each" || val == b"example"
+                    || NON_EXAMPLE_SCOPES.iter().any(|s| val == *s)
+            } else {
+                false
+            };
 
-        // Ignore hooks with more than one argument
-        if arg_list.len() > 1 {
+            if !has_scope_arg {
+                let expected = enforced_style;
+                let hook_name = std::str::from_utf8(method_name).unwrap_or("before");
+                let loc = call.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    format!("Use `{hook_name}(:{expected})` instead of `{hook_name}`."),
+                )];
+            }
+
+            // Check for wrong style: e.g., enforced "each" but got :example
+            if !arg_list.is_empty() {
+                if let Some(sym) = arg_list[0].as_symbol_node() {
+                    let val = sym.unescaped();
+                    if NON_EXAMPLE_SCOPES.iter().any(|s| val == *s) {
+                        return Vec::new(); // :suite/:context/:all are fine
+                    }
+                    let val_str = std::str::from_utf8(val).unwrap_or("");
+                    if val_str != enforced_style {
+                        let hook_name = std::str::from_utf8(method_name).unwrap_or("before");
+                        let loc = call.location();
+                        let (line, column) = source.offset_to_line_col(loc.start_offset());
+                        return vec![self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            format!("Use `{hook_name}(:{enforced_style})` instead of `{hook_name}(:{val_str})`."),
+                        )];
+                    }
+                }
+            }
+
             return Vec::new();
         }
 
+        // Default: "implicit" style — flag :each and :example arguments
         if arg_list.is_empty() {
+            return Vec::new();
+        }
+
+        // Ignore hooks with more than one argument
+        if arg_list.len() > 1 {
             return Vec::new();
         }
 
@@ -106,4 +159,39 @@ impl Cop for HookArgument {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(HookArgument, "cops/rspec/hook_argument");
+
+    #[test]
+    fn each_style_flags_implicit() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("each".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"before do\n  setup\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&HookArgument, source, config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("before(:each)"));
+    }
+
+    #[test]
+    fn each_style_accepts_each() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("each".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"before(:each) do\n  setup\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&HookArgument, source, config);
+        assert!(diags.is_empty());
+    }
 }

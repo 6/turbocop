@@ -16,9 +16,10 @@ fn check_rescue_node(
 
     match enforced_style {
         "implicit" => {
+            // Handle both ConstantReadNode and constant_path_node (e.g. ::StandardError)
             if exceptions.len() == 1 {
-                if let Some(const_read) = exceptions[0].as_constant_read_node() {
-                    if const_read.name().as_slice() == b"StandardError" {
+                if let Some(name) = crate::cop::util::constant_name(&exceptions[0]) {
+                    if name == b"StandardError" {
                         let kw_loc = rescue_node.keyword_loc();
                         let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
                         diags.push(cop.diagnostic(source, line, column, "Omit the error class when rescuing `StandardError` by itself.".to_string()));

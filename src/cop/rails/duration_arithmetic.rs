@@ -1,3 +1,4 @@
+use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -54,11 +55,8 @@ impl Cop for DurationArithmetic {
             Some(r) => r,
             None => return Vec::new(),
         };
-        let const_read = match time_recv.as_constant_read_node() {
-            Some(c) => c,
-            None => return Vec::new(),
-        };
-        if const_read.name().as_slice() != b"Time" {
+        // Handle both ConstantReadNode (Time) and ConstantPathNode (::Time)
+        if util::constant_name(&time_recv) != Some(b"Time") {
             return Vec::new();
         }
 

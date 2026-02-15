@@ -18,8 +18,18 @@ impl Cop for Blank {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // Sub-cop toggles
+        let nil_or_empty = config.get_bool("NilOrEmpty", true);
+        let not_present = config.get_bool("NotPresent", true);
+        let unless_present = config.get_bool("UnlessPresent", true);
+        let _ = (nil_or_empty, unless_present); // reserved for future sub-cop checks
+
+        if !not_present {
+            return Vec::new();
+        }
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),

@@ -1,4 +1,4 @@
-use crate::cop::util::{is_rspec_example_group, is_rspec_let, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::util::{self, is_rspec_example_group, is_rspec_let, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -32,13 +32,9 @@ impl Cop for MultipleMemoizedHelpers {
 
         let method_name = call.name().as_slice();
 
-        // Check for example group calls (describe, context, etc.)
+        // Check for example group calls (describe, context, etc., including ::RSpec.describe)
         let is_example_group = if let Some(recv) = call.receiver() {
-            if let Some(rc) = recv.as_constant_read_node() {
-                rc.name().as_slice() == b"RSpec" && method_name == b"describe"
-            } else {
-                false
-            }
+            util::constant_name(&recv).map_or(false, |n| n == b"RSpec") && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name)
         };
@@ -56,8 +52,10 @@ impl Cop for MultipleMemoizedHelpers {
         };
 
         let max = config.get_usize("Max", 5);
+        // Config: AllowSubject — when true (default), don't count subject declarations
+        let allow_subject = config.get_bool("AllowSubject", true);
 
-        // Count direct let/let! declarations in this block
+        // Count direct let/let!/subject/subject! declarations in this block
         let body = match block.body() {
             Some(b) => b,
             None => return Vec::new(),
@@ -71,8 +69,13 @@ impl Cop for MultipleMemoizedHelpers {
         let mut count = 0;
         for stmt in stmts.body().iter() {
             if let Some(c) = stmt.as_call_node() {
-                if c.receiver().is_none() && is_rspec_let(c.name().as_slice()) {
-                    count += 1;
+                if c.receiver().is_none() {
+                    let name = c.name().as_slice();
+                    if is_rspec_let(name) {
+                        count += 1;
+                    } else if !allow_subject && util::is_rspec_subject(name) {
+                        count += 1;
+                    }
                 }
             }
         }
@@ -96,4 +99,40 @@ impl Cop for MultipleMemoizedHelpers {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(MultipleMemoizedHelpers, "cops/rspec/multiple_memoized_helpers");
+
+    #[test]
+    fn allow_subject_false_counts_subject() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("AllowSubject".into(), serde_yml::Value::Bool(false)),
+                ("Max".into(), serde_yml::Value::Number(serde_yml::Number::from(2))),
+            ]),
+            ..CopConfig::default()
+        };
+        // 2 lets + 1 subject = 3 helpers, max is 2
+        let source = b"describe Foo do\n  subject(:bar) { 1 }\n  let(:a) { 1 }\n  let(:b) { 2 }\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&MultipleMemoizedHelpers, source, config);
+        assert_eq!(diags.len(), 1);
+    }
+
+    #[test]
+    fn allow_subject_true_does_not_count_subject() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("AllowSubject".into(), serde_yml::Value::Bool(true)),
+                ("Max".into(), serde_yml::Value::Number(serde_yml::Number::from(2))),
+            ]),
+            ..CopConfig::default()
+        };
+        // 2 lets + 1 subject = 2 counted helpers (subject excluded), max is 2
+        let source = b"describe Foo do\n  subject(:bar) { 1 }\n  let(:a) { 1 }\n  let(:b) { 2 }\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&MultipleMemoizedHelpers, source, config);
+        assert!(diags.is_empty());
+    }
 }

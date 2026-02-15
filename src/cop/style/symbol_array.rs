@@ -33,6 +33,12 @@ impl Cop for SymbolArray {
 
         let elements = array_node.elements();
         let min_size = config.get_usize("MinSize", 2);
+        let enforced_style = config.get_str("EnforcedStyle", "percent");
+
+        // "brackets" style: never flag bracket arrays — they ARE the preferred style
+        if enforced_style == "brackets" {
+            return Vec::new();
+        }
 
         if elements.len() < min_size {
             return Vec::new();
@@ -74,5 +80,21 @@ mod tests {
         let source2 = b"x = [:a, :b, :c, :d]\n";
         let diags2 = run_cop_full_with_config(&SymbolArray, source2, config);
         assert!(diags2.is_empty(), "Should not fire on 4-element symbol array with MinSize:5");
+    }
+
+    #[test]
+    fn brackets_style_allows_bracket_arrays() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("brackets".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = b"x = [:a, :b, :c]\n";
+        let diags = run_cop_full_with_config(&SymbolArray, source, config);
+        assert!(diags.is_empty(), "Should not flag brackets with brackets style");
     }
 }

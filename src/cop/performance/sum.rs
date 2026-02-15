@@ -18,8 +18,10 @@ impl Cop for Sum {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let only_sum_or_with_initial_value =
+            config.get_bool("OnlySumOrWithInitialValue", false);
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -50,7 +52,12 @@ impl Cop for Sum {
         let is_sum_pattern = match arg_nodes.len() {
             1 => {
                 // inject(:+) or reduce(:+)
-                is_plus_symbol(&arg_nodes[0])
+                // OnlySumOrWithInitialValue: when true, skip this pattern (no initial value)
+                if only_sum_or_with_initial_value {
+                    false
+                } else {
+                    is_plus_symbol(&arg_nodes[0])
+                }
             }
             2 => {
                 // inject(0, :+) or reduce(0, :+)
@@ -96,6 +103,29 @@ fn is_zero_literal(node: &ruby_prism::Node<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::run_cop_full_with_config;
 
     crate::cop_fixture_tests!(Sum, "cops/performance/sum");
+
+    #[test]
+    fn only_sum_or_with_initial_value_skips_single_arg() {
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "OnlySumOrWithInitialValue".into(),
+                serde_yml::Value::Bool(true),
+            )]),
+            ..CopConfig::default()
+        };
+        // inject(:+) without initial value — should NOT be flagged
+        let src = b"[1, 2, 3].inject(:+)\n";
+        let diags = run_cop_full_with_config(&Sum, src, config.clone());
+        assert!(diags.is_empty(), "OnlySumOrWithInitialValue should skip inject(:+)");
+
+        // inject(0, :+) with initial value — SHOULD be flagged
+        let src2 = b"[1, 2, 3].inject(0, :+)\n";
+        let diags2 = run_cop_full_with_config(&Sum, src2, config);
+        assert_eq!(diags2.len(), 1, "OnlySumOrWithInitialValue should still flag inject(0, :+)");
+    }
 }

@@ -24,15 +24,51 @@ impl Cop for ChangeByZero {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // Look for `.by(0)` call whose receiver is `change(...)` or similar
+        // Config: NegatedMatcher — name of a custom negated matcher (e.g. "not_change")
+        let negated_matcher = config.get_str("NegatedMatcher", "");
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
         };
 
-        if call.name().as_slice() != b"by" {
+        let method_name = call.name().as_slice();
+
+        // Check for `not_to change { }` when NegatedMatcher is set
+        if !negated_matcher.is_empty() {
+            if method_name == b"not_to" || method_name == b"to_not" {
+                if let Some(args) = call.arguments() {
+                    let arg_list: Vec<_> = args.arguments().iter().collect();
+                    if !arg_list.is_empty() {
+                        if let Some(inner) = arg_list[0].as_call_node() {
+                            let inner_name = inner.name().as_slice();
+                            if (inner_name == b"change"
+                                || inner_name == b"a_block_changing"
+                                || inner_name == b"changing")
+                                && inner.receiver().is_none()
+                            {
+                                let loc = inner.location();
+                                let (line, column) =
+                                    source.offset_to_line_col(loc.start_offset());
+                                return vec![self.diagnostic(
+                                    source,
+                                    line,
+                                    column,
+                                    format!(
+                                        "Prefer `{negated_matcher}` over `not_to change`."
+                                    ),
+                                )];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Look for `.by(0)` call
+        if method_name != b"by" {
             return Vec::new();
         }
 
@@ -85,12 +121,12 @@ impl Cop for ChangeByZero {
         // Flag from the change call to the end of .by(0)
         let change_loc = change_call.location();
         let (line, column) = source.offset_to_line_col(change_loc.start_offset());
-        vec![self.diagnostic(
-            source,
-            line,
-            column,
-            "Prefer `not_to change` over `to change.by(0)`.".to_string(),
-        )]
+        let msg = if negated_matcher.is_empty() {
+            "Prefer `not_to change` over `to change.by(0)`.".to_string()
+        } else {
+            format!("Prefer `{negated_matcher}` over `to change.by(0)`.")
+        };
+        vec![self.diagnostic(source, line, column, msg)]
     }
 }
 
@@ -98,4 +134,29 @@ impl Cop for ChangeByZero {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(ChangeByZero, "cops/rspec/change_by_zero");
+
+    #[test]
+    fn negated_matcher_flags_not_to_change() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "NegatedMatcher".into(),
+                serde_yml::Value::String("not_change".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"expect { x }.not_to change { y }\n";
+        let diags = crate::testutil::run_cop_full_with_config(&ChangeByZero, source, config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("not_change"));
+    }
+
+    #[test]
+    fn negated_matcher_empty_does_not_flag_not_to_change() {
+        let source = b"expect { x }.not_to change { y }\n";
+        let diags = crate::testutil::run_cop_full(&ChangeByZero, source);
+        assert!(diags.is_empty());
+    }
 }

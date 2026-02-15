@@ -38,16 +38,36 @@ impl Cop for SkipsModelValidations {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let forbidden = config.get_string_array("ForbiddenMethods");
+        let allowed = config.get_string_array("AllowedMethods");
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
         };
         let method_name = call.name().as_slice();
-        if !SKIP_METHODS.contains(&method_name) {
+        let method_str = std::str::from_utf8(method_name).unwrap_or("");
+
+        // Use ForbiddenMethods if configured, otherwise fall back to hardcoded list
+        let is_forbidden = if let Some(ref list) = forbidden {
+            list.iter().any(|m| m == method_str)
+        } else {
+            SKIP_METHODS.contains(&method_name)
+        };
+
+        if !is_forbidden {
             return Vec::new();
         }
+
+        // Skip if method is in AllowedMethods
+        if let Some(ref list) = allowed {
+            if list.iter().any(|m| m == method_str) {
+                return Vec::new();
+            }
+        }
+
         if call.receiver().is_none() {
             return Vec::new();
         }

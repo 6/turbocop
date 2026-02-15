@@ -24,6 +24,8 @@ impl Cop for MultilineOperationIndentation {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let style = config.get_str("EnforcedStyle", "indented");
+
         // Check CallNode with operator methods (binary operators are parsed as calls)
         if let Some(call_node) = node.as_call_node() {
             let method_name = call_node.name().as_slice();
@@ -62,7 +64,14 @@ impl Cop for MultilineOperationIndentation {
 
             let recv_line_bytes = source.lines().nth(recv_line - 1).unwrap_or(b"");
             let recv_indent = indentation_of(recv_line_bytes);
-            let expected = recv_indent + width;
+            let expected = match style {
+                "aligned" => {
+                    // Align with the receiver's column
+                    let (_, recv_col) = source.offset_to_line_col(recv_loc.start_offset());
+                    recv_col
+                }
+                _ => recv_indent + width, // "indented" (default)
+            };
 
             if arg_col != expected {
                 return vec![self.diagnostic(
@@ -85,6 +94,7 @@ impl Cop for MultilineOperationIndentation {
                 &and_node.left(),
                 &and_node.right(),
                 config,
+                style,
             );
         }
 
@@ -95,6 +105,7 @@ impl Cop for MultilineOperationIndentation {
                 &or_node.left(),
                 &or_node.right(),
                 config,
+                style,
             );
         }
 
@@ -109,8 +120,9 @@ impl MultilineOperationIndentation {
         left: &ruby_prism::Node<'_>,
         right: &ruby_prism::Node<'_>,
         config: &CopConfig,
+        style: &str,
     ) -> Vec<Diagnostic> {
-        let (left_line, _) = source.offset_to_line_col(left.location().start_offset());
+        let (left_line, left_col) = source.offset_to_line_col(left.location().start_offset());
         let (right_line, right_col) = source.offset_to_line_col(right.location().start_offset());
 
         if right_line == left_line {
@@ -121,7 +133,10 @@ impl MultilineOperationIndentation {
 
         let left_line_bytes = source.lines().nth(left_line - 1).unwrap_or(b"");
         let left_indent = indentation_of(left_line_bytes);
-        let expected = left_indent + width;
+        let expected = match style {
+            "aligned" => left_col,
+            _ => left_indent + width, // "indented" (default)
+        };
 
         if right_col != expected {
             return vec![self.diagnostic(
@@ -155,5 +170,27 @@ mod tests {
         let source = b"x = 1 + 2\n";
         let diags = run_cop_full(&MultilineOperationIndentation, source);
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn aligned_style() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("aligned".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Continuation aligned with the left operand
+        let src = b"x = a &&\n    b\n";
+        let diags = run_cop_full_with_config(&MultilineOperationIndentation, src, config.clone());
+        assert!(diags.is_empty(), "aligned style should accept operand-aligned continuation");
+
+        // Continuation indented (default style) should be flagged with aligned style
+        let src2 = b"x = a &&\n  b\n";
+        let diags2 = run_cop_full_with_config(&MultilineOperationIndentation, src2, config);
+        assert_eq!(diags2.len(), 1, "aligned style should flag indented continuation");
     }
 }

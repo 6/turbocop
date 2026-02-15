@@ -13,3 +13,6 @@ end
 fdescribe 'test' do
 ^^^^^^^^^^^^^^^^ RSpec/Focus: Focused spec found.
 end
+::RSpec.describe 'test', :focus do
+                         ^^^^^^ RSpec/Focus: Focused spec found.
+end

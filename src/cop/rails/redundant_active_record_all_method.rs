@@ -26,8 +26,10 @@ impl Cop for RedundantActiveRecordAllMethod {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let allowed_receivers = config.get_string_array("AllowedReceivers");
+
         let chain = match as_method_chain(node) {
             Some(c) => c,
             None => return Vec::new(),
@@ -39,6 +41,16 @@ impl Cop for RedundantActiveRecordAllMethod {
 
         if !REDUNDANT_AFTER_ALL.contains(&chain.outer_method) {
             return Vec::new();
+        }
+
+        // Skip if receiver of the `all` call is in AllowedReceivers
+        if let Some(ref receivers) = allowed_receivers {
+            if let Some(recv) = chain.inner_call.receiver() {
+                let recv_str = std::str::from_utf8(recv.location().as_slice()).unwrap_or("");
+                if receivers.iter().any(|r| r == recv_str) {
+                    return Vec::new();
+                }
+            }
         }
 
         let loc = node.location();

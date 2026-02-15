@@ -18,8 +18,10 @@ impl Cop for Delegate {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let enforce_for_prefixed = config.get_bool("EnforceForPrefixed", true);
+
         let def_node = match node.as_def_node() {
             Some(d) => d,
             None => return Vec::new(),
@@ -102,6 +104,19 @@ impl Cop for Delegate {
         // Should not have a block
         if call.block().is_some() {
             return Vec::new();
+        }
+
+        // When EnforceForPrefixed is false, skip prefixed delegations
+        // (e.g., `def foo_bar; foo.bar; end` where method starts with receiver name)
+        if !enforce_for_prefixed {
+            if let Some(recv_call) = receiver.as_call_node() {
+                let recv_name = recv_call.name().as_slice();
+                let mut prefix = recv_name.to_vec();
+                prefix.push(b'_');
+                if def_name.starts_with(&prefix) {
+                    return Vec::new();
+                }
+            }
         }
 
         let loc = node.location();

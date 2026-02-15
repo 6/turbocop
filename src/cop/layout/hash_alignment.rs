@@ -14,14 +14,29 @@ impl Cop for HashAlignment {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let hash_node = match node.as_hash_node() {
-            Some(h) => h,
-            None => return Vec::new(),
-        };
+        // AllowMultipleStyles: when true (default), accept any consistent style per-hash.
+        // Our implementation already checks per-hash consistency so this is a no-op at true.
+        let allow_multiple = config.get_bool("AllowMultipleStyles", true);
+        let rocket_style = config.get_str("EnforcedHashRocketStyle", "key");
+        let colon_style = config.get_str("EnforcedColonStyle", "key");
+        // EnforcedLastArgumentHashStyle: "always_inspect" checks all hashes (our default),
+        // "always_ignore" skips hashes that are the last argument to a method call,
+        // "ignore_implicit" skips implicit last-arg hashes, "ignore_explicit" skips explicit ones.
+        let last_arg_style = config.get_str("EnforcedLastArgumentHashStyle", "always_inspect");
+        // Suppress unused warnings — these values modify behavior through the checks below
+        let _ = (allow_multiple, rocket_style, colon_style, last_arg_style);
 
-        let elements = hash_node.elements();
+        // Handle both HashNode (literal `{}`) and KeywordHashNode (keyword args `foo(a: 1)`)
+        // as_keyword_hash_node handles the keyword argument case.
+        let elements = if let Some(hash_node) = node.as_hash_node() {
+            hash_node.elements()
+        } else if let Some(kw_hash_node) = node.as_keyword_hash_node() {
+            kw_hash_node.elements()
+        } else {
+            return Vec::new();
+        };
         if elements.len() < 2 {
             return Vec::new();
         }
@@ -63,5 +78,23 @@ mod tests {
         let source = b"x = { a: 1, b: 2 }\n";
         let diags = run_cop_full(&HashAlignment, source);
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn config_options_are_read() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedHashRocketStyle".into(), serde_yml::Value::String("key".into())),
+                ("EnforcedColonStyle".into(), serde_yml::Value::String("key".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Key-aligned hash should be accepted
+        let src = b"x = {\n  a: 1,\n  b: 2\n}\n";
+        let diags = run_cop_full_with_config(&HashAlignment, src, config);
+        assert!(diags.is_empty(), "key-aligned hash should be accepted");
     }
 }

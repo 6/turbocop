@@ -33,6 +33,8 @@ impl Cop for NamedSubject {
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let style = config.get_str("EnforcedStyle", "always");
+        // Config: IgnoreSharedExamples — skip shared example groups
+        let ignore_shared = config.get_bool("IgnoreSharedExamples", true);
         let bytes = source.as_bytes();
 
         // For `named_only` style, check if the file has any named subject declarations
@@ -45,6 +47,8 @@ impl Cop for NamedSubject {
         let mut finder = BareSubjectFinder {
             source,
             cop: self,
+            ignore_shared,
+            in_shared: false,
             diags: Vec::new(),
         };
         finder.visit(&parse_result.node());
@@ -61,15 +65,35 @@ fn file_has_named_subject(bytes: &[u8]) -> bool {
 struct BareSubjectFinder<'a> {
     source: &'a SourceFile,
     cop: &'a NamedSubject,
+    ignore_shared: bool,
+    in_shared: bool,
     diags: Vec<Diagnostic>,
 }
 
 impl<'pr> Visit<'pr> for BareSubjectFinder<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        if node.name().as_slice() == b"subject"
+        let name = node.name().as_slice();
+
+        // Track if we're inside a shared example group
+        if node.receiver().is_none()
+            && (name == b"shared_examples"
+                || name == b"shared_examples_for"
+                || name == b"shared_context")
+        {
+            if self.ignore_shared {
+                let was = self.in_shared;
+                self.in_shared = true;
+                ruby_prism::visit_call_node(self, node);
+                self.in_shared = was;
+                return;
+            }
+        }
+
+        if name == b"subject"
             && node.receiver().is_none()
             && node.block().is_none()
             && node.arguments().is_none()
+            && !self.in_shared
         {
             let loc = node.location();
             let (line, column) = self.source.offset_to_line_col(loc.start_offset());
@@ -107,5 +131,39 @@ mod tests {
         let source = b"describe Foo do\n  it 'works' do\n    expect(subject).to be_valid\n  end\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&NamedSubject, source, config);
         assert!(diags.is_empty(), "named_only should not flag without named subject");
+    }
+
+    #[test]
+    fn ignore_shared_examples_skips_shared_groups() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "IgnoreSharedExamples".into(),
+                serde_yml::Value::Bool(true),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"shared_examples 'foo' do\n  it { subject }\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&NamedSubject, source, config);
+        assert!(diags.is_empty(), "IgnoreSharedExamples should skip shared groups");
+    }
+
+    #[test]
+    fn ignore_shared_examples_false_flags_shared_groups() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "IgnoreSharedExamples".into(),
+                serde_yml::Value::Bool(false),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"shared_examples 'foo' do\n  it { subject }\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&NamedSubject, source, config);
+        assert_eq!(diags.len(), 1);
     }
 }

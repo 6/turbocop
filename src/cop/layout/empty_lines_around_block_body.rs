@@ -15,20 +15,36 @@ impl Cop for EmptyLinesAroundBlockBody {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let style = config.get_str("EnforcedStyle", "no_empty_lines");
         let block_node = match node.as_block_node() {
             Some(b) => b,
             None => return Vec::new(),
         };
 
-        util::check_empty_lines_around_body(
-            self.name(),
-            source,
-            block_node.opening_loc().start_offset(),
-            block_node.closing_loc().start_offset(),
-            "block",
-        )
+        match style {
+            "empty_lines" => {
+                // Require empty lines at beginning and end of block body
+                util::check_missing_empty_lines_around_body(
+                    self.name(),
+                    source,
+                    block_node.opening_loc().start_offset(),
+                    block_node.closing_loc().start_offset(),
+                    "block",
+                )
+            }
+            _ => {
+                // "no_empty_lines" (default): flag extra empty lines
+                util::check_empty_lines_around_body(
+                    self.name(),
+                    source,
+                    block_node.opening_loc().start_offset(),
+                    block_node.closing_loc().start_offset(),
+                    "block",
+                )
+            }
+        }
     }
 }
 
@@ -54,5 +70,39 @@ mod tests {
         let src = b"items.each do |x|\n\n  puts x\n\nend\n";
         let diags = run_cop_full(&EmptyLinesAroundBlockBody, src);
         assert_eq!(diags.len(), 2, "Should flag both beginning and end blank lines");
+    }
+
+    #[test]
+    fn empty_lines_style_requires_blank_lines() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("empty_lines".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Block WITHOUT blank lines at beginning/end
+        let src = b"items.each do |x|\n  puts x\nend\n";
+        let diags = run_cop_full_with_config(&EmptyLinesAroundBlockBody, src, config);
+        assert_eq!(diags.len(), 2, "empty_lines style should require blank lines at both ends");
+    }
+
+    #[test]
+    fn empty_lines_style_accepts_blank_lines() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("empty_lines".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Block WITH blank lines at beginning/end
+        let src = b"items.each do |x|\n\n  puts x\n\nend\n";
+        let diags = run_cop_full_with_config(&EmptyLinesAroundBlockBody, src, config);
+        assert!(diags.is_empty(), "empty_lines style should accept blank lines");
     }
 }

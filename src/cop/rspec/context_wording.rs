@@ -58,6 +58,20 @@ impl Cop for ContextWording {
             Err(_) => return Vec::new(),
         };
 
+        // Config: AllowedPatterns — regex patterns to skip
+        let allowed_patterns = config.get_string_array("AllowedPatterns");
+
+        // Check if description matches any allowed pattern
+        if let Some(ref patterns) = allowed_patterns {
+            for pat in patterns {
+                if let Ok(re) = regex::Regex::new(pat) {
+                    if re.is_match(content_str) {
+                        return Vec::new();
+                    }
+                }
+            }
+        }
+
         // Read Prefixes from config, fall back to defaults
         let config_prefixes = config.get_string_array("Prefixes");
         let prefixes: Vec<&str> = if let Some(ref arr) = config_prefixes {
@@ -100,4 +114,42 @@ impl Cop for ContextWording {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(ContextWording, "cops/rspec/context_wording");
+
+    #[test]
+    fn allowed_patterns_skips_matching_description() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "AllowedPatterns".into(),
+                serde_yml::Value::Sequence(vec![
+                    serde_yml::Value::String("^if ".into()),
+                ]),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"context 'if the user is logged in' do\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&ContextWording, source, config);
+        assert!(diags.is_empty(), "AllowedPatterns should skip matching descriptions");
+    }
+
+    #[test]
+    fn allowed_patterns_does_not_skip_non_matching() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "AllowedPatterns".into(),
+                serde_yml::Value::Sequence(vec![
+                    serde_yml::Value::String("^if ".into()),
+                ]),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"context 'the user is logged in' do\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&ContextWording, source, config);
+        assert_eq!(diags.len(), 1);
+    }
 }

@@ -18,3 +18,10 @@ rescue StandardError
 ^^^^^^ Style/RescueStandardError: Omit the error class when rescuing `StandardError` by itself.
   two
 end
+
+begin
+  three
+rescue ::StandardError
+^^^^^^ Style/RescueStandardError: Omit the error class when rescuing `StandardError` by itself.
+  four
+end

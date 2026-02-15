@@ -15,3 +15,9 @@ RSpec.describe Comment do
 
   specify { expect(foo).to eq('bar') }
 end
+
+::RSpec.describe Widget do
+  let(:w) { Widget.new }
+
+  it { expect(w).to be_valid }
+end

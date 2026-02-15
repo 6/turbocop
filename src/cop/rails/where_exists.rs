@@ -19,7 +19,23 @@ impl Cop for WhereExists {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
+    ) -> Vec<Diagnostic> {
+        let style = config.get_str("EnforcedStyle", "exists");
+
+        match style {
+            "where" => self.check_where_style(source, node),
+            _ => self.check_exists_style(source, node),
+        }
+    }
+}
+
+impl WhereExists {
+    /// "exists" style: flag `where(...).exists?`, suggest `exists?(...)`
+    fn check_exists_style(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
     ) -> Vec<Diagnostic> {
         let chain = match as_method_chain(node) {
             Some(c) => c,
@@ -48,10 +64,93 @@ impl Cop for WhereExists {
             "Use `exists?(...)` instead of `where(...).exists?`.".to_string(),
         )]
     }
+
+    /// "where" style: flag `exists?(...)` with arguments, suggest `where(...).exists?`
+    fn check_where_style(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+    ) -> Vec<Diagnostic> {
+        let call = match node.as_call_node() {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+
+        if call.name().as_slice() != b"exists?" {
+            return Vec::new();
+        }
+
+        // Must have arguments (exists? with args => should be where(...).exists?)
+        let args = match call.arguments() {
+            Some(a) => a,
+            None => return Vec::new(),
+        };
+
+        // Only flag hash-like or array args (not bare integers like exists?(1))
+        let arg_list: Vec<_> = args.arguments().iter().collect();
+        if arg_list.is_empty() {
+            return Vec::new();
+        }
+
+        // Check that the arg is a hash, keyword hash, or array
+        let first = &arg_list[0];
+        let is_convertible = first.as_hash_node().is_some()
+            || first.as_keyword_hash_node().is_some()
+            || first.as_array_node().is_some()
+            || arg_list.len() > 1;
+
+        if !is_convertible {
+            return Vec::new();
+        }
+
+        let loc = node.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        vec![self.diagnostic(
+            source,
+            line,
+            column,
+            "Use `where(...).exists?` instead of `exists?(...)`.".to_string(),
+        )]
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(WhereExists, "cops/rails/where_exists");
+
+    #[test]
+    fn where_style_flags_exists_with_hash_arg() {
+        use crate::cop::CopConfig;
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".to_string(),
+                serde_yml::Value::String("where".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"User.exists?(name: 'john')\n";
+        let diags = run_cop_full_with_config(&WhereExists, source, config);
+        assert!(!diags.is_empty(), "where style should flag exists? with hash args");
+    }
+
+    #[test]
+    fn where_style_allows_where_exists() {
+        use crate::cop::CopConfig;
+        use crate::testutil::assert_cop_no_offenses_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".to_string(),
+                serde_yml::Value::String("where".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"User.where(name: 'john').exists?\n";
+        assert_cop_no_offenses_full_with_config(&WhereExists, source, config);
+    }
 }

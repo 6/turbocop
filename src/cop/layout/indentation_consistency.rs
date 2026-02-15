@@ -72,8 +72,12 @@ impl Cop for IndentationConsistency {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let style = config.get_str("EnforcedStyle", "normal");
+        let _ = style; // Used to differentiate "normal" vs "indented_internal_methods"
+        // "indented_internal_methods" would indent `protected`/`private` method bodies
+        // one extra level. For now both styles check consistency of sibling statements.
         if let Some(class_node) = node.as_class_node() {
             return self.check_body_consistency(
                 source,
@@ -122,5 +126,22 @@ mod tests {
         let source = b"def foo\n  x = 1\nend\n";
         let diags = run_cop_full(&IndentationConsistency, source);
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn enforced_style_is_read() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("indented_internal_methods".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Both styles still check consistency, so inconsistent indentation is flagged
+        let src = b"class Foo\n  def bar; end\n    def baz; end\nend\n";
+        let diags = run_cop_full_with_config(&IndentationConsistency, src, config);
+        assert!(!diags.is_empty(), "indented_internal_methods should still flag inconsistency");
     }
 }

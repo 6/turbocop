@@ -29,6 +29,31 @@ fn perl_to_english(name: &[u8]) -> Option<&'static str> {
     }
 }
 
+fn english_to_perl(name: &[u8]) -> Option<&'static str> {
+    match name {
+        b"$ERROR_INFO" => Some("$!"),
+        b"$ERROR_POSITION" => Some("$@"),
+        b"$FIELD_SEPARATOR" => Some("$;"),
+        b"$OUTPUT_FIELD_SEPARATOR" => Some("$,"),
+        b"$INPUT_RECORD_SEPARATOR" => Some("$/"),
+        b"$OUTPUT_RECORD_SEPARATOR" => Some("$\\"),
+        b"$INPUT_LINE_NUMBER" => Some("$."),
+        b"$PROGRAM_NAME" => Some("$0"),
+        b"$PROCESS_ID" => Some("$$"),
+        b"$CHILD_STATUS" => Some("$?"),
+        b"$LAST_MATCH_INFO" => Some("$~"),
+        b"$MATCH" => Some("$&"),
+        b"$POSTMATCH" => Some("$'"),
+        b"$PREMATCH" => Some("$`"),
+        b"$LAST_PAREN_MATCH" => Some("$+"),
+        b"$LAST_READ_LINE" => Some("$_"),
+        b"$DEFAULT_OUTPUT" => Some("$>"),
+        b"$DEFAULT_INPUT" => Some("$<"),
+        b"$ARGV" => Some("$*"),
+        _ => None,
+    }
+}
+
 impl Cop for SpecialGlobalVars {
     fn name(&self) -> &'static str {
         "Style/SpecialGlobalVars"
@@ -39,8 +64,10 @@ impl Cop for SpecialGlobalVars {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let require_english = config.get_bool("RequireEnglish", true);
+        let enforced_style = config.get_str("EnforcedStyle", "use_english_names");
         let gvar = match node.as_global_variable_read_node() {
             Some(g) => g,
             None => return Vec::new(),
@@ -49,15 +76,36 @@ impl Cop for SpecialGlobalVars {
         let loc = gvar.location();
         let var_name = loc.as_slice();
 
-        if let Some(english) = perl_to_english(var_name) {
-            let perl_name = std::str::from_utf8(var_name).unwrap_or("$?");
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
-                source,
-                line,
-                column,
-                format!("Prefer `{}` over `{}`.", english, perl_name),
-            )];
+        match enforced_style {
+            "use_perl_names" | "use_builtin_english_names" => {
+                // Flag English-style names, suggest perl equivalents
+                if let Some(perl) = english_to_perl(var_name) {
+                    let english_name = std::str::from_utf8(var_name).unwrap_or("$?");
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        format!("Prefer `{}` over `{}`.", perl, english_name),
+                    )];
+                }
+            }
+            _ => {
+                // "use_english_names" (default): flag Perl-style names
+                if let Some(english) = perl_to_english(var_name) {
+                    let perl_name = std::str::from_utf8(var_name).unwrap_or("$?");
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    let msg = if require_english {
+                        format!(
+                            "Prefer `{}` over `{}`. Use `require 'English'` to access it.",
+                            english, perl_name
+                        )
+                    } else {
+                        format!("Prefer `{}` over `{}`.", english, perl_name)
+                    };
+                    return vec![self.diagnostic(source, line, column, msg)];
+                }
+            }
         }
 
         Vec::new()
@@ -83,5 +131,70 @@ mod tests {
         let source = b"puts $!\nputs $$\n";
         let diags = run_cop_full(&SpecialGlobalVars, source);
         assert_eq!(diags.len(), 2);
+    }
+
+    #[test]
+    fn use_perl_names_flags_english() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("use_perl_names".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = b"puts $ERROR_INFO\n";
+        let diags = run_cop_full_with_config(&SpecialGlobalVars, source, config);
+        assert_eq!(diags.len(), 1, "Should flag English-style var with use_perl_names");
+        assert!(diags[0].message.contains("$!"), "Should suggest perl equivalent");
+    }
+
+    #[test]
+    fn require_english_includes_require_hint() {
+        // Default RequireEnglish is true, so message should include the require hint
+        let source = b"puts $!\n";
+        let diags = run_cop_full(&SpecialGlobalVars, source);
+        assert_eq!(diags.len(), 1);
+        assert!(
+            diags[0].message.contains("require 'English'"),
+            "Default (RequireEnglish: true) should include require hint"
+        );
+    }
+
+    #[test]
+    fn require_english_false_omits_hint() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("RequireEnglish".into(), serde_yml::Value::Bool(false)),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = b"puts $!\n";
+        let diags = run_cop_full_with_config(&SpecialGlobalVars, source, config);
+        assert_eq!(diags.len(), 1);
+        assert!(
+            !diags[0].message.contains("require 'English'"),
+            "RequireEnglish: false should not include require hint"
+        );
+    }
+
+    #[test]
+    fn use_perl_names_allows_perl() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("use_perl_names".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = b"puts $!\n";
+        let diags = run_cop_full_with_config(&SpecialGlobalVars, source, config);
+        assert!(diags.is_empty(), "Should allow perl-style var with use_perl_names");
     }
 }
