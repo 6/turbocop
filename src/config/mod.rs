@@ -4,9 +4,10 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use globset::GlobBuilder;
+use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use serde_yml::Value;
 
+use crate::cop::registry::CopRegistry;
 use crate::cop::{CopConfig, EnabledState};
 use crate::diagnostic::Severity;
 
@@ -38,6 +39,72 @@ struct InheritMode {
     merge: HashSet<String>,
     /// Keys whose arrays should be replaced instead of appended.
     override_keys: HashSet<String>,
+}
+
+/// Pre-compiled glob filter for a single cop.
+///
+/// Built once at startup from resolved config + cop defaults. Avoids
+/// recompiling glob patterns on every `is_cop_enabled` call.
+pub struct CopFilter {
+    enabled: bool,
+    include_set: Option<GlobSet>, // None = match all files
+    exclude_set: Option<GlobSet>, // None = exclude no files
+}
+
+impl CopFilter {
+    /// Check whether this cop should run on the given file path.
+    pub fn is_match(&self, path: &Path) -> bool {
+        if !self.enabled {
+            return false;
+        }
+        if let Some(ref inc) = self.include_set {
+            if !inc.is_match(path) {
+                return false;
+            }
+        }
+        if let Some(ref exc) = self.exclude_set {
+            if exc.is_match(path) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+/// Pre-compiled filter set for all cops + global excludes.
+///
+/// Built once from `ResolvedConfig` + `CopRegistry`, then shared across
+/// all rayon worker threads. Eliminates per-file glob compilation overhead.
+pub struct CopFilterSet {
+    global_exclude: GlobSet,
+    filters: Vec<CopFilter>, // indexed by cop position in registry
+}
+
+impl CopFilterSet {
+    /// Check whether a file is globally excluded (AllCops.Exclude).
+    pub fn is_globally_excluded(&self, path: &Path) -> bool {
+        self.global_exclude.is_match(path)
+    }
+
+    /// Get the pre-compiled filter for a cop by its registry index.
+    pub fn cop_filter(&self, index: usize) -> &CopFilter {
+        &self.filters[index]
+    }
+}
+
+/// Build a `GlobSet` from a list of pattern strings.
+/// Returns `None` if the list is empty.
+fn build_glob_set(patterns: &[&str]) -> Option<GlobSet> {
+    if patterns.is_empty() {
+        return None;
+    }
+    let mut builder = GlobSetBuilder::new();
+    for pat in patterns {
+        if let Ok(glob) = GlobBuilder::new(pat).literal_separator(false).build() {
+            builder.add(glob);
+        }
+    }
+    builder.build().ok()
 }
 
 /// Resolved configuration from .rubocop.yml with full inheritance support.
@@ -820,6 +887,91 @@ impl ResolvedConfig {
     /// Directory containing the resolved config file.
     pub fn config_dir(&self) -> Option<&Path> {
         self.config_dir.as_deref()
+    }
+
+    /// Build pre-compiled cop filters for fast per-file enablement checks.
+    ///
+    /// This resolves all enabled states, include/exclude patterns, and global
+    /// excludes into compiled `GlobSet` matchers. Call once at startup, then
+    /// share across rayon workers.
+    pub fn build_cop_filters(&self, registry: &CopRegistry) -> CopFilterSet {
+        // Build global exclude set
+        let global_exclude = {
+            let pats: Vec<&str> = self.global_excludes.iter().map(|s| s.as_str()).collect();
+            build_glob_set(&pats).unwrap_or_else(GlobSet::empty)
+        };
+
+        let filters = registry
+            .cops()
+            .iter()
+            .map(|cop| {
+                let name = cop.name();
+                let config = self.cop_configs.get(name);
+                let dept = name.split('/').next().unwrap_or("");
+                let dept_config = self.department_configs.get(dept);
+
+                // Determine enabled state (cop-level > department-level > defaults)
+                let enabled_state = match config.map(|c| c.enabled) {
+                    Some(s) if s != EnabledState::Unset => s,
+                    _ => match dept_config.map(|dc| dc.enabled) {
+                        Some(s) if s != EnabledState::Unset => s,
+                        _ => EnabledState::Unset,
+                    },
+                };
+
+                let enabled = match enabled_state {
+                    EnabledState::False => false,
+                    EnabledState::Pending => self.new_cops == NewCopsPolicy::Enable,
+                    EnabledState::Unset => !self.disabled_by_default,
+                    EnabledState::True => true,
+                };
+
+                if !enabled {
+                    return CopFilter {
+                        enabled: false,
+                        include_set: None,
+                        exclude_set: None,
+                    };
+                }
+
+                // Build effective include patterns (cop config > dept config > defaults)
+                let include_patterns: Vec<&str> = match config {
+                    Some(c) if !c.include.is_empty() => {
+                        c.include.iter().map(|s| s.as_str()).collect()
+                    }
+                    _ => match dept_config {
+                        Some(dc) if !dc.include.is_empty() => {
+                            dc.include.iter().map(|s| s.as_str()).collect()
+                        }
+                        _ => cop.default_include().to_vec(),
+                    },
+                };
+
+                // Build effective exclude patterns (cop config > dept config > defaults)
+                let exclude_patterns: Vec<&str> = match config {
+                    Some(c) if !c.exclude.is_empty() => {
+                        c.exclude.iter().map(|s| s.as_str()).collect()
+                    }
+                    _ => match dept_config {
+                        Some(dc) if !dc.exclude.is_empty() => {
+                            dc.exclude.iter().map(|s| s.as_str()).collect()
+                        }
+                        _ => cop.default_exclude().to_vec(),
+                    },
+                };
+
+                CopFilter {
+                    enabled: true,
+                    include_set: build_glob_set(&include_patterns),
+                    exclude_set: build_glob_set(&exclude_patterns),
+                }
+            })
+            .collect();
+
+        CopFilterSet {
+            global_exclude,
+            filters,
+        }
     }
 
     /// Return all cop names from the config that would be enabled given

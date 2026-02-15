@@ -4,7 +4,7 @@ use rayon::prelude::*;
 use ruby_prism::Visit;
 
 use crate::cli::Args;
-use crate::config::ResolvedConfig;
+use crate::config::{CopFilterSet, ResolvedConfig};
 use crate::cop::registry::CopRegistry;
 use crate::cop::walker::CopWalker;
 use crate::diagnostic::Diagnostic;
@@ -23,7 +23,8 @@ pub fn lint_source(
     registry: &CopRegistry,
     args: &Args,
 ) -> LintResult {
-    let diagnostics = lint_source_inner(source, config, registry, args);
+    let cop_filters = config.build_cop_filters(registry);
+    let diagnostics = lint_source_inner(source, config, registry, args, &cop_filters);
     let mut sorted = diagnostics;
     sorted.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
     LintResult {
@@ -38,9 +39,12 @@ pub fn run_linter(
     registry: &CopRegistry,
     args: &Args,
 ) -> LintResult {
+    // Build cop filters once before the parallel loop
+    let cop_filters = config.build_cop_filters(registry);
+
     let diagnostics: Vec<Diagnostic> = files
         .par_iter()
-        .flat_map(|path| lint_file(path, config, registry, args))
+        .flat_map(|path| lint_file(path, config, registry, args, &cop_filters))
         .collect();
 
     let mut sorted = diagnostics;
@@ -57,7 +61,13 @@ fn lint_file(
     config: &ResolvedConfig,
     registry: &CopRegistry,
     args: &Args,
+    cop_filters: &CopFilterSet,
 ) -> Vec<Diagnostic> {
+    // Check global excludes once per file
+    if cop_filters.is_globally_excluded(path) {
+        return Vec::new();
+    }
+
     let source = match SourceFile::from_path(path) {
         Ok(s) => s,
         Err(e) => {
@@ -66,7 +76,7 @@ fn lint_file(
         }
     };
 
-    lint_source_inner(&source, config, registry, args)
+    lint_source_inner(&source, config, registry, args, cop_filters)
 }
 
 fn lint_source_inner(
@@ -74,6 +84,7 @@ fn lint_source_inner(
     config: &ResolvedConfig,
     registry: &CopRegistry,
     args: &Args,
+    cop_filters: &CopFilterSet,
 ) -> Vec<Diagnostic> {
     // Parse on this thread (ParseResult is !Send)
     let parse_result = crate::parse::parse_source(source.as_bytes());
@@ -81,7 +92,7 @@ fn lint_source_inner(
 
     let mut diagnostics = Vec::new();
 
-    for cop in registry.cops() {
+    for (i, cop) in registry.cops().iter().enumerate() {
         let name = cop.name();
 
         // Filter by --only / --except
@@ -92,13 +103,8 @@ fn lint_source_inner(
             continue;
         }
 
-        // Check config (with cop's default include/exclude patterns)
-        if !config.is_cop_enabled(
-            name,
-            &source.path,
-            cop.default_include(),
-            cop.default_exclude(),
-        ) {
+        // Use pre-compiled cop filter (checks enabled state + include/exclude globs)
+        if !cop_filters.cop_filter(i).is_match(&source.path) {
             continue;
         }
 
