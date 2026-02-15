@@ -5,9 +5,6 @@ use crate::parse::source::SourceFile;
 
 pub struct Dialect;
 
-/// Default preferred methods: context -> describe.
-const DEFAULT_PREFERRED: &[(&str, &str)] = &[("context", "describe")];
-
 impl Cop for Dialect {
     fn name(&self) -> &'static str {
         "RSpec/Dialect"
@@ -26,7 +23,7 @@ impl Cop for Dialect {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -44,43 +41,96 @@ impl Cop for Dialect {
             Err(_) => return Vec::new(),
         };
 
-        // Check against preferred methods
-        for &(bad, good) in DEFAULT_PREFERRED {
-            if method_str == bad {
-                // Can be receiverless or RSpec.context
-                let is_rspec_call = if call.receiver().is_none() {
-                    true
-                } else if let Some(recv) = call.receiver() {
-                    if let Some(cr) = recv.as_constant_read_node() {
-                        cr.name().as_slice() == b"RSpec"
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                };
+        // Read PreferredMethods from config. RuboCop default is empty — no aliases
+        // are enforced unless explicitly configured.
+        let preferred = match config.options.get("PreferredMethods") {
+            Some(serde_yml::Value::Mapping(map)) => map,
+            _ => return Vec::new(),
+        };
 
-                if !is_rspec_call {
-                    return Vec::new();
-                }
+        // Check if this method is a non-preferred alias
+        let preferred_name =
+            match preferred.get(&serde_yml::Value::String(method_str.to_string())) {
+                Some(v) => match v.as_str() {
+                    Some(s) => s.trim_start_matches(':'),
+                    None => return Vec::new(),
+                },
+                None => return Vec::new(),
+            };
 
-                let loc = call.location();
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    format!("Prefer `{good}` over `{bad}`."),
-                )];
-            }
+        // Must be receiverless or RSpec.method
+        let is_rspec_call = if call.receiver().is_none() {
+            true
+        } else if let Some(recv) = call.receiver() {
+            recv.as_constant_read_node()
+                .is_some_and(|cr| cr.name().as_slice() == b"RSpec")
+        } else {
+            false
+        };
+
+        if !is_rspec_call {
+            return Vec::new();
         }
 
-        Vec::new()
+        let loc = call.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        vec![self.diagnostic(
+            source,
+            line,
+            column,
+            format!("Prefer `{preferred_name}` over `{method_str}`."),
+        )]
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(Dialect, "cops/rspec/dialect");
+    use crate::cop::CopConfig;
+    use std::collections::HashMap;
+
+    fn config_with_preferred(methods: &[(&str, &str)]) -> CopConfig {
+        let mut map = serde_yml::Mapping::new();
+        for &(bad, good) in methods {
+            map.insert(
+                serde_yml::Value::String(bad.to_string()),
+                serde_yml::Value::String(format!(":{good}")),
+            );
+        }
+        let mut options = HashMap::new();
+        options.insert(
+            "PreferredMethods".to_string(),
+            serde_yml::Value::Mapping(map),
+        );
+        CopConfig {
+            options,
+            ..CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn offense_fixture() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &Dialect,
+            include_bytes!("../../../testdata/cops/rspec/dialect/offense.rb"),
+            config_with_preferred(&[("context", "describe")]),
+        );
+    }
+
+    #[test]
+    fn no_offense_fixture() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &Dialect,
+            include_bytes!("../../../testdata/cops/rspec/dialect/no_offense.rb"),
+            config_with_preferred(&[("context", "describe")]),
+        );
+    }
+
+    #[test]
+    fn no_preferred_methods_means_no_offenses() {
+        crate::testutil::assert_cop_no_offenses_full(
+            &Dialect,
+            b"context 'test' do\n  it 'works' do\n    expect(true).to eq(true)\n  end\nend\n",
+        );
+    }
 }
