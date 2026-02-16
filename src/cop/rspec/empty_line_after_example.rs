@@ -52,6 +52,35 @@ impl Cop for EmptyLineAfterExample {
                 if is_blank_line(line) {
                     return Vec::new(); // already has blank line
                 }
+                // If next line is a comment, scan forward — if there's a blank line
+                // before the next code line, the example is properly separated.
+                // This matches RuboCop's AST-sibling approach where comments between
+                // nodes don't count as missing separation.
+                {
+                    let trimmed_pos = line.iter().position(|&b| b != b' ' && b != b'\t');
+                    if let Some(start) = trimmed_pos {
+                        if line[start] == b'#' {
+                            // Scan forward past comment lines
+                            let mut scan = next_line + 1;
+                            loop {
+                                match line_at(source, scan) {
+                                    Some(l) if is_blank_line(l) => return Vec::new(),
+                                    Some(l) => {
+                                        let t = l.iter().position(|&b| b != b' ' && b != b'\t');
+                                        if let Some(s) = t {
+                                            if l[s] != b'#' {
+                                                break; // reached non-comment code
+                                            }
+                                        }
+                                    }
+                                    None => return Vec::new(), // end of file
+                                }
+                                scan += 1;
+                            }
+                            // No blank line found between example and next code — fall through to report
+                        }
+                    }
+                }
                 // If consecutive one-liners are allowed, check if the next line is also a one-liner example
                 if allow_consecutive && is_one_liner {
                     // Check if next line looks like an example call

@@ -1,6 +1,7 @@
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
 pub struct EmptyLinesAroundExceptionHandlingKeywords;
@@ -12,15 +13,26 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
         "Layout/EmptyLinesAroundExceptionHandlingKeywords"
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        code_map: &CodeMap,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
         let lines: Vec<&[u8]> = source.lines().collect();
         let mut diagnostics = Vec::new();
+        let mut byte_offset: usize = 0;
 
         for (i, line) in lines.iter().enumerate() {
+            let line_len = line.len() + 1; // +1 for newline
             let line_num = i + 1;
             let trimmed_start = match line.iter().position(|&b| b != b' ' && b != b'\t') {
                 Some(p) => p,
-                None => continue,
+                None => {
+                    byte_offset += line_len;
+                    continue;
+                }
             };
             let content = &line[trimmed_start..];
 
@@ -39,14 +51,19 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
 
             let keyword = match matched_keyword {
                 Some(kw) => *kw,
-                None => continue,
+                None => {
+                    byte_offset += line_len;
+                    continue;
+                }
             };
 
-            let kw_str = std::str::from_utf8(keyword).unwrap_or("rescue");
+            // Skip keywords inside strings/heredocs/regexps/symbols
+            if !code_map.is_not_string(byte_offset + trimmed_start) {
+                byte_offset += line_len;
+                continue;
+            }
 
-            // "else" is only relevant in rescue context — check if we're inside begin/def block
-            // Simple heuristic: skip standalone else from if/unless by checking that indentation
-            // suggests it's inside a rescue/begin block.
+            let kw_str = std::str::from_utf8(keyword).unwrap_or("rescue");
 
             // Check for empty line BEFORE the keyword
             if line_num >= 3 {
@@ -71,6 +88,8 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
                     format!("Extra empty line detected after the `{kw_str}`."),
                 ));
             }
+
+            byte_offset += line_len;
         }
 
         diagnostics
@@ -80,9 +99,24 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::run_cop_full;
 
     crate::cop_fixture_tests!(
         EmptyLinesAroundExceptionHandlingKeywords,
         "cops/layout/empty_lines_around_exception_handling_keywords"
     );
+
+    #[test]
+    fn skip_keywords_in_heredoc() {
+        let source = b"x = <<~RUBY\n  begin\n    something\n\n  rescue\n\n    handle\n  end\nRUBY\n";
+        let diags = run_cop_full(&EmptyLinesAroundExceptionHandlingKeywords, source);
+        assert!(diags.is_empty(), "Should not fire on rescue inside heredoc, got: {:?}", diags);
+    }
+
+    #[test]
+    fn skip_keywords_in_string() {
+        let source = b"x = \"rescue\"\ny = 'ensure'\n";
+        let diags = run_cop_full(&EmptyLinesAroundExceptionHandlingKeywords, source);
+        assert!(diags.is_empty(), "Should not fire on keywords inside strings");
+    }
 }

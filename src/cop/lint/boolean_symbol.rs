@@ -34,6 +34,19 @@ impl Cop for BooleanSymbol {
             return Vec::new();
         };
 
+        // Skip :true/:false inside %i[] percent symbol arrays
+        // RuboCop: `return if parent&.array_type? && parent.percent_literal?(:symbol)`
+        // In Prism, %i[] symbols don't have a `:` prefix in their opening_loc.
+        if let Some(open) = symbol_node.opening_loc() {
+            // Normal symbol: opening is `:`, %i symbol has no `:` opening
+            if !open.as_slice().starts_with(b":") {
+                return Vec::new();
+            }
+        } else {
+            // No opening loc means it's inside a %i[] literal
+            return Vec::new();
+        }
+
         let loc = symbol_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         vec![self.diagnostic(

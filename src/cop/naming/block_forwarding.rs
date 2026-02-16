@@ -18,6 +18,21 @@ impl Cop for BlockForwarding {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // Anonymous block forwarding requires Ruby 3.1+
+        // Default TargetRubyVersion is 3.4 (matching RuboCop's behavior when unset)
+        let target_version = config
+            .options
+            .get("TargetRubyVersion")
+            .and_then(|v| {
+                v.as_f64()
+                    .or_else(|| v.as_u64().map(|u| u as f64))
+                    .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+            })
+            .unwrap_or(3.4);
+        if target_version < 3.1 {
+            return Vec::new();
+        }
+
         let enforced_style = config.get_str("EnforcedStyle", "anonymous");
         let _block_forwarding_name = config.get_str("BlockForwardingName", "block");
 

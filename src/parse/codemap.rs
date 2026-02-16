@@ -7,6 +7,10 @@ use ruby_prism::Visit;
 pub struct CodeMap {
     /// Sorted, non-overlapping (start, end) byte ranges of non-code regions.
     ranges: Vec<(usize, usize)>,
+    /// Sorted, non-overlapping (start, end) byte ranges of string/heredoc/regex
+    /// regions ONLY (excludes comments). Used by cops that inspect comments but
+    /// need to skip string content (e.g. Layout/EmptyComment, Lint/TripleQuotes).
+    string_ranges: Vec<(usize, usize)>,
 }
 
 impl CodeMap {
@@ -16,32 +20,48 @@ impl CodeMap {
         _source: &[u8],
         parse_result: &ruby_prism::ParseResult<'_>,
     ) -> Self {
-        let mut ranges = Vec::new();
+        let mut string_ranges = Vec::new();
 
-        // Collect comment ranges
+        // Walk AST to collect string/regex/symbol ranges
+        let mut collector = NonCodeCollector {
+            ranges: &mut string_ranges,
+        };
+        collector.visit(&parse_result.node());
+
+        // Sort and merge string ranges
+        string_ranges.sort_unstable();
+        let string_ranges = merge_ranges(string_ranges);
+
+        // Full non-code ranges include comments + strings
+        let mut ranges = string_ranges.clone();
         for comment in parse_result.comments() {
             let loc = comment.location();
             ranges.push((loc.start_offset(), loc.end_offset()));
         }
-
-        // Walk AST to collect string/regex/symbol ranges
-        let mut collector = NonCodeCollector {
-            ranges: &mut ranges,
-        };
-        collector.visit(&parse_result.node());
-
-        // Sort and merge overlapping ranges
         ranges.sort_unstable();
-        let merged = merge_ranges(ranges);
+        let ranges = merge_ranges(ranges);
 
-        CodeMap { ranges: merged }
+        CodeMap {
+            ranges,
+            string_ranges,
+        }
     }
 
     /// Returns true if the given byte offset is in "code" (not inside a
     /// comment, string, regexp, or symbol literal).
     pub fn is_code(&self, offset: usize) -> bool {
-        // Binary search for a range that contains this offset
-        self.ranges
+        !Self::in_ranges(&self.ranges, offset)
+    }
+
+    /// Returns true if the given byte offset is NOT inside a string, heredoc,
+    /// regexp, or symbol literal. Comments are NOT excluded — use this for cops
+    /// that inspect comment content but need to skip string/heredoc regions.
+    pub fn is_not_string(&self, offset: usize) -> bool {
+        !Self::in_ranges(&self.string_ranges, offset)
+    }
+
+    fn in_ranges(ranges: &[(usize, usize)], offset: usize) -> bool {
+        ranges
             .binary_search_by(|&(start, end)| {
                 if offset < start {
                     std::cmp::Ordering::Greater
@@ -51,7 +71,7 @@ impl CodeMap {
                     std::cmp::Ordering::Equal
                 }
             })
-            .is_err()
+            .is_ok()
     }
 }
 

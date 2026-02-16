@@ -19,3 +19,15 @@ def foo
 rescue
   baz
 end
+
+x = <<~RUBY
+  begin
+    something
+
+  rescue
+
+    handle
+  end
+RUBY
+
+NODES = %i[if while rescue ensure else].freeze

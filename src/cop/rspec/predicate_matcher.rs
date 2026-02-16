@@ -127,9 +127,25 @@ impl Cop for PredicateMatcher {
             None => return Vec::new(),
         };
 
+        // The predicate call must have an explicit receiver (e.g., `foo.valid?`).
+        // Bare method calls like `enabled?('x')` are NOT predicates on an object
+        // and should not be flagged. This matches RuboCop's `(send !nil? ...)` pattern.
+        if predicate_call.receiver().is_none() {
+            return Vec::new();
+        }
+
         let pred_name = predicate_call.name().as_slice();
         if !pred_name.ends_with(b"?") {
             return Vec::new();
+        }
+
+        // Skip respond_to? with more than 1 argument (second arg is include_all)
+        if pred_name == b"respond_to?" {
+            if let Some(args) = predicate_call.arguments() {
+                if args.arguments().iter().count() > 1 {
+                    return Vec::new();
+                }
+            }
         }
 
         // Build the suggested matcher name
@@ -202,8 +218,8 @@ fn is_boolean_matcher(node: &ruby_prism::Node<'_>, strict: bool) -> bool {
         return true;
     }
 
-    // In non-strict mode, also match be(true)/be(false)/eq(true)/eq(false)
-    if !strict && (name == b"be" || name == b"eq") {
+    // In non-strict mode, also match be(true)/be(false)/eq(true)/eq(false)/eql(true)/eql(false)/equal(true)/equal(false)
+    if !strict && (name == b"be" || name == b"eq" || name == b"eql" || name == b"equal") {
         if let Some(args) = call.arguments() {
             let arg_list: Vec<_> = args.arguments().iter().collect();
             if arg_list.len() == 1 {
@@ -281,5 +297,48 @@ mod tests {
         let source = b"expect(foo.valid?).to be(true)\n";
         let diags = crate::testutil::run_cop_full(&PredicateMatcher, source);
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn bare_predicate_call_without_receiver_not_flagged() {
+        // Bare method calls like `enabled?('x')` should not be flagged
+        // because they have no receiver — they are helper methods, not predicates on an object.
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "Strict".into(),
+                serde_yml::Value::Bool(false),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"expect(enabled?('Layout/DotPosition')).to be(false)\n";
+        let diags = crate::testutil::run_cop_full_with_config(&PredicateMatcher, source, config);
+        assert!(diags.is_empty(), "Bare predicate calls without a receiver should not be flagged");
+    }
+
+    #[test]
+    fn respond_to_with_multiple_args_not_flagged() {
+        let source = b"expect(foo.respond_to?(:bar, true)).to be_truthy\n";
+        let diags = crate::testutil::run_cop_full(&PredicateMatcher, source);
+        assert!(diags.is_empty(), "respond_to? with multiple args should not be flagged");
+    }
+
+    #[test]
+    fn strict_false_flags_eql_true() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "Strict".into(),
+                serde_yml::Value::Bool(false),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"expect(foo.valid?).to eql(true)\n";
+        let diags = crate::testutil::run_cop_full_with_config(&PredicateMatcher, source, config);
+        assert_eq!(diags.len(), 1, "eql(true) should be flagged in non-strict mode");
     }
 }

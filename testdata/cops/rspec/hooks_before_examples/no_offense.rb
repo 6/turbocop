@@ -25,3 +25,33 @@ RSpec.describe Widget do
 
   it_behaves_like 'common behavior'
 end
+
+# include_context is NOT an example include, so hooks after it are allowed
+RSpec.describe Config do
+  include_context 'mock console output'
+
+  before do
+    setup_config
+  end
+
+  after do
+    cleanup_config
+  end
+
+  it 'validates configuration' do
+    expect(config).to be_valid
+  end
+end
+
+# Multiple include_context calls followed by hooks are fine
+RSpec.describe Loader do
+  include_context 'cli spec behavior'
+  include_context 'mock console output'
+
+  before { initialize_loader }
+  after { reset_loader }
+
+  it 'loads files' do
+    expect(loader.files).not_to be_empty
+  end
+end

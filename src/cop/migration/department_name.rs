@@ -4,6 +4,7 @@ use regex::Regex;
 
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
 pub struct DepartmentName;
@@ -52,19 +53,46 @@ impl Cop for DepartmentName {
         Severity::Warning
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        code_map: &CodeMap,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
+        let mut byte_offset: usize = 0;
 
         for (line_idx, line) in source.lines().enumerate() {
             let line_num = line_idx + 1;
+            let line_len = line.len() + 1; // +1 for newline
+
             let line_str = String::from_utf8_lossy(line);
 
             let Some(caps) = DIRECTIVE_RE.captures(&line_str) else {
+                byte_offset += line_len;
                 continue;
             };
 
-            // Get the byte offset where the cop list starts within the line.
             let full_match = caps.get(0).unwrap();
+
+            // Skip directives inside string/heredoc regions (check position of
+            // the # character, not just line start, since the line may have
+            // code before a string containing `#rubocop:disable`)
+            if !code_map.is_not_string(byte_offset + full_match.start()) {
+                byte_offset += line_len;
+                continue;
+            }
+
+            // Skip directives inside documentation comments (nested #).
+            // e.g. `#   # rubocop:disable Foo` — the directive is in a YARD example.
+            let before_directive = &line_str[..full_match.start()];
+            if before_directive.contains('#') {
+                byte_offset += line_len;
+                continue;
+            }
+
+            // Get the byte offset where the cop list starts within the line.
             let cop_list_match = caps.get(2).unwrap();
             // The absolute offset in the line where the match starts
             let match_start_in_line = full_match.start();
@@ -112,6 +140,8 @@ impl Cop for DepartmentName {
 
                 offset += segment.len() + 1; // +1 for the comma
             }
+
+            byte_offset += line_len;
         }
 
         diagnostics
@@ -121,16 +151,13 @@ impl Cop for DepartmentName {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::run_cop_full;
 
     crate::cop_fixture_tests!(DepartmentName, "cops/migration/department_name");
 
     #[test]
     fn detects_missing_department_in_disable() {
-        let source = SourceFile::from_bytes(
-            "test.rb",
-            b"x = 1 # rubocop:disable Alias\n".to_vec(),
-        );
-        let diags = DepartmentName.check_lines(&source, &CopConfig::default());
+        let diags = run_cop_full(&DepartmentName, b"x = 1 # rubocop:disable Alias\n");
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].message, "Department name is missing.");
         assert_eq!(diags[0].cop_name, "Migration/DepartmentName");
@@ -138,56 +165,69 @@ mod tests {
 
     #[test]
     fn accepts_qualified_cop_name() {
-        let source = SourceFile::from_bytes(
-            "test.rb",
-            b"x = 1 # rubocop:disable Style/Alias\n".to_vec(),
+        let diags = run_cop_full(
+            &DepartmentName,
+            b"x = 1 # rubocop:disable Style/Alias\n",
         );
-        let diags = DepartmentName.check_lines(&source, &CopConfig::default());
         assert!(diags.is_empty());
     }
 
     #[test]
     fn accepts_all_keyword() {
-        let source = SourceFile::from_bytes(
-            "test.rb",
-            b"x = 1 # rubocop:disable all\n".to_vec(),
+        let diags = run_cop_full(
+            &DepartmentName,
+            b"x = 1 # rubocop:disable all\n",
         );
-        let diags = DepartmentName.check_lines(&source, &CopConfig::default());
         assert!(diags.is_empty());
     }
 
     #[test]
     fn accepts_department_name_alone() {
-        let source = SourceFile::from_bytes(
-            "test.rb",
-            b"# rubocop:disable Style\nalias :ala :bala\n".to_vec(),
+        let diags = run_cop_full(
+            &DepartmentName,
+            b"# rubocop:disable Style\nalias :ala :bala\n",
         );
-        let diags = DepartmentName.check_lines(&source, &CopConfig::default());
         assert!(diags.is_empty());
     }
 
     #[test]
     fn stops_at_unexpected_characters() {
-        let source = SourceFile::from_bytes(
-            "test.rb",
-            b"# rubocop:disable Style/Alias -- because something\nalias :ala :bala\n".to_vec(),
+        let diags = run_cop_full(
+            &DepartmentName,
+            b"# rubocop:disable Style/Alias -- because something\nalias :ala :bala\n",
         );
-        let diags = DepartmentName.check_lines(&source, &CopConfig::default());
         assert!(diags.is_empty());
     }
 
     #[test]
     fn handles_spaces_around_colon() {
-        let source = SourceFile::from_bytes(
-            "test.rb",
-            b"# rubocop : todo Alias, LineLength\nalias :ala :bala\n".to_vec(),
+        let diags = run_cop_full(
+            &DepartmentName,
+            b"# rubocop : todo Alias, LineLength\nalias :ala :bala\n",
         );
-        let diags = DepartmentName.check_lines(&source, &CopConfig::default());
         assert_eq!(diags.len(), 2);
     }
 
     #[test]
     fn severity_is_warning() {
         assert_eq!(DepartmentName.default_severity(), Severity::Warning);
+    }
+
+    #[test]
+    fn skip_directives_in_heredoc() {
+        let diags = run_cop_full(
+            &DepartmentName,
+            b"x = <<~RUBY\n  # rubocop:disable Alias\nRUBY\n",
+        );
+        assert!(diags.is_empty(), "Should not fire on directives inside heredoc");
+    }
+
+    #[test]
+    fn skip_directives_in_string_literal() {
+        let diags = run_cop_full(
+            &DepartmentName,
+            b"let(:text) { '#rubocop:enable Foo, Baz' }\n",
+        );
+        assert!(diags.is_empty(), "Should not fire on directives inside string literal");
     }
 }

@@ -10,4 +10,12 @@ RSpec.describe Foo do
 
   specify do
   end
+
+  # Comment with blank line between it and next example is OK
+  it 'does something' do
+  end
+  # rubocop:enable RSpec/SomeOtherCop
+
+  it 'another thing' do
+  end
 end

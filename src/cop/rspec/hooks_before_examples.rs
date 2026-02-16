@@ -109,7 +109,6 @@ fn is_example_include(name: &[u8]) -> bool {
     name == b"include_examples"
         || name == b"it_behaves_like"
         || name == b"it_should_behave_like"
-        || name == b"include_context"
 }
 
 #[cfg(test)]
