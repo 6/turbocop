@@ -543,13 +543,53 @@ Remaining gaps: Style (227 missing), Lint (74 missing), Layout (36 missing).
 
 ### Bench Conformance
 
-| Repo | FPs | FNs | Match Rate |
-|------|----:|----:|---------:|
-| Mastodon | 0 | 0 | **100.0%** |
-| Discourse | 0 | 0 | **100.0%** |
-| Rails | 0 | 0 | **100.0%** |
+| Repo | Category | FPs | FNs | Match Rate |
+|------|----------|----:|----:|---------:|
+| Mastodon | Large Rails app | 0 | 0 | **100.0%** |
+| Discourse | Large Rails app | 0 | 0 | **100.0%** |
+| Rails | Framework | 0 | 0 | **100.0%** |
+| rubocop | Ruby tool (RSpec-heavy) | 193 | 0 | 1.0% |
+| chatwoot | Large Rails app | 90 | 5 | 58.7% |
+| errbit | Small Rails app | 50 | 228 | 82.0% |
 
-All 3 bench repos at 100% conformance on 514 covered cops.
+6 bench repos total. 3 at 100% conformance on 514 covered cops.
+
+### Bench Repo Candidates (Evaluated)
+
+See [docs/bench_repo_candidates.md](docs/bench_repo_candidates.md) for detailed evaluation. Top 5 recommended additions:
+- **rubygems.org** — First minitest-based repo, `ParserEngine: parser_prism`
+- **activeadmin** — First gem/engine, `DisabledByDefault: true`, `plugins:` config syntax
+- **good_job** — `plugins:` syntax, 5 plugins including split gems
+- **docuseal** — Large modern Rails app, Ruby 4.0 target
+- **doorkeeper** — OAuth gem, gem-with-rails-plugin validation
+
+## Completed: M12b — FP Reduction Pass 2 (16 cops fixed)
+
+Systematic false-positive reduction across expanded bench set (6 repos). Fixed 16 cops, reducing rubocop FPs from 688→193, chatwoot FPs from 469→90.
+
+### M12b FP Fixes
+
+- FirstHashElementIndentation: Visitor-based `special_inside_parentheses` (205 FP eliminated)
+- IfUnlessModifier: MaxLineLength injection from Layout/LineLength (71 FP)
+- EmptyLineAfterGuardClause: Comment-skipping, multi-line guards, rubocop directives (42 FP)
+- ArrayAlignment: `last_checked_line` tracking for multi-element lines (40 FP)
+- FirstArrayElementIndentation: `special_inside_parentheses` with parent paren detection (35 FP)
+- PredicateMethod: Ruby regex normalization, rescue/block return types (32 FP)
+- EmptyLineAfterExample: Block requirement, scope-closing keywords (28 FP)
+- ClassAndModuleChildren: Rewritten compact check from outer node (23 FP)
+- RepeatedExampleGroupBody: MaxExtentFinder visitor for heredoc signatures (8 FP)
+- LeakyLocalVariable: Removed duplicate recursion (11 FP)
+- ReflectionClassName: Accept symbol class_name (10 FP)
+- ParameterAlignment: Skip multiple params on same line (9 FP)
+- MultilineOperationIndentation: Fixed default style to `aligned` (7 FP)
+- InstanceSpy: Require `have_received` in file (6 FP)
+- StringLiterals: Fixed heredoc content detection (2 FP)
+- InterpolationCheck: Improved pattern matching (1 FP)
+
+### M12b Summary
+
+- [x] 1,649 tests passing
+- [x] 3 repos at 100%: Mastodon, Discourse, Rails
 
 ## Milestones
 
