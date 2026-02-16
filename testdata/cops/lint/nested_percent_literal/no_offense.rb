@@ -1,0 +1,5 @@
+%w[foo bar baz]
+%i[foo bar baz]
+['foo', 'bar']
+[:foo, :bar]
+['foo', %w[bar baz]]

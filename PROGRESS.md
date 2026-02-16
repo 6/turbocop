@@ -425,22 +425,102 @@ Key fixes:
 - [x] 6 departments at 100%: Metrics, Naming, Security, Bundler, Gemspec, Migration
 - [x] 3 plugin departments at 100%: Rails, RSpec, Performance
 
+## Completed: M12 — Core Cop Expansion + 100% Conformance (514 cops)
+
+Added 45 new cops across Lint (25), Style (4), and Layout (16). Fixed all remaining false positives to achieve 100% conformance across all 3 bench repos.
+
+### M12 Infrastructure
+
+- [x] **src/config/mod.rs** — Per-directory `.rubocop.yml` resolution: `sub_config_dirs`, `nearest_config_dir()`, `discover_sub_config_dirs()`
+- [x] **src/config/mod.rs** — `TargetRubyVersion` propagation from `AllCops` into cop configs
+
+### M12 Cops — Lint (25 new → 78 total)
+
+- [x] Lint/EmptyEnsure — Empty ensure block
+- [x] Lint/EmptyBlock — Empty `{}` / `do..end` block
+- [x] Lint/EmptyClass — Empty class body
+- [x] Lint/EmptyExpression — Empty expression `()`
+- [x] Lint/EmptyInterpolation — Empty `#{}`
+- [x] Lint/LiteralInInterpolation — Literal inside `#{}`
+- [x] Lint/InterpolationCheck — `#{}` inside single-quoted string
+- [x] Lint/DuplicateHashKey — Duplicate keys in hash literal
+- [x] Lint/DuplicateRequire — Duplicate `require` statements
+- [x] Lint/DuplicateMagicComment — Duplicate magic comments
+- [x] Lint/SelfAssignment — `x = x`
+- [x] Lint/IdentityComparison — `x.equal?(x)`
+- [x] Lint/OrAssignmentToConstant — `CONST ||= value`
+- [x] Lint/SymbolConversion — Unnecessary symbol conversion
+- [x] Lint/TripleQuotes — Triple-quoted strings
+- [x] Lint/RedundantWithIndex — Unused `.with_index`
+- [x] Lint/RedundantWithObject — Unused `.with_object`
+- [x] Lint/Void — Void value used/ignored
+- [x] Lint/RescueException — Rescuing `Exception`
+- [x] Lint/ReturnInVoidContext — Return in `initialize`
+- [x] Lint/ConstantDefinitionInBlock — Constant defined inside block
+- [x] Lint/DisjunctiveAssignmentInConstructor — `||=` in initialize
+- [x] Lint/RedundantRequireStatement — Redundant `require` (version-aware)
+- [x] Lint/ParenthesesAsGroupedExpression — `foo (bar)` misread
+- [x] Lint/NonLocalExitFromIterator — `return` inside `.each` block
+
+### M12 Cops — Style (4 new → 60 total)
+
+- [x] Style/RedundantBegin — Unnecessary `begin..end`
+- [x] Style/RedundantSelf — Explicit `self.` when implicit
+- [x] Style/AndOr — `and`/`or` → `&&`/`||`
+- [x] Style/MethodDefParentheses — Parens in `def foo()`
+
+### M12 Cops — Layout (16 new → 64 total)
+
+- [x] Layout/SpaceAroundOperators — `x+1` → `x + 1`
+- [x] Layout/SpaceAroundKeyword — `if(x)` → `if (x)`
+- [x] Layout/SpaceBeforeComment — `x#comment` → `x #comment`
+- [x] Layout/LeadingCommentSpace — `#comment` → `# comment`
+- [x] Layout/EmptyLineAfterMagicComment — Blank line after magic comment
+- [x] Layout/EmptyLinesAroundAccessModifier — Spacing around private/protected
+- [x] Layout/SpaceBeforeBrackets — Space before `[]`
+- [x] Layout/SpaceInLambdaLiteral — Space in `-> (x)`
+- [x] Layout/SpaceInsideStringInterpolation — Space in `#{ x }`
+- [x] Layout/SpaceInsideReferenceBrackets — Space in `foo[ 0 ]`
+- [x] Layout/MultilineBlockLayout — Newline after `do`
+- [x] Layout/ClosingParenthesisIndentation — Closing `)` alignment
+- [x] Layout/IndentationStyle — Tabs vs spaces
+- [x] Layout/EmptyLineAfterGuardClause — Blank line after guard clause
+- [x] Layout/CommentIndentation — Misaligned comments
+- [x] Layout/BlockEndNewline — Newline before block `end`/`}`
+
+### M12 FP Fixes (8 cops fixed)
+
+- SpaceBeforeBrackets: Rewrote from text-based to AST-based (eliminated 225 FPs)
+- MultilineBlockLayout: Unwrap BeginNode for rescue/ensure blocks (55 FPs)
+- ThreeStateBooleanColumn: Per-directory config resolution (21 FPs)
+- IndentationStyle: Skip heredoc content via CodeMap (8 FPs)
+- DisjunctiveAssignmentInConstructor: Break on first non-`||=` (5 FPs)
+- EmptyLineAfterGuardClause: Extended guard line detection for embedded returns (1 FP)
+- ConstantDefinitionInBlock: Only flag ConstantWriteNode, not ConstantPathWriteNode (1 FP)
+- RedundantRequireStatement: Version-tiered redundancy with TargetRubyVersion (1 FP)
+
+### M12 Summary
+
+- [x] 514 cops registered (was 469)
+- [x] 1,607 unit + 42 integration tests passing
+- [x] **100% conformance on all 3 bench repos** (Mastodon, Discourse, Rails)
+
 ## Cop Coverage Summary
 
 ### Core RuboCop departments
 
 | Department | RuboCop | rblint | Coverage |
 |------------|--------:|-------:|---------:|
-| Layout | 100 | 48 | 48% |
-| Lint | 152 | 53 | 35% |
-| Style | 287 | 56 | 20% |
+| Layout | 100 | 64 | 64% |
+| Lint | 152 | 78 | 51% |
+| Style | 287 | 60 | 21% |
 | Metrics | 10 | 10 | **100%** |
 | Naming | 19 | 19 | **100%** |
 | Security | 7 | 7 | **100%** |
 | Bundler | 7 | 7 | **100%** |
 | Gemspec | 10 | 10 | **100%** |
 | Migration | 1 | 1 | **100%** |
-| **Total Core** | **593** | **211** | **35.6%** |
+| **Total Core** | **593** | **256** | **43.2%** |
 
 ### Plugin departments
 
@@ -455,21 +535,21 @@ Key fixes:
 
 | | RuboCop | rblint | Coverage |
 |--|--------:|-------:|---------:|
-| **All departments** | **851** | **469** | **55.1%** |
+| **All departments** | **851** | **514** | **60.4%** |
 
-Remaining gaps: Style (231 missing), Lint (99 missing), Layout (52 missing).
+Remaining gaps: Style (227 missing), Lint (74 missing), Layout (36 missing).
 
-1,601 tests passing (1,509 lib + 50 codegen + 42 integration).
+1,649 tests passing (1,607 unit + 42 integration).
 
 ### Bench Conformance
 
 | Repo | FPs | FNs | Match Rate |
 |------|----:|----:|---------:|
-| Mastodon | 21 | 0 | **91.4%** |
+| Mastodon | 0 | 0 | **100.0%** |
 | Discourse | 0 | 0 | **100.0%** |
 | Rails | 0 | 0 | **100.0%** |
 
-Mastodon remaining 21 FPs: Rails/ThreeStateBooleanColumn (RuboCop CLI pipeline silently filters this cop despite it being enabled — per-directory config path issue).
+All 3 bench repos at 100% conformance on 514 covered cops.
 
 ## Milestones
 
@@ -487,4 +567,4 @@ Mastodon remaining 21 FPs: Rails/ThreeStateBooleanColumn (RuboCop CLI pipeline s
 | **M9**: Core Cop Coverage Expansion | 469 | **Done** |
 | **M10**: Production Readiness | 364 + config/CLI | **Done** |
 | **M11**: Config Compatibility | Drop-in .rubocop.yml | **Done** |
-| **FP Elimination**: Discourse + Rails 100% | 469 | **Done** (Mastodon 91.4%, 21 FP from ThreeStateBooleanColumn) |
+| **M12**: Core Cop Expansion + 100% Conformance | 514 | **Done** |

@@ -1,0 +1,5 @@
+BigDecimal(123.456, 3)
+BigDecimal('123')
+SomeClass.new(1)
+BigDecimal(1)
+x = BigDecimal('3.14')

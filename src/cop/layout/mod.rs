@@ -1,18 +1,26 @@
+pub mod access_modifier_indentation;
 pub mod argument_alignment;
 pub mod array_alignment;
 pub mod assignment_indentation;
 pub mod block_alignment;
+pub mod block_end_newline;
 pub mod case_indentation;
+pub mod closing_parenthesis_indentation;
 pub mod comment_indentation;
 pub mod condition_position;
 pub mod def_end_alignment;
+pub mod dot_position;
 pub mod else_alignment;
+pub mod empty_comment;
+pub mod empty_line_after_guard_clause;
 pub mod empty_line_after_magic_comment;
 pub mod empty_line_between_defs;
 pub mod empty_lines;
 pub mod empty_lines_around_access_modifier;
+pub mod empty_lines_around_begin_body;
 pub mod empty_lines_around_block_body;
 pub mod empty_lines_around_class_body;
+pub mod empty_lines_around_exception_handling_keywords;
 pub mod empty_lines_around_method_body;
 pub mod empty_lines_around_module_body;
 pub mod end_alignment;
@@ -22,28 +30,40 @@ pub mod first_array_element_indentation;
 pub mod first_hash_element_indentation;
 pub mod hash_alignment;
 pub mod indentation_consistency;
+pub mod indentation_style;
 pub mod indentation_width;
 pub mod initial_indentation;
 pub mod leading_comment_space;
 pub mod leading_empty_lines;
 pub mod line_length;
+pub mod multiline_block_layout;
 pub mod multiline_method_call_indentation;
 pub mod multiline_operation_indentation;
+pub mod parameter_alignment;
 pub mod rescue_ensure_alignment;
 pub mod space_after_colon;
 pub mod space_after_comma;
+pub mod space_after_method_name;
+pub mod space_after_not;
 pub mod space_after_semicolon;
 pub mod space_around_equals_in_parameter_default;
 pub mod space_around_keyword;
 pub mod space_around_operators;
 pub mod space_before_block_braces;
+pub mod space_before_brackets;
 pub mod space_before_comma;
 pub mod space_before_comment;
 pub mod space_before_first_arg;
+pub mod space_before_semicolon;
+pub mod space_in_lambda_literal;
 pub mod space_inside_array_literal_brackets;
+pub mod space_inside_array_percent_literal;
 pub mod space_inside_block_braces;
 pub mod space_inside_hash_literal_braces;
 pub mod space_inside_parens;
+pub mod space_inside_percent_literal_delimiters;
+pub mod space_inside_range_literal;
+pub mod space_inside_string_interpolation;
 pub mod trailing_empty_lines;
 pub mod trailing_whitespace;
 
@@ -147,4 +167,43 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(
         empty_lines_around_access_modifier::EmptyLinesAroundAccessModifier,
     ));
+    // New cops
+    registry.register(Box::new(
+        access_modifier_indentation::AccessModifierIndentation,
+    ));
+    registry.register(Box::new(block_end_newline::BlockEndNewline));
+    registry.register(Box::new(
+        closing_parenthesis_indentation::ClosingParenthesisIndentation,
+    ));
+    registry.register(Box::new(dot_position::DotPosition));
+    registry.register(Box::new(empty_comment::EmptyComment));
+    registry.register(Box::new(
+        empty_line_after_guard_clause::EmptyLineAfterGuardClause,
+    ));
+    registry.register(Box::new(
+        empty_lines_around_begin_body::EmptyLinesAroundBeginBody,
+    ));
+    registry.register(Box::new(
+        empty_lines_around_exception_handling_keywords::EmptyLinesAroundExceptionHandlingKeywords,
+    ));
+    registry.register(Box::new(indentation_style::IndentationStyle));
+    registry.register(Box::new(multiline_block_layout::MultilineBlockLayout));
+    registry.register(Box::new(parameter_alignment::ParameterAlignment));
+    registry.register(Box::new(space_after_method_name::SpaceAfterMethodName));
+    registry.register(Box::new(space_after_not::SpaceAfterNot));
+    registry.register(Box::new(space_before_semicolon::SpaceBeforeSemicolon));
+    registry.register(Box::new(space_in_lambda_literal::SpaceInLambdaLiteral));
+    registry.register(Box::new(
+        space_inside_range_literal::SpaceInsideRangeLiteral,
+    ));
+    registry.register(Box::new(
+        space_inside_string_interpolation::SpaceInsideStringInterpolation,
+    ));
+    registry.register(Box::new(
+        space_inside_percent_literal_delimiters::SpaceInsidePercentLiteralDelimiters,
+    ));
+    registry.register(Box::new(
+        space_inside_array_percent_literal::SpaceInsideArrayPercentLiteral,
+    ));
+    registry.register(Box::new(space_before_brackets::SpaceBeforeBrackets));
 }

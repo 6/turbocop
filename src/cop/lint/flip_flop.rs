@@ -1,0 +1,43 @@
+use crate::cop::{Cop, CopConfig};
+use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::source::SourceFile;
+
+pub struct FlipFlop;
+
+impl Cop for FlipFlop {
+    fn name(&self) -> &'static str {
+        "Lint/FlipFlop"
+    }
+
+    fn default_severity(&self) -> Severity {
+        Severity::Warning
+    }
+
+    fn check_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
+        let flip_flop = match node.as_flip_flop_node() {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+
+        let loc = flip_flop.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        vec![self.diagnostic(
+            source,
+            line,
+            column,
+            "Avoid the use of flip-flop operators.".to_string(),
+        )]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    crate::cop_fixture_tests!(FlipFlop, "cops/lint/flip_flop");
+}

@@ -1,0 +1,53 @@
+use crate::cop::{Cop, CopConfig};
+use crate::diagnostic::Diagnostic;
+use crate::parse::source::SourceFile;
+
+pub struct ColonMethodDefinition;
+
+impl Cop for ColonMethodDefinition {
+    fn name(&self) -> &'static str {
+        "Style/ColonMethodDefinition"
+    }
+
+    fn check_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
+        let def_node = match node.as_def_node() {
+            Some(d) => d,
+            None => return Vec::new(),
+        };
+
+        // Must be a singleton method (has receiver: def self::bar)
+        if def_node.receiver().is_none() {
+            return Vec::new();
+        }
+
+        // Check the operator between receiver and method name
+        let operator_loc = match def_node.operator_loc() {
+            Some(loc) => loc,
+            None => return Vec::new(),
+        };
+
+        if operator_loc.as_slice() != b"::" {
+            return Vec::new();
+        }
+
+        let (line, column) = source.offset_to_line_col(operator_loc.start_offset());
+        vec![self.diagnostic(
+            source,
+            line,
+            column,
+            "Do not use `::` for defining class methods.".to_string(),
+        )]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    crate::cop_fixture_tests!(ColonMethodDefinition, "cops/style/colon_method_definition");
+}

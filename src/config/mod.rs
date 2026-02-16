@@ -99,6 +99,12 @@ pub struct CopFilterSet {
     /// (where `.rubocop.yml` lives), but file paths may include a prefix
     /// when running from outside the project root.
     config_dir: Option<PathBuf>,
+    /// Sub-directories containing their own `.rubocop.yml` files.
+    /// Sorted deepest-first so `nearest_config_dir` finds the most specific match.
+    /// RuboCop resolves Include/Exclude patterns relative to the nearest config
+    /// directory, so files in `db/migrate/` with a local `.rubocop.yml` have their
+    /// paths relativized to `db/migrate/` rather than the project root.
+    sub_config_dirs: Vec<PathBuf>,
 }
 
 impl CopFilterSet {
@@ -124,8 +130,22 @@ impl CopFilterSet {
         &self.filters[index]
     }
 
+    /// Find the nearest sub-config directory for a file path.
+    /// Returns the deepest `.rubocop.yml` directory that is an ancestor of `path`,
+    /// falling back to the root `config_dir`.
+    fn nearest_config_dir(&self, path: &Path) -> Option<&Path> {
+        // sub_config_dirs is sorted deepest-first, so the first match is most specific
+        for dir in &self.sub_config_dirs {
+            if path.starts_with(dir) {
+                return Some(dir.as_path());
+            }
+        }
+        self.config_dir.as_deref()
+    }
+
     /// Check whether a cop (by registry index) should run on the given file.
-    /// Checks both the original path and the path relativized to config_dir:
+    /// Checks both the original path and the path relativized to the nearest
+    /// config directory (supports per-directory `.rubocop.yml` path relativity):
     /// - Include: matches if EITHER path matches (supports absolute + relative patterns)
     /// - Exclude: matches if EITHER path matches (catches project-relative patterns)
     pub fn is_cop_match(&self, index: usize, path: &Path) -> bool {
@@ -135,8 +155,7 @@ impl CopFilterSet {
         }
 
         let rel_path = self
-            .config_dir
-            .as_ref()
+            .nearest_config_dir(path)
             .and_then(|cd| path.strip_prefix(cd).ok());
 
         // Include: file must match on at least one path form.
@@ -159,6 +178,34 @@ impl CopFilterSet {
 
         true
     }
+}
+
+/// Walk the project tree and find directories containing `.rubocop.yml` files
+/// (excluding the root). Returns directories sorted deepest-first so that
+/// `nearest_config_dir` finds the most specific match first.
+fn discover_sub_config_dirs(root: &Path) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let walker = ignore::WalkBuilder::new(root)
+        .hidden(false)
+        .git_ignore(true)
+        .build();
+
+    for entry in walker.flatten() {
+        if entry.file_type().is_some_and(|ft| ft.is_file())
+            && entry.file_name() == ".rubocop.yml"
+        {
+            if let Some(parent) = entry.path().parent() {
+                // Skip the root directory itself
+                if parent != root {
+                    dirs.push(parent.to_path_buf());
+                }
+            }
+        }
+    }
+
+    // Sort deepest-first: longer paths first
+    dirs.sort_by(|a, b| b.as_os_str().len().cmp(&a.as_os_str().len()));
+    dirs
 }
 
 /// Build a `GlobSet` from a list of pattern strings.
@@ -201,6 +248,9 @@ pub struct ResolvedConfig {
     require_known_cops: HashSet<String>,
     /// Department names that had gems loaded via `require:`.
     require_departments: HashSet<String>,
+    /// Target Ruby version from AllCops.TargetRubyVersion (e.g. 3.1, 3.2).
+    /// None means not specified (cops should default to 2.7 per RuboCop convention).
+    target_ruby_version: Option<f64>,
 }
 
 impl ResolvedConfig {
@@ -214,6 +264,7 @@ impl ResolvedConfig {
             disabled_by_default: false,
             require_known_cops: HashSet::new(),
             require_departments: HashSet::new(),
+            target_ruby_version: None,
         }
     }
 }
@@ -237,6 +288,8 @@ struct ConfigLayer {
     require_known_cops: HashSet<String>,
     /// Department names that had gems loaded via `require:`.
     require_departments: HashSet<String>,
+    /// Target Ruby version from AllCops.TargetRubyVersion.
+    target_ruby_version: Option<f64>,
 }
 
 impl ConfigLayer {
@@ -252,6 +305,7 @@ impl ConfigLayer {
             require_enabled_depts: HashSet::new(),
             require_known_cops: HashSet::new(),
             require_departments: HashSet::new(),
+            target_ruby_version: None,
         }
     }
 }
@@ -402,6 +456,7 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
         disabled_by_default,
         require_known_cops: base.require_known_cops,
         require_departments: base.require_departments,
+        target_ruby_version: base.target_ruby_version,
     })
 }
 
@@ -675,6 +730,7 @@ fn parse_config_layer(raw: &Value) -> ConfigLayer {
     let mut new_cops = None;
     let mut disabled_by_default = None;
     let mut inherit_mode = InheritMode::default();
+    let mut target_ruby_version = None;
 
     if let Value::Mapping(map) = raw {
         for (key, value) in map {
@@ -702,6 +758,12 @@ fn parse_config_layer(raw: &Value) -> ConfigLayer {
                             ac_map.get(&Value::String("DisabledByDefault".to_string()))
                         {
                             disabled_by_default = dbd.as_bool();
+                        }
+                        if let Some(trv) =
+                            ac_map.get(&Value::String("TargetRubyVersion".to_string()))
+                        {
+                            target_ruby_version =
+                                trv.as_f64().or_else(|| trv.as_u64().map(|u| u as f64));
                         }
                     }
                     continue;
@@ -732,6 +794,7 @@ fn parse_config_layer(raw: &Value) -> ConfigLayer {
         require_enabled_depts: HashSet::new(),
         require_known_cops: HashSet::new(),
         require_departments: HashSet::new(),
+        target_ruby_version,
     }
 }
 
@@ -761,6 +824,11 @@ fn merge_layer_into(
     // DisabledByDefault: last writer wins
     if overlay.disabled_by_default.is_some() {
         base.disabled_by_default = overlay.disabled_by_default;
+    }
+
+    // TargetRubyVersion: last writer wins
+    if overlay.target_ruby_version.is_some() {
+        base.target_ruby_version = overlay.target_ruby_version;
     }
 
     // Merge department configs
@@ -1014,11 +1082,20 @@ impl ResolvedConfig {
     }
 
     /// Get the resolved config for a specific cop.
+    ///
+    /// Injects global AllCops settings (like TargetRubyVersion) into the
+    /// cop's options so individual cops can access them without special plumbing.
     pub fn cop_config(&self, name: &str) -> CopConfig {
-        self.cop_configs
-            .get(name)
-            .cloned()
-            .unwrap_or_default()
+        let mut config = self.cop_configs.get(name).cloned().unwrap_or_default();
+        // Inject TargetRubyVersion from AllCops into cop options
+        // (only if the cop doesn't already have it set explicitly)
+        if let Some(version) = self.target_ruby_version {
+            config
+                .options
+                .entry("TargetRubyVersion".to_string())
+                .or_insert_with(|| Value::Number(serde_yml::Number::from(version)));
+        }
+        config
     }
 
     /// Global exclude patterns from AllCops.Exclude.
@@ -1125,10 +1202,18 @@ impl ResolvedConfig {
             })
             .collect();
 
+        // Discover sub-directory .rubocop.yml files for per-directory path relativity
+        let sub_config_dirs = self
+            .config_dir
+            .as_ref()
+            .map(|cd| discover_sub_config_dirs(cd))
+            .unwrap_or_default();
+
         CopFilterSet {
             global_exclude,
             filters,
             config_dir: self.config_dir.clone(),
+            sub_config_dirs,
         }
     }
 
@@ -2068,6 +2153,7 @@ mod tests {
             global_exclude: GlobSet::empty(),
             filters: vec![filter],
             config_dir: Some(PathBuf::from("bench/repos/mastodon")),
+            sub_config_dirs: Vec::new(),
         };
         let path = Path::new("bench/repos/mastodon/lib/tasks/emojis.rake");
         assert!(
@@ -2084,6 +2170,7 @@ mod tests {
             global_exclude: GlobSet::empty(),
             filters: vec![filter],
             config_dir: Some(PathBuf::from("/tmp/test")),
+            sub_config_dirs: Vec::new(),
         };
         let path = Path::new("/tmp/test/db/migrate/001_create_users.rb");
         assert!(
@@ -2101,6 +2188,7 @@ mod tests {
             global_exclude: GlobSet::empty(),
             filters: vec![filter],
             config_dir: Some(PathBuf::from("bench/repos/discourse")),
+            sub_config_dirs: Vec::new(),
         };
         let path = Path::new("bench/repos/discourse/spec/models/user_spec.rb");
         assert!(
@@ -2122,6 +2210,7 @@ mod tests {
             global_exclude: GlobSet::empty(),
             filters: vec![filter],
             config_dir: Some(PathBuf::from("bench/repos/discourse")),
+            sub_config_dirs: Vec::new(),
         };
         let path = Path::new("bench/repos/discourse/spec/requests/api/invites_spec.rb");
         assert!(
@@ -2138,6 +2227,7 @@ mod tests {
             global_exclude: GlobSet::empty(),
             filters: vec![filter],
             config_dir: None,
+            sub_config_dirs: Vec::new(),
         };
         assert!(filter_set.is_cop_match(0, Path::new("app/models/user.rb")));
         assert!(!filter_set.is_cop_match(0, Path::new("vendor/gems/foo.rb")));
@@ -2150,6 +2240,7 @@ mod tests {
             global_exclude: GlobSet::empty(),
             filters: vec![filter],
             config_dir: None,
+            sub_config_dirs: Vec::new(),
         };
         assert!(!filter_set.is_cop_match(0, Path::new("anything.rb")));
     }

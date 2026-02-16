@@ -1,0 +1,45 @@
+use crate::cop::{Cop, CopConfig};
+use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::source::SourceFile;
+
+pub struct RegexpAsCondition;
+
+impl Cop for RegexpAsCondition {
+    fn name(&self) -> &'static str {
+        "Lint/RegexpAsCondition"
+    }
+
+    fn default_severity(&self) -> Severity {
+        Severity::Warning
+    }
+
+    fn check_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
+        // MatchLastLineNode is what Prism creates for bare regexp in conditions
+        let match_node = match node.as_match_last_line_node() {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+
+        let loc = match_node.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        vec![self.diagnostic(
+            source,
+            line,
+            column,
+            "Do not use regexp literal as a condition. The regexp literal matches `$_` implicitly."
+                .to_string(),
+        )]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    crate::cop_fixture_tests!(RegexpAsCondition, "cops/lint/regexp_as_condition");
+}
