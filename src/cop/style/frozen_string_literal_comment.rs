@@ -85,7 +85,8 @@ fn is_frozen_string_literal_comment(line: &[u8]) -> bool {
         Ok(s) => s,
         Err(_) => return false,
     };
-    // Accept both `# frozen_string_literal:` and `#frozen_string_literal:` (no space)
+    // Allow leading whitespace, then `#`, then optional space, then `frozen_string_literal:`
+    let s = s.trim_start();
     let trimmed = s.strip_prefix('#').unwrap_or("");
     let trimmed = trimmed.trim_start();
     trimmed.starts_with("frozen_string_literal:")
@@ -96,7 +97,8 @@ fn is_frozen_string_literal_true(line: &[u8]) -> bool {
         Ok(s) => s,
         Err(_) => return false,
     };
-    // Accept both `# frozen_string_literal: true` and `#frozen_string_literal: true`
+    // Allow leading whitespace
+    let s = s.trim_start();
     let trimmed = s.strip_prefix('#').unwrap_or("");
     let trimmed = trimmed.trim_start();
     trimmed.strip_prefix("frozen_string_literal:")
@@ -287,5 +289,15 @@ mod tests {
         );
         let diags = FrozenStringLiteralComment.check_lines(&source, &config);
         assert!(diags.is_empty(), "Should allow true with always_true style");
+    }
+
+    #[test]
+    fn leading_whitespace_recognized() {
+        let source = SourceFile::from_bytes(
+            "test.rb",
+            b"  # frozen_string_literal: true\nputs 'hello'\n".to_vec(),
+        );
+        let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
+        assert!(diags.is_empty(), "Should recognize frozen_string_literal with leading whitespace");
     }
 }

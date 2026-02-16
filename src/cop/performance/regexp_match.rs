@@ -97,11 +97,17 @@ fn check_condition(
     if let Some(call) = cond.as_call_node() {
         let method = call.name().as_slice();
         if method == b"=~" || method == b"!~" {
-            // Don't flag if MatchData is used in the body (e.g., Regexp.last_match, $~, $1)
-            if let Some((start, end)) = body_range {
-                if last_match_used_in_range(source, start, end) {
-                    return;
-                }
+            // Don't flag if MatchData is used anywhere near the match.
+            // Scan from start of the line (handles `$1 if x =~ /re/` modifier pattern)
+            // to end of file (handles $~ in broader method scope).
+            let match_offset = call.location().start_offset();
+            let bytes = source.as_bytes();
+            let mut line_start = match_offset;
+            while line_start > 0 && bytes[line_start - 1] != b'\n' {
+                line_start -= 1;
+            }
+            if last_match_used_in_range(source, line_start, bytes.len()) {
+                return;
             }
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());

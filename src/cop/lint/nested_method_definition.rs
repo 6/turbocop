@@ -23,8 +23,14 @@ impl<'pr> Visit<'pr> for NestedDefFinder {
         if is_scope {
             self.skip_depth += 1;
         }
-        if self.skip_depth == 0 && node.as_def_node().is_some() {
-            self.found.push(node.location().start_offset());
+        if self.skip_depth == 0 {
+            if let Some(def_node) = node.as_def_node() {
+                // Skip singleton method definitions (def obj.method) — they define
+                // a method on a specific receiver, not on the enclosing scope.
+                if def_node.receiver().is_none() {
+                    self.found.push(node.location().start_offset());
+                }
+            }
         }
     }
 

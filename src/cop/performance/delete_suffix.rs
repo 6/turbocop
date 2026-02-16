@@ -87,6 +87,12 @@ impl Cop for DeleteSuffix {
             None => return Vec::new(),
         };
 
+        // Skip if regex has flags (e.g., /pattern\z/i) — delete_suffix can't replicate flags
+        let closing = regex_node.closing_loc().as_slice();
+        if closing.len() > 1 {
+            return Vec::new();
+        }
+
         let content = regex_node.content_loc().as_slice();
         if !is_end_anchored_literal(content, safe_multiline) {
             return Vec::new();

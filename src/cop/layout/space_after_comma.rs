@@ -21,6 +21,10 @@ impl Cop for SpaceAfterComma {
         let mut diagnostics = Vec::new();
         for (i, &byte) in bytes.iter().enumerate() {
             if byte == b',' && code_map.is_code(i) {
+                // Skip if this comma is part of a global variable ($, or $;)
+                if i > 0 && bytes[i - 1] == b'$' {
+                    continue;
+                }
                 let next = bytes.get(i + 1).copied();
                 if !matches!(next, Some(b' ') | Some(b'\n') | Some(b'\r') | None) {
                     let (line, column) = source.offset_to_line_col(i);

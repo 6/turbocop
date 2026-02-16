@@ -5,3 +5,6 @@ bar(a, b, c)
 {a: 1, b: 2}
 [1,
  2]
+# $, global variable is not a comma separator
+def safe_join(array, sep = $,)
+end

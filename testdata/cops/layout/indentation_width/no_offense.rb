@@ -46,3 +46,44 @@ source.passive_relationships
       .in_batches do |follows|
         process(follows)
       end
+
+# Assignment context (variable style): body indented from LHS, end at LHS
+x = if foo
+  bar
+end
+
+result = if condition
+  value_a
+end
+
+y = while queue.any?
+  queue.pop
+end
+
+z = until done
+  process_next
+end
+
+# Assignment context (keyword style): body indented from keyword, end at keyword
+links = if enabled?
+          body
+        end
+
+# Inline block wrapping — closing } on same line as body
+get "/", constraints: lambda { |req|
+  req.subdomain.present? && req.subdomain != "clients" },
+           to: lambda { |env| [200, {}, %w{default}] }
+
+# Block params on same line as body
+files = (Dir["test/**/*_test.rb"].reject {
+  |x| x.include?("/adapters/")
+} + Dir["test/other/**/*_test.rb"]).sort
+
+# Multi-line when with `then` on continuation line
+case type
+when :references, :belongs_to,
+     :attachment, :attachments,
+     :rich_text                   then nil
+when :string
+  "MyString"
+end

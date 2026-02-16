@@ -32,9 +32,9 @@ struct Args {
     #[arg(long, default_value_t = 2)]
     warmup: u32,
 
-    /// Output markdown file path
-    #[arg(long, default_value = "bench/results.md")]
-    output: PathBuf,
+    /// Output markdown file path (relative to project root)
+    #[arg(long)]
+    output: Option<PathBuf>,
 }
 
 // --- Repo config ---
@@ -55,6 +55,11 @@ static REPOS: &[BenchRepo] = &[
         name: "discourse",
         url: "https://github.com/discourse/discourse.git",
         tag: "v3.4.3",
+    },
+    BenchRepo {
+        name: "rails",
+        url: "https://github.com/rails/rails.git",
+        tag: "v8.1.2",
     },
 ];
 
@@ -804,6 +809,10 @@ fn load_cached_bench() -> HashMap<String, BenchResult> {
 
 fn main() {
     let args = Args::parse();
+    let output_path = args
+        .output
+        .clone()
+        .unwrap_or_else(|| project_root().join("bench/results.md"));
 
     match args.mode.as_str() {
         "setup" => {
@@ -813,24 +822,24 @@ fn main() {
             build_rblint();
             let bench = run_bench(&args);
             let md = generate_report(&bench, &HashMap::new(), &args);
-            fs::write(&args.output, &md).unwrap();
-            eprintln!("\nWrote {}", args.output.display());
+            fs::write(&output_path, &md).unwrap();
+            eprintln!("\nWrote {}", output_path.display());
         }
         "conform" => {
             build_rblint();
             let conform = run_conform();
             let bench = load_cached_bench();
             let md = generate_report(&bench, &conform, &args);
-            fs::write(&args.output, &md).unwrap();
-            eprintln!("\nWrote {}", args.output.display());
+            fs::write(&output_path, &md).unwrap();
+            eprintln!("\nWrote {}", output_path.display());
         }
         "report" => {
             let bench = load_cached_bench();
             // For conformance, we'd need to re-parse the JSON files.
             // For now, just regenerate from bench data.
             let md = generate_report(&bench, &HashMap::new(), &args);
-            fs::write(&args.output, &md).unwrap();
-            eprintln!("\nWrote {}", args.output.display());
+            fs::write(&output_path, &md).unwrap();
+            eprintln!("\nWrote {}", output_path.display());
         }
         "all" => {
             setup_repos();
@@ -838,8 +847,8 @@ fn main() {
             let bench = run_bench(&args);
             let conform = run_conform();
             let md = generate_report(&bench, &conform, &args);
-            fs::write(&args.output, &md).unwrap();
-            eprintln!("\nWrote {}", args.output.display());
+            fs::write(&output_path, &md).unwrap();
+            eprintln!("\nWrote {}", output_path.display());
         }
         other => {
             eprintln!("Unknown mode: {other}. Use: setup, bench, conform, report, or all.");

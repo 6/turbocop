@@ -36,10 +36,13 @@ impl Cop for SpaceInsideParens {
         let space_after_open = bytes.get(open_end) == Some(&b' ');
         let space_before_close = close_start > 0 && bytes.get(close_start - 1) == Some(&b' ');
 
-        // Skip multiline parens for space checks
-        let is_multiline_after = bytes.get(open_end) == Some(&b'\n') || bytes.get(open_end) == Some(&b'\r');
-        let is_multiline_before = close_start >= 2
-            && (bytes.get(close_start - 2) == Some(&b'\n') || bytes.get(close_start - 2) == Some(&b'\r'));
+        // Skip multiline parens for space checks — when the opening and closing
+        // are on different lines, spaces adjacent to parens are just indentation.
+        let (open_line, _) = source.offset_to_line_col(open_end.saturating_sub(1));
+        let (close_line, _) = source.offset_to_line_col(close_start);
+        let is_multiline = open_line != close_line;
+        let is_multiline_after = is_multiline;
+        let is_multiline_before = is_multiline;
 
         match style {
             "space" => {

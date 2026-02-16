@@ -4,12 +4,26 @@ use crate::parse::source::SourceFile;
 
 pub struct IndentationConsistency;
 
+/// Check if a node is a bare access modifier call (private, protected, public with no args).
+fn is_bare_access_modifier(node: &ruby_prism::Node<'_>) -> bool {
+    let call = match node.as_call_node() {
+        Some(c) => c,
+        None => return false,
+    };
+    // Must be a bare call: no receiver, no arguments, no block
+    if call.receiver().is_some() || call.arguments().is_some() || call.block().is_some() {
+        return false;
+    }
+    matches!(call.name().as_slice(), b"private" | b"protected" | b"public")
+}
+
 impl IndentationConsistency {
     fn check_body_consistency(
         &self,
         source: &SourceFile,
         keyword_offset: usize,
         body: Option<ruby_prism::Node<'_>>,
+        indented_internal_methods: bool,
     ) -> Vec<Diagnostic> {
         let body = match body {
             Some(b) => b,
@@ -28,25 +42,43 @@ impl IndentationConsistency {
 
         let (kw_line, _) = source.offset_to_line_col(keyword_offset);
 
-        // Get first statement's column as the reference
+        // Check if first statement is on the same line as keyword
         let first_loc = children[0].location();
-        let (first_line, first_col) = source.offset_to_line_col(first_loc.start_offset());
-
-        // Skip single-line bodies
+        let (first_line, _) = source.offset_to_line_col(first_loc.start_offset());
         if first_line == kw_line {
             return Vec::new();
         }
 
+        if indented_internal_methods {
+            self.check_sections(source, &children)
+        } else {
+            self.check_flat(source, &children, kw_line)
+        }
+    }
+
+    /// Normal style: all children must have the same indentation.
+    fn check_flat(
+        &self,
+        source: &SourceFile,
+        children: &[ruby_prism::Node<'_>],
+        kw_line: usize,
+    ) -> Vec<Diagnostic> {
+        let first_loc = children[0].location();
+        let (first_line, first_col) = source.offset_to_line_col(first_loc.start_offset());
+
         let mut diagnostics = Vec::new();
+        let mut prev_line = first_line;
 
         for child in &children[1..] {
             let loc = child.location();
             let (child_line, child_col) = source.offset_to_line_col(loc.start_offset());
 
-            // Skip if on same line as first (shouldn't happen normally)
-            if child_line == first_line {
+            // Skip semicolon-separated statements on the same line as previous sibling
+            if child_line == prev_line || child_line == kw_line {
+                prev_line = child_line;
                 continue;
             }
+            prev_line = child_line;
 
             if child_col != first_col {
                 diagnostics.push(self.diagnostic(
@@ -55,6 +87,63 @@ impl IndentationConsistency {
                     child_col,
                     "Inconsistent indentation detected.".to_string(),
                 ));
+            }
+        }
+
+        diagnostics
+    }
+
+    /// indented_internal_methods style: access modifiers act as section dividers.
+    /// Consistency is checked only within each section.
+    fn check_sections(
+        &self,
+        source: &SourceFile,
+        children: &[ruby_prism::Node<'_>],
+    ) -> Vec<Diagnostic> {
+        // Split children into sections separated by bare access modifiers.
+        // Each section's children must have consistent indentation within the section,
+        // but different sections can have different indentation levels.
+        let mut sections: Vec<Vec<&ruby_prism::Node<'_>>> = vec![vec![]];
+
+        for child in children {
+            if is_bare_access_modifier(child) {
+                // Start a new section (the modifier itself is not checked)
+                sections.push(vec![]);
+            } else {
+                sections.last_mut().unwrap().push(child);
+            }
+        }
+
+        let mut diagnostics = Vec::new();
+
+        for section in &sections {
+            if section.len() < 2 {
+                continue;
+            }
+
+            let first_loc = section[0].location();
+            let (first_line, first_col) = source.offset_to_line_col(first_loc.start_offset());
+            let mut prev_line = first_line;
+
+            for child in &section[1..] {
+                let loc = child.location();
+                let (child_line, child_col) = source.offset_to_line_col(loc.start_offset());
+
+                // Skip semicolon-separated statements on same line as previous sibling
+                if child_line == prev_line {
+                    prev_line = child_line;
+                    continue;
+                }
+                prev_line = child_line;
+
+                if child_col != first_col {
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        child_line,
+                        child_col,
+                        "Inconsistent indentation detected.".to_string(),
+                    ));
+                }
             }
         }
 
@@ -75,14 +164,14 @@ impl Cop for IndentationConsistency {
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let style = config.get_str("EnforcedStyle", "normal");
-        let _ = style; // Used to differentiate "normal" vs "indented_internal_methods"
-        // "indented_internal_methods" would indent `protected`/`private` method bodies
-        // one extra level. For now both styles check consistency of sibling statements.
+        let indented = style == "indented_internal_methods";
+
         if let Some(class_node) = node.as_class_node() {
             return self.check_body_consistency(
                 source,
                 class_node.class_keyword_loc().start_offset(),
                 class_node.body(),
+                indented,
             );
         }
 
@@ -91,6 +180,7 @@ impl Cop for IndentationConsistency {
                 source,
                 module_node.module_keyword_loc().start_offset(),
                 module_node.body(),
+                indented,
             );
         }
 
@@ -99,6 +189,7 @@ impl Cop for IndentationConsistency {
                 source,
                 def_node.def_keyword_loc().start_offset(),
                 def_node.body(),
+                false, // indented_internal_methods only applies to class/module bodies
             );
         }
 
@@ -107,6 +198,7 @@ impl Cop for IndentationConsistency {
                 source,
                 block_node.opening_loc().start_offset(),
                 block_node.body(),
+                indented, // indented_internal_methods applies to block bodies too (class_methods do, etc.)
             );
         }
 
@@ -139,9 +231,44 @@ mod tests {
             ]),
             ..CopConfig::default()
         };
-        // Both styles still check consistency, so inconsistent indentation is flagged
+        // In indented_internal_methods, methods in the same section before any
+        // access modifier must be consistent. Two defs at different indentation
+        // in the same section are flagged.
         let src = b"class Foo\n  def bar; end\n    def baz; end\nend\n";
         let diags = run_cop_full_with_config(&IndentationConsistency, src, config);
-        assert!(!diags.is_empty(), "indented_internal_methods should still flag inconsistency");
+        assert!(!diags.is_empty(), "indented_internal_methods should still flag inconsistency within a section");
+    }
+
+    #[test]
+    fn indented_internal_methods_allows_extra_indent_after_private() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("indented_internal_methods".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let src = b"class Foo\n  def bar\n  end\n\n  private\n\n    def baz\n    end\n\n    def qux\n    end\nend\n";
+        let diags = run_cop_full_with_config(&IndentationConsistency, src, config);
+        assert!(diags.is_empty(), "indented_internal_methods should allow extra indent after private: {:?}", diags);
+    }
+
+    #[test]
+    fn indented_internal_methods_flags_inconsistency_within_private_section() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("indented_internal_methods".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Two methods after private at different indentation levels
+        let src = b"class Foo\n  private\n\n    def bar\n    end\n\n      def baz\n      end\nend\n";
+        let diags = run_cop_full_with_config(&IndentationConsistency, src, config);
+        assert!(!diags.is_empty(), "should flag inconsistency within private section");
     }
 }

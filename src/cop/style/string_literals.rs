@@ -4,6 +4,28 @@ use crate::parse::source::SourceFile;
 
 pub struct StringLiterals;
 
+/// Check if the byte at `offset` is inside a `#{ }` interpolation context
+/// by scanning backward. Tracks brace depth to handle nested `{ }` blocks
+/// (from hashes, method blocks, etc.) that appear inside the interpolation.
+fn is_inside_interpolation(source_bytes: &[u8], offset: usize) -> bool {
+    let mut depth: i32 = 0;
+    let mut i = offset;
+    while i > 0 {
+        i -= 1;
+        match source_bytes[i] {
+            b'}' => depth += 1,
+            b'{' => {
+                depth -= 1;
+                if depth < 0 && i > 0 && source_bytes[i - 1] == b'#' {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
 impl Cop for StringLiterals {
     fn name(&self) -> &'static str {
         "Style/StringLiterals"
@@ -60,6 +82,23 @@ impl Cop for StringLiterals {
             }
             "double_quotes" => {
                 if opening_byte == b'\'' {
+                    // Skip if the content contains double quotes — converting would
+                    // require escaping, so the single-quoted form is preferred.
+                    if content.contains(&b'"') {
+                        return Vec::new();
+                    }
+                    // Skip if the content contains backslashes — in single-quoted
+                    // strings they're literal, but in double-quoted strings they
+                    // become escape sequences (changing the string's meaning).
+                    if content.contains(&b'\\') {
+                        return Vec::new();
+                    }
+                    // Skip if this string is inside a #{ } interpolation context —
+                    // converting to double quotes would need escaping inside the
+                    // enclosing double-quoted string.
+                    if is_inside_interpolation(source.as_bytes(), opening.start_offset()) {
+                        return Vec::new();
+                    }
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
                     return vec![self.diagnostic(source, line, column, "Prefer double-quoted strings unless you need single quotes within your string.".to_string())];
                 }
@@ -93,6 +132,40 @@ mod tests {
         let diags = run_cop_full_with_config(&StringLiterals, source, config);
         assert!(!diags.is_empty(), "Should fire with EnforcedStyle:double_quotes on single-quoted string");
         assert!(diags[0].message.contains("double-quoted"));
+    }
+
+    #[test]
+    fn double_quotes_skips_inside_interpolation() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("double_quotes".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Single-quoted string inside interpolation should NOT be flagged
+        let source = b"x = \"hello #{env['KEY']}\"\n";
+        let diags = run_cop_full_with_config(&StringLiterals, source, config);
+        assert!(diags.is_empty(), "Should not flag single-quoted string inside interpolation: {:?}", diags);
+    }
+
+    #[test]
+    fn double_quotes_skips_string_containing_double_quotes() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("double_quotes".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Single-quoted string containing " should NOT be flagged
+        let source = b"x = 'say \"hello\"'\n";
+        let diags = run_cop_full_with_config(&StringLiterals, source, config);
+        assert!(diags.is_empty(), "Should not flag single-quoted string with double quotes inside");
     }
 
     #[test]

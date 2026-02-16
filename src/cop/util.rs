@@ -252,6 +252,50 @@ pub fn expected_indent_for_body(keyword_column: usize, width: usize) -> usize {
     keyword_column + width
 }
 
+/// If the keyword at `keyword_offset` is on the RHS of an assignment
+/// (e.g., `x = if ...`), returns the column of the first non-whitespace
+/// character on that line (the LHS variable). Returns None otherwise.
+pub fn assignment_context_base_col(source: &SourceFile, keyword_offset: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    // Find the start of the line containing keyword_offset
+    let mut line_start = keyword_offset;
+    while line_start > 0 && bytes[line_start - 1] != b'\n' {
+        line_start -= 1;
+    }
+
+    // Slice from line start to keyword position
+    let before_keyword = &bytes[line_start..keyword_offset];
+
+    // Scan for bare `=` (not part of ==, !=, <=, >=, =~, =>)
+    let mut i = 0;
+    while i < before_keyword.len() {
+        if before_keyword[i] == b'=' {
+            // Check following char: skip ==, =~, =>
+            let next = before_keyword.get(i + 1).copied().unwrap_or(b' ');
+            if next == b'=' || next == b'~' || next == b'>' {
+                i += 2;
+                continue;
+            }
+            // Check preceding char: skip !=, <=, >=, ==
+            if i > 0 {
+                let prev = before_keyword[i - 1];
+                if prev == b'!' || prev == b'<' || prev == b'>' || prev == b'=' {
+                    i += 1;
+                    continue;
+                }
+            }
+            // Found a bare assignment `=`
+            // Return column of first non-whitespace on the line
+            return before_keyword
+                .iter()
+                .position(|&b| b != b' ' && b != b'\t');
+        }
+        i += 1;
+    }
+
+    None
+}
+
 /// Get the line content at a given 1-indexed line number.
 pub fn line_at(source: &SourceFile, line_number: usize) -> Option<&[u8]> {
     source.lines().nth(line_number - 1)
@@ -852,5 +896,36 @@ mod tests {
         assert_eq!(count_body_lines(&source, 0, 45, false), 3);
         // With comments: 4 lines (x, y, #comment, z)
         assert_eq!(count_body_lines(&source, 0, 45, true), 4);
+    }
+
+    #[test]
+    fn test_assignment_context_base_col() {
+        // Simple assignment: `x = if ...`
+        let src = SourceFile::from_bytes("test.rb", b"x = if foo\n  bar\nend\n".to_vec());
+        assert_eq!(assignment_context_base_col(&src, 4), Some(0)); // `if` at offset 4
+
+        // Indented: `  x = if ...`
+        let src = SourceFile::from_bytes("test.rb", b"  x = if foo\n    bar\nend\n".to_vec());
+        assert_eq!(assignment_context_base_col(&src, 6), Some(2)); // `if` at offset 6
+
+        // No assignment: `if ...` at line start
+        let src = SourceFile::from_bytes("test.rb", b"if foo\n  bar\nend\n".to_vec());
+        assert_eq!(assignment_context_base_col(&src, 0), None);
+
+        // Compound assignment: `x ||= if ...`
+        let src = SourceFile::from_bytes("test.rb", b"x ||= if foo\n  bar\nend\n".to_vec());
+        assert_eq!(assignment_context_base_col(&src, 6), Some(0));
+
+        // Comparison (not assignment): `x == if ...`
+        let src = SourceFile::from_bytes("test.rb", b"x == if foo\n  bar\nend\n".to_vec());
+        assert_eq!(assignment_context_base_col(&src, 5), None);
+
+        // Not assignment: `x =~ /pattern/`
+        let src = SourceFile::from_bytes("test.rb", b"x =~ if foo\n  bar\nend\n".to_vec());
+        assert_eq!(assignment_context_base_col(&src, 5), None);
+
+        // Hash rocket (not assignment): `x => if ...`
+        let src = SourceFile::from_bytes("test.rb", b"x => if foo\n  bar\nend\n".to_vec());
+        assert_eq!(assignment_context_base_col(&src, 5), None);
     }
 }
