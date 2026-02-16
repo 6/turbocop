@@ -17,44 +17,75 @@ impl RedundantFreeze {
             || node.as_nil_node().is_some()
     }
 
+    fn is_numeric(node: &ruby_prism::Node<'_>) -> bool {
+        node.as_integer_node().is_some() || node.as_float_node().is_some()
+    }
+
+    fn is_string_or_array(node: &ruby_prism::Node<'_>) -> bool {
+        node.as_string_node().is_some()
+            || node.as_interpolated_string_node().is_some()
+            || node.as_array_node().is_some()
+    }
+
     fn is_operation_producing_immutable(node: &ruby_prism::Node<'_>) -> bool {
-        // Method calls on literals that return immutable values
-        // e.g., 'foo'.count, [1,2,3].size, [1,2,3].count { ... }
+        // Method calls that always return immutable values (integers).
+        // count/length/size always return Integer regardless of receiver.
         if let Some(call) = node.as_call_node() {
             let method = call.name();
             let name = method.as_slice();
-            // Methods that return numeric/boolean values
-            if matches!(
-                name,
-                b"count" | b"length" | b"size" | b"to_i" | b"to_f" | b"to_r" | b"to_c"
-            ) {
-                return true;
-            }
-            // Comparison operators produce booleans
-            if matches!(
-                name,
-                b"<" | b">" | b"<=" | b">=" | b"==" | b"!=" | b"<=>"
-            ) {
+            if matches!(name, b"count" | b"length" | b"size") {
                 return true;
             }
         }
-        // Parenthesized expressions containing operations
+        // Parenthesized expressions containing operations.
+        // Must match the vendor's patterns precisely:
+        //   (begin (send {float int} {:+ :- :* :** :/ :% :<<} _))
+        //   (begin (send !{(str _) array} {:+ :- :* :** :/ :%} {float int}))
+        //   (begin (send _ {:== :=== :!= :<= :>= :< :>} _))
         if let Some(parens) = node.as_parentheses_node() {
             if let Some(body) = parens.body() {
                 if let Some(stmts) = body.as_statements_node() {
                     let body_nodes: Vec<_> = stmts.body().into_iter().collect();
                     if body_nodes.len() == 1 {
                         let inner = &body_nodes[0];
-                        // Arithmetic or comparison => immutable result
                         if let Some(call) = inner.as_call_node() {
                             let method_name = call.name();
                             let name_bytes = method_name.as_slice();
+
+                            // Comparison operators always produce booleans (immutable)
                             if matches!(
                                 name_bytes,
-                                b"+" | b"-" | b"*" | b"/" | b"%" | b"**"
-                                    | b"<" | b">" | b"<=" | b">=" | b"==" | b"!="
+                                b"<" | b">" | b"<=" | b">=" | b"==" | b"===" | b"!="
                             ) {
                                 return true;
+                            }
+
+                            // Arithmetic: only when operand types guarantee numeric result
+                            let is_arithmetic = matches!(
+                                name_bytes,
+                                b"+" | b"-" | b"*" | b"/" | b"%" | b"**" | b"<<"
+                            );
+                            if is_arithmetic {
+                                if let Some(receiver) = call.receiver() {
+                                    // Pattern 1: numeric_left op anything
+                                    if Self::is_numeric(&receiver) {
+                                        return true;
+                                    }
+                                    // Pattern 2: non_string_non_array op numeric_right
+                                    if !Self::is_string_or_array(&receiver)
+                                        && name_bytes != b"<<"
+                                    {
+                                        if let Some(args) = call.arguments() {
+                                            let arg_list: Vec<_> =
+                                                args.arguments().iter().collect();
+                                            if arg_list.len() == 1
+                                                && Self::is_numeric(&arg_list[0])
+                                            {
+                                                return true;
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

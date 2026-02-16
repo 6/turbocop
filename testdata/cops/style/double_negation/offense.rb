@@ -1,8 +1,8 @@
 !!something
-^^^^^^^^^^^ Style/DoubleNegation: Avoid using double negation (`!!`).
+^^^^^^^^^^^ Style/DoubleNegation: Avoid the use of double negation (`!!`).
 
 x = !!foo
-    ^^^^^ Style/DoubleNegation: Avoid using double negation (`!!`).
+    ^^^^^ Style/DoubleNegation: Avoid the use of double negation (`!!`).
 
 !!nil
-^^^^^ Style/DoubleNegation: Avoid using double negation (`!!`).
+^^^^^ Style/DoubleNegation: Avoid the use of double negation (`!!`).

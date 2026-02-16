@@ -39,9 +39,21 @@ struct DupMethodVisitor<'a, 'src> {
     diagnostics: Vec<Diagnostic>,
 }
 
-fn check_body_for_dup_methods<'src>(
+/// Build a method key that distinguishes instance methods from singleton methods.
+fn def_method_key(def_node: &ruby_prism::DefNode<'_>) -> Vec<u8> {
+    let name = def_node.name().as_slice();
+    if def_node.receiver().is_some() {
+        let mut key = b"self.".to_vec();
+        key.extend_from_slice(name);
+        key
+    } else {
+        name.to_vec()
+    }
+}
+
+fn check_body_for_dup_methods(
     cop: &DuplicateMethods,
-    source: &'src SourceFile,
+    source: &SourceFile,
     body: &ruby_prism::Node<'_>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
@@ -55,9 +67,9 @@ fn check_body_for_dup_methods<'src>(
 
     for stmt in stmts.body().iter() {
         if let Some(def_node) = stmt.as_def_node() {
-            let name = def_node.name().as_slice().to_vec();
+            let key = def_method_key(&def_node);
             let loc = def_node.location();
-            if seen.contains_key(&name) {
+            if seen.contains_key(&key) {
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 diagnostics.push(cop.diagnostic(
                     source,
@@ -66,7 +78,33 @@ fn check_body_for_dup_methods<'src>(
                     "Duplicated method definition.".to_string(),
                 ));
             } else {
-                seen.insert(name, loc.start_offset());
+                seen.insert(key, loc.start_offset());
+            }
+        }
+        // Per RuboCop: alias counts as defining a method
+        if let Some(alias_node) = stmt.as_alias_method_node() {
+            if let Some(name_sym) = alias_node.new_name().as_symbol_node() {
+                // Self-alias (alias foo foo) is allowed per RuboCop
+                if let Some(orig_sym) = alias_node.old_name().as_symbol_node() {
+                    let new_bytes = name_sym.unescaped();
+                    let old_bytes = orig_sym.unescaped();
+                    if new_bytes == old_bytes {
+                        continue;
+                    }
+                }
+                let key = name_sym.unescaped().to_vec();
+                let loc = alias_node.location();
+                if seen.contains_key(&key) {
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    diagnostics.push(cop.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Duplicated method definition.".to_string(),
+                    ));
+                } else {
+                    seen.insert(key, loc.start_offset());
+                }
             }
         }
     }

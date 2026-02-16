@@ -14,6 +14,10 @@ impl MutableConstant {
             || node.as_interpolated_string_node().is_some()
     }
 
+    fn is_string_literal(node: &ruby_prism::Node<'_>) -> bool {
+        node.as_string_node().is_some() || node.as_interpolated_string_node().is_some()
+    }
+
     fn is_frozen_call(node: &ruby_prism::Node<'_>) -> bool {
         if let Some(call) = node.as_call_node() {
             if call.name().as_slice() == b"freeze" {
@@ -21,6 +25,60 @@ impl MutableConstant {
             }
         }
         false
+    }
+
+    /// Check if the source file has `# frozen_string_literal: true` in the
+    /// first few lines (before any code). This magic comment makes all string
+    /// literals frozen, so `.freeze` on string constants is unnecessary.
+    fn has_frozen_string_literal_true(source: &SourceFile) -> bool {
+        let lines = source.lines();
+        // Check up to the first 3 lines (shebang, encoding, magic comment)
+        for (i, line) in lines.enumerate() {
+            if i >= 3 {
+                break;
+            }
+            let s = match std::str::from_utf8(line) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let s = s.trim();
+            if s.is_empty() {
+                continue;
+            }
+            if let Some(rest) = s.strip_prefix('#') {
+                let rest = rest.trim_start();
+                if let Some(value) = rest.strip_prefix("frozen_string_literal:") {
+                    return value.trim() == "true";
+                }
+            }
+        }
+        false
+    }
+
+    fn check_value(
+        &self,
+        source: &SourceFile,
+        value: &ruby_prism::Node<'_>,
+        name_offset: usize,
+        frozen_strings: bool,
+    ) -> Vec<Diagnostic> {
+        if !Self::is_mutable_literal(value) || Self::is_frozen_call(value) {
+            return Vec::new();
+        }
+
+        // When frozen_string_literal: true is set, plain string constants
+        // are already frozen — don't flag them.
+        if frozen_strings && Self::is_string_literal(value) {
+            return Vec::new();
+        }
+
+        let (line, column) = source.offset_to_line_col(name_offset);
+        vec![self.diagnostic(
+            source,
+            line,
+            column,
+            "Freeze mutable objects assigned to constants.".to_string(),
+        )]
     }
 }
 
@@ -38,35 +96,29 @@ impl Cop for MutableConstant {
     ) -> Vec<Diagnostic> {
         let _enforced_style = config.get_str("EnforcedStyle", "literals");
 
+        let frozen_strings = Self::has_frozen_string_literal_true(source);
+
         // Check ConstantWriteNode (CONST = value)
         if let Some(cw) = node.as_constant_write_node() {
             let value = cw.value();
-            if Self::is_mutable_literal(&value) && !Self::is_frozen_call(&value) {
-                let loc = cw.name_loc();
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Freeze mutable objects assigned to constants.".to_string(),
-                )];
-            }
+            return self.check_value(
+                source,
+                &value,
+                cw.name_loc().start_offset(),
+                frozen_strings,
+            );
         }
 
         // Check ConstantPathWriteNode (Module::CONST = value)
         if let Some(cpw) = node.as_constant_path_write_node() {
             let value = cpw.value();
-            if Self::is_mutable_literal(&value) && !Self::is_frozen_call(&value) {
-                let target = cpw.target();
-                let loc = target.location();
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Freeze mutable objects assigned to constants.".to_string(),
-                )];
-            }
+            let target = cpw.target();
+            return self.check_value(
+                source,
+                &value,
+                target.location().start_offset(),
+                frozen_strings,
+            );
         }
 
         Vec::new()

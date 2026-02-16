@@ -101,8 +101,15 @@ impl Cop for UnusedMethodArgument {
         // Find all local variable reads in the body
         let mut finder = VarReadFinder {
             names: Vec::new(),
+            has_forwarding_super: false,
         };
         finder.visit(&body);
+
+        // If the body contains bare `super` (ForwardingSuperNode), all args are
+        // implicitly forwarded and therefore "used".
+        if finder.has_forwarding_super {
+            return Vec::new();
+        }
 
         let mut diagnostics = Vec::new();
 
@@ -190,6 +197,7 @@ fn check_not_implemented_call(node: &ruby_prism::Node<'_>) -> bool {
 
 struct VarReadFinder {
     names: Vec<Vec<u8>>,
+    has_forwarding_super: bool,
 }
 
 impl<'pr> Visit<'pr> for VarReadFinder {
@@ -203,6 +211,14 @@ impl<'pr> Visit<'pr> for VarReadFinder {
         node: &ruby_prism::LocalVariableTargetNode<'pr>,
     ) {
         self.names.push(node.name().as_slice().to_vec());
+    }
+
+    // Bare `super` (no args, no parens) implicitly forwards all method arguments
+    fn visit_forwarding_super_node(
+        &mut self,
+        _node: &ruby_prism::ForwardingSuperNode<'pr>,
+    ) {
+        self.has_forwarding_super = true;
     }
 
     // Don't recurse into nested def/class/module (they have their own scope)

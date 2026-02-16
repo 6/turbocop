@@ -41,10 +41,23 @@ impl Cop for DefWithParentheses {
             }
         }
 
+        let is_endless = def_node.end_keyword_loc().is_none();
+
+        // For single-line non-endless methods, parentheses are required for
+        // syntax reasons: `def foo() do_something end` needs the parens.
+        if !is_endless {
+            let def_loc = def_node.location();
+            let start_line = source.offset_to_line_col(def_loc.start_offset()).0;
+            let end_off = def_loc.end_offset().saturating_sub(1).max(def_loc.start_offset());
+            let end_line = source.offset_to_line_col(end_off).0;
+            if start_line == end_line {
+                return Vec::new();
+            }
+        }
+
         // For endless methods, check that there's a space before `=` after `()`
         // RuboCop does not flag `def foo()= do_something` (no space before =)
-        if def_node.end_keyword_loc().is_none() {
-            // Endless method — check for space after rparen
+        if is_endless {
             if let Some(rparen_loc) = def_node.rparen_loc() {
                 let rparen_end = rparen_loc.start_offset() + rparen_loc.as_slice().len();
                 let src = source.as_bytes();

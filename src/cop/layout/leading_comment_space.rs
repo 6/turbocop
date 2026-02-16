@@ -51,6 +51,16 @@ impl Cop for LeadingCommentSpace {
                 if after_hash == b'#' {
                     continue;
                 }
+
+                // Skip RDoc toggle comments: #++ and #--
+                if text.len() > 2 && (after_hash == b'+' || after_hash == b'-') && text[2] == after_hash {
+                    continue;
+                }
+
+                // Skip #= (RDoc =begin/=end style)
+                if after_hash == b'=' {
+                    continue;
+                }
                 let (line, column) = source.offset_to_line_col(start);
                 diagnostics.push(self.diagnostic(
                     source,

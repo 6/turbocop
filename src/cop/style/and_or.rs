@@ -18,55 +18,97 @@ impl Cop for AndOr {
     ) -> Vec<Diagnostic> {
         let enforced_style = config.get_str("EnforcedStyle", "conditionals");
 
-        // Check for AndNode (and/&&) or OrNode (or/||)
-        let (operator_loc, word_op, prefer) =
-            if let Some(and_node) = node.as_and_node() {
-                let op_loc = and_node.operator_loc();
-                let op_text = op_loc.as_slice();
-                if op_text == b"and" {
-                    (op_loc, "and", "&&")
-                } else {
-                    return Vec::new(); // already using &&
-                }
-            } else if let Some(or_node) = node.as_or_node() {
-                let op_loc = or_node.operator_loc();
-                let op_text = op_loc.as_slice();
-                if op_text == b"or" {
-                    (op_loc, "or", "||")
-                } else {
-                    return Vec::new(); // already using ||
-                }
-            } else {
-                return Vec::new();
-            };
-
-        if enforced_style == "conditionals" {
-            // Only flag when inside a conditional context
-            // We can't easily walk parents, so we check if this node is
-            // directly a condition — this is handled by the traversal, but
-            // for "conditionals" style, RuboCop flags and/or when used in
-            // conditionals. Since we can't easily detect parent context,
-            // we'll flag always for now — a common simplification that many
-            // real codebases use.
-            // Actually, for "conditionals" we need to be more careful.
-            // We'll skip flagging for this style and only flag for "always".
-            // This matches the safer behavior.
-            // However, the default is "conditionals" which means we should flag
-            // in conditionals. Since detecting parent is hard in node-based checks,
-            // let's flag all occurrences — RuboCop "conditionals" only skips
-            // and/or used as flow control (e.g., `do_something and return`).
-            // For now, flag everything under "conditionals" too, which catches
-            // more but is acceptable for a linter.
+        if enforced_style == "always" {
+            // In "always" mode, flag every `and` and `or` keyword
+            return check_and_or_node(self, source, node);
         }
 
-        let (line, column) = source.offset_to_line_col(operator_loc.start_offset());
-        vec![self.diagnostic(
-            source,
-            line,
-            column,
-            format!("Use `{}` instead of `{}`.", prefer, word_op),
-        )]
+        // "conditionals" mode: only flag `and`/`or` inside conditions of if/while/until
+        let condition = if let Some(if_node) = node.as_if_node() {
+            if_node.predicate()
+        } else if let Some(unless_node) = node.as_unless_node() {
+            unless_node.predicate()
+        } else if let Some(while_node) = node.as_while_node() {
+            while_node.predicate()
+        } else if let Some(until_node) = node.as_until_node() {
+            until_node.predicate()
+        } else {
+            return Vec::new();
+        };
+
+        // Walk the condition tree for and/or nodes
+        let mut diagnostics = Vec::new();
+        collect_and_or_in_condition(self, source, &condition, &mut diagnostics);
+        diagnostics
     }
+}
+
+/// Check if a single node is an `and`/`or` keyword and report it.
+fn check_and_or_node(cop: &AndOr, source: &SourceFile, node: &ruby_prism::Node<'_>) -> Vec<Diagnostic> {
+    if let Some(and_node) = node.as_and_node() {
+        let op_loc = and_node.operator_loc();
+        if op_loc.as_slice() == b"and" {
+            let (line, column) = source.offset_to_line_col(op_loc.start_offset());
+            return vec![cop.diagnostic(
+                source,
+                line,
+                column,
+                "Use `&&` instead of `and`.".to_string(),
+            )];
+        }
+    } else if let Some(or_node) = node.as_or_node() {
+        let op_loc = or_node.operator_loc();
+        if op_loc.as_slice() == b"or" {
+            let (line, column) = source.offset_to_line_col(op_loc.start_offset());
+            return vec![cop.diagnostic(
+                source,
+                line,
+                column,
+                "Use `||` instead of `or`.".to_string(),
+            )];
+        }
+    }
+    Vec::new()
+}
+
+/// Recursively walk a condition expression finding `and`/`or` keyword nodes.
+fn collect_and_or_in_condition(
+    cop: &AndOr,
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if let Some(and_node) = node.as_and_node() {
+        let op_loc = and_node.operator_loc();
+        if op_loc.as_slice() == b"and" {
+            let (line, column) = source.offset_to_line_col(op_loc.start_offset());
+            diagnostics.push(cop.diagnostic(
+                source,
+                line,
+                column,
+                "Use `&&` instead of `and`.".to_string(),
+            ));
+        }
+        // Recurse into both sides
+        collect_and_or_in_condition(cop, source, &and_node.left(), diagnostics);
+        collect_and_or_in_condition(cop, source, &and_node.right(), diagnostics);
+    } else if let Some(or_node) = node.as_or_node() {
+        let op_loc = or_node.operator_loc();
+        if op_loc.as_slice() == b"or" {
+            let (line, column) = source.offset_to_line_col(op_loc.start_offset());
+            diagnostics.push(cop.diagnostic(
+                source,
+                line,
+                column,
+                "Use `||` instead of `or`.".to_string(),
+            ));
+        }
+        // Recurse into both sides
+        collect_and_or_in_condition(cop, source, &or_node.left(), diagnostics);
+        collect_and_or_in_condition(cop, source, &or_node.right(), diagnostics);
+    }
+    // For other node types, don't recurse further — and/or at the top level of
+    // a condition is what we're looking for.
 }
 
 #[cfg(test)]

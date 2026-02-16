@@ -16,7 +16,7 @@ impl Cop for SpaceBeforeFirstArg {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let _allow_for_alignment = config.get_bool("AllowForAlignment", true);
+        let allow_for_alignment = config.get_bool("AllowForAlignment", true);
 
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -57,7 +57,25 @@ impl Cop for SpaceBeforeFirstArg {
         }
 
         let gap = arg_start.saturating_sub(method_end);
+
+        if gap == 0 {
+            // No space at all between method name and first arg — always flag
+            let (line, column) = source.offset_to_line_col(method_end);
+            return vec![self.diagnostic(
+                source,
+                line,
+                column,
+                "Put one space between the method name and the first argument.".to_string(),
+            )];
+        }
+
         if gap > 1 {
+            // When AllowForAlignment is true (default), extra spaces are allowed
+            // because they may be used for vertical alignment with adjacent lines.
+            if allow_for_alignment {
+                return Vec::new();
+            }
+
             // More than one space between method name and first arg
             let bytes = source.as_bytes();
             let between = &bytes[method_end..arg_start];

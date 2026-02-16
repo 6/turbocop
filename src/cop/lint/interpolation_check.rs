@@ -13,68 +13,78 @@ impl Cop for InterpolationCheck {
         Severity::Warning
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    fn check_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
+        let string_node = match node.as_string_node() {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
 
-        for (i, line) in source.lines().enumerate() {
-            // Look for single-quoted strings containing #{
-            // Simple heuristic: find '...' containing #{
-            let mut pos = 0;
-            while pos < line.len() {
-                if line[pos] == b'\'' {
-                    // Found opening single quote, find closing
-                    let start = pos;
-                    pos += 1;
-                    let mut found_interp = false;
-                    let mut interp_col = 0;
-                    while pos < line.len() && line[pos] != b'\'' {
-                        if pos + 1 < line.len() && line[pos] == b'#' && line[pos + 1] == b'{' {
-                            if !found_interp {
-                                interp_col = pos;
-                                found_interp = true;
-                            }
-                        }
-                        pos += 1;
-                    }
-                    if pos < line.len() && line[pos] == b'\'' && found_interp {
-                        // We found a single-quoted string with #{ inside
-                        // But make sure this isn't inside a double-quoted string or comment
-                        // Simple check: the quote at `start` should not be preceded by a backslash
-                        let escaped = start > 0 && line[start - 1] == b'\\';
-                        if !escaped {
-                            diagnostics.push(self.diagnostic(
-                                source,
-                                i + 1,
-                                interp_col,
-                                "Interpolation in single-quoted string detected. Did you mean to use double quotes?".to_string(),
-                            ));
-                        }
-                    }
-                    if pos < line.len() {
-                        pos += 1;
-                    }
-                } else if line[pos] == b'#' {
-                    // Rest of line is a comment, stop scanning
-                    break;
-                } else if line[pos] == b'"' {
-                    // Skip double-quoted strings
-                    pos += 1;
-                    while pos < line.len() && line[pos] != b'"' {
-                        if line[pos] == b'\\' && pos + 1 < line.len() {
-                            pos += 1; // skip escaped char
-                        }
-                        pos += 1;
-                    }
-                    if pos < line.len() {
-                        pos += 1;
-                    }
-                } else {
-                    pos += 1;
-                }
-            }
+        // Only check single-quoted strings.
+        // opening_loc gives us the quote character (', ", %q{, etc.)
+        let opening = match string_node.opening_loc() {
+            Some(loc) => loc,
+            None => return Vec::new(), // bare string (heredoc body etc.)
+        };
+
+        let open_slice = opening.as_slice();
+        // Single-quoted: starts with ' or %q
+        let is_single_quoted = open_slice == b"'"
+            || open_slice.starts_with(b"%q");
+
+        if !is_single_quoted {
+            return Vec::new();
         }
 
-        diagnostics
+        // Check the raw source content between quotes for #{...}
+        let content_loc = string_node.content_loc();
+        let content_bytes = &source.as_bytes()[content_loc.start_offset()..content_loc.end_offset()];
+
+        // Look for #{ in the content
+        let mut i = 0;
+        while i + 1 < content_bytes.len() {
+            if content_bytes[i] == b'#' && content_bytes[i + 1] == b'{' {
+                // Found interpolation-like pattern. Check it would be valid
+                // if the string were double-quoted (the vendor does this check).
+                // For simplicity, just check that there's a matching closing }.
+                let mut depth = 0;
+                let mut j = i + 1;
+                let mut has_closing = false;
+                while j < content_bytes.len() {
+                    if content_bytes[j] == b'{' {
+                        depth += 1;
+                    } else if content_bytes[j] == b'}' {
+                        depth -= 1;
+                        if depth == 0 {
+                            has_closing = true;
+                            break;
+                        }
+                    }
+                    j += 1;
+                }
+
+                if has_closing {
+                    // Report at the #{ position
+                    let interp_offset = content_loc.start_offset() + i;
+                    let (line, column) = source.offset_to_line_col(interp_offset);
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Interpolation in single-quoted string detected. Did you mean to use double quotes?".to_string(),
+                    )];
+                }
+                break;
+            }
+            i += 1;
+        }
+
+        Vec::new()
     }
 }
 

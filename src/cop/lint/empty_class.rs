@@ -23,6 +23,10 @@ impl Cop for EmptyClass {
         // Handle both ClassNode and SingletonClassNode (metaclass)
         let (body_empty, kw_loc, start_line, end_line) =
             if let Some(class_node) = node.as_class_node() {
+                // Per RuboCop: skip classes with a parent class (e.g. class Error < StandardError; end)
+                if class_node.superclass().is_some() {
+                    return Vec::new();
+                }
                 let empty = match class_node.body() {
                     None => true,
                     Some(body) => {

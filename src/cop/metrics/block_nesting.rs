@@ -85,10 +85,20 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_> {
     }
 
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
-        self.depth += 1;
-        self.check_nesting(&node.location());
+        // In Prism, `elsif` branches are represented as nested IfNodes.
+        // RuboCop does not count elsif as additional nesting depth.
+        let is_elsif = node
+            .if_keyword_loc()
+            .is_some_and(|kw| kw.as_slice() == b"elsif");
+
+        if !is_elsif {
+            self.depth += 1;
+            self.check_nesting(&node.location());
+        }
         ruby_prism::visit_if_node(self, node);
-        self.depth -= 1;
+        if !is_elsif {
+            self.depth -= 1;
+        }
     }
 
     fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {

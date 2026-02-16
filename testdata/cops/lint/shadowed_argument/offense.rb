@@ -11,7 +11,7 @@ def baz(x, y)
 end
 
 def qux(name)
-  name = name.to_s.strip
-  ^^^^^^^^^^^^^^^^^^^^^^^ Lint/ShadowedArgument: Argument `name` was shadowed by a local variable before it was used.
+  name = compute_name
+  ^^^^^^^^^^^^^^^^^^^^ Lint/ShadowedArgument: Argument `name` was shadowed by a local variable before it was used.
   name
 end

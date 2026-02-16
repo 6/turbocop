@@ -20,3 +20,18 @@ end
 def all_used(a, b)
   a + b
 end
+
+# bare super implicitly forwards all arguments, so they are "used"
+def with_super(name, value)
+  super
+end
+
+def initialize(x, y, z)
+  super
+  @extra = true
+end
+
+# used inside a block (blocks share scope with enclosing method)
+def used_in_block(items, transform)
+  items.map { |item| transform.call(item) }
+end

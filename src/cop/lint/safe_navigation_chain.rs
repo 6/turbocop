@@ -4,15 +4,101 @@ use crate::parse::source::SourceFile;
 
 pub struct SafeNavigationChain;
 
-/// Methods that are safe to call on nil (NilMethods) or commonly allowed after &.
-const DEFAULT_ALLOWED: &[&[u8]] = &[
+/// Methods that are safe to call on nil (NilClass methods + Object/Kernel/BasicObject methods).
+/// This mirrors RuboCop's NilMethods mixin which uses `nil.methods` at runtime.
+/// Generated from `nil.methods.sort` in Ruby 3.3.
+const NIL_METHODS: &[&[u8]] = &[
+    // NilClass instance methods
+    b"!",
+    b"&",
+    b"|",
+    b"^",
+    b"nil?",
+    b"to_a",
+    b"to_c",
+    b"to_f",
+    b"to_h",
+    b"to_i",
+    b"to_r",
+    b"to_s",
+    b"inspect",
+    b"rationalize",
+    // BasicObject methods
+    b"==",
+    b"===",
+    b"!=",
+    b"equal?",
+    b"__id__",
+    b"__send__",
+    b"instance_eval",
+    b"instance_exec",
+    // Kernel / Object methods (available on every object including nil)
+    b"<=>",
+    b"=~",
+    b"!~",
+    b"eql?",
+    b"hash",
+    b"class",
+    b"singleton_class",
+    b"frozen?",
+    b"is_a?",
+    b"kind_of?",
+    b"instance_of?",
+    b"respond_to?",
+    b"respond_to_missing?",
+    b"send",
+    b"public_send",
+    b"object_id",
+    b"dup",
+    b"clone",
+    b"freeze",
+    b"tap",
+    b"then",
+    b"yield_self",
+    b"itself",
+    b"display",
+    b"method",
+    b"public_method",
+    b"singleton_method",
+    b"define_singleton_method",
+    b"extend",
+    b"to_enum",
+    b"enum_for",
+    b"instance_variable_get",
+    b"instance_variable_set",
+    b"instance_variable_defined?",
+    b"remove_instance_variable",
+    b"instance_variables",
+    b"methods",
+    b"private_methods",
+    b"protected_methods",
+    b"public_methods",
+    b"singleton_methods",
+    b"taint",
+    b"untaint",
+    b"tainted?",
+    b"trust",
+    b"untrust",
+    b"untrusted?",
+    b"pp",
+    b"pretty_print",
+    b"pretty_print_cycle",
+    b"pretty_print_instance_variables",
+    b"pretty_print_inspect",
+    b"pretty_inspect",
+    b"to_json",
+    b"to_yaml",
+    b"to_yaml_properties",
+    b"psych_to_yaml",
+    b"object_group",
+    // stdlib extras
+    b"to_d",
+    // Default AllowedMethods from vendor config
     b"present?",
     b"blank?",
     b"presence",
     b"try",
     b"try!",
-    b"nil?",
-    b"to_d",
     b"in?",
 ];
 
@@ -56,16 +142,16 @@ impl Cop for SafeNavigationChain {
 
         let method_name = call.name().as_slice();
 
-        // Check allowed methods
-        let allowed_methods = config.get_string_array("AllowedMethods");
-        let is_allowed = if let Some(ref allowed) = allowed_methods {
-            allowed.iter().any(|m| m.as_bytes() == method_name)
-        } else {
-            DEFAULT_ALLOWED.iter().any(|&m| m == method_name)
-        };
-
-        if is_allowed {
+        // Check allowed methods: nil methods are ALWAYS allowed, plus any configured AllowedMethods
+        let is_nil_method = NIL_METHODS.iter().any(|&m| m == method_name);
+        if is_nil_method {
             return Vec::new();
+        }
+
+        if let Some(ref allowed) = config.get_string_array("AllowedMethods") {
+            if allowed.iter().any(|m| m.as_bytes() == method_name) {
+                return Vec::new();
+            }
         }
 
         // Skip unary +@ and -@ operators
