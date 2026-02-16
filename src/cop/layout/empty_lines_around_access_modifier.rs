@@ -18,16 +18,48 @@ fn is_comment_line(line: &[u8]) -> bool {
     false
 }
 
-/// Check if a line is a class/module opening (serves as boundary before access modifier).
-fn is_class_or_module_opening(line: &[u8]) -> bool {
+/// Check if a line is a class/module opening or block opening that serves as
+/// a boundary before an access modifier (no blank line required).
+fn is_body_opening(line: &[u8]) -> bool {
     let trimmed: Vec<u8> = line.iter().copied()
         .skip_while(|&b| b == b' ' || b == b'\t')
         .collect();
     if trimmed.is_empty() {
         return false;
     }
-    trimmed.starts_with(b"class ") || trimmed.starts_with(b"class\n") || trimmed == b"class"
+    // class/module definition
+    if trimmed.starts_with(b"class ") || trimmed.starts_with(b"class\n") || trimmed == b"class"
         || trimmed.starts_with(b"module ") || trimmed.starts_with(b"module\n") || trimmed == b"module"
+    {
+        return true;
+    }
+    // Block opening: line ends with `do`, `do |...|`, or `{`
+    // Strip trailing whitespace and carriage return
+    let end_trimmed: Vec<u8> = trimmed.iter().copied()
+        .rev()
+        .skip_while(|&b| b == b' ' || b == b'\t' || b == b'\r')
+        .collect::<Vec<u8>>()
+        .into_iter()
+        .rev()
+        .collect();
+    if end_trimmed.ends_with(b"do") {
+        // Make sure "do" is a keyword, not part of a word like "undo"
+        let before_do = end_trimmed.len() - 2;
+        if before_do == 0 || !end_trimmed[before_do - 1].is_ascii_alphanumeric() && end_trimmed[before_do - 1] != b'_' {
+            return true;
+        }
+    }
+    // Block opening with `do |...|`
+    if end_trimmed.ends_with(b"|") {
+        // Look for `do ` or `do|` pattern somewhere in the line
+        if end_trimmed.windows(3).any(|w| w == b"do " || w == b"do|") {
+            return true;
+        }
+    }
+    if end_trimmed.ends_with(b"{") {
+        return true;
+    }
+    false
 }
 
 /// Check if a line is just `end` (possibly with trailing whitespace/comment).
@@ -101,7 +133,7 @@ impl Cop for EmptyLinesAroundAccessModifier {
                     continue;
                 }
                 // Found a non-comment line: check if it's blank or a class/module opening
-                found_blank_or_boundary = is_blank_line(prev) || is_class_or_module_opening(prev);
+                found_blank_or_boundary = is_blank_line(prev) || is_body_opening(prev);
                 break;
             }
             found_blank_or_boundary

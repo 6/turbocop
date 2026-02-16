@@ -88,6 +88,24 @@ impl Cop for HashTransformValues {
                         let value_is_simple = aargs[1].as_local_variable_read_node().is_some();
 
                         if key_is_simple && !value_is_simple {
+                            // Check that the value expression doesn't reference the key
+                            // variable. If it does, this can't be simplified to
+                            // transform_values (which only provides the value, not the key).
+                            if let Some(key_var) = aargs[0].as_local_variable_read_node() {
+                                let key_name = key_var.name();
+                                // Check the full body for the key name as an identifier.
+                                // The body is `h[k] = expr` — if `k` appears in `expr`,
+                                // the expression depends on the key.
+                                let value_loc = aargs[1].location();
+                                let value_src = &source.as_bytes()
+                                    [value_loc.start_offset()
+                                        ..value_loc.start_offset()
+                                            + value_loc.as_slice().len()];
+                                if contains_identifier(value_src, key_name.as_slice()) {
+                                    return Vec::new();
+                                }
+                            }
+
                             let loc = call.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
                             return vec![self.diagnostic(
@@ -105,6 +123,31 @@ impl Cop for HashTransformValues {
 
         Vec::new()
     }
+}
+
+/// Check if `haystack` contains `needle` as a whole identifier (word boundary check).
+fn contains_identifier(haystack: &[u8], needle: &[u8]) -> bool {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return false;
+    }
+    for i in 0..=haystack.len() - needle.len() {
+        if &haystack[i..i + needle.len()] == needle {
+            // Check word boundary before
+            let before_ok =
+                i == 0 || !is_ident_char(haystack[i - 1]);
+            // Check word boundary after
+            let after_ok = i + needle.len() >= haystack.len()
+                || !is_ident_char(haystack[i + needle.len()]);
+            if before_ok && after_ok {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn is_ident_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
 }
 
 #[cfg(test)]

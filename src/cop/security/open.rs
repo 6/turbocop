@@ -4,6 +4,49 @@ use crate::parse::source::SourceFile;
 
 pub struct Open;
 
+/// Check if a constant node matches a given name (handles both ConstantReadNode and ConstantPathNode).
+fn is_constant_named(node: &ruby_prism::Node<'_>, name: &[u8]) -> bool {
+    if let Some(cr) = node.as_constant_read_node() {
+        return cr.name().as_slice() == name;
+    }
+    if let Some(cp) = node.as_constant_path_node() {
+        if let Some(child) = cp.name() {
+            if child.as_slice() == name && cp.parent().is_none() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Check if the argument is a "safe" string literal.
+/// A safe argument is a non-empty string that doesn't start with '|'.
+fn is_safe_arg(node: &ruby_prism::Node<'_>) -> bool {
+    // Simple string literal
+    if let Some(s) = node.as_string_node() {
+        let content = s.unescaped();
+        return !content.is_empty() && !content.starts_with(b"|");
+    }
+    // Interpolated string: check if first part is a safe string literal
+    if let Some(dstr) = node.as_interpolated_string_node() {
+        let parts: Vec<_> = dstr.parts().iter().collect();
+        if let Some(first) = parts.first() {
+            return is_safe_arg(first);
+        }
+    }
+    // Concatenated string via + operator: check the receiver (left-hand side)
+    if let Some(call) = node.as_call_node() {
+        if call.name().as_slice() == b"+" {
+            if let Some(recv) = call.receiver() {
+                if recv.as_string_node().is_some() {
+                    return is_safe_arg(&recv);
+                }
+            }
+        }
+    }
+    false
+}
+
 impl Cop for Open {
     fn name(&self) -> &'static str {
         "Security/Open"
@@ -29,33 +72,48 @@ impl Cop for Open {
             return Vec::new();
         }
 
-        // Allow: no receiver (bare open) or receiver is Kernel
-        let allowed = match call.receiver() {
-            None => true,
+        // Determine if receiver matches: no receiver (bare open), Kernel, or URI
+        let is_uri;
+        match call.receiver() {
+            None => {
+                is_uri = false;
+            }
             Some(recv) => {
-                if let Some(cr) = recv.as_constant_read_node() {
-                    cr.name().as_slice() == b"Kernel"
-                } else if let Some(cp) = recv.as_constant_path_node() {
-                    cp.name().map(|n| n.as_slice() == b"Kernel").unwrap_or(false)
-                        && cp.parent().is_none()
+                if is_constant_named(&recv, b"Kernel") {
+                    is_uri = false;
+                } else if is_constant_named(&recv, b"URI") {
+                    is_uri = true;
                 } else {
-                    false
+                    // Not a relevant receiver (e.g., File.open, obj.open)
+                    return Vec::new();
                 }
             }
         };
 
-        if !allowed {
+        // Must have arguments; open() with no args is not a security risk
+        let args = match call.arguments() {
+            Some(a) => a,
+            None => return Vec::new(),
+        };
+        let arg_list: Vec<_> = args.arguments().iter().collect();
+        if arg_list.is_empty() {
             return Vec::new();
         }
 
+        // Check if the first argument is a safe literal string
+        if is_safe_arg(&arg_list[0]) {
+            return Vec::new();
+        }
+
+        let msg = if is_uri {
+            "The use of `URI.open` is a serious security risk."
+        } else {
+            "The use of `Kernel#open` is a serious security risk."
+        };
+
         let msg_loc = call.message_loc().unwrap();
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        vec![self.diagnostic(
-            source,
-            line,
-            column,
-            "The use of `Kernel#open` is a serious security risk.".to_string(),
-        )]
+        vec![self.diagnostic(source, line, column, msg.to_string())]
     }
 }
 

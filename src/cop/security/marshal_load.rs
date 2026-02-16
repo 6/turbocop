@@ -40,6 +40,22 @@ impl Cop for MarshalLoad {
             return Vec::new();
         }
 
+        // Exclude the "deep copy hack" pattern: Marshal.load(Marshal.dump(...))
+        if let Some(args) = call.arguments() {
+            let arg_list: Vec<_> = args.arguments().iter().collect();
+            if let Some(first_arg) = arg_list.first() {
+                if let Some(inner_call) = first_arg.as_call_node() {
+                    if inner_call.name().as_slice() == b"dump" {
+                        if let Some(inner_recv) = inner_call.receiver() {
+                            if is_constant_named(&inner_recv, b"Marshal") {
+                                return Vec::new();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let msg_loc = call.message_loc().unwrap();
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
         vec![self.diagnostic(

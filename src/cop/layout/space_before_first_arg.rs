@@ -4,6 +4,27 @@ use crate::parse::source::SourceFile;
 
 pub struct SpaceBeforeFirstArg;
 
+const OPERATOR_METHODS: &[&[u8]] = &[
+    b"+", b"-", b"*", b"/", b"**", b"%",
+    b"==", b"!=", b"<", b">", b"<=", b">=", b"<=>", b"===",
+    b"=~", b"!~",
+    b"&", b"|", b"^", b"~",
+    b"<<", b">>",
+    b"[]", b"[]=",
+    b"+@", b"-@",
+];
+
+fn is_operator_method(name: &[u8]) -> bool {
+    OPERATOR_METHODS.iter().any(|&op| op == name)
+}
+
+fn is_setter_method(name: &[u8]) -> bool {
+    // Setter methods end with `=` but are not comparison operators
+    name.len() >= 2
+        && name.last() == Some(&b'=')
+        && !is_operator_method(name)
+}
+
 impl Cop for SpaceBeforeFirstArg {
     fn name(&self) -> &'static str {
         "Layout/SpaceBeforeFirstArg"
@@ -33,6 +54,14 @@ impl Cop for SpaceBeforeFirstArg {
             Some(a) => a,
             None => return Vec::new(),
         };
+
+        // Skip operator methods (e.g. `2**128`, `x + 1`) and setter methods (e.g. `self.foo=`)
+        // These are parsed as CallNodes but should not be checked.
+        let method_name = call.name();
+        let name_bytes = method_name.as_slice();
+        if is_operator_method(name_bytes) || is_setter_method(name_bytes) {
+            return Vec::new();
+        }
 
         // Get the method name location
         let msg_loc = call.message_loc();

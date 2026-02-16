@@ -40,3 +40,19 @@ class Qux
   def secret
   end
 end
+
+# Access modifier as first statement in a block body (no blank needed before)
+Class.new do
+  private
+
+  def secret
+  end
+end
+
+# Struct with block
+Struct.new("Post", :title) do
+  private
+
+  def secret
+  end
+end

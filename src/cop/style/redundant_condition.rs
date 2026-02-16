@@ -40,9 +40,28 @@ impl Cop for RedundantCondition {
             }
         }
 
-        // Must have an else clause (subsequent IfNode)
-        if if_node.subsequent().is_none() {
+        // Must have an else clause, not an elsif
+        let subsequent = match if_node.subsequent() {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        // If the subsequent is another IfNode, it's an elsif — skip
+        if subsequent.as_if_node().is_some() {
             return Vec::new();
+        }
+
+        // Vendor RuboCop only flags when else branch is single-line
+        if let Some(else_node) = subsequent.as_else_node() {
+            if let Some(else_stmts) = else_node.statements() {
+                let else_loc = else_stmts.location();
+                let (start_line, _) = source.offset_to_line_col(else_loc.start_offset());
+                let end_offset = else_loc.start_offset() + else_loc.as_slice().len();
+                let (end_line, _) = source.offset_to_line_col(if end_offset > 0 { end_offset - 1 } else { 0 });
+                if start_line != end_line {
+                    return Vec::new();
+                }
+            }
         }
 
         // Get the true branch (statements)

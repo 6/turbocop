@@ -112,6 +112,12 @@ impl Cop for SpaceAroundOperators {
                         continue;
                     }
 
+                    // Skip method calls via `.` or `&.`: e.g., `x&.!= y`, `x.== y`
+                    if i > 0 && bytes[i - 1] == b'.' {
+                        i += 2;
+                        continue;
+                    }
+
                     let op_str = std::str::from_utf8(two).unwrap_or("??");
                     let space_before = i > 0 && bytes[i - 1] == b' ';
                     let space_after = i + 2 < len && bytes[i + 2] == b' ';

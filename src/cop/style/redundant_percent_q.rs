@@ -35,8 +35,11 @@ impl Cop for RedundantPercentQ {
             let has_double = raw_content.contains(&b'"');
             // Check for escape sequences other than \\ — if present, %q is justified
             let has_escape = has_non_backslash_escape(raw_content);
+            // Check for string interpolation pattern #{...} — user likely chose %q
+            // to avoid interpolation; this matches vendor behavior
+            let has_interpolation_pattern = contains_interpolation_pattern(raw_content);
 
-            if has_escape || (has_single && has_double) {
+            if has_escape || has_interpolation_pattern || (has_single && has_double) {
                 return Vec::new();
             }
 
@@ -52,14 +55,11 @@ impl Cop for RedundantPercentQ {
         }
 
         if opening.starts_with(b"%Q") {
-            // %Q string — check if it's a static string without quotes
+            // %Q string — acceptable if it contains double quotes (would need escaping in "")
             let raw_content = string_node.content_loc().as_slice();
-            let has_single = raw_content.contains(&b'\'');
             let has_double = raw_content.contains(&b'"');
 
-            // For %Q, it's redundant if no interpolation and no need for both quote types
-            // Check if the string has interpolation (it shouldn't have if it's a StringNode)
-            if has_single && has_double {
+            if has_double {
                 return Vec::new();
             }
 
@@ -92,6 +92,11 @@ fn has_non_backslash_escape(raw: &[u8]) -> bool {
         }
     }
     false
+}
+
+/// Check if content contains a string interpolation pattern `#{...}`
+fn contains_interpolation_pattern(raw: &[u8]) -> bool {
+    raw.windows(2).any(|w| w == b"#{")
 }
 
 #[cfg(test)]

@@ -9,3 +9,10 @@ something.method x
 foo  x
 bar  1, 2
 baz   "hello"
+
+# Operator methods should not be flagged
+2**128
+x + 1
+a << b
+arr[0]
+x != y

@@ -42,3 +42,9 @@ end
 def >=(other)
   value >= other.value
 end
+
+# Safe navigation with operator method: &.!=
+table_name&.!= node.left.relation.name
+
+# Method call with dot before operator
+x.== y

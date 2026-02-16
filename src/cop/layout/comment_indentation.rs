@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -31,11 +33,33 @@ impl Cop for CommentIndentation {
         "Layout/CommentIndentation"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
+        config: &CopConfig,
+    ) -> Vec<Diagnostic> {
         let allow_for_alignment = config.get_bool("AllowForAlignment", false);
         let indent_width = config.get_usize("IndentationWidth", 2);
         let lines: Vec<&[u8]> = source.lines().collect();
         let mut diagnostics = Vec::new();
+
+        // Build set of byte offsets where real Ruby comments start.
+        // This lets us distinguish actual comments from `#` inside strings/regex/heredocs.
+        let mut comment_starts: HashSet<usize> = HashSet::new();
+        for comment in parse_result.comments() {
+            comment_starts.insert(comment.location().start_offset());
+        }
+
+        // Compute line start byte offsets
+        let bytes = source.as_bytes();
+        let mut line_offsets: Vec<usize> = vec![0];
+        for (i, &b) in bytes.iter().enumerate() {
+            if b == b'\n' {
+                line_offsets.push(i + 1);
+            }
+        }
 
         for (i, line) in lines.iter().enumerate() {
             let trimmed = line.iter().position(|&b| b != b' ' && b != b'\t');
@@ -44,8 +68,14 @@ impl Cop for CommentIndentation {
                 None => continue, // blank line
             };
 
-            // Only check comment-only lines
+            // Only check lines starting with #
             if line[trimmed] != b'#' {
+                continue;
+            }
+
+            // Verify this # is an actual Ruby comment (not inside string/regex/heredoc)
+            let hash_offset = line_offsets[i] + trimmed;
+            if !comment_starts.contains(&hash_offset) {
                 continue;
             }
 
@@ -58,7 +88,11 @@ impl Cop for CommentIndentation {
                 let next_trimmed = lines[j].iter().position(|&b| b != b' ' && b != b'\t');
                 if let Some(nt) = next_trimmed {
                     if lines[j][nt] == b'#' {
-                        continue; // skip other comments
+                        // Check if this # is a real comment or inside string/regex
+                        let next_hash_offset = line_offsets[j] + nt;
+                        if comment_starts.contains(&next_hash_offset) {
+                            continue; // skip other comments
+                        }
                     }
                     next_code_line = Some(lines[j]);
                     next_code_col = Some(nt);

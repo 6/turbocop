@@ -7,6 +7,7 @@ pub struct EmptyLineAfterMagicComment;
 const MAGIC_COMMENT_PATTERNS: &[&str] = &[
     "frozen_string_literal:",
     "encoding:",
+    "coding:",
     "warn_indent:",
     "shareable_constant_value:",
     "typed:",
