@@ -541,6 +541,20 @@ fn load_config_recursive(
     let mut base_layer = ConfigLayer::empty();
 
     if let Value::Mapping(ref map) = raw {
+        // Peek at AllCops.TargetRubyVersion for version-aware standard gem config selection.
+        // Needed before processing require: to select the right version-specific config file.
+        let local_ruby_version: Option<f64> = map
+            .get(&Value::String("AllCops".to_string()))
+            .and_then(|ac| {
+                if let Value::Mapping(ac_map) = ac {
+                    ac_map
+                        .get(&Value::String("TargetRubyVersion".to_string()))
+                        .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
+                } else {
+                    None
+                }
+            });
+
         // 0. Process require: AND plugins: — load plugin default configs (lowest priority).
         //    A project may have both keys (e.g., `plugins: [rubocop-rspec]` and
         //    `require: [./custom_cop.rb]`), so we must process both.
@@ -565,10 +579,23 @@ fn load_config_recursive(
         if !gems.is_empty() {
 
             for gem_name in &gems {
-                // Only process rubocop plugin gems (they have config/default.yml)
-                if !gem_name.starts_with("rubocop-") {
+                // Determine what config file to load for this gem.
+                // rubocop-* gems use config/default.yml.
+                // standard-family gems use version-specific or base config.
+                // Other gems (custom cops, Ruby files, etc.) are skipped.
+                let config_rel_path: Option<String> = if gem_name.starts_with("rubocop-") {
+                    Some("config/default.yml".into())
+                } else if let Some(path) =
+                    standard_gem_config_path(gem_name, local_ruby_version)
+                {
+                    Some(path.into())
+                } else {
+                    None
+                };
+                let Some(config_rel_path) = config_rel_path else {
                     continue;
-                }
+                };
+
                 let gem_root = match gem_path::resolve_gem_path(gem_name, working_dir) {
                     Ok(p) => p,
                     Err(e) => {
@@ -576,11 +603,27 @@ fn load_config_recursive(
                         continue;
                     }
                 };
-                let default_config = gem_root.join("config").join("default.yml");
-                if !default_config.exists() {
+                let config_file = gem_root.join(&config_rel_path);
+                if !config_file.exists() {
+                    // For standard-family gems, fall back to config/base.yml if the
+                    // version-specific file doesn't exist (older gem version).
+                    if !gem_name.starts_with("rubocop-") {
+                        let fallback = gem_root.join("config").join("base.yml");
+                        if fallback.exists() {
+                            match load_config_recursive(&fallback, working_dir, visited) {
+                                Ok(layer) => merge_layer_into(&mut base_layer, &layer, None),
+                                Err(e) => {
+                                    eprintln!(
+                                        "warning: failed to load default config for {}: {e:#}",
+                                        gem_name
+                                    );
+                                }
+                            }
+                        }
+                    }
                     continue;
                 }
-                match load_config_recursive(&default_config, working_dir, visited) {
+                match load_config_recursive(&config_file, working_dir, visited) {
                     Ok(layer) => merge_layer_into(&mut base_layer, &layer, None),
                     Err(e) => {
                         eprintln!(
@@ -1147,6 +1190,27 @@ impl ResolvedConfig {
                 .entry("TargetRubyVersion".to_string())
                 .or_insert_with(|| Value::Number(serde_yml::Number::from(version)));
         }
+        // Inject MaxLineLength from Layout/LineLength's Max into cops that need
+        // it (mirrors RuboCop's `config.for_cop('Layout/LineLength')['Max']`).
+        if matches!(
+            name,
+            "Style/IfUnlessModifier"
+                | "Style/WhileUntilModifier"
+                | "Style/GuardClause"
+                | "Style/SoleNestedConditional"
+        ) {
+            if !config.options.contains_key("MaxLineLength") {
+                let max = self
+                    .cop_configs
+                    .get("Layout/LineLength")
+                    .and_then(|cc| cc.options.get("Max"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(120);
+                config
+                    .options
+                    .insert("MaxLineLength".to_string(), Value::Number(serde_yml::Number::from(max)));
+            }
+        }
         config
     }
 
@@ -1429,6 +1493,7 @@ fn value_to_string_list(value: &Value) -> Option<Vec<String>> {
 ///
 /// Mapping from plugin department names to the gem that provides them.
 /// Used to register departments from requested gems even when gem resolution fails.
+/// Includes standard-family wrapper gems that wrap rubocop plugin gems.
 const PLUGIN_GEM_DEPARTMENTS: &[(&str, &str)] = &[
     ("Rails", "rubocop-rails"),
     ("Migration", "rubocop-rails"),
@@ -1437,7 +1502,79 @@ const PLUGIN_GEM_DEPARTMENTS: &[(&str, &str)] = &[
     ("FactoryBot", "rubocop-factory_bot"),
     ("Capybara", "rubocop-capybara"),
     ("Performance", "rubocop-performance"),
+    // standard-family wrapper gems
+    ("Rails", "standard-rails"),
+    ("Migration", "standard-rails"),
+    ("Performance", "standard-performance"),
 ];
+
+/// Select config file for the `standard` gem based on target ruby version.
+/// Mirrors Standard::Base::Plugin — each ruby-X.Y.yml inherits from
+/// the next version up, chaining back to base.yml.
+fn standard_version_config(ruby_version: f64) -> &'static str {
+    if ruby_version < 1.9 {
+        "config/ruby-1.8.yml"
+    } else if ruby_version < 2.0 {
+        "config/ruby-1.9.yml"
+    } else if ruby_version < 2.1 {
+        "config/ruby-2.0.yml"
+    } else if ruby_version < 2.2 {
+        "config/ruby-2.1.yml"
+    } else if ruby_version < 2.3 {
+        "config/ruby-2.2.yml"
+    } else if ruby_version < 2.4 {
+        "config/ruby-2.3.yml"
+    } else if ruby_version < 2.5 {
+        "config/ruby-2.4.yml"
+    } else if ruby_version < 2.6 {
+        "config/ruby-2.5.yml"
+    } else if ruby_version < 2.7 {
+        "config/ruby-2.6.yml"
+    } else if ruby_version < 3.0 {
+        "config/ruby-2.7.yml"
+    } else if ruby_version < 3.1 {
+        "config/ruby-3.0.yml"
+    } else if ruby_version < 3.2 {
+        "config/ruby-3.1.yml"
+    } else if ruby_version < 3.3 {
+        "config/ruby-3.2.yml"
+    } else if ruby_version < 3.4 {
+        "config/ruby-3.3.yml"
+    } else {
+        "config/base.yml"
+    }
+}
+
+/// Select config file for the `standard-performance` gem based on target ruby version.
+/// Mirrors Standard::Performance::DeterminesYamlPath.
+fn standard_perf_version_config(ruby_version: f64) -> &'static str {
+    if ruby_version < 1.9 {
+        "config/ruby-1.8.yml"
+    } else if ruby_version < 2.0 {
+        "config/ruby-1.9.yml"
+    } else if ruby_version < 2.1 {
+        "config/ruby-2.0.yml"
+    } else if ruby_version < 2.2 {
+        "config/ruby-2.1.yml"
+    } else if ruby_version < 2.3 {
+        "config/ruby-2.2.yml"
+    } else {
+        "config/base.yml"
+    }
+}
+
+/// Map a standard-family gem name to its config file path.
+/// Returns None if the gem is not a recognized standard-family gem.
+fn standard_gem_config_path(gem_name: &str, ruby_version: Option<f64>) -> Option<&'static str> {
+    match gem_name {
+        "standard" => Some(standard_version_config(ruby_version.unwrap_or(3.4))),
+        "standard-performance" => {
+            Some(standard_perf_version_config(ruby_version.unwrap_or(3.4)))
+        }
+        "standard-rails" | "standard-custom" => Some("config/base.yml"),
+        _ => None,
+    }
+}
 
 /// Returns true if the department belongs to a RuboCop plugin gem and should
 /// only run when the corresponding gem is loaded via `require:` or `plugins:`.
@@ -1861,6 +1998,75 @@ mod tests {
         assert!(!config.is_cop_enabled("Style/Foo", Path::new("a.rb"), &[], &[]));
 
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn standard_version_config_selects_correct_file() {
+        assert_eq!(standard_version_config(1.8), "config/ruby-1.8.yml");
+        assert_eq!(standard_version_config(1.9), "config/ruby-1.9.yml");
+        assert_eq!(standard_version_config(2.0), "config/ruby-2.0.yml");
+        assert_eq!(standard_version_config(2.7), "config/ruby-2.7.yml");
+        assert_eq!(standard_version_config(3.0), "config/ruby-3.0.yml");
+        assert_eq!(standard_version_config(3.1), "config/ruby-3.1.yml");
+        assert_eq!(standard_version_config(3.2), "config/ruby-3.2.yml");
+        assert_eq!(standard_version_config(3.3), "config/ruby-3.3.yml");
+        // 3.4+ uses base.yml (latest, no overrides needed)
+        assert_eq!(standard_version_config(3.4), "config/base.yml");
+        assert_eq!(standard_version_config(3.5), "config/base.yml");
+    }
+
+    #[test]
+    fn standard_perf_version_config_selects_correct_file() {
+        assert_eq!(
+            standard_perf_version_config(1.8),
+            "config/ruby-1.8.yml"
+        );
+        assert_eq!(
+            standard_perf_version_config(2.2),
+            "config/ruby-2.2.yml"
+        );
+        // 2.3+ uses base.yml
+        assert_eq!(standard_perf_version_config(2.3), "config/base.yml");
+        assert_eq!(standard_perf_version_config(3.1), "config/base.yml");
+    }
+
+    #[test]
+    fn standard_gem_config_path_recognizes_family() {
+        // standard gem: version-specific
+        assert_eq!(
+            standard_gem_config_path("standard", Some(3.1)),
+            Some("config/ruby-3.1.yml")
+        );
+        assert_eq!(
+            standard_gem_config_path("standard", None),
+            Some("config/base.yml") // defaults to 3.4 → base.yml
+        );
+
+        // standard-rails: always base
+        assert_eq!(
+            standard_gem_config_path("standard-rails", Some(3.1)),
+            Some("config/base.yml")
+        );
+
+        // standard-custom: always base
+        assert_eq!(
+            standard_gem_config_path("standard-custom", None),
+            Some("config/base.yml")
+        );
+
+        // standard-performance: version-specific for old Ruby
+        assert_eq!(
+            standard_gem_config_path("standard-performance", Some(2.0)),
+            Some("config/ruby-2.0.yml")
+        );
+        assert_eq!(
+            standard_gem_config_path("standard-performance", Some(3.1)),
+            Some("config/base.yml")
+        );
+
+        // Unknown gems: None
+        assert_eq!(standard_gem_config_path("rubocop-rspec", None), None);
+        assert_eq!(standard_gem_config_path("some-other-gem", None), None);
     }
 
     #[test]
