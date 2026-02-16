@@ -80,7 +80,7 @@ mod tests {
     fn default_registry_has_cops() {
         let reg = CopRegistry::default_registry();
         assert!(!reg.is_empty());
-        assert_eq!(reg.len(), 450);
+        assert_eq!(reg.len(), 451);
         // Spot-check cops from each department
         assert!(reg.get("Layout/TrailingWhitespace").is_some());
         assert!(reg.get("Layout/LineLength").is_some());

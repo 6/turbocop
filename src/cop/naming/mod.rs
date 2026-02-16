@@ -8,6 +8,7 @@ pub mod constant_name;
 pub mod file_name;
 pub mod heredoc_delimiter_case;
 pub mod heredoc_delimiter_naming;
+pub mod inclusive_language;
 pub mod memoized_instance_variable_name;
 pub mod method_name;
 pub mod method_parameter_name;
@@ -52,4 +53,5 @@ pub fn register_all(registry: &mut CopRegistry) {
     ));
     registry.register(Box::new(variable_number::VariableNumber));
     registry.register(Box::new(predicate_method::PredicateMethod));
+    registry.register(Box::new(inclusive_language::InclusiveLanguage));
 }

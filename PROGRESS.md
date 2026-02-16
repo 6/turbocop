@@ -822,22 +822,39 @@ All config keys across all 364 cops now have real implementations with behaviora
 
 ## Cop Coverage Summary
 
+### Core RuboCop departments
+
 | Department | RuboCop | rblint | Coverage |
 |------------|--------:|-------:|---------:|
-| Layout | 100 | 40 | 40% |
-| Lint | 152 | 19 | 12% |
-| Style | 287 | 31 | 11% |
-| Metrics | 10 | 8 | 80% |
-| Naming | 19 | 8 | 42% |
-| **Total Core** | **568** | **106** | **18.7%** |
-| rubocop-rails | 98 | 98 | 100% |
-| rubocop-rspec | 113 | 113 | 100% |
-| rubocop-performance | 47 | 47 | 100% |
-| **Grand Total** | **826+** | **450** | **54%** |
+| Layout | 100 | 48 | 48% |
+| Lint | 152 | 53 | 34% |
+| Style | 287 | 56 | 19% |
+| Metrics | 10 | 10 | **100%** |
+| Naming | 19 | 19 | **100%** |
+| Security | 7 | 7 | **100%** |
+| Bundler | 7 | 0 | 0% |
+| Gemspec | 10 | 0 | 0% |
+| Migration | 1 | 0 | 0% |
+| **Total Core** | **593** | **193** | **32.5%** |
 
-All three plugin departments (rails, rspec, performance) have 100% cop coverage. New Security department added (7 cops). Metrics at 100% (10/10). The remaining gap is primarily in Lint (99 missing) and Style (231 missing). Gemspec, Bundler, and InternalAffairs departments are excluded.
+### Plugin departments
 
-1,550 tests passing (1,458 lib + 50 codegen + 42 integration).
+| Department | RuboCop | rblint | Coverage |
+|------------|--------:|-------:|---------:|
+| rubocop-rails | 98 | 98 | **100%** |
+| rubocop-rspec | 113 | 113 | **100%** |
+| rubocop-performance | 47 | 47 | **100%** |
+| **Total Plugins** | **258** | **258** | **100%** |
+
+### Grand total
+
+| | RuboCop | rblint | Coverage |
+|--|--------:|-------:|---------:|
+| **All departments** | **851** | **451** | **53%** |
+
+Remaining gaps: Lint (99 missing), Style (231 missing), Layout (52 missing). Bundler (7), Gemspec (10), and Migration (1) are low priority — only Bundler has 5 cops active in Mastodon.
+
+1,552 tests passing (1,460 lib + 50 codegen + 42 integration).
 
 ## Milestones
 
