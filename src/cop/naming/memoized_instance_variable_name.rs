@@ -4,6 +4,35 @@ use crate::parse::source::SourceFile;
 
 pub struct MemoizedInstanceVariableName;
 
+impl MemoizedInstanceVariableName {
+    fn check_or_write(
+        &self,
+        source: &SourceFile,
+        or_write: ruby_prism::InstanceVariableOrWriteNode<'_>,
+        base_name: &str,
+        method_name_str: &str,
+    ) -> Vec<Diagnostic> {
+        let ivar_name = or_write.name().as_slice();
+        let ivar_str = std::str::from_utf8(ivar_name).unwrap_or("");
+        let ivar_base = ivar_str.strip_prefix('@').unwrap_or(ivar_str);
+
+        if ivar_base != base_name {
+            let loc = or_write.name_loc();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            return vec![self.diagnostic(
+                source,
+                line,
+                column,
+                format!(
+                    "Memoized variable `@{ivar_base}` does not match method name `{method_name_str}`."
+                ),
+            )];
+        }
+
+        Vec::new()
+    }
+}
+
 impl Cop for MemoizedInstanceVariableName {
     fn name(&self) -> &'static str {
         "Naming/MemoizedInstanceVariableName"
@@ -34,35 +63,28 @@ impl Cop for MemoizedInstanceVariableName {
             None => return Vec::new(),
         };
 
-        // Look for @var ||= pattern
-        // The body should be a StatementsNode with a single OrWriteNode
+        // Look for @var ||= pattern — only when it's the entire body or the last statement.
+        // This is a memoization pattern; a `||=` in the middle of a method is just assignment.
+
+        // Body could be a bare InstanceVariableOrWriteNode (single statement)
+        if let Some(or_write) = body.as_instance_variable_or_write_node() {
+            return self.check_or_write(source, or_write, base_name, method_name_str);
+        }
+
         let stmts = match body.as_statements_node() {
             Some(s) => s,
             None => return Vec::new(),
         };
 
-        // Check each statement for @var ||= pattern
-        for stmt in stmts.body().iter() {
-            if let Some(or_write) = stmt.as_instance_variable_or_write_node() {
-                let ivar_name = or_write.name().as_slice();
-                let ivar_str = std::str::from_utf8(ivar_name).unwrap_or("");
-                // Strip leading @
-                let ivar_base = ivar_str.strip_prefix('@').unwrap_or(ivar_str);
+        let body_nodes: Vec<_> = stmts.body().iter().collect();
+        if body_nodes.is_empty() {
+            return Vec::new();
+        }
 
-                // Check if ivar matches method name
-                if ivar_base != base_name {
-                    let loc = or_write.name_loc();
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        format!(
-                            "Memoized variable `@{ivar_base}` does not match method name `{method_name_str}`."
-                        ),
-                    )];
-                }
-            }
+        // Only check the last statement — vendor requires ||= be the sole or last statement
+        let last = &body_nodes[body_nodes.len() - 1];
+        if let Some(or_write) = last.as_instance_variable_or_write_node() {
+            return self.check_or_write(source, or_write, base_name, method_name_str);
         }
 
         Vec::new()

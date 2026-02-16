@@ -40,6 +40,15 @@ impl Cop for LiteralInInterpolation {
             None => return Vec::new(),
         };
 
+        // Skip whitespace-only string literals — `#{' '}` is a deliberate Ruby idiom
+        // for preserving trailing whitespace in heredocs (Layout/TrailingWhitespace).
+        if let Some(str_node) = first.as_string_node() {
+            let content = str_node.content_loc().as_slice();
+            if content.iter().all(|&b| b == b' ' || b == b'\t') {
+                return Vec::new();
+            }
+        }
+
         let is_literal = first.as_integer_node().is_some()
             || first.as_float_node().is_some()
             || first.as_string_node().is_some()

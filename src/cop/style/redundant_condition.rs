@@ -11,6 +11,16 @@ impl RedundantCondition {
         let b_bytes = &source.as_bytes()[b.location().start_offset()..b.location().start_offset() + b.location().as_slice().len()];
         a_bytes == b_bytes
     }
+
+    fn make_diagnostic(&self, source: &SourceFile, if_node: &ruby_prism::IfNode<'_>, msg: &str) -> Diagnostic {
+        let loc = if let Some(kw) = if_node.if_keyword_loc() {
+            kw.start_offset()
+        } else {
+            if_node.location().start_offset()
+        };
+        let (line, column) = source.offset_to_line_col(loc);
+        self.diagnostic(source, line, column, msg.to_string())
+    }
 }
 
 impl Cop for RedundantCondition {
@@ -80,18 +90,23 @@ impl Cop for RedundantCondition {
 
         // Check: `x ? x : y` or `if x; x; else; y; end` where true branch equals condition
         if Self::nodes_equal(source, &condition, true_value) {
-            let loc = if let Some(kw) = if_node.if_keyword_loc() {
-                kw.start_offset()
-            } else {
-                if_node.location().start_offset()
-            };
-            let (line, column) = source.offset_to_line_col(loc);
-            return vec![self.diagnostic(
-                source,
-                line,
-                column,
-                "Use double pipes `||` instead.".to_string(),
-            )];
+            return vec![Self::make_diagnostic(self, source, &if_node, "Use double pipes `||` instead.")];
+        }
+
+        // Check: `x.predicate? ? true : x` or `if x.nil?; true; else; x; end`
+        // Condition is a predicate call (ends in ?), true branch is literal `true`
+        if true_value.as_true_node().is_some() {
+            if let Some(call) = condition.as_call_node() {
+                let method_name = call.name().as_slice();
+                if method_name.ends_with(b"?") {
+                    let allowed = config.get_string_array("AllowedMethods").unwrap_or_default();
+                    let method_str = std::str::from_utf8(method_name).unwrap_or("");
+                    let is_allowed = allowed.iter().any(|m| m == method_str);
+                    if !is_allowed {
+                        return vec![Self::make_diagnostic(self, source, &if_node, "Use double pipes `||` instead.")];
+                    }
+                }
+            }
         }
 
         Vec::new()

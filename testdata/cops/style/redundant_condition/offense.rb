@@ -14,3 +14,13 @@ if foo
 else
   bar
 end
+
+x.nil? ? true : x
+^^^^^^ Style/RedundantCondition: Use double pipes `||` instead.
+
+if a.empty?
+^^ Style/RedundantCondition: Use double pipes `||` instead.
+  true
+else
+  a
+end

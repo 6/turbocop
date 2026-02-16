@@ -24,3 +24,10 @@ else
   default_host = environment == "development" ? "localhost" : "0.0.0.0"
   ENV.fetch("BINDING", default_host)
 end
+
+# predicate? ? true : value is only flagged when true branch is `true` and
+# else branch is NOT `true` — here both branches are literals, not the pattern
+x.nil? ? "yes" : "no"
+
+# Non-predicate condition with true is not flagged
+x ? true : y
