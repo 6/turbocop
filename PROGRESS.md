@@ -465,9 +465,11 @@ Remaining gaps: Style (231 missing), Lint (99 missing), Layout (52 missing).
 
 | Repo | FPs | FNs | Match Rate |
 |------|----:|----:|---------:|
-| Mastodon | 51 | 57 | 60.4% |
+| Mastodon | 21 | 0 | **91.4%** |
 | Discourse | 0 | 0 | **100.0%** |
 | Rails | 0 | 0 | **100.0%** |
+
+Mastodon remaining 21 FPs: Rails/ThreeStateBooleanColumn (RuboCop CLI pipeline silently filters this cop despite it being enabled — per-directory config path issue).
 
 ## Milestones
 
@@ -485,4 +487,4 @@ Remaining gaps: Style (231 missing), Lint (99 missing), Layout (52 missing).
 | **M9**: Core Cop Coverage Expansion | 469 | **Done** |
 | **M10**: Production Readiness | 364 + config/CLI | **Done** |
 | **M11**: Config Compatibility | Drop-in .rubocop.yml | **Done** |
-| **FP Elimination**: Discourse + Rails 100% | 469 | **Done** (Mastodon 60.4% remaining) |
+| **FP Elimination**: Discourse + Rails 100% | 469 | **Done** (Mastodon 91.4%, 21 FP from ThreeStateBooleanColumn) |

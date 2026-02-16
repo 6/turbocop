@@ -1,6 +1,8 @@
-use crate::cop::{Cop, CopConfig};
+use crate::cop::{CodeMap, Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
+use std::collections::HashSet;
 
 pub struct BlockDelimiters;
 
@@ -9,62 +11,211 @@ impl Cop for BlockDelimiters {
         "Style/BlockDelimiters"
     }
 
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &CodeMap,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let enforced_style = config.get_str("EnforcedStyle", "line_count_based");
         let _procedural_methods = config.get_string_array("ProceduralMethods");
         let _functional_methods = config.get_string_array("FunctionalMethods");
-        let _allowed_methods = config.get_string_array("AllowedMethods");
-        let _allowed_patterns = config.get_string_array("AllowedPatterns");
-        let _allow_braces_on_procedural = config.get_bool("AllowBracesOnProceduralOneLiners", false);
-        let _braces_required_methods = config.get_string_array("BracesRequiredMethods");
+        let allowed_methods = config.get_string_array("AllowedMethods");
+        let allowed_patterns = config.get_string_array("AllowedPatterns");
+        let _allow_braces_on_procedural =
+            config.get_bool("AllowBracesOnProceduralOneLiners", false);
+        let braces_required_methods = config.get_string_array("BracesRequiredMethods");
 
         if enforced_style != "line_count_based" {
-            // Only implement line_count_based for now
             return Vec::new();
         }
 
-        let block_node = match node.as_block_node() {
-            Some(b) => b,
-            None => return Vec::new(),
+        let allowed = allowed_methods.unwrap_or_else(|| {
+            vec![
+                "lambda".to_string(),
+                "proc".to_string(),
+                "it".to_string(),
+            ]
+        });
+        let patterns = allowed_patterns.unwrap_or_default();
+        let braces_required = braces_required_methods.unwrap_or_default();
+
+        let mut visitor = BlockDelimitersVisitor {
+            source,
+            cop: self,
+            diagnostics: Vec::new(),
+            ignored_blocks: HashSet::new(),
+            allowed_methods: allowed,
+            allowed_patterns: patterns,
+            braces_required_methods: braces_required,
         };
+        visitor.visit(&parse_result.node());
+        visitor.diagnostics
+    }
+}
+
+struct BlockDelimitersVisitor<'a> {
+    source: &'a SourceFile,
+    cop: &'a BlockDelimiters,
+    diagnostics: Vec<Diagnostic>,
+    ignored_blocks: HashSet<usize>,
+    allowed_methods: Vec<String>,
+    allowed_patterns: Vec<String>,
+    braces_required_methods: Vec<String>,
+}
+
+impl<'a> BlockDelimitersVisitor<'a> {
+    fn check_block(&mut self, block_node: &ruby_prism::BlockNode<'_>, method_name: &[u8]) {
+        let method_str = std::str::from_utf8(method_name).unwrap_or("");
+
+        // Skip AllowedMethods (default: lambda, proc, it)
+        if self.allowed_methods.iter().any(|m| m == method_str) {
+            return;
+        }
+
+        // Skip AllowedPatterns
+        for pattern in &self.allowed_patterns {
+            if let Ok(re) = regex::Regex::new(pattern) {
+                if re.is_match(method_str) {
+                    return;
+                }
+            }
+        }
 
         let opening_loc = block_node.opening_loc();
         let closing_loc = block_node.closing_loc();
         let opening = opening_loc.as_slice();
 
-        let (open_line, _) = source.offset_to_line_col(opening_loc.start_offset());
-        let (close_line, _) = source.offset_to_line_col(closing_loc.start_offset());
+        let (open_line, _) = self.source.offset_to_line_col(opening_loc.start_offset());
+        let (close_line, _) = self.source.offset_to_line_col(closing_loc.start_offset());
         let is_single_line = open_line == close_line;
 
+        // BracesRequiredMethods: must use braces
+        if self
+            .braces_required_methods
+            .iter()
+            .any(|m| m == method_str)
+        {
+            if opening == b"do" {
+                let (line, column) = self.source.offset_to_line_col(opening_loc.start_offset());
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
+                    line,
+                    column,
+                    format!(
+                        "Brace delimiters `{{...}}` required for '{}' method.",
+                        method_str
+                    ),
+                ));
+            }
+            return;
+        }
+
+        // line_count_based style
         if is_single_line && opening == b"do" {
-            // Single-line block using do..end → should use {}
-            let (line, column) = source.offset_to_line_col(opening_loc.start_offset());
-            return vec![self.diagnostic(
-                source,
+            let (line, column) = self.source.offset_to_line_col(opening_loc.start_offset());
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
                 line,
                 column,
                 "Prefer `{...}` over `do...end` for single-line blocks.".to_string(),
-            )];
-        }
-
-        if !is_single_line && opening == b"{" {
-            // Multi-line block using {} → should use do..end
-            let (line, column) = source.offset_to_line_col(opening_loc.start_offset());
-            return vec![self.diagnostic(
-                source,
+            ));
+        } else if !is_single_line && opening == b"{" {
+            let (line, column) = self.source.offset_to_line_col(opening_loc.start_offset());
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
                 line,
                 column,
                 "Prefer `do...end` over `{...}` for multi-line blocks.".to_string(),
-            )];
+            ));
+        }
+    }
+}
+
+impl<'a> Visit<'_> for BlockDelimitersVisitor<'a> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'_>) {
+        // Phase 1: For non-parenthesized calls with arguments, mark argument blocks
+        // as ignored. Changing delimiters on these blocks would change binding
+        // semantics (braces bind tighter than do..end).
+        let is_parenthesized = node.opening_loc().is_some();
+        let method_name = node.name().as_slice();
+        let is_assignment = method_name.ends_with(b"=")
+            && method_name != b"=="
+            && method_name != b"!="
+            && method_name != b"<="
+            && method_name != b">="
+            && method_name != b"===";
+
+        if !is_parenthesized && !is_assignment {
+            if let Some(args) = node.arguments() {
+                for arg in args.arguments().iter() {
+                    collect_ignored_blocks(&arg, &mut self.ignored_blocks);
+                }
+            }
         }
 
-        Vec::new()
+        // Phase 2: Check this call's block (if any)
+        if let Some(block) = node.block() {
+            if let Some(block_node) = block.as_block_node() {
+                let offset = block_node.opening_loc().start_offset();
+                if !self.ignored_blocks.contains(&offset) {
+                    self.check_block(&block_node, method_name);
+                }
+            }
+        }
+
+        // Recurse into children
+        ruby_prism::visit_call_node(self, node);
+    }
+}
+
+/// Recursively collect blocks inside argument expressions of non-parenthesized
+/// method calls. These blocks must be ignored because changing `{...}` to
+/// `do...end` (or vice versa) would change block binding.
+fn collect_ignored_blocks(node: &ruby_prism::Node<'_>, ignored: &mut HashSet<usize>) {
+    // CallNode: mark its block as ignored, recurse into receiver + arguments
+    if let Some(call) = node.as_call_node() {
+        if let Some(block) = call.block() {
+            if let Some(block_node) = block.as_block_node() {
+                ignored.insert(block_node.opening_loc().start_offset());
+            }
+        }
+        if let Some(receiver) = call.receiver() {
+            collect_ignored_blocks(&receiver, ignored);
+        }
+        if let Some(args) = call.arguments() {
+            for arg in args.arguments().iter() {
+                collect_ignored_blocks(&arg, ignored);
+            }
+        }
+        return;
+    }
+
+    // KeywordHashNode (unbraced hash in argument position)
+    if let Some(kwh) = node.as_keyword_hash_node() {
+        for element in kwh.elements().iter() {
+            collect_ignored_blocks(&element, ignored);
+        }
+        return;
+    }
+
+    // HashNode (braced hash) — skip per vendor logic (braces prevent rebinding)
+    if node.as_hash_node().is_some() {
+        return;
+    }
+
+    // AssocNode (key: value pair)
+    if let Some(assoc) = node.as_assoc_node() {
+        collect_ignored_blocks(&assoc.value(), ignored);
+        return;
+    }
+
+    // AssocSplatNode (**hash)
+    if let Some(splat) = node.as_assoc_splat_node() {
+        if let Some(value) = splat.value() {
+            collect_ignored_blocks(&value, ignored);
+        }
     }
 }
 
