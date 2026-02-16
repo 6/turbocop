@@ -113,6 +113,24 @@ impl Cop for BlockAlignment {
     }
 }
 
+/// Check if a line has unclosed brackets (more opening than closing).
+/// This detects multiline array literals, hash literals, and argument lists.
+fn line_has_unclosed_bracket(line: &[u8]) -> bool {
+    let mut depth: i32 = 0;
+    let mut in_single = false;
+    let mut in_double = false;
+    for &b in line {
+        match b {
+            b'\'' if !in_double => in_single = !in_single,
+            b'"' if !in_single => in_double = !in_double,
+            b'(' | b'[' | b'{' if !in_single && !in_double => depth += 1,
+            b')' | b']' | b'}' if !in_single && !in_double => depth -= 1,
+            _ => {}
+        }
+    }
+    depth > 0
+}
+
 /// Get the indentation (number of leading spaces) for the line containing the given byte offset.
 fn line_indent(bytes: &[u8], offset: usize) -> usize {
     let mut line_start = offset;
@@ -173,7 +191,8 @@ fn find_call_expression_col(bytes: &[u8], do_offset: usize) -> usize {
 }
 
 /// Walk backwards from the do-line to find the start of the method chain expression.
-/// If previous lines are continuations (e.g., starting with `.`), keep going up.
+/// If previous lines are continuations (e.g., starting with `.` or previous line
+/// ends with `\`), keep going up.
 fn find_chain_expression_start(bytes: &[u8], do_offset: usize) -> usize {
     // Find start of the line containing `do`
     let mut line_start = do_offset;
@@ -203,6 +222,24 @@ fn find_chain_expression_start(bytes: &[u8], do_offset: usize) -> usize {
             // This line starts with `.`, so the expression continues from the previous line
             line_start = prev_line_start;
             continue;
+        }
+
+        // Check if previous line ends with `\` (backslash continuation)
+        // or ends with `,` (multiline argument list)
+        // or has unclosed brackets (multiline literal/args)
+        let prev_line_content = &bytes[prev_line_start..prev_line_end];
+        let trimmed_end = prev_line_content.iter().rposition(|&b| b != b' ' && b != b'\t' && b != b'\r');
+        if let Some(last_non_ws) = trimmed_end {
+            let last_byte = prev_line_content[last_non_ws];
+            if last_byte == b'\\' || last_byte == b',' {
+                line_start = prev_line_start;
+                continue;
+            }
+            // Check if previous line has unclosed brackets (multiline array/hash/args)
+            if line_has_unclosed_bracket(prev_line_content) {
+                line_start = prev_line_start;
+                continue;
+            }
         }
 
         break;

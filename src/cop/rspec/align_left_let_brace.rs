@@ -19,39 +19,27 @@ impl Cop for AlignLeftLetBrace {
     }
 
     fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
-        // Find groups of consecutive `let` declarations and check brace alignment
         let lines: Vec<&[u8]> = source.lines().collect();
         let mut diagnostics = Vec::new();
 
-        // Find groups of consecutive single-line let declarations
-        let mut i = 0;
-        while i < lines.len() {
-            let mut group: Vec<(usize, usize)> = Vec::new(); // (line_num, brace_col)
+        // Step 1: Collect all single-line let positions (1-indexed line, brace_col)
+        let lets: Vec<(usize, usize)> = lines
+            .iter()
+            .enumerate()
+            .filter_map(|(i, line)| {
+                single_line_let_brace_col(line).map(|col| (i + 1, col))
+            })
+            .collect();
 
-            while i < lines.len() {
-                if let Some(brace_col) = single_line_let_brace_col(lines[i]) {
-                    group.push((i + 1, brace_col));
-                    i += 1;
-                } else if is_blank_or_comment(lines[i]) && !group.is_empty() {
-                    // Blank/comment lines break groups
-                    break;
-                } else if !group.is_empty() {
-                    // Non-let line after some lets - also check multiline let which breaks group
-                    if is_multiline_let(lines[i]) {
-                        // skip multiline lets
-                        break;
-                    }
-                    break;
-                } else {
-                    i += 1;
-                    break;
-                }
-            }
+        // Step 2: Group by strictly consecutive line numbers, replicating RuboCop's
+        // chunking behavior where after a gap the first let is isolated.
+        let groups = chunk_adjacent_lets(&lets);
 
-            // If blank line, skip and continue group (but groups should be separated)
+        // Step 3: Check alignment within each group
+        for group in &groups {
             if group.len() >= 2 {
                 let max_col = group.iter().map(|(_, c)| *c).max().unwrap_or(0);
-                for &(line_num, brace_col) in &group {
+                for &(line_num, brace_col) in group {
                     if brace_col != max_col {
                         diagnostics.push(self.diagnostic(
                             source,
@@ -62,14 +50,51 @@ impl Cop for AlignLeftLetBrace {
                     }
                 }
             }
-
-            if group.is_empty() {
-                // Already incremented
-            }
         }
 
         diagnostics
     }
+}
+
+/// Replicate RuboCop's `adjacent_let_chunks` grouping: walk sorted single-line
+/// lets and chunk by consecutive line numbers. After a gap, the first let is
+/// isolated into its own singleton group (matching the Ruby `Enumerable#chunk`
+/// behavior with the nil-reset pattern used in `align_let_brace.rb`).
+fn chunk_adjacent_lets(lets: &[(usize, usize)]) -> Vec<Vec<(usize, usize)>> {
+    if lets.is_empty() {
+        return Vec::new();
+    }
+
+    // Compute the chunk key for each let, mirroring RuboCop's logic:
+    //   last_line = nil
+    //   chunk { |node| line = node.line; last_line = (line if last_line.nil? || last_line+1 == line); last_line.nil? }
+    let mut keys: Vec<bool> = Vec::with_capacity(lets.len());
+    let mut last_line: Option<usize> = None;
+
+    for &(line, _) in lets {
+        let is_adjacent = last_line.is_none() || last_line.map_or(false, |prev| prev + 1 == line);
+        if is_adjacent {
+            last_line = Some(line);
+        } else {
+            last_line = None;
+        }
+        keys.push(last_line.is_none());
+    }
+
+    // Group consecutive elements with the same key (Ruby's Enumerable#chunk)
+    let mut groups: Vec<Vec<(usize, usize)>> = Vec::new();
+    let mut prev_key: Option<bool> = None;
+
+    for (i, &key) in keys.iter().enumerate() {
+        if prev_key == Some(key) {
+            groups.last_mut().unwrap().push(lets[i]);
+        } else {
+            groups.push(vec![lets[i]]);
+            prev_key = Some(key);
+        }
+    }
+
+    groups
 }
 
 fn single_line_let_brace_col(line: &[u8]) -> Option<usize> {
@@ -97,19 +122,6 @@ fn single_line_let_brace_col(line: &[u8]) -> Option<usize> {
     Some(brace_open)
 }
 
-fn is_blank_or_comment(line: &[u8]) -> bool {
-    let s = std::str::from_utf8(line).unwrap_or("");
-    let trimmed = s.trim();
-    trimmed.is_empty() || trimmed.starts_with('#')
-}
-
-fn is_multiline_let(line: &[u8]) -> bool {
-    let s = std::str::from_utf8(line).unwrap_or("");
-    let trimmed = s.trim_start();
-    (trimmed.starts_with("let(") || trimmed.starts_with("let!("))
-        && trimmed.ends_with('{')
-        && !trimmed.contains('}')
-}
 
 #[cfg(test)]
 mod tests {

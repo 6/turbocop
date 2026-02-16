@@ -49,3 +49,14 @@ unless condition
     bar
   end
 end
+
+# Body with EOL comment should not suggest modifier
+unless a
+  b # A comment
+end
+
+# Comment before end should not suggest modifier
+if a
+  b
+  # comment
+end

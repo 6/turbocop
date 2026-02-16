@@ -835,7 +835,9 @@ fn performance_cops_fire_on_slow_patterns() {
         "slow.rb",
         b"# frozen_string_literal: true\n\narr = [1, 2, 3]\narr.select { |x| x > 1 }.first\narr.reverse.each { |x| puts x }\narr.select { |x| x > 1 }.count\narr.flatten.map { |x| x.to_s }\n",
     );
-    let config = load_config(None, None).unwrap();
+    // Need plugins: entry so Performance department cops are enabled
+    write_file(&dir, ".rubocop.yml", b"plugins:\n  - rubocop-performance\n");
+    let config = load_config(None, Some(dir.as_ref())).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -972,9 +974,10 @@ fn migration_cop_filtered_by_path() {
     let dir = temp_dir("migration_path_filter");
     // Use a config that sets Include with an absolute pattern matching our temp dir.
     // This mirrors what default_include does but with absolute paths.
+    // Need plugins: entry so Rails department cops are enabled.
     let dir_str = dir.display();
     let config_yaml = format!(
-        "Rails/CreateTableWithTimestamps:\n  Include:\n    - '{dir_str}/db/migrate/**/*.rb'\n"
+        "plugins:\n  - rubocop-rails\nRails/CreateTableWithTimestamps:\n  Include:\n    - '{dir_str}/db/migrate/**/*.rb'\n"
     );
     let config_path = write_file(&dir, ".rubocop.yml", config_yaml.as_bytes());
     let migration_content = b"class CreateUsers < ActiveRecord::Migration[7.0]\n  def change\n    create_table :users do |t|\n      t.string :name\n    end\n  end\nend\n";
@@ -1064,9 +1067,10 @@ fn user_include_override_widens_scope() {
     let dir = temp_dir("user_include_override");
     // CreateTableWithTimestamps defaults to Include: db/migrate/**/*.rb
     // Override to widen scope to all db/**/*.rb (using absolute path for temp dir)
+    // Need plugins: entry so Rails department cops are enabled.
     let dir_str = dir.display();
     let config_yaml = format!(
-        "Rails/CreateTableWithTimestamps:\n  Include:\n    - '{dir_str}/db/**/*.rb'\n"
+        "plugins:\n  - rubocop-rails\nRails/CreateTableWithTimestamps:\n  Include:\n    - '{dir_str}/db/**/*.rb'\n"
     );
     let config_path = write_file(&dir, ".rubocop.yml", config_yaml.as_bytes());
     let migration_content = b"class CreateUsers < ActiveRecord::Migration[7.0]\n  def change\n    create_table :users do |t|\n      t.string :name\n    end\n  end\nend\n";
@@ -1496,7 +1500,11 @@ fn stdin_clean_code_exits_zero() {
 
 #[test]
 fn stdin_display_path_affects_include_matching() {
-    // RSpec cops should run when display path matches spec pattern
+    // RSpec cops should run when display path matches spec pattern.
+    // Need a config dir with plugins: rubocop-rspec so the RSpec department is enabled.
+    let config_dir = temp_dir("stdin_include_config");
+    write_file(&config_dir, ".rubocop.yml", b"plugins:\n  - rubocop-rspec\n");
+
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_rblint"))
         .args([
             "--stdin",
@@ -1504,6 +1512,7 @@ fn stdin_display_path_affects_include_matching() {
             "--only",
             "RSpec/Focus",
         ])
+        .current_dir(&config_dir)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -1529,6 +1538,7 @@ fn stdin_display_path_affects_include_matching() {
     // Same code with non-spec display path — RSpec cops should NOT run
     let mut child2 = std::process::Command::new(env!("CARGO_BIN_EXE_rblint"))
         .args(["--stdin", "app/foo.rb", "--only", "RSpec/Focus"])
+        .current_dir(&config_dir)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

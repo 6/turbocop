@@ -7,7 +7,12 @@ pub struct InclusiveLanguage;
 /// A compiled flagged term ready for matching.
 struct FlaggedTerm {
     name: String,
-    pattern: String, // lowercase pattern to search for
+    /// Plain substring to search for (lowercase). Used when no regex is set.
+    pattern: String,
+    /// Compiled regex from the `Regex` config key. When set, this is used
+    /// instead of the plain `pattern` for matching. Uses fancy-regex to
+    /// support lookahead/lookbehind from Ruby regexes.
+    regex: Option<fancy_regex::Regex>,
     whole_word: bool,
     suggestions: Vec<String>,
 }
@@ -59,25 +64,47 @@ impl Cop for InclusiveLanguage {
             let comment_start = find_comment_start(line);
 
             for term in &terms {
-                // Search for the term in the line
-                let mut search_start = 0;
-                while let Some(pos) = line_lower[search_start..].find(&term.pattern) {
-                    let abs_pos = search_start + pos;
-
-                    let in_comment = comment_start.is_some_and(|cs| abs_pos >= cs);
-
-                    let should_flag = if in_comment {
-                        check_comments
-                    } else {
-                        should_check_code
-                    };
-
-                    if should_flag && (!term.whole_word || is_whole_word(&line_lower, abs_pos, term.pattern.len())) {
-                        let msg = format_message(&term.name, &term.suggestions);
-                        diagnostics.push(self.diagnostic(source, line_num, abs_pos, msg));
+                // Use regex matching if available, otherwise substring search
+                if let Some(ref re) = term.regex {
+                    // fancy_regex::find_iter returns Result items
+                    for mat_result in re.find_iter(&line_lower) {
+                        let mat = match mat_result {
+                            Ok(m) => m,
+                            Err(_) => break,
+                        };
+                        let abs_pos = mat.start();
+                        let in_comment = comment_start.is_some_and(|cs| abs_pos >= cs);
+                        let should_flag = if in_comment {
+                            check_comments
+                        } else {
+                            should_check_code
+                        };
+                        if should_flag {
+                            let msg = format_message(&term.name, &term.suggestions);
+                            diagnostics.push(self.diagnostic(source, line_num, abs_pos, msg));
+                        }
                     }
+                } else {
+                    // Plain substring search
+                    let mut search_start = 0;
+                    while let Some(pos) = line_lower[search_start..].find(&term.pattern) {
+                        let abs_pos = search_start + pos;
 
-                    search_start = abs_pos + term.pattern.len();
+                        let in_comment = comment_start.is_some_and(|cs| abs_pos >= cs);
+
+                        let should_flag = if in_comment {
+                            check_comments
+                        } else {
+                            should_check_code
+                        };
+
+                        if should_flag && (!term.whole_word || is_whole_word(&line_lower, abs_pos, term.pattern.len())) {
+                            let msg = format_message(&term.name, &term.suggestions);
+                            diagnostics.push(self.diagnostic(source, line_num, abs_pos, msg));
+                        }
+
+                        search_start = abs_pos + term.pattern.len();
+                    }
                 }
             }
         }
@@ -99,18 +126,17 @@ fn build_flagged_terms(config: &CopConfig) -> Vec<FlaggedTerm> {
 
                 let mut whole_word = false;
                 let mut suggestions = Vec::new();
-                let pattern;
+                let pattern = name.to_lowercase();
+                let mut regex = None;
 
                 if let Some(term_map) = value.as_mapping() {
-                    // Check for Regex — we use the term name as a simple substring match
-                    // since we can't execute Ruby regexps
+                    // Check for Regex key — compile as actual regex for matching
                     if let Some(regex_val) = term_map.get(&serde_yml::Value::String("Regex".to_string())) {
-                        // Extract the pattern from the regex string, use term name as fallback
-                        let regex_str = regex_val.as_str().unwrap_or(&name);
-                        // Try to extract a simple substring from the regex
-                        pattern = simplify_regex(regex_str, &name);
-                    } else {
-                        pattern = name.to_lowercase();
+                        let regex_str = regex_val.as_str().unwrap_or("");
+                        if let Some(compiled) = compile_ruby_regex(regex_str) {
+                            regex = Some(compiled);
+                        }
+                        // Keep the name-based pattern as fallback for filepath checks
                     }
 
                     if let Some(ww) = term_map.get(&serde_yml::Value::String("WholeWord".to_string())) {
@@ -126,13 +152,17 @@ fn build_flagged_terms(config: &CopConfig) -> Vec<FlaggedTerm> {
                             }
                         }
                     }
-                } else {
-                    pattern = name.to_lowercase();
+                }
+
+                // If we have a regex, we don't need whole_word (regex handles boundaries)
+                if regex.is_some() {
+                    whole_word = false;
                 }
 
                 terms.push(FlaggedTerm {
                     name,
                     pattern,
+                    regex,
                     whole_word,
                     suggestions,
                 });
@@ -146,18 +176,21 @@ fn build_flagged_terms(config: &CopConfig) -> Vec<FlaggedTerm> {
         FlaggedTerm {
             name: "whitelist".to_string(),
             pattern: "whitelist".to_string(),
+            regex: None,
             whole_word: false,
             suggestions: vec!["allowlist".to_string(), "permit".to_string()],
         },
         FlaggedTerm {
             name: "blacklist".to_string(),
             pattern: "blacklist".to_string(),
+            regex: None,
             whole_word: false,
             suggestions: vec!["denylist".to_string(), "block".to_string()],
         },
         FlaggedTerm {
             name: "slave".to_string(),
             pattern: "slave".to_string(),
+            regex: None,
             whole_word: true,
             suggestions: vec![
                 "replica".to_string(),
@@ -168,9 +201,45 @@ fn build_flagged_terms(config: &CopConfig) -> Vec<FlaggedTerm> {
     ]
 }
 
-/// Try to extract a simple substring from a Ruby regex pattern.
-/// Check if a string contains a flagged term, respecting whole_word setting.
+/// Compile a Ruby regex string (e.g., `/\Aaccept /` or `registers offense(?!\(|s)`)
+/// into a Rust `regex::Regex`. Handles Ruby-specific syntax:
+/// - Strips surrounding `/` delimiters
+/// - Converts `\A` (Ruby start-of-string) to `^` (start-of-line, since we match per-line)
+/// - Converts `\z` / `\Z` (Ruby end-of-string) to `$`
+fn compile_ruby_regex(ruby_str: &str) -> Option<fancy_regex::Regex> {
+    let mut pattern = ruby_str.trim().to_string();
+    if pattern.is_empty() {
+        return None;
+    }
+
+    // Strip surrounding / delimiters (and optional flags like /i)
+    if pattern.starts_with('/') {
+        pattern.remove(0);
+        // Remove trailing / and any flags
+        if let Some(last_slash) = pattern.rfind('/') {
+            pattern.truncate(last_slash);
+        }
+    }
+
+    if pattern.is_empty() {
+        return None;
+    }
+
+    // Convert Ruby regex anchors to Rust equivalents
+    // \A → ^ (start of string → start of line, since we match per-line)
+    // \z / \Z → $ (end of string → end of line)
+    pattern = pattern.replace("\\A", "^").replace("\\z", "$").replace("\\Z", "$");
+
+    // Make the regex case-insensitive to match rblint's lowercase line matching
+    let case_insensitive = format!("(?i){pattern}");
+    fancy_regex::Regex::new(&case_insensitive).ok()
+}
+
+/// Check if a string contains a flagged term, respecting whole_word setting and regex.
 fn find_term(text: &str, term: &FlaggedTerm) -> Option<usize> {
+    if let Some(ref re) = term.regex {
+        return re.find(text).ok().flatten().map(|m| m.start());
+    }
     let mut start = 0;
     while let Some(pos) = text[start..].find(&term.pattern) {
         let abs = start + pos;
@@ -180,12 +249,6 @@ fn find_term(text: &str, term: &FlaggedTerm) -> Option<usize> {
         start = abs + term.pattern.len();
     }
     None
-}
-
-fn simplify_regex(_regex_str: &str, fallback: &str) -> String {
-    // Common patterns: '/white[-_\s]?list/' -> "whitelist" (approximate)
-    // We just use the fallback term name as the search pattern
-    fallback.to_lowercase()
 }
 
 fn is_whole_word(line: &str, pos: usize, len: usize) -> bool {
@@ -233,4 +296,84 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(InclusiveLanguage, "cops/naming/inclusive_language");
+
+    #[test]
+    fn regex_term_only_matches_at_start_of_line() {
+        use std::collections::HashMap;
+
+        let mut flagged = serde_yml::Mapping::new();
+        let mut accept_map = serde_yml::Mapping::new();
+        accept_map.insert(
+            serde_yml::Value::String("Regex".into()),
+            serde_yml::Value::String("/\\Aaccept /".into()),
+        );
+        let mut suggestions = Vec::new();
+        suggestions.push(serde_yml::Value::String("accepts ".into()));
+        accept_map.insert(
+            serde_yml::Value::String("Suggestions".into()),
+            serde_yml::Value::Sequence(suggestions),
+        );
+        flagged.insert(
+            serde_yml::Value::String("accept".into()),
+            serde_yml::Value::Mapping(accept_map),
+        );
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("FlaggedTerms".into(), serde_yml::Value::Mapping(flagged)),
+                ("CheckStrings".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+
+        // "accept " at start of line — should match
+        let source = SourceFile::from_bytes("test.rb", b"accept all the things\n".to_vec());
+        let diags = InclusiveLanguage.check_lines(&source, &config);
+        assert_eq!(diags.len(), 1, "Should flag 'accept ' at start of line");
+
+        // "accept" in middle of line — should NOT match (regex has \\A anchor)
+        let source2 = SourceFile::from_bytes("test.rb", b"we accept the terms\n".to_vec());
+        let diags2 = InclusiveLanguage.check_lines(&source2, &config);
+        assert!(diags2.is_empty(), "Should NOT flag 'accept' in middle of line with \\A regex");
+    }
+
+    #[test]
+    fn regex_with_negative_lookahead() {
+        use std::collections::HashMap;
+
+        let mut flagged = serde_yml::Mapping::new();
+        let mut term_map = serde_yml::Mapping::new();
+        term_map.insert(
+            serde_yml::Value::String("Regex".into()),
+            serde_yml::Value::String("/registers offense(?!\\(|s)/".into()),
+        );
+        let mut suggestions = Vec::new();
+        suggestions.push(serde_yml::Value::String("registers an offense".into()));
+        term_map.insert(
+            serde_yml::Value::String("Suggestions".into()),
+            serde_yml::Value::Sequence(suggestions),
+        );
+        flagged.insert(
+            serde_yml::Value::String("registers offense".into()),
+            serde_yml::Value::Mapping(term_map),
+        );
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("FlaggedTerms".into(), serde_yml::Value::Mapping(flagged)),
+                ("CheckStrings".into(), serde_yml::Value::Bool(true)),
+            ]),
+            ..CopConfig::default()
+        };
+
+        // "registers offense" without ( or s — should match
+        let source = SourceFile::from_bytes("test.rb", b"it registers offense when called\n".to_vec());
+        let diags = InclusiveLanguage.check_lines(&source, &config);
+        assert_eq!(diags.len(), 1, "Should flag 'registers offense' without exclusion suffix");
+
+        // "registers offenses" — should NOT match (negative lookahead excludes 's')
+        let source2 = SourceFile::from_bytes("test.rb", b"it registers offenses when called\n".to_vec());
+        let diags2 = InclusiveLanguage.check_lines(&source2, &config);
+        assert!(diags2.is_empty(), "Should NOT flag 'registers offenses' (excluded by lookahead)");
+    }
 }

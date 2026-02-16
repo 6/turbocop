@@ -139,6 +139,51 @@ impl Cop for IfUnlessModifier {
             return Vec::new();
         }
 
+        // Skip if body line has an EOL comment — converting to modifier would lose it
+        {
+            let lines: Vec<&[u8]> = source.lines().collect();
+            if body_start_line > 0 && body_start_line <= lines.len() {
+                let body_line = lines[body_start_line - 1];
+                let body_end_in_line = body_node.location().end_offset();
+                let (_, body_end_col) = source.offset_to_line_col(body_end_in_line);
+                // Check if there's a comment after the body on the same line
+                if body_end_col < body_line.len() {
+                    let after_body = &body_line[body_end_col..];
+                    let trimmed = after_body.iter().skip_while(|&&b| b == b' ' || b == b'\t').copied().collect::<Vec<_>>();
+                    if trimmed.starts_with(b"#") {
+                        return Vec::new();
+                    }
+                }
+            }
+        }
+
+        // Skip if there's a comment before `end` on its own line
+        {
+            let end_offset: Option<usize> = if let Some(if_node) = node.as_if_node() {
+                if_node.end_keyword_loc().map(|loc| loc.start_offset())
+            } else if let Some(unless_node) = node.as_unless_node() {
+                unless_node.end_keyword_loc().map(|loc| loc.start_offset())
+            } else {
+                None
+            };
+            if let Some(end_off) = end_offset {
+                let (end_line, _) = source.offset_to_line_col(end_off);
+                if end_line > body_start_line + 1 {
+                    // There are lines between body and end — check for comments
+                    let lines: Vec<&[u8]> = source.lines().collect();
+                    for line_num in (body_start_line + 1)..end_line {
+                        if line_num > 0 && line_num <= lines.len() {
+                            let line = lines[line_num - 1];
+                            let trimmed: Vec<u8> = line.iter().skip_while(|&&b| b == b' ' || b == b'\t').copied().collect();
+                            if trimmed.starts_with(b"#") {
+                                return Vec::new();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let max_line_length = config.get_usize("MaxLineLength", 120);
 
         // Estimate modifier line length: body + " " + keyword + " " + condition

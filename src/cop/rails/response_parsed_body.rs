@@ -1,5 +1,5 @@
 use crate::cop::util;
-use crate::cop::{Cop, CopConfig};
+use crate::cop::{Cop, CopConfig, EnabledState};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
@@ -14,13 +14,27 @@ impl Cop for ResponseParsedBody {
         Severity::Convention
     }
 
+    fn default_include(&self) -> &'static [&'static str] {
+        &[
+            "spec/controllers/**/*.rb",
+            "spec/requests/**/*.rb",
+            "test/controllers/**/*.rb",
+            "test/integration/**/*.rb",
+        ]
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // This cop is pending/unsafe in RuboCop (Enabled: pending, Safe: false).
+        // Only fire when explicitly enabled in the project config.
+        if config.enabled != EnabledState::True {
+            return Vec::new();
+        }
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -85,5 +99,29 @@ impl Cop for ResponseParsedBody {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ResponseParsedBody, "cops/rails/response_parsed_body");
+
+    fn enabled_config() -> CopConfig {
+        CopConfig {
+            enabled: EnabledState::True,
+            ..CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn offense_fixture() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &ResponseParsedBody,
+            include_bytes!("../../../testdata/cops/rails/response_parsed_body/offense.rb"),
+            enabled_config(),
+        );
+    }
+
+    #[test]
+    fn no_offense_fixture() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &ResponseParsedBody,
+            include_bytes!("../../../testdata/cops/rails/response_parsed_body/no_offense.rb"),
+            enabled_config(),
+        );
+    }
 }

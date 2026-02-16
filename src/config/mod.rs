@@ -526,6 +526,8 @@ fn load_config_recursive(
 
     let contents = std::fs::read_to_string(config_path)
         .with_context(|| format!("failed to read config {}", config_path.display()))?;
+    // Strip Ruby-specific YAML tags (e.g., !ruby/regexp) that serde_yml can't handle
+    let contents = contents.replace("!ruby/regexp ", "");
     let raw: Value = serde_yml::from_str(&contents)
         .with_context(|| format!("failed to parse {}", config_path.display()))?;
 
@@ -539,19 +541,28 @@ fn load_config_recursive(
     let mut base_layer = ConfigLayer::empty();
 
     if let Value::Mapping(ref map) = raw {
-        // 0. Process require: / plugins: — load plugin default configs (lowest priority).
-        let require_value = map
-            .get(&Value::String("require".to_string()))
-            .or_else(|| map.get(&Value::String("plugins".to_string())));
-        if let Some(require_value) = require_value {
-            let gems = match require_value {
-                Value::String(s) => vec![s.clone()],
-                Value::Sequence(seq) => seq
-                    .iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect(),
-                _ => vec![],
-            };
+        // 0. Process require: AND plugins: — load plugin default configs (lowest priority).
+        //    A project may have both keys (e.g., `plugins: [rubocop-rspec]` and
+        //    `require: [./custom_cop.rb]`), so we must process both.
+        let mut gems = Vec::new();
+        for key in &["plugins", "require"] {
+            if let Some(val) = map.get(&Value::String(key.to_string())) {
+                match val {
+                    Value::String(s) => gems.push(s.clone()),
+                    Value::Sequence(seq) => {
+                        for v in seq {
+                            if let Some(s) = v.as_str() {
+                                gems.push(s.to_string());
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        // Deduplicate (a gem may appear in both require: and plugins:)
+        gems.dedup();
+        if !gems.is_empty() {
 
             for gem_name in &gems {
                 // Only process rubocop plugin gems (they have config/default.yml)
@@ -611,6 +622,18 @@ fn load_config_recursive(
             .keys()
             .cloned()
             .collect();
+
+        // Also register departments from *requested* gems even if gem resolution
+        // failed (e.g., `bundle` not on PATH). This ensures plugin departments
+        // from requested gems are known, preventing false positives when we
+        // disable unrequested plugin departments.
+        for gem_name in &gems {
+            for (dept, gem) in PLUGIN_GEM_DEPARTMENTS {
+                if gem_name.as_str() == *gem {
+                    base_layer.require_departments.insert(dept.to_string());
+                }
+            }
+        }
 
 
         // 1. Process inherit_gem
@@ -975,9 +998,20 @@ fn merge_cop_config(
         }
     }
 
-    // Options: merge (last writer wins per key)
+    // Options: merge (last writer wins per key, deep-merge for Mapping values
+    // to match RuboCop's behavior where Hash cop options are merged, not replaced)
     for (key, value) in &overlay.options {
-        base.options.insert(key.clone(), value.clone());
+        if let (Some(Value::Mapping(base_map)), Value::Mapping(overlay_map)) =
+            (base.options.get(key), value)
+        {
+            let mut merged = base_map.clone();
+            for (k, v) in overlay_map {
+                merged.insert(k.clone(), v.clone());
+            }
+            base.options.insert(key.clone(), Value::Mapping(merged));
+        } else {
+            base.options.insert(key.clone(), value.clone());
+        }
     }
 }
 
@@ -1029,8 +1063,26 @@ impl ResolvedConfig {
             EnabledState::True => {}
         }
 
-        // Plugin version awareness: cop from require: department but not in gem config
-        if !self.require_departments.is_empty()
+        // Plugin department awareness: cops from plugin departments (Rails, RSpec,
+        // Performance, Migration, etc.) should only run if the corresponding gem was
+        // loaded via `require:` or `plugins:`. If the project doesn't load the gem,
+        // these cops must be disabled regardless of their default Enabled state.
+        if is_plugin_department(dept) && !self.require_departments.contains(dept) {
+            // The department wasn't loaded — cop should not fire unless the user
+            // explicitly set it to Enabled:true in their project config.
+            // Enabled:pending (from rubocop defaults) does not count.
+            if config.is_none_or(|c| c.enabled != EnabledState::True) {
+                return false;
+            }
+        }
+
+        // Plugin version awareness: cop from require: department but not in gem config.
+        // Only apply when the gem's config was actually loaded (has known cops for this dept).
+        let dept_has_known_cops = self
+            .require_known_cops
+            .iter()
+            .any(|c| c.starts_with(dept) && c.as_bytes().get(dept.len()) == Some(&b'/'));
+        if dept_has_known_cops
             && self.require_departments.contains(dept)
             && !self.require_known_cops.contains(name)
             && config.is_none_or(|c| c.enabled == EnabledState::Unset)
@@ -1147,12 +1199,28 @@ impl ResolvedConfig {
                     EnabledState::True => true,
                 };
 
+                // Plugin department awareness: cops from plugin departments should
+                // only run if the corresponding gem was loaded via require:/plugins:.
+                if enabled
+                    && is_plugin_department(dept)
+                    && !self.require_departments.contains(dept)
+                    && config.is_none_or(|c| c.enabled != EnabledState::True)
+                {
+                    enabled = false;
+                }
+
                 // Plugin version awareness: if this cop's department comes from a
                 // `require:` gem but the cop itself is NOT mentioned in the installed
                 // gem's config/default.yml, the cop doesn't exist in that gem version.
                 // Disable it unless the user explicitly configured it.
+                // Only apply this check when the gem's config was actually loaded
+                // (i.e., require_known_cops contains at least one cop from this dept).
+                let dept_has_known_cops = self
+                    .require_known_cops
+                    .iter()
+                    .any(|c| c.starts_with(dept) && c.as_bytes().get(dept.len()) == Some(&b'/'));
                 if enabled
-                    && !self.require_departments.is_empty()
+                    && dept_has_known_cops
                     && self.require_departments.contains(dept)
                     && !self.require_known_cops.contains(name)
                     && config.is_none_or(|c| c.enabled == EnabledState::Unset)
@@ -1359,6 +1427,29 @@ fn value_to_string_list(value: &Value) -> Option<Vec<String>> {
 
 /// Match a RuboCop-style glob pattern against a file path.
 ///
+/// Mapping from plugin department names to the gem that provides them.
+/// Used to register departments from requested gems even when gem resolution fails.
+const PLUGIN_GEM_DEPARTMENTS: &[(&str, &str)] = &[
+    ("Rails", "rubocop-rails"),
+    ("Migration", "rubocop-rails"),
+    ("RSpec", "rubocop-rspec"),
+    ("RSpecRails", "rubocop-rspec_rails"),
+    ("FactoryBot", "rubocop-factory_bot"),
+    ("Capybara", "rubocop-capybara"),
+    ("Performance", "rubocop-performance"),
+];
+
+/// Returns true if the department belongs to a RuboCop plugin gem and should
+/// only run when the corresponding gem is loaded via `require:` or `plugins:`.
+///
+/// Core departments (Layout, Lint, Style, Metrics, Naming, Security, Bundler,
+/// Gemspec) are always available. Plugin departments need their gem loaded.
+fn is_plugin_department(dept: &str) -> bool {
+    PLUGIN_GEM_DEPARTMENTS
+        .iter()
+        .any(|(d, _)| *d == dept)
+}
+
 /// Patterns like `db/migrate/**/*.rb` or `**/*_spec.rb` are matched against
 /// the path. We try matching against both the full path and just the relative
 /// components to handle RuboCop's convention of patterns relative to project root.
@@ -1500,15 +1591,16 @@ mod tests {
         let config =
             load_config(Some(Path::new("/nonexistent/.rubocop.yml")), None).unwrap();
         // With default_include set, only matching files pass
+        // Use a core department (Style) so plugin department filtering doesn't apply.
         let inc = &["db/migrate/**/*.rb"];
         assert!(config.is_cop_enabled(
-            "Rails/Foo",
+            "Style/Foo",
             Path::new("db/migrate/001_create.rb"),
             inc,
             &[]
         ));
         assert!(!config.is_cop_enabled(
-            "Rails/Foo",
+            "Style/Foo",
             Path::new("app/models/user.rb"),
             inc,
             &[]
@@ -1533,15 +1625,16 @@ mod tests {
     fn user_include_overrides_default() {
         let dir = std::env::temp_dir().join("rblint_test_config_inc_override");
         fs::create_dir_all(&dir).unwrap();
+        // Use a core department cop (Style/) so plugin department filtering doesn't apply
         let path = write_config(
             &dir,
-            "Rails/Migration:\n  Include:\n    - 'db/**/*.rb'\n",
+            "Style/Migration:\n  Include:\n    - 'db/**/*.rb'\n",
         );
         let config = load_config(Some(&path), None).unwrap();
         // Default include is narrower but user config overrides
         let default_inc = &["db/migrate/**/*.rb"];
         assert!(config.is_cop_enabled(
-            "Rails/Migration",
+            "Style/Migration",
             Path::new("db/seeds.rb"),
             default_inc,
             &[]
@@ -1950,13 +2043,14 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
+        // Use a core department to test pending behavior without plugin filtering
         let path = write_config(
             &dir,
-            "AllCops:\n  NewCops: enable\nRails/Foo:\n  Enabled: pending\n",
+            "AllCops:\n  NewCops: enable\nLint/Foo:\n  Enabled: pending\n",
         );
         let config = load_config(Some(&path), None).unwrap();
         // Pending is enabled when NewCops: enable
-        assert!(config.is_cop_enabled("Rails/Foo", Path::new("a.rb"), &[], &[]));
+        assert!(config.is_cop_enabled("Lint/Foo", Path::new("a.rb"), &[], &[]));
 
         fs::remove_dir_all(&dir).ok();
     }
@@ -1990,21 +2084,23 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
+        // Use a core department (Lint) to test department-level Include filtering
+        // without being affected by plugin department detection.
         let path = write_config(
             &dir,
-            "RSpec:\n  Include:\n    - '**/*_spec.rb'\n    - '**/spec/**/*'\n",
+            "Lint:\n  Include:\n    - '**/*_spec.rb'\n    - '**/spec/**/*'\n",
         );
         let config = load_config(Some(&path), None).unwrap();
-        // RSpec cop should match spec files via department include
+        // Lint cop should match spec files via department include
         assert!(config.is_cop_enabled(
-            "RSpec/ExampleLength",
+            "Lint/ExampleLength",
             Path::new("spec/models/user_spec.rb"),
             &[],
             &[]
         ));
-        // RSpec cop should NOT match non-spec files
+        // Lint cop should NOT match non-spec files
         assert!(!config.is_cop_enabled(
-            "RSpec/ExampleLength",
+            "Lint/ExampleLength",
             Path::new("app/models/user.rb"),
             &[],
             &[]
@@ -2019,14 +2115,30 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
-        let path = write_config(&dir, "Rails:\n  Enabled: false\n");
+        // Use core department (Lint) for testing Enabled:false since plugin
+        // departments are already disabled without require:/plugins: loading
+        let path = write_config(&dir, "Lint:\n  Enabled: false\n");
         let config = load_config(Some(&path), None).unwrap();
-        assert!(!config.is_cop_enabled("Rails/FindBy", Path::new("a.rb"), &[], &[]));
-        assert!(!config.is_cop_enabled("Rails/HttpStatus", Path::new("a.rb"), &[], &[]));
+        assert!(!config.is_cop_enabled("Lint/FindBy", Path::new("a.rb"), &[], &[]));
+        assert!(!config.is_cop_enabled("Lint/HttpStatus", Path::new("a.rb"), &[], &[]));
         // Other departments unaffected
         assert!(config.is_cop_enabled("Style/Foo", Path::new("a.rb"), &[], &[]));
 
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn plugin_department_disabled_without_require() {
+        // Plugin departments (Rails, RSpec, Performance, etc.) should be disabled
+        // when the corresponding gem is not loaded via require:/plugins:
+        let config =
+            load_config(Some(Path::new("/nonexistent/.rubocop.yml")), None).unwrap();
+        assert!(!config.is_cop_enabled("Rails/Output", Path::new("a.rb"), &[], &[]));
+        assert!(!config.is_cop_enabled("RSpec/ExampleLength", Path::new("a.rb"), &[], &[]));
+        assert!(!config.is_cop_enabled("Performance/Count", Path::new("a.rb"), &[], &[]));
+        // Core departments still work
+        assert!(config.is_cop_enabled("Style/Foo", Path::new("a.rb"), &[], &[]));
+        assert!(config.is_cop_enabled("Lint/Foo", Path::new("a.rb"), &[], &[]));
     }
 
     #[test]

@@ -1,9 +1,54 @@
-use crate::cop::util::{count_body_lines, count_body_lines_ex, collect_foldable_ranges};
+use crate::cop::util::{count_body_lines_ex, collect_foldable_ranges};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct ModuleLength;
+
+/// Check if a module's body is exactly one class or module node (namespace module).
+/// RuboCop skips namespace modules entirely (reports 0 length).
+fn is_namespace_module(module_node: &ruby_prism::ModuleNode<'_>) -> bool {
+    let body = match module_node.body() {
+        Some(b) => b,
+        None => return false,
+    };
+    let stmts = match body.as_statements_node() {
+        Some(s) => s,
+        None => {
+            // Body could also be a bare class/module node
+            return body.as_class_node().is_some() || body.as_module_node().is_some();
+        }
+    };
+    let body_nodes: Vec<_> = stmts.body().iter().collect();
+    body_nodes.len() == 1
+        && (body_nodes[0].as_class_node().is_some() || body_nodes[0].as_module_node().is_some())
+}
+
+/// Collect line ranges of inner class/module definitions within a body node.
+/// Returns (start_line, end_line) pairs (1-indexed) for each inner class/module.
+fn inner_classlike_ranges(source: &SourceFile, body: &ruby_prism::Node<'_>) -> Vec<(usize, usize)> {
+    let stmts = match body.as_statements_node() {
+        Some(s) => s,
+        None => return Vec::new(),
+    };
+    let mut ranges = Vec::new();
+    for node in stmts.body().iter() {
+        if let Some(cls) = node.as_class_node() {
+            let loc = cls.location();
+            let (start, _) = source.offset_to_line_col(loc.start_offset());
+            let end_off = loc.end_offset().saturating_sub(1).max(loc.start_offset());
+            let (end, _) = source.offset_to_line_col(end_off);
+            ranges.push((start, end));
+        } else if let Some(m) = node.as_module_node() {
+            let loc = m.location();
+            let (start, _) = source.offset_to_line_col(loc.start_offset());
+            let end_off = loc.end_offset().saturating_sub(1).max(loc.start_offset());
+            let (end, _) = source.offset_to_line_col(end_off);
+            ranges.push((start, end));
+        }
+    }
+    ranges
+}
 
 impl Cop for ModuleLength {
     fn name(&self) -> &'static str {
@@ -22,26 +67,40 @@ impl Cop for ModuleLength {
             None => return Vec::new(),
         };
 
+        // Skip namespace modules (body is exactly one class or module)
+        if is_namespace_module(&module_node) {
+            return Vec::new();
+        }
+
         let max = config.get_usize("Max", 100);
         let count_comments = config.get_bool("CountComments", false);
         let count_as_one = config.get_string_array("CountAsOne");
 
         let start_offset = module_node.module_keyword_loc().start_offset();
         let end_offset = module_node.end_keyword_loc().start_offset();
-        let count = if let Some(cao) = &count_as_one {
+
+        // Collect foldable ranges from CountAsOne config
+        let mut exclude_ranges = Vec::new();
+        if let Some(cao) = &count_as_one {
             if !cao.is_empty() {
                 if let Some(body) = module_node.body() {
-                    let foldable = collect_foldable_ranges(source, &body, cao);
-                    count_body_lines_ex(source, start_offset, end_offset, count_comments, &foldable)
-                } else {
-                    0
+                    exclude_ranges.extend(collect_foldable_ranges(source, &body, cao));
                 }
-            } else {
-                count_body_lines(source, start_offset, end_offset, count_comments)
             }
-        } else {
-            count_body_lines(source, start_offset, end_offset, count_comments)
-        };
+        }
+
+        // Collect inner class/module line ranges to subtract
+        if let Some(body) = module_node.body() {
+            for (inner_start, inner_end) in inner_classlike_ranges(source, &body) {
+                // Add all lines of inner class/module as "folded" (excluded from count)
+                for line in inner_start..=inner_end {
+                    exclude_ranges.push((line, line));
+                }
+            }
+        }
+
+        // Deduplicate: convert to a set-like representation via count_body_lines_ex
+        let count = count_body_lines_ex(source, start_offset, end_offset, count_comments, &exclude_ranges);
 
         if count > max {
             let (line, column) = source.offset_to_line_col(start_offset);

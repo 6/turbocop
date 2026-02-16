@@ -1,3 +1,5 @@
+use ruby_prism::Visit;
+
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -9,57 +11,135 @@ impl Cop for ClassAndModuleChildren {
         "Style/ClassAndModuleChildren"
     }
 
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let enforced_style = config.get_str("EnforcedStyle", "nested");
-        let enforced_for_classes = config.get_str("EnforcedStyleForClasses", "");
-        let enforced_for_modules = config.get_str("EnforcedStyleForModules", "");
+        let enforced_style = config.get_str("EnforcedStyle", "nested").to_string();
+        let enforced_for_classes = config.get_str("EnforcedStyleForClasses", "").to_string();
+        let enforced_for_modules = config.get_str("EnforcedStyleForModules", "").to_string();
 
-        if let Some(class_node) = node.as_class_node() {
-            // Use class-specific override if set, otherwise fall back to EnforcedStyle
-            let style = if !enforced_for_classes.is_empty() {
-                enforced_for_classes
-            } else {
-                enforced_style
-            };
-            let constant_path = class_node.constant_path();
-            let is_compact = constant_path.as_constant_path_node().is_some();
+        let mut visitor = ChildrenVisitor {
+            source,
+            enforced_style,
+            enforced_for_classes,
+            enforced_for_modules,
+            nesting_depth: 0,
+            diagnostics: Vec::new(),
+        };
+        visitor.visit(&parse_result.node());
+        visitor.diagnostics
+    }
 
-            if style == "nested" && is_compact {
-                let kw_loc = class_node.class_keyword_loc();
-                let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                return vec![self.diagnostic(source, line, column, "Use nested module/class definitions instead of compact style.".to_string())];
-            } else if style == "compact" && !is_compact {
-                let kw_loc = class_node.class_keyword_loc();
-                let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                return vec![self.diagnostic(source, line, column, "Use compact module/class definition instead of nested style.".to_string())];
-            }
-        } else if let Some(module_node) = node.as_module_node() {
-            let style = if !enforced_for_modules.is_empty() {
-                enforced_for_modules
-            } else {
-                enforced_style
-            };
-            let constant_path = module_node.constant_path();
-            let is_compact = constant_path.as_constant_path_node().is_some();
+    fn diagnostic(
+        &self,
+        source: &SourceFile,
+        line: usize,
+        column: usize,
+        message: String,
+    ) -> Diagnostic {
+        Diagnostic {
+            path: source.path_str().to_string(),
+            location: crate::diagnostic::Location { line, column },
+            severity: self.default_severity(),
+            cop_name: self.name().to_string(),
+            message,
+        }
+    }
+}
 
-            if style == "nested" && is_compact {
-                let kw_loc = module_node.module_keyword_loc();
-                let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                return vec![self.diagnostic(source, line, column, "Use nested module/class definitions instead of compact style.".to_string())];
-            } else if style == "compact" && !is_compact {
-                let kw_loc = module_node.module_keyword_loc();
-                let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                return vec![self.diagnostic(source, line, column, "Use compact module/class definition instead of nested style.".to_string())];
-            }
+struct ChildrenVisitor<'a> {
+    source: &'a SourceFile,
+    enforced_style: String,
+    enforced_for_classes: String,
+    enforced_for_modules: String,
+    nesting_depth: usize, // 0 = top-level, 1 = inside one class/module, etc.
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl<'a> ChildrenVisitor<'a> {
+    fn style_for_class(&self) -> &str {
+        if !self.enforced_for_classes.is_empty() {
+            &self.enforced_for_classes
+        } else {
+            &self.enforced_style
+        }
+    }
+
+    fn style_for_module(&self) -> &str {
+        if !self.enforced_for_modules.is_empty() {
+            &self.enforced_for_modules
+        } else {
+            &self.enforced_style
+        }
+    }
+
+    fn add_diagnostic(&mut self, offset: usize, message: String) {
+        let (line, column) = self.source.offset_to_line_col(offset);
+        self.diagnostics.push(Diagnostic {
+            path: self.source.path_str().to_string(),
+            location: crate::diagnostic::Location { line, column },
+            severity: crate::diagnostic::Severity::Convention,
+            cop_name: "Style/ClassAndModuleChildren".to_string(),
+            message,
+        });
+    }
+}
+
+impl<'a> Visit<'a> for ChildrenVisitor<'a> {
+    fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'a>) {
+        let style = self.style_for_class().to_string();
+        let constant_path = node.constant_path();
+        let is_compact = constant_path.as_constant_path_node().is_some();
+        let kw_offset = node.class_keyword_loc().start_offset();
+
+        if style == "nested" && is_compact {
+            // Compact style used but nested is enforced — always an offense
+            self.add_diagnostic(
+                kw_offset,
+                "Use nested module/class definitions instead of compact style.".to_string(),
+            );
+        } else if style == "compact" && !is_compact && self.nesting_depth > 0 {
+            // Non-compact (simple name) inside another class/module — should use compact
+            self.add_diagnostic(
+                kw_offset,
+                "Use compact module/class definition instead of nested style.".to_string(),
+            );
         }
 
-        Vec::new()
+        // Visit children with increased nesting depth
+        self.nesting_depth += 1;
+        ruby_prism::visit_class_node(self, node);
+        self.nesting_depth -= 1;
+    }
+
+    fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'a>) {
+        let style = self.style_for_module().to_string();
+        let constant_path = node.constant_path();
+        let is_compact = constant_path.as_constant_path_node().is_some();
+        let kw_offset = node.module_keyword_loc().start_offset();
+
+        if style == "nested" && is_compact {
+            // Compact style used but nested is enforced — always an offense
+            self.add_diagnostic(
+                kw_offset,
+                "Use nested module/class definitions instead of compact style.".to_string(),
+            );
+        } else if style == "compact" && !is_compact && self.nesting_depth > 0 {
+            // Non-compact (simple name) inside another class/module — should use compact
+            self.add_diagnostic(
+                kw_offset,
+                "Use compact module/class definition instead of nested style.".to_string(),
+            );
+        }
+
+        // Visit children with increased nesting depth
+        self.nesting_depth += 1;
+        ruby_prism::visit_module_node(self, node);
+        self.nesting_depth -= 1;
     }
 }
 
@@ -70,7 +150,7 @@ mod tests {
     crate::cop_fixture_tests!(ClassAndModuleChildren, "cops/style/class_and_module_children");
 
     #[test]
-    fn config_compact_style() {
+    fn config_compact_style_only_flags_nested() {
         use std::collections::HashMap;
         use crate::testutil::{run_cop_full_with_config, assert_cop_no_offenses_full_with_config};
 
@@ -80,15 +160,34 @@ mod tests {
             ]),
             ..CopConfig::default()
         };
-        // Nested style should trigger with compact enforced
+        // Top-level non-compact class — should NOT trigger (nothing to compact into)
         let source = b"class Foo\nend\n";
-        let diags = run_cop_full_with_config(&ClassAndModuleChildren, source, config.clone());
-        assert!(!diags.is_empty(), "Should fire with EnforcedStyle:compact on nested class");
+        assert_cop_no_offenses_full_with_config(&ClassAndModuleChildren, source, config.clone());
+
+        // Nested non-compact class — SHOULD trigger
+        let source2 = b"module A\n  class Foo\n  end\nend\n";
+        let diags = run_cop_full_with_config(&ClassAndModuleChildren, source2, config.clone());
+        assert_eq!(diags.len(), 1, "Should fire for nested class with compact style");
         assert!(diags[0].message.contains("compact"));
 
         // Compact style should be clean
-        let source2 = b"class Foo::Bar\nend\n";
-        assert_cop_no_offenses_full_with_config(&ClassAndModuleChildren, source2, config);
+        let source3 = b"class Foo::Bar\nend\n";
+        assert_cop_no_offenses_full_with_config(&ClassAndModuleChildren, source3, config);
+    }
+
+    #[test]
+    fn top_level_module_no_offense_with_compact() {
+        use std::collections::HashMap;
+        use crate::testutil::assert_cop_no_offenses_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("compact".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = b"module Foo\nend\n";
+        assert_cop_no_offenses_full_with_config(&ClassAndModuleChildren, source, config);
     }
 
     #[test]
@@ -103,8 +202,8 @@ mod tests {
             ]),
             ..CopConfig::default()
         };
-        // Class should use compact (overridden), module should use nested (default)
-        let source = b"class Foo\nend\n";
+        // Nested class inside module should be flagged (compact for classes)
+        let source = b"module A\n  class Foo\n  end\nend\n";
         let diags = run_cop_full_with_config(&ClassAndModuleChildren, source, config.clone());
         assert_eq!(diags.len(), 1, "Class should be flagged with compact style");
         assert!(diags[0].message.contains("compact"));
@@ -128,8 +227,8 @@ mod tests {
             ]),
             ..CopConfig::default()
         };
-        // Module should use compact (overridden)
-        let source = b"module Foo\nend\n";
+        // Module nested inside another module should be flagged (compact for modules)
+        let source = b"module A\n  module Foo\n  end\nend\n";
         let diags = run_cop_full_with_config(&ClassAndModuleChildren, source, config);
         assert_eq!(diags.len(), 1, "Module should be flagged with compact style");
         assert!(diags[0].message.contains("compact"));

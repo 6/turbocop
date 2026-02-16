@@ -63,17 +63,57 @@ impl Cop for ExcessiveDocstringSpacing {
 
         // Get the string content
         let string_content = if let Some(s) = first_arg.as_string_node() {
+            // Skip heredoc descriptions (opening_loc starts with <<)
+            if let Some(open_loc) = s.opening_loc() {
+                let open = &source.as_bytes()[open_loc.start_offset()..open_loc.end_offset()];
+                if open.starts_with(b"<<") {
+                    return Vec::new();
+                }
+            }
             s.unescaped().to_vec()
         } else if let Some(s) = first_arg.as_interpolated_string_node() {
-            // For interpolated strings, check the raw source between quotes
-            let loc = s.location();
-            let raw = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
-            // Get content between quotes
-            if raw.len() >= 2 {
-                let inner = &raw[1..raw.len() - 1];
-                inner.to_vec()
+            if s.opening_loc().is_none() {
+                // Implicit string concatenation (backslash continuation) —
+                // concatenate all parts and check the combined result.
+                let mut combined = Vec::new();
+                for part in s.parts().iter() {
+                    if let Some(str_part) = part.as_string_node() {
+                        combined.extend_from_slice(&str_part.unescaped());
+                    } else {
+                        // Has real interpolation — use raw source fallback
+                        combined.clear();
+                        let loc = s.location();
+                        let raw = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
+                        // Can't reliably extract content; skip
+                        if raw.len() < 2 {
+                            return Vec::new();
+                        }
+                        // For mixed interpolation in concat, just grab each part's source
+                        for inner_part in s.parts().iter() {
+                            if let Some(sp) = inner_part.as_string_node() {
+                                combined.extend_from_slice(&sp.unescaped());
+                            } else {
+                                // Interpolation node — include its source as-is
+                                let ploc = inner_part.location();
+                                combined.extend_from_slice(
+                                    &source.as_bytes()[ploc.start_offset()..ploc.end_offset()],
+                                );
+                            }
+                        }
+                        break;
+                    }
+                }
+                combined
             } else {
-                return Vec::new();
+                // Real interpolated string ("...#{...}...") — check raw source between quotes
+                let loc = s.location();
+                let raw = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
+                if raw.len() >= 2 {
+                    let inner = &raw[1..raw.len() - 1];
+                    inner.to_vec()
+                } else {
+                    return Vec::new();
+                }
             }
         } else {
             return Vec::new();

@@ -7,7 +7,6 @@ RSpec.describe 'test' do
 
   let(:long_name) { thing }
   let(:blah) { thing }
-             ^ RSpec/AlignLeftLetBrace: Align left let brace.
   let(:a) { thing }
           ^ RSpec/AlignLeftLetBrace: Align left let brace.
 end

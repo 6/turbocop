@@ -22,9 +22,12 @@ impl Cop for LineLength {
         // SplitStrings is an autocorrection-only option; read it for config_audit compliance
         // but it has no effect on offense detection (only on how offenses are auto-fixed).
         let _split_strings = config.get_bool("SplitStrings", false);
-        // Pre-compile allowed patterns
+        // Pre-compile allowed patterns (may include Ruby regex syntax like /pattern/)
         let compiled_patterns: Vec<regex::Regex> = allowed_patterns.iter()
-            .filter_map(|p| regex::Regex::new(p).ok())
+            .filter_map(|p| {
+                let pattern = normalize_ruby_regex(p);
+                regex::Regex::new(&pattern).ok()
+            })
             .collect();
 
         let lines: Vec<&[u8]> = source.lines().collect();
@@ -157,6 +160,24 @@ impl Cop for LineLength {
         }
         diagnostics
     }
+}
+
+/// Normalize a Ruby regex pattern string for use with Rust's regex crate.
+/// Strips `/` delimiters and converts Ruby-specific anchors.
+fn normalize_ruby_regex(pattern: &str) -> String {
+    let mut s = pattern.trim().to_string();
+
+    // Strip surrounding / delimiters (and optional flags)
+    if s.starts_with('/') {
+        s.remove(0);
+        if let Some(last_slash) = s.rfind('/') {
+            s.truncate(last_slash);
+        }
+    }
+
+    // Convert Ruby anchors
+    s = s.replace("\\A", "^").replace("\\z", "$").replace("\\Z", "$");
+    s
 }
 
 /// Check if the last URI match in the line, after extension, reaches the end of the line

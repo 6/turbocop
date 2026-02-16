@@ -1,4 +1,4 @@
-use crate::cop::{Cop, CopConfig};
+use crate::cop::{Cop, CopConfig, EnabledState};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
@@ -18,8 +18,13 @@ impl Cop for PluckId {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // This cop is disabled by default in RuboCop (Enabled: false in vendor config).
+        // Only fire when explicitly enabled in the project config.
+        if config.enabled != EnabledState::True {
+            return Vec::new();
+        }
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -64,5 +69,29 @@ impl Cop for PluckId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(PluckId, "cops/rails/pluck_id");
+
+    fn enabled_config() -> CopConfig {
+        CopConfig {
+            enabled: EnabledState::True,
+            ..CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn offense_fixture() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &PluckId,
+            include_bytes!("../../../testdata/cops/rails/pluck_id/offense.rb"),
+            enabled_config(),
+        );
+    }
+
+    #[test]
+    fn no_offense_fixture() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &PluckId,
+            include_bytes!("../../../testdata/cops/rails/pluck_id/no_offense.rb"),
+            enabled_config(),
+        );
+    }
 }

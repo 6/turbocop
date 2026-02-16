@@ -15,6 +15,10 @@ impl Cop for Output {
         Severity::Convention
     }
 
+    fn default_include(&self) -> &'static [&'static str] {
+        &["**/app/**/*.rb", "**/config/**/*.rb", "db/**/*.rb", "**/lib/**/*.rb"]
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,

@@ -6,7 +6,6 @@ RSpec.describe 'test' do
   let(:blahblah) { abcd }
 
   let(:blahblah) { a }
-                     ^ RSpec/AlignRightLetBrace: Align right let brace.
   let(:blah)     { bc }
                       ^ RSpec/AlignRightLetBrace: Align right let brace.
   let(:a)        { abc }

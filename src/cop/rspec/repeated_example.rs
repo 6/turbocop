@@ -111,13 +111,14 @@ fn example_body_signature(source: &SourceFile, call: &ruby_prism::CallNode<'_>) 
         }
     }
 
-    // Include block body
+    // Include block body — use the entire block node's location range (do..end or {..})
+    // rather than just the StatementsNode body location, because Prism's StatementsNode
+    // location does NOT include heredoc content (heredocs are stored at call-site offsets
+    // outside the StatementsNode range). The block_node location covers everything.
     if let Some(block) = call.block() {
         if let Some(block_node) = block.as_block_node() {
-            if let Some(body) = block_node.body() {
-                let loc = body.location();
-                sig.extend_from_slice(&source.as_bytes()[loc.start_offset()..loc.end_offset()]);
-            }
+            let loc = block_node.location();
+            sig.extend_from_slice(&source.as_bytes()[loc.start_offset()..loc.end_offset()]);
         }
     }
 

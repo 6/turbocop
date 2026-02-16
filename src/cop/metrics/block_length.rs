@@ -10,6 +10,10 @@ impl Cop for BlockLength {
         "Metrics/BlockLength"
     }
 
+    fn default_exclude(&self) -> &'static [&'static str] {
+        &["**/*.gemspec"]
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -17,8 +21,18 @@ impl Cop for BlockLength {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let block_node = match node.as_block_node() {
-            Some(b) => b,
+        // We check CallNode (not BlockNode) so we can read the method name
+        // for AllowedMethods/AllowedPatterns filtering.
+        let call_node = match node.as_call_node() {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+
+        let block_node = match call_node.block() {
+            Some(b) => match b.as_block_node() {
+                Some(bn) => bn,
+                None => return Vec::new(), // Lambda literal etc
+            },
             None => return Vec::new(),
         };
 
@@ -27,24 +41,21 @@ impl Cop for BlockLength {
         let count_as_one = config.get_string_array("CountAsOne");
 
         // AllowedMethods / AllowedPatterns: skip blocks on matching method calls
+        let method_name = std::str::from_utf8(call_node.name().as_slice()).unwrap_or("");
         let allowed_methods = config.get_string_array("AllowedMethods");
         let allowed_patterns = config.get_string_array("AllowedPatterns");
-        if let Some(parent_call) = node.as_block_node().and_then(|_| {
-            // The block's parent call is the call that has this block attached.
-            // In Prism, blocks are children of CallNode, but we receive the BlockNode
-            // directly. We can check if the block_node has a call parent by looking
-            // at the call_node that wraps it — but since we only get the block node,
-            // we skip this for now and just read the config keys.
-            None::<&str>
-        }) {
-            if let Some(allowed) = &allowed_methods {
-                if allowed.iter().any(|m| m == parent_call) {
-                    return Vec::new();
-                }
+
+        if let Some(allowed) = &allowed_methods {
+            if allowed.iter().any(|m| m == method_name) {
+                return Vec::new();
             }
-            if let Some(patterns) = &allowed_patterns {
-                if patterns.iter().any(|p| parent_call.contains(p.as_str())) {
-                    return Vec::new();
+        }
+        if let Some(patterns) = &allowed_patterns {
+            for pat in patterns {
+                if let Ok(re) = regex::Regex::new(pat) {
+                    if re.is_match(method_name) {
+                        return Vec::new();
+                    }
                 }
             }
         }
@@ -119,5 +130,25 @@ mod tests {
         let source = b"items.each do |x|\n  a = 1\n  b = 2\n  arr = [\n    1,\n    2\n  ]\nend\n";
         let diags = run_cop_full_with_config(&BlockLength, source, config);
         assert!(diags.is_empty(), "Should not fire when array is folded (3/3)");
+    }
+
+    #[test]
+    fn allowed_methods_refine() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("Max".into(), serde_yml::Value::Number(3.into())),
+                ("AllowedMethods".into(), serde_yml::Value::Sequence(vec![
+                    serde_yml::Value::String("refine".into()),
+                ])),
+            ]),
+            ..CopConfig::default()
+        };
+        // refine block with 4 lines should NOT fire because refine is allowed
+        let source = b"refine String do\n  def a; end\n  def b; end\n  def c; end\n  def d; end\nend\n";
+        let diags = run_cop_full_with_config(&BlockLength, source, config);
+        assert!(diags.is_empty(), "Should not fire on allowed method 'refine'");
     }
 }

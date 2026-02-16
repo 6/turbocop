@@ -23,3 +23,22 @@ def generate
           end,
   }
 end
+
+# end aligned with call on previous line via backslash continuation
+it 'does something' \
+   'very interesting' do
+  run_test
+end
+
+# end aligned with call on previous line via multiline args
+option(opts, '--fail-level SEVERITY',
+       RuboCop::Cop::Severity::NAMES) do |severity|
+  @options[:fail_level] = severity
+end
+
+# end aligned with call expression that has multiline args ending with comma
+add_offense(node,
+            message: format(MSG,
+                            flag: true)) do |corrector|
+  corrector.replace(node, replacement)
+end
