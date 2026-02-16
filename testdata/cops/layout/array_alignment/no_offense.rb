@@ -16,3 +16,12 @@ owned_classes = [
   PollVote, Mention, AccountDeletionRequest, AccountNote,
   Appeal, TagFollow
 ]
+
+# Element is not the first token on its line (}, { pattern)
+actions = [
+  {
+    edit: { range: range, newText: text }
+  }, {
+    edit: { range: other_range, newText: other_text }
+  }
+]

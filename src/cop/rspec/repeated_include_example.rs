@@ -129,9 +129,66 @@ fn include_signature(source: &SourceFile, call: &ruby_prism::CallNode<'_>) -> Op
         }
     }
 
-    // Build signature from all argument source text
-    let args_loc = args.location();
-    Some(source.as_bytes()[args_loc.start_offset()..args_loc.end_offset()].to_vec())
+    // Build signature from individual arguments.
+    // For heredoc string nodes, the location() only covers the opening tag (e.g. <<~RUBY),
+    // NOT the heredoc body. We must use unescaped() / parts content to capture the actual
+    // body so that calls with same opening but different heredoc content get distinct signatures.
+    let mut sig = Vec::new();
+    for (i, arg) in arg_list.iter().enumerate() {
+        if i > 0 {
+            sig.push(b',');
+        }
+        if let Some(s) = arg.as_string_node() {
+            if is_heredoc_string(&s) {
+                // Use opening tag + unescaped body for full signature
+                let loc = s.location();
+                sig.extend_from_slice(&source.as_bytes()[loc.start_offset()..loc.end_offset()]);
+                sig.push(b':');
+                sig.extend_from_slice(&s.unescaped());
+            } else {
+                let loc = s.location();
+                sig.extend_from_slice(&source.as_bytes()[loc.start_offset()..loc.end_offset()]);
+            }
+        } else if let Some(interp) = arg.as_interpolated_string_node() {
+            if is_heredoc_interpolated_string(&interp) {
+                // Use opening tag + full parts content for signature
+                let loc = interp.location();
+                sig.extend_from_slice(&source.as_bytes()[loc.start_offset()..loc.end_offset()]);
+                sig.push(b':');
+                for part in interp.parts().iter() {
+                    if let Some(str_part) = part.as_string_node() {
+                        sig.extend_from_slice(&str_part.unescaped());
+                    } else {
+                        // For interpolated expressions, use source text
+                        let part_loc = part.location();
+                        sig.extend_from_slice(
+                            &source.as_bytes()[part_loc.start_offset()..part_loc.end_offset()],
+                        );
+                    }
+                }
+            } else {
+                let loc = interp.location();
+                sig.extend_from_slice(&source.as_bytes()[loc.start_offset()..loc.end_offset()]);
+            }
+        } else {
+            let loc = arg.location();
+            sig.extend_from_slice(&source.as_bytes()[loc.start_offset()..loc.end_offset()]);
+        }
+    }
+
+    Some(sig)
+}
+
+/// Check if a StringNode is a heredoc (opening starts with <<)
+fn is_heredoc_string(node: &ruby_prism::StringNode<'_>) -> bool {
+    node.opening_loc()
+        .is_some_and(|open| open.as_slice().starts_with(b"<<"))
+}
+
+/// Check if an InterpolatedStringNode is a heredoc (opening starts with <<)
+fn is_heredoc_interpolated_string(node: &ruby_prism::InterpolatedStringNode<'_>) -> bool {
+    node.opening_loc()
+        .is_some_and(|open| open.as_slice().starts_with(b"<<"))
 }
 
 fn extract_shared_name(sig_bytes: &[u8]) -> String {

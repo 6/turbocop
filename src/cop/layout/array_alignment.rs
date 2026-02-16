@@ -4,6 +4,16 @@ use crate::parse::source::SourceFile;
 
 pub struct ArrayAlignment;
 
+/// Returns true if the byte at `offset` is the first non-whitespace character on its line.
+fn begins_its_line(source: &SourceFile, offset: usize) -> bool {
+    let (line, col) = source.offset_to_line_col(offset);
+    if col == 0 {
+        return true;
+    }
+    let line_bytes = source.lines().nth(line - 1).unwrap_or(b"");
+    line_bytes[..col].iter().all(|&b| b == b' ' || b == b'\t')
+}
+
 impl Cop for ArrayAlignment {
     fn name(&self) -> &'static str {
         "Layout/ArrayAlignment"
@@ -49,13 +59,19 @@ impl Cop for ArrayAlignment {
         let mut last_checked_line = first_line;
 
         for elem in elements.iter().skip(1) {
-            let (elem_line, elem_col) = source.offset_to_line_col(elem.location().start_offset());
+            let start_offset = elem.location().start_offset();
+            let (elem_line, elem_col) = source.offset_to_line_col(start_offset);
             // Only check the first element on each new line; subsequent elements
             // on the same line are just comma-separated and not alignment targets.
             if elem_line == last_checked_line {
                 continue;
             }
             last_checked_line = elem_line;
+            // Skip elements that are not the first non-whitespace token on their line.
+            // E.g. in `}, {` the `{` follows a `}` and should not be checked.
+            if !begins_its_line(source, start_offset) {
+                continue;
+            }
             if elem_col != expected_col {
                 diagnostics.push(self.diagnostic(
                     source,
