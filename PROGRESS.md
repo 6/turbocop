@@ -326,499 +326,92 @@ All files compile, binary runs, produces "0 offenses detected."
 - [x] **src/cop/rails/mod.rs** — New Rails department with `register_all()`
 - [x] **src/cop/util.rs** — Added Rails-specific helpers: `parent_class_name`, `is_dsl_call`, `class_body_calls`, `has_keyword_arg`, `keyword_arg_value`, `constant_name`, `full_constant_path`, `MethodChain3`, `as_method_chain3`
 
-### M6 Cops — Rails: Method Call Detection (22)
+### M6 Cops — Rails (98 cops)
 
-- [x] Rails/Exit — flag `exit`/`exit!` calls
-- [x] Rails/Output — flag `puts`/`print`/`p`/`pp` calls
-- [x] Rails/OutputSafety — flag `html_safe`/`raw` calls
-- [x] Rails/Blank — `!present?` → `blank?`
-- [x] Rails/Present — `!blank?` → `present?`
-- [x] Rails/NegateInclude — `!include?` → `exclude?`
-- [x] Rails/SafeNavigation — `try`/`try!` → safe navigation `&.`
-- [x] Rails/Delegate — manual delegation → `delegate`
-- [x] Rails/DelegateAllowBlank — flag invalid `allow_blank` option
-- [x] Rails/RequestReferer — `referer` → `referrer`
-- [x] Rails/RefuteMethods — `refute_*` → `assert_not_*`
-- [x] Rails/ToFormattedS — `to_formatted_s` → `to_fs`
-- [x] Rails/ToSWithArgument — `to_s(:format)` → `to_fs`
-- [x] Rails/StripHeredoc — `strip_heredoc` → squiggly heredoc
-- [x] Rails/Inquiry — flag `.inquiry` calls
-- [x] Rails/PluckId — `pluck(:id)` → `ids`
-- [x] Rails/Pluck — `map { |x| x[:key] }` → `pluck`
-- [x] Rails/IndexBy — `map.to_h` → `index_by`
-- [x] Rails/WhereNot — flag manual negated SQL → `where.not`
-- [x] Rails/WhereExists — `where.exists?` → `exists?`
-- [x] Rails/PluckInWhere — flag `pluck` inside `where`
-- [x] Rails/ActiveSupportAliases — `starts_with?`/`ends_with?` → standard Ruby
+<details><summary>Full list (98 cops)</summary>
 
-### M6 Cops — Rails: Method Chain Detection (18)
+Rails/Exit, Rails/Output, Rails/OutputSafety, Rails/Blank, Rails/Present, Rails/NegateInclude, Rails/SafeNavigation, Rails/Delegate, Rails/DelegateAllowBlank, Rails/RequestReferer, Rails/RefuteMethods, Rails/ToFormattedS, Rails/ToSWithArgument, Rails/StripHeredoc, Rails/Inquiry, Rails/PluckId, Rails/Pluck, Rails/IndexBy, Rails/WhereNot, Rails/WhereExists, Rails/PluckInWhere, Rails/ActiveSupportAliases, Rails/FindBy, Rails/FindEach, Rails/CompactBlank, Rails/Pick, Rails/ContentTag, Rails/SelectMap, Rails/RootJoinChain, Rails/RootPathnameMethods, Rails/RootPublicPath, Rails/FilePath, Rails/ResponseParsedBody, Rails/RedundantActiveRecordAllMethod, Rails/HelperInstanceVariable, Rails/UnusedRenderContent, Rails/RedundantTravelBack, Rails/DurationArithmetic, Rails/ExpandedDateRange, Rails/WhereRange, Rails/Date, Rails/TimeZone, Rails/RelativeDateConstant, Rails/FreezeTime, Rails/TimeZoneAssignment, Rails/DotSeparatedKeys, Rails/ShortI18n, Rails/ApplicationController, Rails/ApplicationRecord, Rails/ApplicationJob, Rails/ApplicationMailer, Rails/HasManyOrHasOneDependent, Rails/InverseOf, Rails/HasAndBelongsToMany, Rails/DuplicateAssociation, Rails/DuplicateScope, Rails/ReadWriteAttribute, Rails/ActionOrder, Rails/ActiveRecordCallbacksOrder, Rails/ActionControllerTestCase, Rails/LexicallyScopedActionFilter, Rails/ActionControllerFlashBeforeRender, Rails/Validation, Rails/RedundantAllowNil, Rails/RedundantPresenceValidationOnBelongsTo, Rails/AttributeDefaultBlockValue, Rails/EnvironmentComparison, Rails/EnvironmentVariableAccess, Rails/Env, Rails/UnknownEnv, Rails/RakeEnvironment, Rails/EnvLocal, Rails/I18nLocaleAssignment, Rails/I18nLazyLookup, Rails/CreateTableWithTimestamps, Rails/NotNullColumn, Rails/ThreeStateBooleanColumn, Rails/DangerousColumnNames, Rails/AddColumnIndex, Rails/MigrationClassName, Rails/SchemaComment, Rails/EnumHash, Rails/EnumSyntax, Rails/EnumUniqueness, Rails/HttpPositionalArguments, Rails/HttpStatus, Rails/HttpStatusNameConsistency, Rails/DynamicFindBy, Rails/SkipsModelValidations, Rails/ScopeArgs, Rails/ReflectionClassName, Rails/RedundantForeignKey, Rails/RenderInline, Rails/RenderPlainText, Rails/ReversibleMigrationMethodDefinition, Rails/TableNameAssignment, Rails/AfterCommitOverride, Rails/TransactionExitStatement
 
-- [x] Rails/FindBy — `where.first` → `find_by`
-- [x] Rails/FindEach — `all.each` → `find_each`
-- [x] Rails/CompactBlank — `reject(&:blank?)` → `compact_blank`
-- [x] Rails/Pick — `pluck.first` → `pick`
-- [x] Rails/ContentTag — `content_tag` → `tag.*`
-- [x] Rails/SelectMap — `select.map` → `filter_map`
-- [x] Rails/RootJoinChain — chained `.join` → single `join`
-- [x] Rails/RootPathnameMethods — `File.read(Rails.root.join)` → pathname methods
-- [x] Rails/RootPublicPath — `Rails.root.join('public')` → `Rails.public_path`
-- [x] Rails/FilePath — multi-arg `join` → single path string
-- [x] Rails/ResponseParsedBody — `JSON.parse(response.body)` → `parsed_body`
-- [x] Rails/RedundantActiveRecordAllMethod — remove redundant `.all`
-- [x] Rails/HelperInstanceVariable — flag instance variables in helpers
-- [x] Rails/UnusedRenderContent — flag content with head-only status
-- [x] Rails/RedundantTravelBack — redundant `travel_back`
-- [x] Rails/DurationArithmetic — `Time.now + 1.day` → `1.day.from_now`
-- [x] Rails/ExpandedDateRange — explicit date range → `all_day`
-- [x] Rails/WhereRange — SQL comparison → range in `where`
-
-### M6 Cops — Rails: Time/Date (7)
-
-- [x] Rails/Date — `Date.today` → `Date.current`
-- [x] Rails/TimeZone — `Time.now` → `Time.zone.now`
-- [x] Rails/RelativeDateConstant — flag relative date in constants
-- [x] Rails/FreezeTime — `travel_to(Time.now)` → `freeze_time`
-- [x] Rails/TimeZoneAssignment — flag `Time.zone =`
-- [x] Rails/DotSeparatedKeys — dot-separated i18n keys
-- [x] Rails/ShortI18n — `translate` → `t`, `localize` → `l`
-
-### M6 Cops — Rails: Class Structure (15)
-
-- [x] Rails/ApplicationController — `ActionController::Base` → `ApplicationController`
-- [x] Rails/ApplicationRecord — `ActiveRecord::Base` → `ApplicationRecord`
-- [x] Rails/ApplicationJob — `ActiveJob::Base` → `ApplicationJob`
-- [x] Rails/ApplicationMailer — `ActionMailer::Base` → `ApplicationMailer`
-- [x] Rails/HasManyOrHasOneDependent — flag missing `:dependent`
-- [x] Rails/InverseOf — flag missing `:inverse_of` with `:foreign_key`
-- [x] Rails/HasAndBelongsToMany — flag HABTM → `has_many :through`
-- [x] Rails/DuplicateAssociation — flag duplicate association names
-- [x] Rails/DuplicateScope — flag duplicate scope names
-- [x] Rails/ReadWriteAttribute — `read_attribute`/`write_attribute` → `self[]`
-- [x] Rails/ActionOrder — non-standard controller action ordering
-- [x] Rails/ActiveRecordCallbacksOrder — callback lifecycle ordering
-- [x] Rails/ActionControllerTestCase — flag `ActionController::TestCase`
-- [x] Rails/LexicallyScopedActionFilter — filter action name checks
-- [x] Rails/ActionControllerFlashBeforeRender — `flash` before `render`
-
-### M6 Cops — Rails: Validation (4)
-
-- [x] Rails/Validation — `validates_*_of` → `validates`
-- [x] Rails/RedundantAllowNil — redundant `allow_nil` with `presence`
-- [x] Rails/RedundantPresenceValidationOnBelongsTo — redundant presence on `belongs_to`
-- [x] Rails/AttributeDefaultBlockValue — mutable `default:` → block form
-
-### M6 Cops — Rails: Environment/Config (8)
-
-- [x] Rails/EnvironmentComparison — `Rails.env ==` → predicate method
-- [x] Rails/EnvironmentVariableAccess — `ENV[]` → `ENV.fetch`
-- [x] Rails/Env — `ENV['RAILS_ENV']` → `Rails.env`
-- [x] Rails/UnknownEnv — flag non-standard environment names
-- [x] Rails/RakeEnvironment — flag missing `:environment` dependency
-- [x] Rails/EnvLocal — `development? || test?` → `local?`
-- [x] Rails/I18nLocaleAssignment — `I18n.locale =` → `with_locale`
-- [x] Rails/I18nLazyLookup — flag full i18n keys → lazy lookup
-
-### M6 Cops — Rails: Migration (7)
-
-- [x] Rails/CreateTableWithTimestamps — flag missing `t.timestamps`
-- [x] Rails/NotNullColumn — flag NOT NULL without default
-- [x] Rails/ThreeStateBooleanColumn — flag boolean without `null: false`
-- [x] Rails/DangerousColumnNames — flag reserved column names
-- [x] Rails/AddColumnIndex — flag `_id` columns without index
-- [x] Rails/MigrationClassName — migration class name conventions
-- [x] Rails/SchemaComment — flag missing table/column comments
-
-### M6 Cops — Rails: Enum (3)
-
-- [x] Rails/EnumHash — array enum → hash enum
-- [x] Rails/EnumSyntax — old enum syntax → Rails 7+ syntax
-- [x] Rails/EnumUniqueness — flag duplicate enum values
-
-### M6 Cops — Rails: Remaining (14)
-
-- [x] Rails/HttpPositionalArguments — positional → keyword args in HTTP test methods
-- [x] Rails/HttpStatus — numeric → symbolic HTTP status
-- [x] Rails/HttpStatusNameConsistency — consistent status code style
-- [x] Rails/DynamicFindBy — `find_by_name` → `find_by(name:)`
-- [x] Rails/SkipsModelValidations — flag validation-skipping methods
-- [x] Rails/ScopeArgs — scope without lambda
-- [x] Rails/ReflectionClassName — string `class_name:` → constant
-- [x] Rails/RedundantForeignKey — flag conventional foreign key
-- [x] Rails/RenderInline — flag `render inline:`
-- [x] Rails/RenderPlainText — `render text:` → `render plain:`
-- [x] Rails/ReversibleMigrationMethodDefinition — `up`/`down` or `change`
-- [x] Rails/TableNameAssignment — flag `self.table_name =`
-- [x] Rails/AfterCommitOverride — flag multiple `after_commit`
-- [x] Rails/TransactionExitStatement — flag `return`/`break`/`throw` in transaction
+</details>
 
 ### M6 Summary
 
 - [x] **src/cop/registry.rs** — `default_registry()` registers all 251 cops
-- [x] **src/cop/rails/** — 98 new cop source files
-- [x] **testdata/cops/rails/** — 196 new fixture files (offense + no_offense for each new cop)
 - [x] 714 tests passing (691 unit + 23 integration)
-- [x] Include/Exclude path pattern enforcement infrastructure
-- [x] Test coverage guard: `all_cops_have_fixture_files` covers all 251 cops
 
 ## Completed: M8 — rubocop-rspec (113 cops)
 
 113 new RSpec department cops (364 total), vendor fixture extraction from rubocop-rspec specs, RSpec DSL utility helpers.
 
-### M8 Infrastructure
-
-- [x] **src/cop/rspec/mod.rs** — New RSpec department with `register_all()` for 113 cops
-- [x] **src/cop/util.rs** — RSpec-specific helpers: `RSPEC_EXAMPLE_GROUPS`, `RSPEC_EXAMPLES`, `RSPEC_HOOKS`, `RSPEC_LETS`, `RSPEC_SUBJECTS`, `RSPEC_FOCUSED_METHODS`, `RSPEC_DEFAULT_INCLUDE`, `is_rspec_example_group()`, `is_rspec_example()`, `is_rspec_hook()`, `is_rspec_focused()`, `has_rspec_focus_metadata()`, `first_positional_arg()`, `block_body_line_count()`
-- [x] **CLAUDE.md** — Documented vendor fixture extraction process
-
-### M8 Cops — RSpec: Simple Matchers (16)
-
-- [x] RSpec/Focus — focused specs (`:focus`, `focus: true`, f-prefixed methods)
-- [x] RSpec/Be — bare `be` matcher without arguments
-- [x] RSpec/BeEmpty — `be_empty` matcher usage
-- [x] RSpec/BeEq — `eq(true/false/nil)` → `be` matchers
-- [x] RSpec/BeEql — `eql(true/false/nil)` → `be` matchers
-- [x] RSpec/BeNil — `be_nil` vs `be(nil)` style
-- [x] RSpec/ContainExactly — `contain_exactly` vs `match_array`
-- [x] RSpec/MatchArray — `match_array` with array literal → `contain_exactly`
-- [x] RSpec/NotToNot — `to_not` → `not_to`
-- [x] RSpec/EmptyMetadata — empty metadata hash `{}`
-- [x] RSpec/Pending — flag `pending` examples
-- [x] RSpec/PendingWithoutReason — `pending`/`skip` without reason
-- [x] RSpec/AnyInstance — `allow_any_instance_of`/`expect_any_instance_of`
-- [x] RSpec/InstanceSpy — `instance_double` + `as_null_object` → `instance_spy`
-- [x] RSpec/MessageChain — `receive_message_chain` usage
-- [x] RSpec/VoidExpect — `expect()` without matcher
-
-### M8 Cops — RSpec: Call Pattern Detection (16)
-
-- [x] RSpec/ExpectActual — literal values as `expect` argument
-- [x] RSpec/ExpectOutput — `$stdout`/`$stderr` in expect
-- [x] RSpec/RemoveConst — `remove_const` in specs
-- [x] RSpec/DescribeMethod — describe with method description convention
-- [x] RSpec/DescribeSymbol — `describe :symbol` usage
-- [x] RSpec/ContextMethod — `context` with method-like description
-- [x] RSpec/ContextWording — context description wording
-- [x] RSpec/EmptyHook — empty before/after/around blocks
-- [x] RSpec/EmptyOutput — empty output matcher
-- [x] RSpec/InstanceVariable — `@ivar` usage in examples
-- [x] RSpec/Eq — `eq` matcher style
-- [x] RSpec/Output — `output` matcher patterns
-- [x] RSpec/ClassCheck — `is_a?` vs `instance_of?` style
-- [x] RSpec/SingleArgumentMessageChain — single-arg `receive_message_chain`
-- [x] RSpec/ReceiveNever — `receive.never` → `not_to receive`
-- [x] RSpec/ReceiveCounts — `receive.once`/`.twice` patterns
-
-### M8 Cops — RSpec: Block Structure (16)
-
-- [x] RSpec/ExampleLength — example block line count
-- [x] RSpec/MultipleExpectations — too many `expect` calls
-- [x] RSpec/NoExpectationExample — example without expectations
-- [x] RSpec/NestedGroups — deeply nested groups
-- [x] RSpec/MultipleMemoizedHelpers — too many `let` declarations
-- [x] RSpec/HooksBeforeExamples — hooks after examples
-- [x] RSpec/LetBeforeExamples — `let` after examples
-- [x] RSpec/EmptyLineAfterExample — missing blank line after examples
-- [x] RSpec/EmptyLineAfterExampleGroup — missing blank line after groups
-- [x] RSpec/EmptyLineAfterFinalLet — missing blank line after last `let`
-- [x] RSpec/EmptyLineAfterHook — missing blank line after hooks
-- [x] RSpec/EmptyLineAfterSubject — missing blank line after subject
-- [x] RSpec/LeadingSubject — subject should come first
-- [x] RSpec/ScatteredLet — `let` should be grouped
-- [x] RSpec/ScatteredSetup — `before` should be grouped
-- [x] RSpec/EmptyExampleGroup — example group with no examples
-
-### M8 Cops — RSpec: Duplication/Ordering (16)
-
-- [x] RSpec/MultipleDescribes — multiple top-level describes
-- [x] RSpec/MultipleSubjects — multiple subject declarations
-- [x] RSpec/DescribeClass — first arg to describe should be a class
-- [x] RSpec/DescribedClass — use `described_class` instead of explicit name
-- [x] RSpec/DescribedClassModuleWrapping — `described_class` in module wrapper
-- [x] RSpec/OverwritingSetup — duplicate `let` names
-- [x] RSpec/RepeatedDescription — duplicate example descriptions
-- [x] RSpec/RepeatedExample — duplicate example bodies
-- [x] RSpec/RepeatedExampleGroupBody — duplicate group bodies
-- [x] RSpec/RepeatedExampleGroupDescription — duplicate group descriptions
-- [x] RSpec/RepeatedIncludeExample — duplicate `include_examples`
-- [x] RSpec/RepeatedSubjectCall — repeated `subject` calls
-- [x] RSpec/LetSetup — `let` only used in hooks
-- [x] RSpec/IncludeExamples — `include_examples` vs `it_behaves_like`
-- [x] RSpec/ItBehavesLike — `it_behaves_like` vs `include_examples`
-- [x] RSpec/SharedContext — shared context naming
-
-### M8 Cops — RSpec: Naming/Expectation (16)
-
-- [x] RSpec/SharedExamples — shared examples naming
-- [x] RSpec/ExampleWithoutDescription — example without description string
-- [x] RSpec/ExampleWording — example wording style ("should" → imperative)
-- [x] RSpec/IndexedLet — `let(:item_1)` indexed names
-- [x] RSpec/SubjectDeclaration — subject declaration style
-- [x] RSpec/VariableDefinition — `let` vs `let!` style
-- [x] RSpec/VariableName — variable naming convention
-- [x] RSpec/IsExpectedSpecify — `is_expected` with `specify`
-- [x] RSpec/ExpectChange — `expect { }.to change` style
-- [x] RSpec/ExpectInHook — `expect` in hooks
-- [x] RSpec/ExpectInLet — `expect` in `let`
-- [x] RSpec/HookArgument — hook scope argument style
-- [x] RSpec/ImplicitBlockExpectation — implicit block expectation
-- [x] RSpec/ImplicitExpect — `is_expected` vs `expect(subject)`
-- [x] RSpec/ImplicitSubject — implicit vs explicit subject
-- [x] RSpec/IteratedExpectation — `expect` inside `.each`
-
-### M8 Cops — RSpec: Mocking/Complex (16)
-
-- [x] RSpec/MessageExpectation — message expectation style
-- [x] RSpec/MessageSpies — spy vs mock style
-- [x] RSpec/ReceiveMessages — multiple `receive` → `receive_messages`
-- [x] RSpec/ReturnFromStub — stub return style
-- [x] RSpec/StubbedMock — stubbed mock pattern
-- [x] RSpec/SubjectStub — stubbing on subject
-- [x] RSpec/VerifiedDoubles — `double` → verified doubles
-- [x] RSpec/VerifiedDoubleReference — string vs constant reference
-- [x] RSpec/PredicateMatcher — predicate matcher style
-- [x] RSpec/RedundantPredicateMatcher — redundant predicate matcher
-- [x] RSpec/RedundantAround — redundant `around` hook
-- [x] RSpec/SkipBlockInsideExample — `skip` with block
-- [x] RSpec/AroundBlock — `around` without yield/run
-- [x] RSpec/BeforeAfterAll — `before(:all)`/`after(:all)`
-- [x] RSpec/LeakyConstantDeclaration — constants in example groups
-- [x] RSpec/LeakyLocalVariable — local variable leaking
-
-### M8 Cops — RSpec: Remaining (17)
-
-- [x] RSpec/UnspecifiedException — `raise_error` without class
-- [x] RSpec/Dialect — non-standard RSpec aliases
-- [x] RSpec/MissingExampleGroupArgument — missing describe/context args
-- [x] RSpec/IdenticalEqualityAssertion — `expect(x).to eq(x)`
-- [x] RSpec/ChangeByZero — `change { }.by(0)`
-- [x] RSpec/UndescriptiveLiteralsDescription — literal descriptions
-- [x] RSpec/ExcessiveDocstringSpacing — excessive whitespace in descriptions
-- [x] RSpec/SpecFilePathFormat — spec path matches described class
-- [x] RSpec/SpecFilePathSuffix — spec files end in `_spec.rb`
-- [x] RSpec/AlignLeftLetBrace — left-align let braces
-- [x] RSpec/AlignRightLetBrace — right-align let braces
-- [x] RSpec/DuplicatedMetadata — duplicate metadata keys
-- [x] RSpec/MetadataStyle — metadata hash vs symbol style
-- [x] RSpec/SortMetadata — sorted metadata
-- [x] RSpec/MissingExpectationTargetMethod — missing `.to`/`.not_to`
-- [x] RSpec/NamedSubject — named subject style
-- [x] RSpec/Yield — yield matcher issues
-
 ### M8 Summary
 
-- [x] **src/cop/registry.rs** — `default_registry()` registers all 364 cops
 - [x] **src/cop/rspec/** — 113 new cop source files
-- [x] **testdata/cops/rspec/** — 226+ new fixture files (offense + no_offense for each cop)
 - [x] 971 tests passing (944 unit + 27 integration)
-- [x] RSPEC_DEFAULT_INCLUDE: all RSpec cops default to `**/*_spec.rb` and `**/spec/**/*`
-- [x] Vendor fixture extraction documented in CLAUDE.md
-- [x] Test coverage guard: `all_cops_have_fixture_files` covers all 364 cops
 
 ## Completed: M10 — Production Readiness (Config Inheritance + CLI)
 
-Config inheritance (`inherit_from` + `inherit_gem`), `--rubocop-only` flag, `--stdin` support. Enables deployment to real projects.
-
-### M10 Infrastructure
-
-- [x] **src/config/mod.rs** — Full config inheritance: `inherit_from` (local YAML, recursive), `inherit_gem` (via `bundle info --path`), circular detection, merge logic
-- [x] **src/config/gem_path.rs** — Gem path resolution via `bundle info --path` with Gemfile.lock mtime cache
-- [x] **src/config/mod.rs** — `enabled_cop_names()` method on ResolvedConfig for `--rubocop-only`
-- [x] **src/config/mod.rs** — RuboCop-compatible merge rules: Exclude appends, Include replaces, scalars last-writer-wins
-- [x] **src/config/mod.rs** — Silent handling of `require:` and `plugins:` keys
-
-### M10 CLI Features
-
-- [x] **src/cli.rs** — `--rubocop-only` flag: prints comma-separated list of cops not covered by rblint
-- [x] **src/cli.rs** — `--stdin PATH` flag: reads source from stdin, uses PATH for display and config matching
-- [x] **src/lib.rs** — Early exit for `--rubocop-only`, stdin lint path
-- [x] **src/parse/source.rs** — `SourceFile::from_string()` public constructor (non-test)
-- [x] **src/linter.rs** — `lint_source()` public function for linting a single SourceFile directly
-
-### M10 Tests
-
-- [x] **src/config/mod.rs** — 12 new unit tests: inherit_from (single, array, override, exclude-appends, include-replaces, missing, circular), require/plugins ignored, deep merge, enabled_cop_names, merge logic
-- [x] **src/config/gem_path.rs** — 2 unit tests: output parsing, cache key behavior
-- [x] **tests/integration.rs** — 8 new integration tests: inherit_from merging, circular detection, --rubocop-only CLI, --stdin (trailing whitespace, clean exit, display path Include matching), inherited config pipeline, lint_source API
-- [x] **testdata/config/** — Fixture files for inherit_from, circular, rubocop_only configs
-- [x] 994 tests passing (959 unit + 35 integration)
+Config inheritance (`inherit_from` + `inherit_gem`), `--rubocop-only` flag, `--stdin` support.
 
 ### M10 Summary
 
 - [x] Config inheritance: `inherit_from` (local files, recursive) + `inherit_gem` (bundle info)
 - [x] `--rubocop-only`: enables hybrid `bin/lint` workflow
 - [x] `--stdin PATH`: enables editor integration (VSCode, vim, Emacs)
-- [x] All 364 cops preserved, zero regressions
 
 ## Completed: M11 — Drop-in RuboCop Config Compatibility
 
 Full `.rubocop.yml` compatibility: auto-discovery, `require:` plugin default loading, department-level configs, `Enabled: pending` / `AllCops.NewCops`, `AllCops.DisabledByDefault`, and `inherit_mode`.
 
-### M11 Infrastructure
-
-- [x] **src/cop/mod.rs** — `EnabledState` enum (True, False, Pending, Unset) replacing `bool` for `CopConfig.enabled`
-- [x] **src/config/mod.rs** — Config auto-discovery (walk up from target dir), `require:` plugin default config loading, department-level configs (`RSpec:`, `Rails:` Include/Exclude/Enabled), `AllCops.NewCops` / `AllCops.DisabledByDefault` support, `inherit_mode` (merge/override), `Enabled: pending` tri-state
-- [x] **src/config/gem_path.rs** — `working_dir` parameter for `resolve_gem_path` (bundle runs from repo dir)
-- [x] **src/lib.rs** — Pass target dir to `load_config` for auto-discovery, debug output for config dir
-
-### M11 Tests
-
-- [x] **src/config/mod.rs** — 11 new unit tests: auto-discovery (target dir, walk up parent, no config), `Enabled: pending` (default, with NewCops), `DisabledByDefault`, department Include, department Enabled, cop overrides department, `inherit_mode` merge/override, `enabled_cop_names` with pending/disabled_by_default
-- [x] All existing tests updated for new `load_config` signature and `EnabledState`
-
-### M11 Summary
-
-- [x] Config auto-discovery from target path (no more false positives from missing config)
-- [x] `require: rubocop-rspec` loads plugin `config/default.yml` (department Include/Exclude patterns)
-- [x] Department-level configs (`RSpec:`, `Rails:`) for Include/Exclude/Enabled
-- [x] `Enabled: pending` + `AllCops.NewCops: enable` tri-state
-- [x] `AllCops.DisabledByDefault: true` support
-- [x] `inherit_mode: merge/override` for Include/Exclude arrays
-
-## Completed: Conformance FP Reduction — 0 FP on Discourse, 0 FN on Mastodon
-
-Systematic false-positive reduction against Mastodon and Discourse benchmark repos. Bench repos updated to match vendor gem versions (rubocop 1.84.2, rubocop-rails 2.34.3, rubocop-rspec 3.9.0, rubocop-performance 1.26.1).
-
-### Final Conformance
-
-| Benchmark | rblint | rubocop | Matches | FP (rblint only) | FN (rubocop only) | Match rate |
-|-----------|--------|---------|---------|-------------------|-------------------|------------|
-| Mastodon | 188 | 165 | 165 | 23 | 0 | **87.8%** |
-| Discourse | 419 | 419 | 419 | 0 | 0 | **100%** |
-| Rails | 3 | 3 | 3 | 0 | 0 | **100%** |
-
-Mastodon's 23 FPs are all `Rails/ThreeStateBooleanColumn` — a known RuboCop inconsistency where RuboCop skips detection despite the column meeting the cop's criteria. Not a bug in rblint.
-
-Rails uses `DisabledByDefault: true` so only ~10 cops are enabled, yielding very few total offenses (vs hundreds for Mastodon/Discourse which use default enabled cops).
-
-### Infrastructure Fixes
-
-- [x] **Plugin Cop Version Awareness** — Cops from plugin departments not mentioned in the installed gem's `config/default.yml` are treated as non-existent (disabled)
-- [x] **Path Relativization** — CopFilterSet tries both original and relativized paths for Include/Exclude matching
-- [x] **Bench Repo Gem Synchronization** — `bench/update_rubocop_deps.rb` script keeps bench repo gem versions in sync with vendor submodules
-- [x] **Vendor Submodule Tags** — All submodules pinned to proper release tags (v1.84.2, v2.34.3, v3.9.0, v1.26.1)
-- [x] **Inline Disable Comments** — `# rubocop:disable` / `# rubocop:enable` / `# rubocop:todo` support (and `# rblint:` aliases). Standalone block ranges, inline single-line suppression, department-level disables, `all` keyword. Eliminated 67 Mastodon FPs and 97 Discourse FPs.
-
-### Cop Logic Fixes (completed across 8 sessions)
-
-**Session 1 — 6 cops fixed:**
-- [x] Layout/MultilineMethodCallIndentation — skip when inside rescue/ensure/else
-- [x] Rails/DotSeparatedKeys — skip interpolated strings
-- [x] Rails/TimeZone — implement `flexible` default style (allow `Time.current`, `Time.zone.*`)
-- [x] RSpec/ContextWording — skip context blocks with method-style descriptions (`.method`, `#method`)
-- [x] RSpec/ExampleWithoutDescription — skip `it {}` without block (pending examples)
-- [x] Layout/EndAlignment — handle when/in alignment to case
-
-**Session 2 — 3 cops fixed:**
-- [x] Layout/ArgumentAlignment — skip single-line calls
-- [x] RSpec/LetSetup — handle let used only in hooks (more conservative detection)
-
-**Session 3 — 7 cops fixed:**
-- [x] Layout/DefEndAlignment — handle `end` aligned to `def` for multi-line defs
-- [x] Lint/SuppressedException — AllowComments support
-- [x] Rails/Delegate — skip calls with blocks
-- [x] RSpec/ExampleLength — respect configurable Max (default 5)
-- [x] RSpec/InstanceVariable — skip `@` in strings/comments
-- [x] Style/IfUnlessModifier — skip heredoc bodies, parenthesized assignment conditions, comments before body, include indentation in modifier line length
-- [x] Layout/EmptyLineBetweenDefs — AllowAdjacentOneLineDefs support
-
-**Session 4 — 3 cops fixed:**
-- [x] Lint/NestedMethodDefinition — skip def inside Class.new/Module.new blocks
-- [x] Performance/RedundantMatch — only flag when return value is unused
-
-**Session 5 — 9 cops fixed, 1 infrastructure fix:**
-- [x] Rails/ReflectionClassName — REVERSED logic (was flagging strings, should flag non-strings)
-- [x] Style/Lambda — implement `line_count_dependent` default style
-- [x] Style/ParenthesesAroundCondition — AllowSafeAssignment support
-- [x] Style/EmptyMethod — skip methods with comment-only bodies
-- [x] Style/TrailingCommaInArguments — skip &block args, validate comma context with heredoc protection
-- [x] Performance/RedundantSplitRegexpArgument — only flag simple literal regexes
-- [x] Style/Semicolon — add while/until to single-line body detection
-- [x] Style/IfUnlessModifier — multiple fixes (comments, heredocs, indentation)
-- [x] CodeMap — mark heredoc content as non-code (fixed Semicolon/TrailingComma FPs from heredoc CSS/SQL)
-
-**Session 6 — 4 cops fixed:**
-- [x] Lint/EmptyConditionalBody — AllowComments: true (check parse_result comments between keyword and end)
-- [x] RSpec/AroundBlock — handle `yield` as valid way to run example; handle BeginNode (rescue/ensure) and local variable assignment in body recursion
-- [x] RSpec/ReturnFromStub — remove constants/constant paths from `is_static_value` (RuboCop doesn't consider them static)
-
-**Session 7 — Infrastructure + cop fixes to reach 0 FPs:**
-- [x] Plugin version awareness — disable cops from plugin departments not present in installed gem config
-- [x] Path relativization in CopFilterSet for Include/Exclude patterns
-- [x] Layout/MultilineOperationIndentation — accept both aligned and indented forms in "aligned" style
-- [x] Multiple cop fixes via parallel agents (Rails, RSpec, Layout, Performance, Style, Lint)
-
-**Session 8 — 5 cops fixed (final 0 FN on Mastodon):**
-- [x] Rails/Delegate — argument forwarding support (detect `foo(*args, &block)` delegation)
-- [x] RSpec/LeakyLocalVariable — nested example group parameter reassignment detection
-- [x] Rails/ThreeStateBooleanColumn — require BOTH `default:` and `null: false` (not just `null: false`)
-- [x] Rails/DangerousColumnNames — sync with vendor's 369-name reserved list
-- [x] Layout/MultilineMethodCallIndentation — block chain continuation + hash pair alignment
-
-**Session 9 — rails/rails bench repo + 5 cops fixed:**
-- [x] Added rails/rails (v8.1.2) as 3rd benchmark repo (`DisabledByDefault: true`, `plugins:` config style)
-- [x] Layout/IndentationConsistency — implement `indented_internal_methods` style (section-based checking)
-- [x] Layout/IndentationWidth — only check first child of body (siblings handled by IndentationConsistency)
-- [x] Style/StringLiterals — skip strings inside `#{}` interpolation, skip backslash content, skip `"` content in `double_quotes` mode
-- [x] Lint/NestedMethodDefinition — skip singleton method defs (`def obj.method`)
-- [x] Layout/SpaceInsideParens — fix multiline detection to use line numbers instead of adjacent bytes
-
-**Session 10 — Rails FP reduction (509 → 0):**
-- [x] Layout/IndentationWidth — use `end` keyword column as base for if/while/until body indentation (handles variable-style, keyword-style, and `<<` contexts); skip modifier if/while/until (body before keyword); skip inline block wrapping (closing brace not on own line); skip block params on same line as body; skip multi-line `when` with `then` on continuation line
-- [x] Layout/ElseAlignment — use `end` keyword column for else/elsif alignment target (handles assignment context automatically)
-- [x] Layout/IndentationConsistency — pass `indented_internal_methods` to block bodies; skip semicolon-separated statements on same line
-- [x] Performance/RegexpMatch — scan from start of line to end of file for match data globals ($~, $1, etc.), handling `$1 if x =~ /re/` modifier patterns
-- [x] Performance/DeleteSuffix — skip regex with flags (e.g., `/pattern/i`)
-- [x] Performance/StringInclude — skip regex with flags
-- [x] Style/FrozenStringLiteralComment — handle leading whitespace before comment
-- [x] Layout/SpaceAfterComma — skip `$,` global variable
-- [x] Layout/EndAlignment — variable style: fall back to keyword alignment when no assignment; detect `<<` operator and align `end` with line indent
-- [x] Style/StringLiterals — double_quotes mode: skip strings containing `#{` (would become interpolation); skip multi-line strings
-- [x] Rails/IndexBy — skip identity mappings (`memo[el] = el`, `[el, el]`) where key is element itself
-- [x] Lint/Debugger — full rewrite: configurable DebuggerMethods hash with dotted method specs, DEFAULT_DEBUGGER_METHODS/REQUIRES constants, ConstantPathNode support
-
 ## Completed: Config Audit + Prism Pitfalls — Zero Gaps
 
-Eliminated all config audit (126 → 0) and prism pitfalls (68 → 0) gaps. Every YAML config key read by RuboCop cops is now implemented in the Rust source, and every cop correctly handles both `ConstantPathNode` and `KeywordHashNode` variants.
+Eliminated all config audit (126 → 0) and prism pitfalls (68 → 0) gaps.
 
-### Infrastructure Changes
+## Completed: Conformance FP Reduction — Initial 364 cops
 
-- [x] **tests/integration.rs** — Removed baseline mechanism; both tests now assert zero gaps directly
-- [x] **tests/baselines/** — Deleted entirely (no longer needed)
-- [x] **src/cop/mod.rs** — Added `get_string_hash()` to CopConfig for hash-type YAML configs (CustomTransform, IgnoreMetadata)
-- [x] **tests/integration.rs** — Expanded `infrastructure_keys` filter: `Supported*` prefix, `References`, `Severity`
+Systematic false-positive reduction against Mastodon, Discourse, and Rails benchmark repos. Reached 100% conformance on Discourse and Rails, 87.8% on Mastodon (23 FPs all from Rails/ThreeStateBooleanColumn known inconsistency).
 
-### Prism Pitfalls Fixed (68 → 0)
+## Completed: M9 — Core Cop Coverage Expansion (469 cops)
 
-- [x] **ConstantPathNode** (58 entries, 49 cops) — All cops now handle qualified constants (`Foo::Bar`) via `as_constant_path_node()` or `util::constant_name()`
-- [x] **KeywordHashNode** (10 entries, 9 cops) — All cops now handle keyword args alongside hash literals
+Added 105 new cops across 6 departments. Three new departments created from scratch (Security, Bundler, Gemspec, Migration). Six departments now at 100% coverage.
 
-### Config Audit Fixed (126 → 0)
+### M9 New Departments
 
-All config keys across all 364 cops now have real implementations with behavioral tests:
+- [x] **Security** (7/7 = 100%): Eval, JSONLoad, YAMLLoad, MarshalLoad, Open, IoMethods, CompoundHash
+- [x] **Bundler** (7/7 = 100%): DuplicatedGem, DuplicatedGroup, GemComment, GemFilename, GemVersion, InsecureProtocolSource, OrderedGems
+- [x] **Gemspec** (10/10 = 100%): AddRuntimeDependency, AttributeAssignment, DependencyVersion, DeprecatedAttributeAssignment, DevelopmentDependencies, DuplicatedAssignment, OrderedDependencies, RequireMFA, RequiredRubyVersion, RubyVersionGlobalsUsage
+- [x] **Migration** (1/1 = 100%): DepartmentName
 
-**Layout (25 cops):** EmptyLineBetweenDefs (DefLikeMacros), IndentationWidth (EnforcedStyleAlignWith), LineLength (AllowRBSInlineAnnotation), HashAlignment (7 keys), and 21 others
+### M9 Department Expansions
 
-**Lint (8 cops):** EmptyConditionalBody (AllowComments), EmptyWhen (AllowComments), SuppressedException (AllowNil), NestedMethodDefinition (AllowedMethods/Patterns), Debugger (DebuggerMethods/Requires), and 3 others
+- [x] **Metrics** — 10/10 = 100% (+2: BlockNesting, CollectionLiteralLength)
+- [x] **Naming** — 19/19 = 100% (+11: BinaryOperatorParameterName, BlockForwarding, BlockParameterName, HeredocDelimiterCase, HeredocDelimiterNaming, InclusiveLanguage, MemoizedInstanceVariableName, MethodParameterName, PredicateMethod, RescuedExceptionsVariableName, VariableNumber)
+- [x] **Lint** — 53/152 = 35% (+34 new cops)
+- [x] **Style** — 56/287 = 20% (+25 new cops)
+- [x] **Layout** — 48/100 = 48% (+8 new cops)
 
-**Metrics (6 cops):** MethodLength/BlockLength/ClassLength/ModuleLength (AllowedMethods, AllowedPatterns, CountAsOne), CyclomaticComplexity/PerceivedComplexity (AllowedMethods/Patterns)
+### M9 FP Reduction (22 cops fixed)
 
-**Naming (4 cops):** FileName (ExpectMatchingDefinition, Regex, IgnoreExecutableScripts), AsciiIdentifiers (AsciiConstants), and 2 others
+Systematic FP elimination on the 105 new cops, reducing total FPs from 7,190 to 207:
 
-**Performance (5 cops):** FlatMap (EnabledForFlattenWithoutParams), Sum (OnlySumOrWithInitialValue), DoubleStartEndWith (IncludeActiveSupportAliases), and 2 others
+| Repo | Before | After | Match Rate |
+|------|-------:|------:|---------:|
+| **Mastodon** | 1,229 | 76 | 55.4% |
+| **Discourse** | 2,046 | 8 | **98.1%** |
+| **Rails** | 3,915 | 123 | 2.4% |
 
-**Rails (17 cops):** Delegate (EnforceForPrefixed), FindBy (IgnoreWhereFirst), InverseOf (IgnoreScopes), RenderPlainText (ContentTypeCompatibility), SafeNavigation (ConvertTry), and 12 others
+Key fixes:
+- Lint/RequireParentheses: Full AST rewrite (eliminated ~2,972 FPs)
+- Layout cops: AllowForAlignment, `<=>` operator, `def ==` method names, `yield()`, RDoc comments
+- Style cops: frozen_string_literal awareness, EnforcedStyle conditionals, single-line def handling
+- Lint cops: NilClass method expansion, superclass skip, singleton method distinction, super forwarding
+- Metrics/BlockNesting: elsif handling
 
-**RSpec (24 cops):** DescribedClass (OnlyStaticConstants, SkipBlocks), ExampleWording (CustomTransform), PredicateMatcher (AllowedExplicitMatchers), SpecFilePathFormat (CustomTransform, IgnoreMetadata, IgnoreMethods), and 20 others
+### M9 Summary
 
-**Style (18 cops):** FrozenStringLiteralComment (EnforcedStyle), EmptyMethod (EnforcedStyle), HashSyntax (EnforcedShorthandSyntax), TrailingCommaIn* (EnforcedStyleForMultiline), and 14 others
-
-### Summary
-
-- [x] 1,302 tests passing (1,210 lib + 50 codegen + 42 integration)
-- [x] `cargo test config_audit` — 0 gaps (was 126)
-- [x] `cargo test prism_pitfalls` — 0 gaps (was 68)
-- [x] Zero compiler warnings
-- [x] Only 2 intentional no-ops: `SplitStrings` (autocorrection-only), `InflectorPath` (Ruby-specific Zeitwerk)
+- [x] 469 cops registered (was 364)
+- [x] 1,601 tests passing
+- [x] 6 departments at 100%: Metrics, Naming, Security, Bundler, Gemspec, Migration
+- [x] 3 plugin departments at 100%: Rails, RSpec, Performance
 
 ## Cop Coverage Summary
 
@@ -827,15 +420,15 @@ All config keys across all 364 cops now have real implementations with behaviora
 | Department | RuboCop | rblint | Coverage |
 |------------|--------:|-------:|---------:|
 | Layout | 100 | 48 | 48% |
-| Lint | 152 | 53 | 34% |
-| Style | 287 | 56 | 19% |
+| Lint | 152 | 53 | 35% |
+| Style | 287 | 56 | 20% |
 | Metrics | 10 | 10 | **100%** |
 | Naming | 19 | 19 | **100%** |
 | Security | 7 | 7 | **100%** |
-| Bundler | 7 | 0 | 0% |
-| Gemspec | 10 | 0 | 0% |
-| Migration | 1 | 0 | 0% |
-| **Total Core** | **593** | **193** | **32.5%** |
+| Bundler | 7 | 7 | **100%** |
+| Gemspec | 10 | 10 | **100%** |
+| Migration | 1 | 1 | **100%** |
+| **Total Core** | **593** | **211** | **35.6%** |
 
 ### Plugin departments
 
@@ -850,11 +443,19 @@ All config keys across all 364 cops now have real implementations with behaviora
 
 | | RuboCop | rblint | Coverage |
 |--|--------:|-------:|---------:|
-| **All departments** | **851** | **451** | **53%** |
+| **All departments** | **851** | **469** | **55.1%** |
 
-Remaining gaps: Lint (99 missing), Style (231 missing), Layout (52 missing). Bundler (7), Gemspec (10), and Migration (1) are low priority — only Bundler has 5 cops active in Mastodon.
+Remaining gaps: Style (231 missing), Lint (99 missing), Layout (52 missing).
 
-1,552 tests passing (1,460 lib + 50 codegen + 42 integration).
+1,601 tests passing (1,509 lib + 50 codegen + 42 integration).
+
+### Bench Conformance
+
+| Repo | FPs | FNs | Match Rate |
+|------|----:|----:|---------:|
+| Mastodon | 76 | 57 | 55.4% |
+| Discourse | 8 | 0 | **98.1%** |
+| Rails | 123 | 0 | 2.4% |
 
 ## Milestones
 
@@ -869,9 +470,7 @@ Remaining gaps: Lint (99 missing), Style (231 missing), Layout (52 missing). Bun
 | **M6**: rubocop-rails + Include/Exclude | 251 | **Done** |
 | **M7**: Autocorrect | +30 fixes | Pending |
 | **M8**: rubocop-rspec | 364 | **Done** |
-| **M9**: Core Cop Coverage Batch 1 | 450 | **In Progress** |
+| **M9**: Core Cop Coverage Expansion | 469 | **Done** |
 | **M10**: Production Readiness | 364 + config/CLI | **Done** |
 | **M11**: Config Compatibility | Drop-in .rubocop.yml | **Done** |
-| **FP Elimination**: Zero false positives | 364 | **Done** |
-
-**M9: Core Cop Coverage Batch 1** — Added 86 new cops (364→450). New Security department (7 cops). Metrics 100% (10/10), Naming 95% (18/19). Lint 12%→35%, Style 11%→20%, Layout 40%→48%. Unit tests all pass (1,550 total). Bench conformance has FPs on new cops — FP elimination is the next step.
+| **FP Elimination**: Zero false positives | 469 | **In Progress** |
