@@ -7,3 +7,6 @@ users.group_by(&:role)
 users.map { |u| [u.id, u.name] }.to_h
 items.map { |i| [i.key, transform(i)] }.to_h
 data.map { |d| { d.id => d } }.to_h
+# Identity mapping — key is element itself, not a method on it
+records.each_with_object({}) { |record, h| h[record] = record }
+Hash[columns.map { |name| [name, name] }]

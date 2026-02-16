@@ -1,8 +1,36 @@
+use crate::cop::util::assignment_context_base_col;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct EndAlignment;
+
+/// Check if a specific operator (like `<<`) appears on the same line before `keyword_offset`.
+fn has_operator_before_keyword(source: &SourceFile, keyword_offset: usize, op: &[u8]) -> bool {
+    let bytes = source.as_bytes();
+    let mut line_start = keyword_offset;
+    while line_start > 0 && bytes[line_start - 1] != b'\n' {
+        line_start -= 1;
+    }
+    let before = &bytes[line_start..keyword_offset];
+    before.windows(op.len()).any(|w| w == op)
+}
+
+/// Get the indentation level (first non-whitespace column) of the line containing `offset`.
+fn line_indent(source: &SourceFile, offset: usize) -> usize {
+    let bytes = source.as_bytes();
+    let mut line_start = offset;
+    while line_start > 0 && bytes[line_start - 1] != b'\n' {
+        line_start -= 1;
+    }
+    let mut indent = 0;
+    while line_start + indent < bytes.len()
+        && (bytes[line_start + indent] == b' ' || bytes[line_start + indent] == b'\t')
+    {
+        indent += 1;
+    }
+    indent
+}
 
 impl Cop for EndAlignment {
     fn name(&self) -> &'static str {
@@ -125,18 +153,16 @@ impl EndAlignment {
 
         let expected_col = match style {
             "variable" => {
-                // For variable alignment: align with start of the assignment line
-                // Walk back from keyword to find start of line
-                let bytes = source.as_bytes();
-                let mut line_start = kw_offset;
-                while line_start > 0 && bytes[line_start - 1] != b'\n' {
-                    line_start -= 1;
+                // Variable alignment: if keyword is RHS of an assignment
+                // or operator like `<<`, align end with the line start
+                // (the variable). Otherwise fall back to keyword alignment.
+                if let Some(base_col) = assignment_context_base_col(source, kw_offset) {
+                    base_col
+                } else if has_operator_before_keyword(source, kw_offset, b"<<") {
+                    line_indent(source, kw_offset)
+                } else {
+                    kw_col
                 }
-                let mut indent = 0;
-                while line_start + indent < bytes.len() && bytes[line_start + indent] == b' ' {
-                    indent += 1;
-                }
-                indent
             }
             "start_of_line" => {
                 // Align with the start of the line where the keyword appears
@@ -197,5 +223,73 @@ mod tests {
         let src = b"x = if true\n  1\nend\n";
         let diags = run_cop_full_with_config(&EndAlignment, src, config);
         assert!(diags.is_empty(), "variable style should accept end at start of line");
+    }
+
+    #[test]
+    fn variable_style_no_assignment_falls_back_to_keyword() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyleAlignWith".into(), serde_yml::Value::String("variable".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // `super || if ...` — not an assignment, `end` should align with `if` (col 13)
+        let src = b"  def foo\n    super || if true\n                 1\n             end\n  end\n";
+        let diags = run_cop_full_with_config(&EndAlignment, src, config);
+        assert!(diags.is_empty(), "variable style without assignment should align end with keyword: {:?}", diags);
+    }
+
+    #[test]
+    fn variable_style_shovel_operator_aligns_with_line_start() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyleAlignWith".into(), serde_yml::Value::String("variable".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // `buf << if ...` — end aligns with line start (buf), not with `if`
+        let src = b"        buf << if foo\n          bar\n        end\n";
+        let diags = run_cop_full_with_config(&EndAlignment, src, config);
+        assert!(diags.is_empty(), "variable style should accept end at line start for << operator: {:?}", diags);
+    }
+
+    #[test]
+    fn variable_style_shovel_case_aligns_with_line_start() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyleAlignWith".into(), serde_yml::Value::String("variable".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // `memo << case key` — end aligns with line indent (col 4)
+        let src = b"    memo << case key\n              when :a\n                1\n    end\n";
+        let diags = run_cop_full_with_config(&EndAlignment, src, config);
+        assert!(diags.is_empty(), "variable style should accept end at line start for << case: {:?}", diags);
+    }
+
+    #[test]
+    fn variable_style_no_assignment_flags_misaligned() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyleAlignWith".into(), serde_yml::Value::String("variable".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // `super || if ...` — end NOT aligned with if (should flag)
+        let src = b"  def foo\n    super || if true\n                   1\n  end\n  end\n";
+        let diags = run_cop_full_with_config(&EndAlignment, src, config);
+        assert_eq!(diags.len(), 1, "variable style should flag end not aligned with keyword when no assignment");
     }
 }

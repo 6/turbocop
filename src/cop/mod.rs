@@ -105,6 +105,37 @@ impl CopConfig {
             })
         })
     }
+
+    /// Get all string values from a config key that is either:
+    /// - A flat array of strings
+    /// - A hash of group_name → array of strings (like DebuggerMethods)
+    /// Returns the flattened list of all strings. None if the key is absent.
+    pub fn get_flat_string_values(&self, key: &str) -> Option<Vec<String>> {
+        let v = self.options.get(key)?;
+        let mut result = Vec::new();
+        if let Some(mapping) = v.as_mapping() {
+            for (_, group_val) in mapping.iter() {
+                if let Some(seq) = group_val.as_sequence() {
+                    for item in seq {
+                        if let Some(s) = item.as_str() {
+                            result.push(s.to_string());
+                        }
+                    }
+                }
+                if let Some(s) = group_val.as_str() {
+                    result.push(s.to_string());
+                }
+            }
+        }
+        if let Some(seq) = v.as_sequence() {
+            for item in seq {
+                if let Some(s) = item.as_str() {
+                    result.push(s.to_string());
+                }
+            }
+        }
+        if result.is_empty() { None } else { Some(result) }
+    }
 }
 
 /// A lint rule. Implementations must be Send + Sync so they can be shared

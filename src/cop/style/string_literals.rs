@@ -93,6 +93,16 @@ impl Cop for StringLiterals {
                     if content.contains(&b'\\') {
                         return Vec::new();
                     }
+                    // Skip if content contains #{ — in double quotes this would
+                    // become interpolation, changing the string's meaning.
+                    if content.windows(2).any(|w| w == b"#{") {
+                        return Vec::new();
+                    }
+                    // Skip multi-line strings — RuboCop doesn't flag these
+                    // in the per-string StringLiterals check.
+                    if content.contains(&b'\n') {
+                        return Vec::new();
+                    }
                     // Skip if this string is inside a #{ } interpolation context —
                     // converting to double quotes would need escaping inside the
                     // enclosing double-quoted string.
@@ -166,6 +176,41 @@ mod tests {
         let source = b"x = 'say \"hello\"'\n";
         let diags = run_cop_full_with_config(&StringLiterals, source, config);
         assert!(diags.is_empty(), "Should not flag single-quoted string with double quotes inside");
+    }
+
+    #[test]
+    fn double_quotes_skips_hash_brace_content() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("double_quotes".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Single-quoted string containing #{ should NOT be flagged —
+        // converting to double quotes would make it interpolation
+        let source = b"x = '#{'\n";
+        let diags = run_cop_full_with_config(&StringLiterals, source, config);
+        assert!(diags.is_empty(), "Should not flag single-quoted string containing #{{: {:?}", diags);
+    }
+
+    #[test]
+    fn double_quotes_skips_multiline_strings() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("double_quotes".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Multi-line single-quoted string should NOT be flagged
+        let source = b"x = '\n  hello\n  world\n'\n";
+        let diags = run_cop_full_with_config(&StringLiterals, source, config);
+        assert!(diags.is_empty(), "Should not flag multi-line single-quoted string: {:?}", diags);
     }
 
     #[test]

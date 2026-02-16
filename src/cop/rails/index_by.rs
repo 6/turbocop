@@ -60,7 +60,17 @@ fn is_index_by_block(block_node: &ruby_prism::BlockNode<'_>) -> bool {
         Some(lv) => lv,
         None => return false,
     };
-    second.name().as_slice() == param_name
+    if second.name().as_slice() != param_name {
+        return false;
+    }
+    // First element (key) must be derived from the element (a method call),
+    // not the element itself. `[el, el]` is identity, not index_by.
+    if let Some(first_lvar) = elements[0].as_local_variable_read_node() {
+        if first_lvar.name().as_slice() == param_name {
+            return false;
+        }
+    }
+    true
 }
 
 /// Check if the block is `each_with_object({}) { |el, memo| memo[key] = el }`
@@ -163,7 +173,18 @@ fn is_each_with_object_index(
             Some(lv) => lv,
             None => return false,
         };
-        val.name().as_slice() == el_name
+        if val.name().as_slice() != el_name {
+            return false;
+        }
+        // Key must be derived from the element (a method call on it),
+        // not the element itself. `memo[el] = el` is identity, not index_by.
+        let key = &arg_list[0];
+        if let Some(key_lvar) = key.as_local_variable_read_node() {
+            if key_lvar.name().as_slice() == el_name {
+                return false; // key IS the element — not an index_by pattern
+            }
+        }
+        true
     } else {
         false
     }
@@ -289,5 +310,39 @@ impl Cop for IndexBy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::run_cop_full;
+
     crate::cop_fixture_tests!(IndexBy, "cops/rails/index_by");
+
+    #[test]
+    fn identity_each_with_object_not_flagged() {
+        // memo[record] = record — key is the element itself, not a method on it
+        let source = b"records.each_with_object({}) { |record, h| h[record] = record }\n";
+        let diags = run_cop_full(&IndexBy, source);
+        assert!(diags.is_empty(), "identity each_with_object should not be flagged: {:?}", diags);
+    }
+
+    #[test]
+    fn identity_hash_map_not_flagged() {
+        // Hash[map { |name| [name, name] }] — key is the element itself
+        let source = b"Hash[columns.map { |name| [name, name] }]\n";
+        let diags = run_cop_full(&IndexBy, source);
+        assert!(diags.is_empty(), "identity Hash[map] should not be flagged: {:?}", diags);
+    }
+
+    #[test]
+    fn method_key_each_with_object_flagged() {
+        // memo[record.id] = record — key is a method call on element
+        let source = b"records.each_with_object({}) { |record, h| h[record.id] = record }\n";
+        let diags = run_cop_full(&IndexBy, source);
+        assert_eq!(diags.len(), 1, "method-key each_with_object should be flagged");
+    }
+
+    #[test]
+    fn method_key_hash_map_flagged() {
+        // Hash[map { |e| [e.id, e] }] — key is a method call on element
+        let source = b"Hash[items.map { |e| [e.id, e] }]\n";
+        let diags = run_cop_full(&IndexBy, source);
+        assert_eq!(diags.len(), 1, "method-key Hash[map] should be flagged");
+    }
 }

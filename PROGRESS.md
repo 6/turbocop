@@ -684,14 +684,11 @@ Systematic false-positive reduction against Mastodon and Discourse benchmark rep
 |-----------|--------|---------|---------|-------------------|-------------------|------------|
 | Mastodon | 188 | 165 | 165 | 23 | 0 | **87.8%** |
 | Discourse | 419 | 419 | 419 | 0 | 0 | **100%** |
-| Rails | 7 | 3 | 2 | 5 | 1 | **25.0%** |
+| Rails | 3 | 3 | 3 | 0 | 0 | **100%** |
 
 Mastodon's 23 FPs are all `Rails/ThreeStateBooleanColumn` — a known RuboCop inconsistency where RuboCop skips detection despite the column meeting the cop's criteria. Not a bug in rblint.
 
-Rails' 5 remaining FPs are diminishing-returns edge cases:
-- `Rails/IndexBy` (2): overly broad pattern matching
-- `Style/StringLiterals` (2): edge cases in string content detection
-- `Layout/EndAlignment` (1): complex `super || if ...` alignment
+Rails uses `DisabledByDefault: true` so only ~10 cops are enabled, yielding very few total offenses (vs hundreds for Mastodon/Discourse which use default enabled cops).
 
 ### Infrastructure Fixes
 
@@ -765,7 +762,7 @@ Rails' 5 remaining FPs are diminishing-returns edge cases:
 - [x] Lint/NestedMethodDefinition — skip singleton method defs (`def obj.method`)
 - [x] Layout/SpaceInsideParens — fix multiline detection to use line numbers instead of adjacent bytes
 
-**Session 10 — Rails FP reduction (509 → 5):**
+**Session 10 — Rails FP reduction (509 → 0):**
 - [x] Layout/IndentationWidth — use `end` keyword column as base for if/while/until body indentation (handles variable-style, keyword-style, and `<<` contexts); skip modifier if/while/until (body before keyword); skip inline block wrapping (closing brace not on own line); skip block params on same line as body; skip multi-line `when` with `then` on continuation line
 - [x] Layout/ElseAlignment — use `end` keyword column for else/elsif alignment target (handles assignment context automatically)
 - [x] Layout/IndentationConsistency — pass `indented_internal_methods` to block bodies; skip semicolon-separated statements on same line
@@ -774,6 +771,10 @@ Rails' 5 remaining FPs are diminishing-returns edge cases:
 - [x] Performance/StringInclude — skip regex with flags
 - [x] Style/FrozenStringLiteralComment — handle leading whitespace before comment
 - [x] Layout/SpaceAfterComma — skip `$,` global variable
+- [x] Layout/EndAlignment — variable style: fall back to keyword alignment when no assignment; detect `<<` operator and align `end` with line indent
+- [x] Style/StringLiterals — double_quotes mode: skip strings containing `#{` (would become interpolation); skip multi-line strings
+- [x] Rails/IndexBy — skip identity mappings (`memo[el] = el`, `[el, el]`) where key is element itself
+- [x] Lint/Debugger — full rewrite: configurable DebuggerMethods hash with dotted method specs, DEFAULT_DEBUGGER_METHODS/REQUIRES constants, ConstantPathNode support
 
 ## Completed: Config Audit + Prism Pitfalls — Zero Gaps
 
