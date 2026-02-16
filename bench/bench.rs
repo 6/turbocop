@@ -71,6 +71,11 @@ static REPOS: &[BenchRepo] = &[
         url: "https://github.com/chatwoot/chatwoot.git",
         tag: "v4.10.1",
     },
+    BenchRepo {
+        name: "errbit",
+        url: "https://github.com/errbit/errbit.git",
+        tag: "v0.10.7",
+    },
 ];
 
 // --- Helpers ---
