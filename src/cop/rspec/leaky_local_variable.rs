@@ -192,18 +192,9 @@ fn check_scope_for_leaky_vars(
         }
     }
 
-    // Recurse into nested example groups
-    for stmt in &stmt_list {
-        if let Some(call) = stmt.as_call_node() {
-            if is_rspec_example_group(call.name().as_slice()) {
-                if let Some(blk) = call.block() {
-                    if let Some(bn) = blk.as_block_node() {
-                        check_scope_for_leaky_vars(source, bn, diagnostics, cop);
-                    }
-                }
-            }
-        }
-    }
+    // NOTE: We do NOT recurse into nested example groups here, because
+    // the walker's `check_node` will visit them separately. Recursing
+    // would cause duplicate diagnostics for the same assignment.
 }
 
 /// Check if a variable is used inside examples/hooks/let/subject blocks within

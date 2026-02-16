@@ -37,6 +37,10 @@ enum ReturnType {
     Super,
     /// method call, variable, or anything we can't classify
     Unknown,
+    /// Opaque construct (rescue/ensure) whose return type can't be decomposed.
+    /// Prevents all_return_values_boolean and potential_non_predicate from triggering,
+    /// but does NOT make the method "acceptable" in conservative mode.
+    Opaque,
 }
 
 impl Cop for PredicateMethod {
@@ -62,7 +66,10 @@ impl Cop for PredicateMethod {
         let allowed_patterns = config.get_string_array("AllowedPatterns").unwrap_or_default();
         let compiled_patterns: Vec<regex::Regex> = allowed_patterns
             .iter()
-            .filter_map(|p| regex::Regex::new(p).ok())
+            .filter_map(|p| {
+                let normalized = normalize_ruby_regex(p);
+                regex::Regex::new(&normalized).ok()
+            })
             .collect();
 
         let allow_bang = config.get_bool("AllowBangMethods", false);
@@ -203,6 +210,25 @@ fn is_operator_method(name: &[u8]) -> bool {
     OPERATOR_METHODS.iter().any(|op| *op == name)
 }
 
+/// Normalize a Ruby regex pattern to Rust regex syntax.
+/// Strips surrounding `/` delimiters (and optional flags), and converts
+/// Ruby-specific anchors to Rust equivalents.
+fn normalize_ruby_regex(pattern: &str) -> String {
+    let mut s = pattern.trim().to_string();
+
+    // Strip surrounding / delimiters (and optional flags like /i)
+    if s.starts_with('/') {
+        s.remove(0);
+        if let Some(last_slash) = s.rfind('/') {
+            s.truncate(last_slash);
+        }
+    }
+
+    // Convert Ruby anchors to Rust equivalents
+    s = s.replace("\\A", "^").replace("\\z", "$").replace("\\Z", "$");
+    s
+}
+
 /// Check if all return values are boolean (excluding Super).
 /// Returns true only if there's at least one boolean and all non-Super values are boolean.
 fn all_return_values_boolean(return_types: &[ReturnType]) -> bool {
@@ -229,10 +255,6 @@ fn potential_non_predicate(return_types: &[ReturnType], conservative: bool) -> b
 }
 
 /// Collect all return types from a method body.
-///
-/// This collects:
-/// 1. All explicit `return` statements (via visitor)
-/// 2. The implicit return value (last expression, recursing into conditionals/and/or)
 fn collect_all_return_types(body: &ruby_prism::Node<'_>, wayward: &[String]) -> Vec<ReturnType> {
     let mut return_types = Vec::new();
 
@@ -245,11 +267,9 @@ fn collect_all_return_types(body: &ruby_prism::Node<'_>, wayward: &[String]) -> 
     for ret_node_info in &return_finder.returns {
         match ret_node_info {
             ReturnValue::NoArg => {
-                // `return` with no value is implicit nil
                 return_types.push(ReturnType::NonBooleanLiteral);
             }
             ReturnValue::MultipleArgs => {
-                // Multiple return values => array, not boolean
                 return_types.push(ReturnType::NonBooleanLiteral);
             }
             ReturnValue::SingleArg(rt) => {
@@ -287,14 +307,11 @@ impl<'pr> Visit<'pr> for ReturnFinder {
                 if arg_list.len() != 1 {
                     self.returns.push(ReturnValue::MultipleArgs);
                 } else {
-                    // Single argument — we need to classify it.
-                    // We'll classify from the node directly.
                     let rt = classify_node(&arg_list[0], &[]);
                     self.returns.push(ReturnValue::SingleArg(rt));
                 }
             }
         }
-        // Don't recurse into the return node's arguments; we already handled them
     }
 
     // Don't recurse into nested defs/classes/modules
@@ -304,26 +321,28 @@ impl<'pr> Visit<'pr> for ReturnFinder {
 }
 
 /// Collect the implicit return type(s) from a node.
-/// Recurses into conditionals, and/or, begin blocks, etc.
 fn collect_implicit_return(
     node: &ruby_prism::Node<'_>,
     returns: &mut Vec<ReturnType>,
     wayward: &[String],
 ) {
-    // StatementsNode (method body) — take last statement
+    // StatementsNode (method body) -- take last statement
     if let Some(stmts) = node.as_statements_node() {
         let body: Vec<_> = stmts.body().iter().collect();
         if let Some(last) = body.last() {
             collect_implicit_return(last, returns, wayward);
         } else {
-            returns.push(ReturnType::NonBooleanLiteral); // empty body => nil
+            returns.push(ReturnType::NonBooleanLiteral);
         }
         return;
     }
 
-    // BeginNode — take last statement from its statements
+    // BeginNode -- if it has rescue/ensure, treat as Opaque.
+    // Otherwise, take last statement from its statements.
     if let Some(begin) = node.as_begin_node() {
-        if let Some(stmts) = begin.statements() {
+        if begin.rescue_clause().is_some() || begin.ensure_clause().is_some() {
+            returns.push(ReturnType::Opaque);
+        } else if let Some(stmts) = begin.statements() {
             let body: Vec<_> = stmts.body().iter().collect();
             if let Some(last) = body.last() {
                 collect_implicit_return(last, returns, wayward);
@@ -336,27 +355,35 @@ fn collect_implicit_return(
         return;
     }
 
-    // IfNode — recurse into branches
+    // RescueModifierNode (inline rescue) -- treat as Opaque
+    if node.as_rescue_modifier_node().is_some() {
+        returns.push(ReturnType::Opaque);
+        return;
+    }
+
+    // RescueNode -- direct rescue clause on a def body. Treat as Opaque.
+    if node.as_rescue_node().is_some() {
+        returns.push(ReturnType::Opaque);
+        return;
+    }
+
+    // IfNode -- recurse into branches
     if let Some(if_node) = node.as_if_node() {
-        // Then branch
         if let Some(stmts) = if_node.statements() {
             let body: Vec<_> = stmts.body().iter().collect();
             if let Some(last) = body.last() {
                 collect_implicit_return(last, returns, wayward);
             } else {
-                returns.push(ReturnType::NonBooleanLiteral); // empty then => nil
+                returns.push(ReturnType::NonBooleanLiteral);
             }
         } else {
-            returns.push(ReturnType::NonBooleanLiteral); // no then => nil
+            returns.push(ReturnType::NonBooleanLiteral);
         }
 
-        // Else/elsif branch
         if let Some(subsequent) = if_node.subsequent() {
             if let Some(elsif) = subsequent.as_if_node() {
-                // elsif — recurse
                 collect_implicit_return(&elsif.as_node(), returns, wayward);
             } else if let Some(else_node) = subsequent.as_else_node() {
-                // else branch
                 if let Some(stmts) = else_node.statements() {
                     let body: Vec<_> = stmts.body().iter().collect();
                     if let Some(last) = body.last() {
@@ -371,15 +398,13 @@ fn collect_implicit_return(
                 returns.push(ReturnType::NonBooleanLiteral);
             }
         } else {
-            // No else branch => implicit nil
             returns.push(ReturnType::NonBooleanLiteral);
         }
         return;
     }
 
-    // UnlessNode — same structure as IfNode
+    // UnlessNode
     if let Some(unless_node) = node.as_unless_node() {
-        // Body (the "then" part of unless)
         if let Some(stmts) = unless_node.statements() {
             let body: Vec<_> = stmts.body().iter().collect();
             if let Some(last) = body.last() {
@@ -391,7 +416,6 @@ fn collect_implicit_return(
             returns.push(ReturnType::NonBooleanLiteral);
         }
 
-        // Else branch
         if let Some(else_clause) = unless_node.else_clause() {
             if let Some(stmts) = else_clause.statements() {
                 let body: Vec<_> = stmts.body().iter().collect();
@@ -404,13 +428,12 @@ fn collect_implicit_return(
                 returns.push(ReturnType::NonBooleanLiteral);
             }
         } else {
-            // No else => implicit nil
             returns.push(ReturnType::NonBooleanLiteral);
         }
         return;
     }
 
-    // CaseNode — recurse into when branches and else
+    // CaseNode
     if let Some(case_node) = node.as_case_node() {
         for condition in case_node.conditions().iter() {
             if let Some(when_node) = condition.as_when_node() {
@@ -426,7 +449,6 @@ fn collect_implicit_return(
                 }
             }
         }
-        // Else clause
         if let Some(else_clause) = case_node.else_clause() {
             if let Some(stmts) = else_clause.statements() {
                 let body: Vec<_> = stmts.body().iter().collect();
@@ -439,13 +461,12 @@ fn collect_implicit_return(
                 returns.push(ReturnType::NonBooleanLiteral);
             }
         } else {
-            // No else in case => implicit nil
             returns.push(ReturnType::NonBooleanLiteral);
         }
         return;
     }
 
-    // AndNode / OrNode — recurse into both sides
+    // AndNode / OrNode -- recurse into both sides
     if let Some(and_node) = node.as_and_node() {
         collect_implicit_return(&and_node.left(), returns, wayward);
         collect_implicit_return(&and_node.right(), returns, wayward);
@@ -457,7 +478,7 @@ fn collect_implicit_return(
         return;
     }
 
-    // WhileNode / UntilNode — recurse into body's last value
+    // WhileNode / UntilNode
     if let Some(while_node) = node.as_while_node() {
         if let Some(stmts) = while_node.statements() {
             let body: Vec<_> = stmts.body().iter().collect();
@@ -485,16 +506,15 @@ fn collect_implicit_return(
         return;
     }
 
-    // ReturnNode — extract its value
+    // ReturnNode -- extract its value
     if let Some(ret_node) = node.as_return_node() {
         match ret_node.arguments() {
-            None => returns.push(ReturnType::NonBooleanLiteral), // return without value => nil
+            None => returns.push(ReturnType::NonBooleanLiteral),
             Some(args) => {
                 let arg_list: Vec<_> = args.arguments().iter().collect();
                 if arg_list.len() != 1 {
-                    returns.push(ReturnType::NonBooleanLiteral); // multiple args => array
+                    returns.push(ReturnType::NonBooleanLiteral);
                 } else {
-                    // Recurse into the single argument for classification
                     collect_implicit_return(&arg_list[0], returns, wayward);
                 }
             }
@@ -502,33 +522,34 @@ fn collect_implicit_return(
         return;
     }
 
-    // ParenthesesNode — unwrap
-    if let Some(paren) = node.as_parentheses_node() {
-        if let Some(body) = paren.body() {
-            collect_implicit_return(&body, returns, wayward);
-        } else {
-            returns.push(ReturnType::NonBooleanLiteral); // empty parens => nil
-        }
-        return;
-    }
-
-    // Leaf node: classify directly
+    // Leaf node: classify directly.
+    // ParenthesesNode is handled in classify_node, NOT unwrapped here.
     returns.push(classify_node(node, wayward));
 }
 
 /// Classify a single node as a ReturnType.
 fn classify_node(node: &ruby_prism::Node<'_>, wayward: &[String]) -> ReturnType {
-    // true/false literals => Boolean
+    // ParenthesesNode -- unwrap and classify the inner body.
+    // (true) -> Boolean, but (a? && b?) -> And/Or -> Unknown
+    if let Some(paren) = node.as_parentheses_node() {
+        if let Some(body) = paren.body() {
+            return classify_node(&body, wayward);
+        } else {
+            return ReturnType::NonBooleanLiteral;
+        }
+    }
+
+    // true/false literals
     if node.as_true_node().is_some() || node.as_false_node().is_some() {
         return ReturnType::Boolean;
     }
 
-    // nil => NonBooleanLiteral (nil is a literal but not boolean)
+    // nil
     if node.as_nil_node().is_some() {
         return ReturnType::NonBooleanLiteral;
     }
 
-    // Other literals => NonBooleanLiteral
+    // Other literals
     if node.as_integer_node().is_some()
         || node.as_float_node().is_some()
         || node.as_rational_node().is_some()
@@ -554,40 +575,44 @@ fn classify_node(node: &ruby_prism::Node<'_>, wayward: &[String]) -> ReturnType 
         return ReturnType::NonBooleanLiteral;
     }
 
-    // super / forwarding_super => Super
+    // super / forwarding_super
     if node.as_super_node().is_some() || node.as_forwarding_super_node().is_some() {
         return ReturnType::Super;
     }
 
-    // CallNode => check method name
+    // CallNode
     if let Some(call) = node.as_call_node() {
+        // Call with a block -> Unknown (in RuboCop, block nodes are not call_type?)
+        if call.block().is_some() {
+            return ReturnType::Unknown;
+        }
+
         let method_name = call.name().as_slice();
 
-        // Negation: `!x` is CallNode with method name `!` and a receiver
+        // Negation: !x
         if method_name == b"!" && call.receiver().is_some() && call.arguments().is_none() {
             return ReturnType::Boolean;
         }
 
-        // Comparison methods => Boolean
+        // Comparison methods
         if COMPARISON_METHODS.iter().any(|m| *m == method_name) {
             return ReturnType::Boolean;
         }
 
-        // Predicate method calls (ending in ?) that are not wayward => Boolean
+        // Predicate method calls (ending in ?) that are not wayward
         if method_name.ends_with(b"?") {
             let method_str = std::str::from_utf8(method_name).unwrap_or("");
             if !wayward.iter().any(|w| w == method_str) {
                 return ReturnType::Boolean;
             }
-            // Wayward predicate — treat as unknown
             return ReturnType::Unknown;
         }
 
-        // Any other method call => Unknown
+        // Any other method call
         return ReturnType::Unknown;
     }
 
-    // Everything else (variables, constants, etc.) => Unknown
+    // Everything else (variables, constants, etc.)
     ReturnType::Unknown
 }
 

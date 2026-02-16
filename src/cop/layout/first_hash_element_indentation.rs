@@ -1,3 +1,5 @@
+use ruby_prism::Visit;
+
 use crate::cop::util::indentation_of;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -10,73 +12,183 @@ impl Cop for FirstHashElementIndentation {
         "Layout/FirstHashElementIndentation"
     }
 
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // Note: keyword_hash_node (keyword args like `foo(a: 1)`) intentionally not
-        // handled — this cop only checks indentation relative to `{` braces in hash literals.
-        let hash_node = match node.as_hash_node() {
-            Some(h) => h,
-            None => return Vec::new(),
+        let style = config.get_str("EnforcedStyle", "special_inside_parentheses");
+        let width = config.get_usize("IndentationWidth", 2);
+        let mut visitor = HashIndentVisitor {
+            cop: self,
+            source,
+            style,
+            width,
+            diagnostics: Vec::new(),
+            handled_hashes: Vec::new(),
         };
+        visitor.visit(&parse_result.node());
+        visitor.diagnostics
+    }
+}
 
+struct HashIndentVisitor<'a> {
+    cop: &'a FirstHashElementIndentation,
+    source: &'a SourceFile,
+    style: &'a str,
+    width: usize,
+    diagnostics: Vec<Diagnostic>,
+    /// Start offsets of hash nodes already checked via a parent call with parentheses.
+    handled_hashes: Vec<usize>,
+}
+
+impl HashIndentVisitor<'_> {
+    fn check_hash(
+        &mut self,
+        hash_node: &ruby_prism::HashNode<'_>,
+        left_paren_col: Option<usize>,
+    ) {
         let opening_loc = hash_node.opening_loc();
-
-        // Skip implicit hashes (no literal { })
         if opening_loc.as_slice() != b"{" {
-            return Vec::new();
+            return;
         }
 
         let elements: Vec<_> = hash_node.elements().iter().collect();
         if elements.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let first_element = &elements[0];
-
-        let (open_line, _) = source.offset_to_line_col(opening_loc.start_offset());
+        let (open_line, _) = self.source.offset_to_line_col(opening_loc.start_offset());
         let first_loc = first_element.location();
-        let (elem_line, elem_col) = source.offset_to_line_col(first_loc.start_offset());
+        let (elem_line, elem_col) = self.source.offset_to_line_col(first_loc.start_offset());
 
-        // Skip if first element is on same line as opening brace
         if elem_line == open_line {
-            return Vec::new();
+            return;
         }
 
-        let style = config.get_str("EnforcedStyle", "special_inside_parentheses");
-        let width = config.get_usize("IndentationWidth", 2);
-
-        let open_line_bytes = source.lines().nth(open_line - 1).unwrap_or(b"");
+        let open_line_bytes = self.source.lines().nth(open_line - 1).unwrap_or(b"");
         let open_line_indent = indentation_of(open_line_bytes);
-        let (_, open_col) = source.offset_to_line_col(opening_loc.start_offset());
+        let (_, open_col) = self.source.offset_to_line_col(opening_loc.start_offset());
 
-        let expected = match style {
-            "consistent" => open_line_indent + width,
-            "align_braces" => open_col,
+        let expected = match self.style {
+            "consistent" => open_line_indent + self.width,
+            "align_braces" => open_col + self.width,
             _ => {
-                // "special_inside_parentheses" (default)
-                open_line_indent + width
+                if let Some(paren_col) = left_paren_col {
+                    paren_col + 1 + self.width
+                } else {
+                    open_line_indent + self.width
+                }
             }
         };
 
         if elem_col != expected {
-            return vec![self.diagnostic(
-                source,
+            let base_indent = if left_paren_col.is_some()
+                && self.style != "consistent"
+                && self.style != "align_braces"
+            {
+                left_paren_col.unwrap() + 1
+            } else {
+                open_line_indent
+            };
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
                 elem_line,
                 elem_col,
                 format!(
                     "Use {} (not {}) spaces for indentation of the first element.",
-                    width,
-                    elem_col.saturating_sub(open_line_indent)
+                    self.width,
+                    elem_col.saturating_sub(base_indent)
                 ),
-            )];
+            ));
+        }
+    }
+
+    fn find_hash_args_in_call(
+        &mut self,
+        node: &ruby_prism::Node<'_>,
+        paren_line: usize,
+        paren_col: usize,
+    ) {
+        if let Some(hash) = node.as_hash_node() {
+            let opening_loc = hash.opening_loc();
+            if opening_loc.as_slice() == b"{" {
+                let (brace_line, _) =
+                    self.source.offset_to_line_col(opening_loc.start_offset());
+                if brace_line == paren_line {
+                    self.handled_hashes.push(hash.location().start_offset());
+                    self.check_hash(&hash, Some(paren_col));
+                }
+            }
+            for elem in hash.elements().iter() {
+                self.find_hash_args_in_call(&elem, paren_line, paren_col);
+            }
+            return;
         }
 
-        Vec::new()
+        if node.as_call_node().is_some() {
+            return;
+        }
+
+        if let Some(kw_hash) = node.as_keyword_hash_node() {
+            for elem in kw_hash.elements().iter() {
+                self.find_hash_args_in_call(&elem, paren_line, paren_col);
+            }
+            return;
+        }
+
+        if let Some(assoc) = node.as_assoc_node() {
+            self.find_hash_args_in_call(&assoc.value(), paren_line, paren_col);
+            return;
+        }
+
+        if let Some(splat) = node.as_splat_node() {
+            if let Some(expr) = splat.expression() {
+                self.find_hash_args_in_call(&expr, paren_line, paren_col);
+            }
+            return;
+        }
+
+        if let Some(parens) = node.as_parentheses_node() {
+            if let Some(body) = parens.body() {
+                self.find_hash_args_in_call(&body, paren_line, paren_col);
+            }
+            return;
+        }
+
+        if let Some(array) = node.as_array_node() {
+            for elem in array.elements().iter() {
+                self.find_hash_args_in_call(&elem, paren_line, paren_col);
+            }
+        }
+    }
+}
+
+impl Visit<'_> for HashIndentVisitor<'_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'_>) {
+        if let Some(open_paren_loc) = node.opening_loc() {
+            if open_paren_loc.as_slice() == b"(" {
+                let (paren_line, paren_col) =
+                    self.source.offset_to_line_col(open_paren_loc.start_offset());
+                if let Some(args) = node.arguments() {
+                    for arg in args.arguments().iter() {
+                        self.find_hash_args_in_call(&arg, paren_line, paren_col);
+                    }
+                }
+            }
+        }
+        ruby_prism::visit_call_node(self, node);
+    }
+
+    fn visit_hash_node(&mut self, node: &ruby_prism::HashNode<'_>) {
+        let offset = node.location().start_offset();
+        if !self.handled_hashes.contains(&offset) {
+            self.check_hash(node, None);
+        }
+        ruby_prism::visit_hash_node(self, node);
     }
 }
 
@@ -99,23 +211,103 @@ mod tests {
 
     #[test]
     fn align_braces_style() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("align_braces".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("align_braces".into()),
+            )]),
             ..CopConfig::default()
         };
-        // Element aligned with opening brace column (4)
-        let src = b"x = {\n    a: 1\n}\n";
-        let diags = run_cop_full_with_config(&FirstHashElementIndentation, src, config.clone());
-        assert!(diags.is_empty(), "align_braces should accept element at brace column");
+        let src = b"x = {\n      a: 1\n}\n";
+        let diags =
+            run_cop_full_with_config(&FirstHashElementIndentation, src, config.clone());
+        assert!(
+            diags.is_empty(),
+            "align_braces should accept element at brace column + width"
+        );
 
-        // Element at indentation 2 should be flagged (brace is at col 4)
         let src2 = b"x = {\n  a: 1\n}\n";
         let diags2 = run_cop_full_with_config(&FirstHashElementIndentation, src2, config);
-        assert_eq!(diags2.len(), 1, "align_braces should flag element not at brace column");
+        assert_eq!(
+            diags2.len(),
+            1,
+            "align_braces should flag element not at brace column + width"
+        );
+    }
+
+    #[test]
+    fn special_inside_parentheses_method_call() {
+        let source = b"func({\n       a: 1\n     })\n";
+        let diags = run_cop_full(&FirstHashElementIndentation, source);
+        assert!(
+            diags.is_empty(),
+            "should accept special indentation inside parentheses"
+        );
+    }
+
+    #[test]
+    fn special_inside_parentheses_flags_consistent_indent() {
+        let source = b"func({\n  a: 1\n})\n";
+        let diags = run_cop_full(&FirstHashElementIndentation, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "should flag consistent indentation inside parentheses"
+        );
+    }
+
+    #[test]
+    fn special_inside_parentheses_with_second_arg() {
+        let source = b"func(x, {\n       a: 1\n     })\n";
+        let diags = run_cop_full(&FirstHashElementIndentation, source);
+        assert!(
+            diags.is_empty(),
+            "should accept special indentation for second hash arg"
+        );
+    }
+
+    #[test]
+    fn brace_not_on_same_line_as_paren_uses_line_indent() {
+        let source = b"func(\n  {\n    a: 1\n  }\n)\n";
+        let diags = run_cop_full(&FirstHashElementIndentation, source);
+        assert!(
+            diags.is_empty(),
+            "brace on different line from paren should use line indent"
+        );
+    }
+
+    #[test]
+    fn safe_navigation_with_hash_arg() {
+        let source =
+            b"receiver&.func({\n                 a: 1\n               })\n";
+        let diags = run_cop_full(&FirstHashElementIndentation, source);
+        assert!(
+            diags.is_empty(),
+            "should handle safe navigation with hash arg"
+        );
+    }
+
+    #[test]
+    fn index_assignment_not_treated_as_paren() {
+        let source = b"    config['key'] = {\n      val: 1\n    }\n";
+        let diags = run_cop_full(&FirstHashElementIndentation, source);
+        assert!(
+            diags.is_empty(),
+            "index assignment should not use paren context"
+        );
+    }
+
+    #[test]
+    fn nested_hash_in_keyword_arg() {
+        let source =
+            b"Config.new('Key' => {\n             val: 1\n           })\n";
+        let diags = run_cop_full(&FirstHashElementIndentation, source);
+        assert!(
+            diags.is_empty(),
+            "nested hash in keyword arg should use paren context"
+        );
     }
 }

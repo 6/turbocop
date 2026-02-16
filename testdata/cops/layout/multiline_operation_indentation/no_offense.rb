@@ -18,3 +18,17 @@ x = if true
     foo
   end + bar
 end
+
+# Nested && inside || (right operand of nested op aligned differently)
+def acceptable?(node)
+  src = node.source
+  src.include?(QUOTE) &&
+    (STRING_INTERPOLATION_REGEXP.match?(src) ||
+    (node.str_type? && double_quotes_required?(src)))
+end
+
+# Leading operator style: && at start of continuation line
+def regexp_first_argument?(send_node)
+  send_node.first_argument&.regexp_type? \
+    && REGEXP_ARGUMENT_METHODS.include?(send_node.method_name)
+end

@@ -61,11 +61,15 @@ impl Cop for ParameterAlignment {
             _ => first_col, // with_first_parameter
         };
 
+        // Only check the FIRST parameter on each new line. Multiple parameters
+        // on the same continuation line should not be checked individually.
+        let mut last_checked_line = first_line;
         for param in all_params.iter().skip(1) {
             let (param_line, param_col) = source.offset_to_line_col(param.location().start_offset());
-            if param_line == first_line {
-                continue; // Same line as first param, skip
+            if param_line == last_checked_line {
+                continue; // Same line as a previously checked param, skip
             }
+            last_checked_line = param_line;
             if param_col != base_col {
                 let msg = if style == "with_fixed_indentation" {
                     "Use one level of indentation for parameters following the first line of a multi-line method definition."

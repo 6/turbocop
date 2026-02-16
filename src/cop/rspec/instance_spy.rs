@@ -26,6 +26,8 @@ impl Cop for InstanceSpy {
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
         // Detect `instance_double(Foo).as_null_object` and suggest `instance_spy`
+        // BUT only when `have_received` is used in the same file, because
+        // instance_spy is only meaningful when message expectations are verified.
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -49,6 +51,14 @@ impl Cop for InstanceSpy {
             return Vec::new();
         }
 
+        // Only flag if `have_received` appears somewhere in the source file.
+        // Without `have_received`, the null object is used purely as a stub,
+        // and `instance_spy` would not be appropriate.
+        let bytes = source.as_bytes();
+        if !has_pattern_in_bytes(bytes, b"have_received") {
+            return Vec::new();
+        }
+
         let loc = recv_call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         vec![self.diagnostic(
@@ -58,6 +68,10 @@ impl Cop for InstanceSpy {
             "Use `instance_spy` when you check your double with `have_received`.".to_string(),
         )]
     }
+}
+
+fn has_pattern_in_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack.windows(needle.len()).any(|w| w == needle)
 }
 
 #[cfg(test)]

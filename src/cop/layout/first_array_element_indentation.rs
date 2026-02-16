@@ -5,6 +5,73 @@ use crate::parse::source::SourceFile;
 
 pub struct FirstArrayElementIndentation;
 
+/// Scan backwards from `bracket_col` on `line_bytes` to find an unmatched `(`
+/// that directly contains this array (not separated by an unmatched `[`).
+/// Returns `Some(column)` if found, `None` otherwise.
+///
+/// This tracks balanced parens AND brackets. If we encounter an unmatched `[`
+/// before finding an unmatched `(`, the array is nested inside another array,
+/// not a direct argument of the method call, so we return `None`.
+fn find_left_paren_on_line(line_bytes: &[u8], bracket_col: usize) -> Option<usize> {
+    let end = bracket_col.min(line_bytes.len());
+    let mut paren_depth: i32 = 0;
+    let mut bracket_depth: i32 = 0;
+    for i in (0..end).rev() {
+        match line_bytes[i] {
+            b')' => paren_depth += 1,
+            b'(' => {
+                if paren_depth == 0 {
+                    // Found an unmatched `(`. Only return it if we haven't
+                    // passed through an unmatched `[` (which would mean our
+                    // array is nested inside another array argument).
+                    if bracket_depth == 0 {
+                        return Some(i);
+                    }
+                    return None;
+                }
+                paren_depth -= 1;
+            }
+            b']' => bracket_depth += 1,
+            b'[' => {
+                if bracket_depth == 0 {
+                    // Unmatched `[` -- our array is inside another array.
+                    // Don't look for a paren beyond this point.
+                    return None;
+                }
+                bracket_depth -= 1;
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Check if the array is used as a direct argument (not as a receiver of
+/// a method chain or part of a binary expression). Checks the source bytes
+/// immediately after the array's closing bracket `]`.
+///
+/// Returns `true` if the array is a standalone argument (next non-whitespace
+/// after `]` is `)`, `,`, end of line, or nothing relevant).
+/// Returns `false` if `]` is followed by `.`, `+`, `-`, `*`, etc. indicating
+/// the array is part of a larger expression.
+fn is_direct_argument(source_bytes: &[u8], closing_end_offset: usize) -> bool {
+    let mut i = closing_end_offset;
+    let len = source_bytes.len();
+    // Skip whitespace (but not newlines)
+    while i < len && (source_bytes[i] == b' ' || source_bytes[i] == b'\t') {
+        i += 1;
+    }
+    if i >= len {
+        return true;
+    }
+    match source_bytes[i] {
+        // Array is followed by a method call or operator => part of expression
+        b'.' | b'+' | b'-' | b'*' | b'/' | b'%' | b'&' | b'|' | b'^' => false,
+        // Everything else (closing paren, comma, newline, etc.) => direct argument
+        _ => true,
+    }
+}
+
 impl Cop for FirstArrayElementIndentation {
     fn name(&self) -> &'static str {
         "Layout/FirstArrayElementIndentation"
@@ -55,20 +122,37 @@ impl Cop for FirstArrayElementIndentation {
             "consistent" => open_line_indent + width,
             "align_brackets" => open_col,
             _ => {
-                // "special_inside_parentheses" (default): indent relative to line start
-                open_line_indent + width
+                // "special_inside_parentheses" (default):
+                // If the `[` is on the same line as a method call's `(`,
+                // and the array is a direct argument (not part of a chain
+                // like `[...].join()` or `[...] + other`), indent relative
+                // to the position after `(`.
+                // Otherwise, indent relative to line start.
+                let closing_end = array_node
+                    .closing_loc()
+                    .map(|loc| loc.end_offset())
+                    .unwrap_or(0);
+                if let Some(paren_col) = find_left_paren_on_line(open_line_bytes, open_col) {
+                    if is_direct_argument(source.as_bytes(), closing_end) {
+                        paren_col + 1 + width
+                    } else {
+                        open_line_indent + width
+                    }
+                } else {
+                    open_line_indent + width
+                }
             }
         };
 
         if elem_col != expected {
+            let base = elem_col.saturating_sub(open_line_indent);
             return vec![self.diagnostic(
                 source,
                 elem_line,
                 elem_col,
                 format!(
                     "Use {} (not {}) spaces for indentation of the first element.",
-                    width,
-                    elem_col.saturating_sub(open_line_indent)
+                    width, base
                 ),
             )];
         }
@@ -114,5 +198,38 @@ mod tests {
         let src2 = b"x = [\n  1\n]\n";
         let diags2 = run_cop_full_with_config(&FirstArrayElementIndentation, src2, config);
         assert_eq!(diags2.len(), 1, "align_brackets should flag element not at bracket column");
+    }
+
+    #[test]
+    fn special_inside_parentheses_method_call() {
+        // Array argument with [ on same line as ( should use paren-relative indent
+        // foo( is at col 3, so expected = 3 + 1 + 2 = 6
+        let src = b"foo([\n      :bar,\n      :baz\n    ])\n";
+        let diags = run_cop_full(&FirstArrayElementIndentation, src);
+        assert!(diags.is_empty(), "array arg with [ on same line as ( should not be flagged");
+    }
+
+    #[test]
+    fn special_inside_parentheses_nested_call() {
+        // expect(cli.run([ -- the ( of run( is at col 14, expected = 14 + 1 + 2 = 17
+        let src = b"expect(cli.run([\n                 :a,\n                 :b\n               ]))\n";
+        let diags = run_cop_full(&FirstArrayElementIndentation, src);
+        assert!(diags.is_empty(), "nested call array arg should use innermost paren");
+    }
+
+    #[test]
+    fn array_with_method_chain_uses_line_indent() {
+        // [].join() -- array followed by .join() should use line-relative indent
+        let src = b"expect(x).to eq([\n  'hello',\n  'world'\n].join(\"\\n\"))\n";
+        let diags = run_cop_full(&FirstArrayElementIndentation, src);
+        assert!(diags.is_empty(), "array with .join chain should use line-relative indent");
+    }
+
+    #[test]
+    fn array_in_grouping_paren_uses_line_indent() {
+        // (%i[...] + other) -- grouping paren, array followed by + operator
+        let src = b"X = (%i[\n  a\n  b\n] + other).freeze\n";
+        let diags = run_cop_full(&FirstArrayElementIndentation, src);
+        assert!(diags.is_empty(), "array in grouping paren with + operator should use line-relative indent");
     }
 }

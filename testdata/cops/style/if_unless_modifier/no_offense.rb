@@ -60,3 +60,22 @@ if a
   b
   # comment
 end
+
+# defined? in condition should not suggest modifier — semantics change in modifier form
+if defined?(RubyVM::YJIT.enable)
+  RubyVM::YJIT.enable
+end
+
+unless defined?(some_variable)
+  some_variable = 'default'
+end
+
+# Local variable assignment in condition should not suggest modifier
+if (x = something)
+  use(x)
+end
+
+# Assignment embedded in condition (non_eligible_condition)
+if x = compute_value
+  process(x)
+end

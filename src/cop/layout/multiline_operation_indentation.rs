@@ -24,7 +24,7 @@ impl Cop for MultilineOperationIndentation {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let style = config.get_str("EnforcedStyle", "indented");
+        let style = config.get_str("EnforcedStyle", "aligned");
 
         // Check CallNode with operator methods (binary operators are parsed as calls)
         if let Some(call_node) = node.as_call_node() {
@@ -145,6 +145,13 @@ impl MultilineOperationIndentation {
             return Vec::new();
         }
 
+        // Skip nested boolean expressions: when the left operand is itself
+        // an And/Or node, alignment expectations get complex and the inner
+        // operation is already checked separately.
+        if left.as_and_node().is_some() || left.as_or_node().is_some() {
+            return Vec::new();
+        }
+
         let width = config.get_usize("IndentationWidth", 2);
 
         let left_line_bytes = source.lines().nth(left_line - 1).unwrap_or(b"");
@@ -155,13 +162,30 @@ impl MultilineOperationIndentation {
             _ => expected_indented, // "indented" (default)
         };
 
-        // For "aligned" style, RuboCop only enforces alignment in certain
-        // contexts (if/while conditions, etc). In other contexts, the
-        // second operand should be indented. Accept both forms.
+        // When the continuation line starts with the operator (leading operator
+        // style), check the line's indentation rather than the right operand's.
+        let right_line_bytes = source.lines().nth(right_line - 1).unwrap_or(b"");
+        let line_indent = indentation_of(right_line_bytes);
+
+        // For "aligned" style, accept both aligned and indented forms.
+        // For "indented" style, also accept:
+        // - Line indentation matching expected (leading operator: `&& expr`)
+        // - Right col matching left indent (aligned with containing expression)
+        // - Right col matching left col (aligned with left operand)
+        // For both styles, also accept:
+        // - Line indentation matching expected_indented (leading operator: `&& expr`)
+        // - Right col matching left indent (aligned with containing expression)
+        // - Right col matching left col (aligned with left operand)
         let is_ok = if style == "aligned" {
-            right_col == expected || right_col == expected_indented
+            right_col == expected
+                || right_col == expected_indented
+                || line_indent == expected_indented
+                || right_col == left_indent
         } else {
             right_col == expected
+                || line_indent == expected
+                || right_col == left_indent
+                || right_col == left_col
         };
 
         if !is_ok {
@@ -210,6 +234,17 @@ mod tests {
         let src = b"  def valid_otp_attempt?(user)\n    user.validate_and_consume_otp!(user_params[:otp_attempt]) ||\n      user.invalidate_otp_backup_code!(user_params[:otp_attempt])\n  rescue OpenSSL::Cipher::CipherError\n    false\n  end\n";
         let diags = run_cop_full(&MultilineOperationIndentation, src);
         assert!(diags.is_empty(), "correctly indented || with rescue should not flag, got: {:?}", diags.iter().map(|d| format!("line {} col {} {}", d.location.line, d.location.column, d.message)).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn nested_and_or_deep_indent_no_offense() {
+        let src = b"        def implicit_block?(node)\n          return false unless node.arguments.any?\n\n          node.last_argument.block_pass_type? ||\n            (node.last_argument.sym_type? &&\n            methods_accepting_symbol.include?(node.method_name.to_s))\n        end\n";
+        let diags = run_cop_full(&MultilineOperationIndentation, src);
+        assert!(
+            diags.is_empty(),
+            "nested && inside || with aligned continuation should not flag, got: {:?}",
+            diags.iter().map(|d| format!("line {} col {} {}", d.location.line, d.location.column, d.message)).collect::<Vec<_>>()
+        );
     }
 
     #[test]

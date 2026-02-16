@@ -40,6 +40,48 @@ impl<'pr> Visit<'pr> for HeredocFinder {
     }
 }
 
+/// Check if a node (or any descendant) contains a `defined?()` call.
+///
+/// RuboCop skips `if defined?(x)` when the argument is a local variable
+/// or method call that might be undefined — converting to modifier form
+/// changes the semantics of `defined?` with respect to local variable
+/// scoping.  We conservatively skip any condition that contains `defined?`.
+fn condition_contains_defined(node: &ruby_prism::Node<'_>) -> bool {
+    let mut finder = DefinedFinder { found: false };
+    finder.visit(node);
+    finder.found
+}
+
+struct DefinedFinder {
+    found: bool,
+}
+
+impl<'pr> Visit<'pr> for DefinedFinder {
+    fn visit_defined_node(&mut self, _node: &ruby_prism::DefinedNode<'pr>) {
+        self.found = true;
+    }
+}
+
+/// Check if a node (or any descendant) contains a local variable assignment (lvasgn).
+///
+/// RuboCop's `non_eligible_condition?` skips conditions that assign local
+/// variables, because the modifier form may change scoping semantics.
+fn condition_contains_lvasgn(node: &ruby_prism::Node<'_>) -> bool {
+    let mut finder = LvasgnFinder { found: false };
+    finder.visit(node);
+    finder.found
+}
+
+struct LvasgnFinder {
+    found: bool,
+}
+
+impl<'pr> Visit<'pr> for LvasgnFinder {
+    fn visit_local_variable_write_node(&mut self, _node: &ruby_prism::LocalVariableWriteNode<'pr>) {
+        self.found = true;
+    }
+}
+
 impl Cop for IfUnlessModifier {
     fn name(&self) -> &'static str {
         "Style/IfUnlessModifier"
@@ -114,6 +156,18 @@ impl Cop for IfUnlessModifier {
         // Skip if the condition is a parenthesized assignment — these need the
         // full if/end form to capture the assignment value used in the body
         if predicate.as_parentheses_node().is_some() {
+            return Vec::new();
+        }
+
+        // Skip if the condition contains `defined?()` — converting to modifier
+        // form changes semantics for undefined variables/methods.
+        if condition_contains_defined(&predicate) {
+            return Vec::new();
+        }
+
+        // Skip if the condition contains a local variable assignment — modifier
+        // form may change scoping semantics (RuboCop: non_eligible_condition?).
+        if condition_contains_lvasgn(&predicate) {
             return Vec::new();
         }
 
@@ -192,9 +246,12 @@ impl Cop for IfUnlessModifier {
         let cond_text = &source.as_bytes()
             [predicate.location().start_offset()..predicate.location().end_offset()];
 
-        // Include indentation in the modifier line length estimate
-        let (_, body_col) = source.offset_to_line_col(body_node.location().start_offset());
-        let modifier_len = body_col + body_text.len() + 1 + keyword.len() + 1 + cond_text.len();
+        // Include indentation in the modifier line length estimate.
+        // The modifier form `body keyword condition` would be placed at the
+        // indentation level of the original `if`/`unless` keyword, not at the
+        // body's (deeper) indentation.
+        let (_, kw_col) = source.offset_to_line_col(kw_loc.start_offset());
+        let modifier_len = kw_col + body_text.len() + 1 + keyword.len() + 1 + cond_text.len();
 
         if modifier_len <= max_line_length {
             let (line, column) = source.offset_to_line_col(kw_loc.start_offset());

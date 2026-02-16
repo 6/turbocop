@@ -49,49 +49,60 @@ impl Cop for EmptyLineAfterGuardClause {
         }
 
         let first_stmt = &stmts[0];
-        let is_guard = is_guard_stmt(first_stmt);
-
-        if !is_guard {
+        if !is_guard_stmt(first_stmt) {
             return Vec::new();
         }
 
-        // Check the next line after this guard clause
-        let (if_end_line, _) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
-
         let lines: Vec<&[u8]> = source.lines().collect();
+        let end_offset = loc.end_offset().saturating_sub(1);
+        let (if_end_line, end_col) = source.offset_to_line_col(end_offset);
+
+        // Check if the guard clause is embedded inside a larger expression on the
+        // same line (e.g. `arr.each { |x| return x if cond }`). If there is
+        // non-comment code after the if node on the same line, skip.
+        if let Some(cur_line) = lines.get(if_end_line.saturating_sub(1)) {
+            let after_pos = end_col + 1;
+            if after_pos < cur_line.len() {
+                let rest = &cur_line[after_pos..];
+                if let Some(idx) = rest.iter().position(|&b| b != b' ' && b != b'\t') {
+                    if rest[idx] != b'#' {
+                        return Vec::new();
+                    }
+                }
+            }
+        }
 
         // Check if next line exists
         if if_end_line >= lines.len() {
             return Vec::new();
         }
 
-        let next_line = lines[if_end_line]; // 0-indexed for next line
-
-        // If next line is blank, that's fine
-        if util::is_blank_line(next_line) {
+        // Find the next meaningful code line, skipping comment lines.
+        // A blank line means the guard is properly followed by whitespace (no offense).
+        if let Some(code_content) = find_next_code_line(&lines, if_end_line) {
+            if is_scope_close_or_clause_keyword(code_content) {
+                return Vec::new();
+            }
+            if is_guard_line(code_content) {
+                return Vec::new();
+            }
+            if is_multiline_guard_block(code_content, &lines, if_end_line) {
+                return Vec::new();
+            }
+        } else {
+            // No more code lines (only comments/blanks until EOF)
             return Vec::new();
         }
 
-        // If next line is end/else/elsif/rescue/ensure/when, skip
-        let trimmed = next_line.iter().position(|&b| b != b' ' && b != b'\t');
-        if let Some(start) = trimmed {
-            let content = &next_line[start..];
-            if content.starts_with(b"end")
-                || content.starts_with(b"else")
-                || content.starts_with(b"elsif")
-                || content.starts_with(b"rescue")
-                || content.starts_with(b"ensure")
-                || content.starts_with(b"when")
-            {
-                return Vec::new();
-            }
-            // Skip if next line is another guard clause (consecutive guards are OK)
-            if is_guard_line(content) {
+        // Check for rubocop directive or nocov comments followed by blank line
+        let next_line = lines[if_end_line];
+        if is_rubocop_directive_or_nocov(next_line) {
+            if if_end_line + 1 >= lines.len() || util::is_blank_line(lines[if_end_line + 1]) {
                 return Vec::new();
             }
         }
 
-        let (line, col) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
+        let (line, col) = source.offset_to_line_col(end_offset);
         vec![self.diagnostic(
             source,
             line,
@@ -114,37 +125,129 @@ fn is_guard_stmt(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_next_node().is_some()
 }
 
+/// Find the next non-blank, non-comment line starting from `start_idx` (0-indexed).
+/// Returns None if a blank line is found first or we reach EOF.
+fn find_next_code_line<'a>(lines: &[&'a [u8]], start_idx: usize) -> Option<&'a [u8]> {
+    for i in start_idx..lines.len() {
+        let line = lines[i];
+        if util::is_blank_line(line) {
+            return None;
+        }
+        if let Some(start) = line.iter().position(|&b| b != b' ' && b != b'\t') {
+            let content = &line[start..];
+            if content.starts_with(b"#") {
+                continue;
+            }
+            return Some(content);
+        }
+    }
+    None
+}
+
+/// Check if trimmed content starts with a scope-closing or clause keyword.
+fn is_scope_close_or_clause_keyword(content: &[u8]) -> bool {
+    starts_with_keyword(content, b"end")
+        || starts_with_keyword(content, b"else")
+        || starts_with_keyword(content, b"elsif")
+        || starts_with_keyword(content, b"rescue")
+        || starts_with_keyword(content, b"ensure")
+        || starts_with_keyword(content, b"when")
+        || starts_with_keyword(content, b"in")
+        || content.starts_with(b"}")
+        || content.starts_with(b")")
+}
+
+fn starts_with_keyword(content: &[u8], keyword: &[u8]) -> bool {
+    content.starts_with(keyword)
+        && (content.len() == keyword.len() || !is_ident_char(content[keyword.len()]))
+}
+
 fn is_guard_line(content: &[u8]) -> bool {
-    // Check if line starts with a guard keyword (e.g., `return if cond`)
     for keyword in GUARD_METHODS {
         if content.starts_with(keyword) {
-            let after = content.get(keyword.len()..);
-            if let Some(rest) = after {
+            if let Some(rest) = content.get(keyword.len()..) {
                 if rest.is_empty() || rest.starts_with(b" ") || rest.starts_with(b"(") {
                     return true;
                 }
             }
         }
     }
-    // Check if line contains a guard keyword embedded in an expression with
-    // modifier if/unless (e.g., `expr && return if cond`).
-    // RuboCop considers these guard clauses via AST-level guard_clause? check.
     if contains_modifier_guard(content) {
         return true;
     }
     false
 }
 
-/// Check if a line contains a guard keyword (return/raise/throw/break/next)
-/// combined with a modifier `if` or `unless`, indicating it's a guard clause
-/// even when the guard keyword isn't at the start of the line.
-/// Matches patterns like `expr && return if cond` or `do_thing || raise "err" unless ok?`.
+/// Check if the next code line starts a multi-line if/unless block that contains
+/// a guard clause (return/raise/fail/throw/next/break).
+fn is_multiline_guard_block(content: &[u8], lines: &[&[u8]], start_idx: usize) -> bool {
+    if !starts_with_keyword(content, b"if") && !starts_with_keyword(content, b"unless") {
+        return false;
+    }
+
+    let content_line_idx = match find_line_index_from(lines, start_idx, content) {
+        Some(idx) => idx,
+        None => return false,
+    };
+
+    let mut depth: i32 = 1;
+    for i in (content_line_idx + 1)..lines.len() {
+        let line = lines[i];
+        let Some(start) = line.iter().position(|&b| b != b' ' && b != b'\t') else {
+            continue;
+        };
+        let trimmed = &line[start..];
+
+        if starts_with_keyword(trimmed, b"if")
+            || starts_with_keyword(trimmed, b"unless")
+            || starts_with_keyword(trimmed, b"def")
+            || starts_with_keyword(trimmed, b"class")
+            || starts_with_keyword(trimmed, b"module")
+            || starts_with_keyword(trimmed, b"do")
+            || starts_with_keyword(trimmed, b"begin")
+            || starts_with_keyword(trimmed, b"case")
+        {
+            depth += 1;
+        }
+
+        if starts_with_keyword(trimmed, b"end") {
+            depth -= 1;
+            if depth == 0 {
+                break;
+            }
+        }
+
+        if depth == 1 {
+            for keyword in GUARD_METHODS {
+                if starts_with_keyword(trimmed, keyword) {
+                    return true;
+                }
+            }
+            if is_guard_line(trimmed) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn find_line_index_from(lines: &[&[u8]], from_idx: usize, content: &[u8]) -> Option<usize> {
+    for i in from_idx..lines.len() {
+        let line = lines[i];
+        if let Some(start) = line.iter().position(|&b| b != b' ' && b != b'\t') {
+            let trimmed = &line[start..];
+            if std::ptr::eq(trimmed.as_ptr(), content.as_ptr()) || trimmed == content {
+                return Some(i);
+            }
+        }
+    }
+    None
+}
+
 fn contains_modifier_guard(content: &[u8]) -> bool {
-    // Must contain modifier if/unless somewhere
     if !contains_word(content, b"if") && !contains_word(content, b"unless") {
         return false;
     }
-    // Must contain a guard keyword somewhere as a standalone word
     for keyword in GUARD_METHODS {
         if contains_word(content, keyword) {
             return true;
@@ -153,7 +256,6 @@ fn contains_modifier_guard(content: &[u8]) -> bool {
     false
 }
 
-/// Check if `haystack` contains `word` as a standalone word (not part of a larger identifier).
 fn contains_word(haystack: &[u8], word: &[u8]) -> bool {
     let wlen = word.len();
     if haystack.len() < wlen {
@@ -161,11 +263,8 @@ fn contains_word(haystack: &[u8], word: &[u8]) -> bool {
     }
     for i in 0..=(haystack.len() - wlen) {
         if &haystack[i..i + wlen] == word {
-            // Check word boundary before
             let before_ok = i == 0 || !is_ident_char(haystack[i - 1]);
-            // Check word boundary after
-            let after_ok =
-                i + wlen >= haystack.len() || !is_ident_char(haystack[i + wlen]);
+            let after_ok = i + wlen >= haystack.len() || !is_ident_char(haystack[i + wlen]);
             if before_ok && after_ok {
                 return true;
             }
@@ -176,6 +275,25 @@ fn contains_word(haystack: &[u8], word: &[u8]) -> bool {
 
 fn is_ident_char(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
+}
+
+fn is_rubocop_directive_or_nocov(line: &[u8]) -> bool {
+    let Some(start) = line.iter().position(|&b| b != b' ' && b != b'\t') else {
+        return false;
+    };
+    let content = &line[start..];
+    if !content.starts_with(b"#") {
+        return false;
+    }
+    let after_hash = &content[1..];
+    let trimmed = after_hash
+        .iter()
+        .position(|&b| b != b' ')
+        .map(|i| &after_hash[i..])
+        .unwrap_or(b"");
+    trimmed.starts_with(b"rubocop:disable")
+        || trimmed.starts_with(b"rubocop:enable")
+        || trimmed.starts_with(b":nocov:")
 }
 
 #[cfg(test)]

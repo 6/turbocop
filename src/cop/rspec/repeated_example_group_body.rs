@@ -2,6 +2,7 @@ use crate::cop::util::{is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 use std::collections::HashMap;
 
 /// RSpec/RepeatedExampleGroupBody: Flag example groups with identical bodies.
@@ -121,9 +122,17 @@ fn check_sibling_groups_iter<'a>(
             continue;
         }
 
-        // Build body signature from the full body source
+        // Build body signature from the full body source.
+        // Prism heredoc locations only cover the opening delimiter (<<~FOO),
+        // not the heredoc content. We must find the max extent including
+        // heredoc closing locations so that bodies with different heredoc
+        // content produce different signatures.
         let loc = body.location();
-        let body_src = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
+        let mut end_offset = loc.end_offset();
+        let mut finder = MaxExtentFinder { max_end: end_offset };
+        finder.visit(&body);
+        end_offset = finder.max_end;
+        let body_src = &source.as_bytes()[loc.start_offset()..end_offset];
 
         // Also include metadata signature to distinguish groups with different metadata
         let meta_sig = metadata_signature(source, &call);
@@ -227,6 +236,37 @@ fn is_skip_or_pending_body(body: &ruby_prism::Node<'_>) -> bool {
         }
     }
     false
+}
+
+/// Visitor that finds the maximum source offset among all descendant nodes,
+/// including heredoc closing locations which extend beyond the parent node's range.
+struct MaxExtentFinder {
+    max_end: usize,
+}
+
+impl<'pr> Visit<'pr> for MaxExtentFinder {
+    fn visit_interpolated_string_node(
+        &mut self,
+        node: &ruby_prism::InterpolatedStringNode<'pr>,
+    ) {
+        if let Some(close) = node.closing_loc() {
+            let end = close.end_offset();
+            if end > self.max_end {
+                self.max_end = end;
+            }
+        }
+        ruby_prism::visit_interpolated_string_node(self, node);
+    }
+
+    fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+        if let Some(close) = node.closing_loc() {
+            let end = close.end_offset();
+            if end > self.max_end {
+                self.max_end = end;
+            }
+        }
+        ruby_prism::visit_string_node(self, node);
+    }
 }
 
 fn is_parent_group(name: &[u8]) -> bool {
