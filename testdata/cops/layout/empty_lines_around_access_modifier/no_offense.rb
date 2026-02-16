@@ -56,3 +56,33 @@ Struct.new("Post", :title) do
   def secret
   end
 end
+
+# `private` used as a hash value (not an access modifier)
+class Message
+  def webhook_data
+    {
+      message_type: message_type,
+      private: private,
+      sender: sender
+    }
+  end
+
+  private
+
+  def secret
+  end
+end
+
+# `private` used inside a method body conditional (not an access modifier)
+class Conversation
+  def update_status
+    if waiting_present && !private
+      clear_waiting
+    end
+  end
+
+  private
+
+  def clear_waiting
+  end
+end

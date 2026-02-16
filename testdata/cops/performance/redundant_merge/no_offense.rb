@@ -16,3 +16,9 @@ items.each do |item|
 end
 # merge! with splat
 hash.merge!(**other)
+# Multi-line merge! as last expression in method — return value used
+def liquid_locals
+  super.merge!({
+                 custom_message: @custom_message
+               })
+end

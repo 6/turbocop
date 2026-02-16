@@ -35,6 +35,14 @@ impl Cop for EmptyLineAfterExample {
             return Vec::new();
         }
 
+        // RuboCop's EmptyLineAfterExample uses `on_block` — it only fires on example
+        // calls that have a block (do..end or { }).  Bare calls like `skip('reason')`
+        // inside a `before` block, or `scenario` used as a variable-like method from
+        // `let(:scenario)`, are not example declarations and must be ignored.
+        if call.block().is_none() {
+            return Vec::new();
+        }
+
         let allow_consecutive = config.get_bool("AllowConsecutiveOneLiners", true);
 
         // Determine the end line of this example
@@ -52,54 +60,44 @@ impl Cop for EmptyLineAfterExample {
                 if is_blank_line(line) {
                     return Vec::new(); // already has blank line
                 }
-                // If next line is a comment, scan forward — if there's a blank line
-                // before the next code line, the example is properly separated.
-                // This matches RuboCop's AST-sibling approach where comments between
-                // nodes don't count as missing separation.
-                {
-                    let trimmed_pos = line.iter().position(|&b| b != b' ' && b != b'\t');
-                    if let Some(start) = trimmed_pos {
-                        if line[start] == b'#' {
-                            // Scan forward past comment lines
-                            let mut scan = next_line + 1;
-                            loop {
-                                match line_at(source, scan) {
-                                    Some(l) if is_blank_line(l) => return Vec::new(),
-                                    Some(l) => {
-                                        let t = l.iter().position(|&b| b != b' ' && b != b'\t');
-                                        if let Some(s) = t {
-                                            if l[s] != b'#' {
-                                                break; // reached non-comment code
-                                            }
-                                        }
-                                    }
-                                    None => return Vec::new(), // end of file
-                                }
-                                scan += 1;
-                            }
-                            // No blank line found between example and next code — fall through to report
+
+                // Determine the effective "check line" — skip past comments to find
+                // the first non-comment, non-blank line.  If a blank line or EOF is
+                // encountered while scanning comments, the example is properly
+                // separated and we return early.
+                let check_line = if is_comment_line(line) {
+                    let mut scan = next_line + 1;
+                    loop {
+                        match line_at(source, scan) {
+                            Some(l) if is_blank_line(l) => return Vec::new(),
+                            Some(l) if is_comment_line(l) => {}
+                            Some(l) => break l,
+                            None => return Vec::new(), // end of file
                         }
+                        scan += 1;
                     }
-                }
-                // If consecutive one-liners are allowed, check if the next line is also a one-liner example
+                } else {
+                    line
+                };
+
+                // If consecutive one-liners are allowed, check if the next
+                // meaningful line is also a one-liner example
                 if allow_consecutive && is_one_liner {
-                    // Check if next line looks like an example call
-                    let trimmed = line.iter().position(|&b| b != b' ' && b != b'\t');
+                    let trimmed = check_line.iter().position(|&b| b != b' ' && b != b'\t');
                     if let Some(start) = trimmed {
-                        let rest = &line[start..];
+                        let rest = &check_line[start..];
                         if starts_with_example_keyword(rest) {
                             return Vec::new();
                         }
                     }
                 }
 
-                // Check for `end` line (last example in block)
-                let trimmed = line.iter().position(|&b| b != b' ' && b != b'\t');
-                if let Some(start) = trimmed {
-                    let rest = &line[start..];
-                    if rest.starts_with(b"end") && (rest.len() == 3 || !rest[3].is_ascii_alphanumeric()) {
-                        return Vec::new(); // last item before end
-                    }
+                // Check for terminator keywords (last example before closing
+                // construct).  RuboCop uses `last_child?` on the AST; we
+                // approximate by recognising `end`, `else`, `elsif`, `when`,
+                // `rescue`, `ensure`, and `in` (pattern matching).
+                if is_terminator_line(check_line) {
+                    return Vec::new();
                 }
             }
             None => return Vec::new(), // end of file
@@ -126,6 +124,34 @@ impl Cop for EmptyLineAfterExample {
             format!("Add an empty line after `{method_str}`."),
         )]
     }
+}
+
+/// Returns true if the trimmed line starts with `#`.
+fn is_comment_line(line: &[u8]) -> bool {
+    let trimmed_pos = line.iter().position(|&b| b != b' ' && b != b'\t');
+    matches!(trimmed_pos, Some(start) if line[start] == b'#')
+}
+
+/// Check if a line is a block/construct terminator — i.e. the example is
+/// the last child before the closing keyword.
+fn is_terminator_line(line: &[u8]) -> bool {
+    let trimmed = line.iter().position(|&b| b != b' ' && b != b'\t');
+    if let Some(start) = trimmed {
+        let rest = &line[start..];
+        for keyword in &[
+            b"end" as &[u8], b"else", b"elsif", b"when", b"rescue", b"ensure", b"in ",
+        ] {
+            if rest.starts_with(keyword) {
+                // Ensure keyword isn't part of a longer identifier
+                if rest.len() == keyword.len()
+                    || !rest[keyword.len()].is_ascii_alphanumeric() && rest[keyword.len()] != b'_'
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 fn starts_with_example_keyword(line: &[u8]) -> bool {

@@ -88,13 +88,37 @@ impl Cop for EmptyLineAfterHook {
             let end_offset = loc.end_offset().saturating_sub(1).max(loc.start_offset());
             let (end_line, _) = source.offset_to_line_col(end_offset);
 
-            // Check if next line is blank
-            let next_line = end_line + 1;
-            if let Some(line) = line_at(source, next_line) {
-                if is_blank_line(line) {
-                    continue;
+            // Check if next non-comment line is blank (or if there's a blank
+            // line between the hook end and the next code line).
+            // Skip rubocop directive comments and regular comments.
+            let mut check_line = end_line + 1;
+            let mut found_blank = false;
+            loop {
+                match line_at(source, check_line) {
+                    None => {
+                        found_blank = true; // end of file
+                        break;
+                    }
+                    Some(line) => {
+                        if is_blank_line(line) {
+                            found_blank = true;
+                            break;
+                        }
+                        let trimmed = line.iter()
+                            .position(|&b| b != b' ' && b != b'\t')
+                            .map(|start| &line[start..])
+                            .unwrap_or(&[]);
+                        if trimmed.starts_with(b"#") {
+                            // Comment line — skip it and check the next line
+                            check_line += 1;
+                            continue;
+                        }
+                        // Non-blank, non-comment line without a preceding blank
+                        break;
+                    }
                 }
-            } else {
+            }
+            if found_blank {
                 continue;
             }
 

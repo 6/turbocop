@@ -27,16 +27,28 @@ impl Cop for AccessorMethodName {
             Err(_) => return Vec::new(),
         };
 
-        // Count required parameters (excludes optional, rest, keyword, block)
-        let param_count = def_node
-            .parameters()
-            .map_or(0, |params| params.requireds().len());
+        // Count ALL parameters (including optional, rest, keyword, block)
+        // to match RuboCop which uses `node.arguments.one?` / `!node.arguments?`.
+        let total_param_count = def_node.parameters().map_or(0, |params| {
+            params.requireds().len()
+                + params.optionals().len()
+                + params.posts().len()
+                + params.keywords().len()
+                + if params.rest().is_some() { 1 } else { 0 }
+                + if params.keyword_rest().is_some() { 1 } else { 0 }
+                + if params.block().is_some() { 1 } else { 0 }
+        });
+        // For set_, also ensure the single argument is a regular arg (not block, rest, etc.)
+        let has_one_regular_arg = total_param_count == 1
+            && def_node
+                .parameters()
+                .map_or(false, |params| params.requireds().len() == 1);
 
-        let message = if name_str.starts_with("get_") && param_count == 0 {
+        let message = if name_str.starts_with("get_") && total_param_count == 0 {
             // Reader methods: get_* with no arguments
             "Do not prefix reader method names with `get_`."
-        } else if name_str.starts_with("set_") && param_count == 1 {
-            // Writer methods: set_* with exactly one argument
+        } else if name_str.starts_with("set_") && has_one_regular_arg {
+            // Writer methods: set_* with exactly one regular argument
             "Do not prefix writer method names with `set_`."
         } else {
             return Vec::new();

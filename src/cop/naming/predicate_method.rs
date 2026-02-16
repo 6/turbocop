@@ -612,6 +612,39 @@ fn classify_node(node: &ruby_prism::Node<'_>, wayward: &[String]) -> ReturnType 
         return ReturnType::Unknown;
     }
 
+    // Assignment nodes (x = ..., @x = ..., @x ||= ..., etc.)
+    // These are NOT call_type? in RuboCop, so they should NOT make a method
+    // "acceptable" in conservative mode. Classify as Opaque to prevent
+    // conservative-mode skip while not counting as boolean or non-boolean literal.
+    if node.as_local_variable_write_node().is_some()
+        || node.as_instance_variable_write_node().is_some()
+        || node.as_class_variable_write_node().is_some()
+        || node.as_global_variable_write_node().is_some()
+        || node.as_constant_write_node().is_some()
+        || node.as_constant_path_write_node().is_some()
+        || node.as_local_variable_or_write_node().is_some()
+        || node.as_instance_variable_or_write_node().is_some()
+        || node.as_class_variable_or_write_node().is_some()
+        || node.as_global_variable_or_write_node().is_some()
+        || node.as_constant_or_write_node().is_some()
+        || node.as_constant_path_or_write_node().is_some()
+        || node.as_local_variable_and_write_node().is_some()
+        || node.as_instance_variable_and_write_node().is_some()
+        || node.as_class_variable_and_write_node().is_some()
+        || node.as_global_variable_and_write_node().is_some()
+        || node.as_constant_and_write_node().is_some()
+        || node.as_constant_path_and_write_node().is_some()
+        || node.as_local_variable_operator_write_node().is_some()
+        || node.as_instance_variable_operator_write_node().is_some()
+        || node.as_class_variable_operator_write_node().is_some()
+        || node.as_global_variable_operator_write_node().is_some()
+        || node.as_constant_operator_write_node().is_some()
+        || node.as_constant_path_operator_write_node().is_some()
+        || node.as_multi_write_node().is_some()
+    {
+        return ReturnType::Opaque;
+    }
+
     // Everything else (variables, constants, etc.)
     ReturnType::Unknown
 }

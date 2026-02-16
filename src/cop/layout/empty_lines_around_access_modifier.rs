@@ -119,6 +119,31 @@ impl Cop for EmptyLinesAroundAccessModifier {
         let (line, col) = source.offset_to_line_col(loc.start_offset());
         let lines: Vec<&[u8]> = source.lines().collect();
 
+        // Ensure the access modifier is the only thing on its line (after trimming
+        // whitespace). This filters out false positives like `private: private` in
+        // hash literals or `!private` in conditionals.
+        if line > 0 && line <= lines.len() {
+            let current_line = lines[line - 1];
+            let trimmed: Vec<u8> = current_line
+                .iter()
+                .copied()
+                .skip_while(|&b| b == b' ' || b == b'\t')
+                .collect();
+            // The trimmed line should be exactly the modifier keyword (possibly with trailing whitespace/CR)
+            let end_trimmed: Vec<u8> = trimmed
+                .iter()
+                .copied()
+                .rev()
+                .skip_while(|&b| b == b' ' || b == b'\t' || b == b'\r' || b == b'\n')
+                .collect::<Vec<u8>>()
+                .into_iter()
+                .rev()
+                .collect();
+            if end_trimmed != method_name {
+                return Vec::new();
+            }
+        }
+
         let modifier_str = std::str::from_utf8(method_name).unwrap_or("");
 
         // Find the previous non-comment line (RuboCop skips comments when checking blank before)

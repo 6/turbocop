@@ -127,7 +127,31 @@ impl Cop for ExcessiveDocstringSpacing {
 
         let has_leading_space = content_str.starts_with(' ') || content_str.starts_with('\u{3000}') || content_str.starts_with('\u{00a0}');
         let has_trailing_space = content_str.ends_with(' ') || content_str.ends_with('\u{3000}') || content_str.ends_with('\u{00a0}');
-        let has_multiple_spaces = content_str.contains("  ");
+        // RuboCop checks: [^[[:space:]]][[:blank:]]{2,}[^[[:blank:]]]
+        // Two or more consecutive blanks must be preceded by a non-whitespace character
+        // (so leading indentation on continuation lines doesn't count).
+        let has_multiple_spaces = {
+            let bytes = content_str.as_bytes();
+            let mut found = false;
+            let mut i = 0;
+            while i + 2 < bytes.len() {
+                if !bytes[i].is_ascii_whitespace() && (bytes[i + 1] == b' ' || bytes[i + 1] == b'\t') {
+                    // Found a non-space char followed by blank; count consecutive blanks
+                    let mut j = i + 1;
+                    while j < bytes.len() && (bytes[j] == b' ' || bytes[j] == b'\t') {
+                        j += 1;
+                    }
+                    if j - (i + 1) >= 2 && j < bytes.len() && bytes[j] != b' ' && bytes[j] != b'\t' {
+                        found = true;
+                        break;
+                    }
+                    i = j;
+                } else {
+                    i += 1;
+                }
+            }
+            found
+        };
 
         if !has_leading_space && !has_trailing_space && !has_multiple_spaces {
             return Vec::new();

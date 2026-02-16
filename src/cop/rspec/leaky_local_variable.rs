@@ -300,6 +300,118 @@ fn node_references_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
         }
     }
 
+    // Local variable assignment: `x = expr` -- check if the RHS references the var
+    if let Some(lw) = node.as_local_variable_write_node() {
+        if node_references_var(&lw.value(), var_name) {
+            return true;
+        }
+    }
+
+    // Instance variable assignment: `@x = expr`
+    if let Some(iw) = node.as_instance_variable_write_node() {
+        if node_references_var(&iw.value(), var_name) {
+            return true;
+        }
+    }
+
+    // Local variable or-write: `x ||= expr`
+    if let Some(ow) = node.as_local_variable_or_write_node() {
+        if node_references_var(&ow.value(), var_name) {
+            return true;
+        }
+    }
+
+    // Multi-write: `a, b = expr`
+    if let Some(mw) = node.as_multi_write_node() {
+        if node_references_var(&mw.value(), var_name) {
+            return true;
+        }
+    }
+
+    // If/Unless nodes
+    if let Some(if_node) = node.as_if_node() {
+        if node_references_var(&if_node.predicate(), var_name) {
+            return true;
+        }
+        if let Some(stmts) = if_node.statements() {
+            for s in stmts.body().iter() {
+                if node_references_var(&s, var_name) {
+                    return true;
+                }
+            }
+        }
+        if let Some(subsequent) = if_node.subsequent() {
+            if node_references_var(&subsequent, var_name) {
+                return true;
+            }
+        }
+    }
+
+    if let Some(unless_node) = node.as_unless_node() {
+        if node_references_var(&unless_node.predicate(), var_name) {
+            return true;
+        }
+        if let Some(stmts) = unless_node.statements() {
+            for s in stmts.body().iter() {
+                if node_references_var(&s, var_name) {
+                    return true;
+                }
+            }
+        }
+        if let Some(else_clause) = unless_node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                for s in stmts.body().iter() {
+                    if node_references_var(&s, var_name) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    // ElseNode
+    if let Some(else_node) = node.as_else_node() {
+        if let Some(stmts) = else_node.statements() {
+            for s in stmts.body().iter() {
+                if node_references_var(&s, var_name) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Return node
+    if let Some(ret) = node.as_return_node() {
+        if let Some(args) = ret.arguments() {
+            for arg in args.arguments().iter() {
+                if node_references_var(&arg, var_name) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Parentheses node
+    if let Some(paren) = node.as_parentheses_node() {
+        if let Some(body) = paren.body() {
+            if node_references_var(&body, var_name) {
+                return true;
+            }
+        }
+    }
+
+    // And/Or nodes
+    if let Some(and_node) = node.as_and_node() {
+        if node_references_var(&and_node.left(), var_name) || node_references_var(&and_node.right(), var_name) {
+            return true;
+        }
+    }
+    if let Some(or_node) = node.as_or_node() {
+        if node_references_var(&or_node.left(), var_name) || node_references_var(&or_node.right(), var_name) {
+            return true;
+        }
+    }
+
     if let Some(interp) = node.as_interpolated_string_node() {
         for part in interp.parts().iter() {
             if let Some(embedded) = part.as_embedded_statements_node() {
@@ -353,6 +465,24 @@ fn node_references_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
                 if node_references_var(&assoc.key(), var_name) || node_references_var(&assoc.value(), var_name) {
                     return true;
                 }
+            }
+        }
+    }
+
+    // Splat node (e.g., *args)
+    if let Some(splat) = node.as_splat_node() {
+        if let Some(expr) = splat.expression() {
+            if node_references_var(&expr, var_name) {
+                return true;
+            }
+        }
+    }
+
+    // AssocSplatNode (e.g., **opts)
+    if let Some(assoc_splat) = node.as_assoc_splat_node() {
+        if let Some(expr) = assoc_splat.value() {
+            if node_references_var(&expr, var_name) {
+                return true;
             }
         }
     }

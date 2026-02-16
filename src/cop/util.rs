@@ -69,6 +69,75 @@ pub fn count_body_lines_ex(
     count
 }
 
+/// Collect line ranges of heredoc bodies within a node.
+/// Returns pairs of (start_line, end_line) (1-indexed) for multiline heredoc nodes.
+///
+/// This matches RuboCop's behavior where heredoc content lines are NOT counted
+/// toward method/block length. In RuboCop's Parser AST, `body.source` for a
+/// heredoc only returns the opening delimiter (e.g. `<<~HEREDOC`), so heredoc
+/// content lines are implicitly excluded from line counts. In Prism, the node's
+/// location spans the full heredoc content, so we must explicitly exclude those
+/// lines by treating them as foldable ranges.
+pub fn collect_heredoc_ranges(
+    source: &SourceFile,
+    body_node: &ruby_prism::Node<'_>,
+) -> Vec<(usize, usize)> {
+    use ruby_prism::Visit;
+    let mut visitor = HeredocVisitor {
+        source,
+        ranges: Vec::new(),
+    };
+    visitor.visit(body_node);
+    visitor.ranges
+}
+
+struct HeredocVisitor<'a> {
+    source: &'a SourceFile,
+    ranges: Vec<(usize, usize)>,
+}
+
+impl<'pr> ruby_prism::Visit<'pr> for HeredocVisitor<'_> {
+    fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
+        // Check if this is a heredoc by looking at the opening — heredocs have
+        // opening_loc that starts with <<
+        if let Some(opening) = node.opening_loc() {
+            let bytes = &self.source.as_bytes()[opening.start_offset()..opening.end_offset()];
+            if bytes.starts_with(b"<<") {
+                // In Prism, heredoc location() only covers the opening delimiter.
+                // The actual content and closing delimiter are found via closing_loc().
+                let (start_line, _) = self.source.offset_to_line_col(opening.start_offset());
+                if let Some(closing) = node.closing_loc() {
+                    let end_off = closing.end_offset().saturating_sub(1).max(closing.start_offset());
+                    let (end_line, _) = self.source.offset_to_line_col(end_off);
+                    if end_line > start_line {
+                        self.ranges.push((start_line, end_line));
+                    }
+                }
+                return; // Don't recurse into heredoc
+            }
+        }
+        ruby_prism::visit_interpolated_string_node(self, node);
+    }
+
+    fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+        if let Some(opening) = node.opening_loc() {
+            let bytes = &self.source.as_bytes()[opening.start_offset()..opening.end_offset()];
+            if bytes.starts_with(b"<<") {
+                let (start_line, _) = self.source.offset_to_line_col(opening.start_offset());
+                if let Some(closing) = node.closing_loc() {
+                    let end_off = closing.end_offset().saturating_sub(1).max(closing.start_offset());
+                    let (end_line, _) = self.source.offset_to_line_col(end_off);
+                    if end_line > start_line {
+                        self.ranges.push((start_line, end_line));
+                    }
+                }
+                return; // Don't recurse
+            }
+        }
+        ruby_prism::visit_string_node(self, node);
+    }
+}
+
 /// Collect line ranges of foldable constructs within a node.
 /// `count_as_one` contains type names like "array", "hash", "heredoc", "method_call".
 /// Returns pairs of (start_line, end_line) (1-indexed) for multiline foldable constructs.
@@ -315,9 +384,26 @@ pub fn has_trailing_comma(
     if last_element_end >= closing_start || closing_start > source_bytes.len() {
         return false;
     }
-    source_bytes[last_element_end..closing_start]
-        .iter()
-        .any(|&b| b == b',')
+    // Scan the region between the last element and the closing delimiter,
+    // skipping content inside comments (# to end of line) and string literals.
+    let region = &source_bytes[last_element_end..closing_start];
+    let mut in_comment = false;
+    for &b in region {
+        if in_comment {
+            if b == b'\n' {
+                in_comment = false;
+            }
+            continue;
+        }
+        if b == b'#' {
+            in_comment = true;
+            continue;
+        }
+        if b == b',' {
+            return true;
+        }
+    }
+    false
 }
 
 // ── Shared cop logic helpers ──────────────────────────────────────────

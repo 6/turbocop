@@ -13,3 +13,13 @@ end
 RSpec.describe Comment do
   before { do_something }
 end
+
+# rubocop directive comment between hook and next statement counts as separator
+RSpec.describe Widget do
+  after(:all) do
+    cleanup
+  end
+  # rubocop:enable RSpec/BeforeAfterAll
+
+  let(:widget) { create(:widget) }
+end

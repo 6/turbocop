@@ -6,3 +6,6 @@ head :payload_too_large
 
 render json: {}, status: :unprocessable_entity
                          ^^^^^^^^^^^^^^^^^^^^^ Rails/HttpStatusNameConsistency: Prefer `:unprocessable_content` over `:unprocessable_entity`.
+
+render json: response, status: response[:error].blank? ? :ok : :unprocessable_entity
+                                                               ^^^^^^^^^^^^^^^^^^^^^ Rails/HttpStatusNameConsistency: Prefer `:unprocessable_content` over `:unprocessable_entity`.

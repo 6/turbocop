@@ -31,3 +31,22 @@ def with_branch
     2
   end
 end
+
+# Heredoc-only methods: RuboCop counts the heredoc body as part of the
+# AST node's source which is just the opening delimiter, so content lines
+# are not counted toward method length.
+def heredoc_method
+  <<~SQL
+    SELECT *
+    FROM users
+    WHERE active = true
+    AND created_at > '2024-01-01'
+    ORDER BY name ASC
+    LIMIT 100
+    OFFSET 0
+    -- long query
+    -- more comments
+    -- even more
+    -- still going
+  SQL
+end

@@ -444,6 +444,23 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
         }
     }
 
+    // Fall back to .ruby-version file if TargetRubyVersion wasn't set in config.
+    // RuboCop reads this file to determine the target Ruby version.
+    let target_ruby_version = base.target_ruby_version.or_else(|| {
+        let ruby_version_path = config_dir.join(".ruby-version");
+        if let Ok(content) = std::fs::read_to_string(&ruby_version_path) {
+            let trimmed = content.trim();
+            // Parse version like "3.4.4" -> 3.4
+            let parts: Vec<&str> = trimmed.split('.').collect();
+            if parts.len() >= 2 {
+                if let (Ok(major), Ok(minor)) = (parts[0].parse::<u64>(), parts[1].parse::<u64>()) {
+                    return Some(major as f64 + minor as f64 / 10.0);
+                }
+            }
+        }
+        None
+    });
+
     Ok(ResolvedConfig {
         cop_configs: base.cop_configs,
         department_configs: base.department_configs,
@@ -456,7 +473,7 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
         disabled_by_default,
         require_known_cops: base.require_known_cops,
         require_departments: base.require_departments,
-        target_ruby_version: base.target_ruby_version,
+        target_ruby_version,
     })
 }
 

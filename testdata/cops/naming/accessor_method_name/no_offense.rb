@@ -24,3 +24,13 @@ end
 def get_value(key)
   @data[key]
 end
+
+# set_ with one arg and a block parameter is not a simple setter
+def set_locale(locale, &)
+  I18n.with_locale(locale, &)
+end
+
+# set_ with keyword args is not a simple setter
+def set_options(value, **opts)
+  @options = opts.merge(value: value)
+end

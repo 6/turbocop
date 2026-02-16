@@ -51,3 +51,16 @@ def self.class_check
          ^^^^^^^^^^^ Naming/PredicateMethod: Predicate method names should end with `?`.
   x > y
 end
+
+# Predicate with bare return and ||= assignment (assignment is not call_type)
+def self.enterprise?
+         ^^^^^^^^^^^ Naming/PredicateMethod: Non-predicate method names should not end with `?`.
+  return if ENV.fetch('DISABLE_ENTERPRISE', false)
+  @enterprise ||= root.join('enterprise').exist?
+end
+
+# Predicate with modifier-if assignment as implicit return
+def valid_event_payload?
+    ^^^^^^^^^^^^^^^^^^^^^ Naming/PredicateMethod: Non-predicate method names should not end with `?`.
+  @channel = Channel::Line.find_by(line_channel_id: @params[:line_channel_id]) if @params[:line_channel_id]
+end

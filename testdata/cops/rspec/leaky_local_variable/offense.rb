@@ -31,3 +31,17 @@ shared_examples 'sentinel support' do
     end
   end
 end
+
+describe Whatsapp::SendOnWhatsappService do
+  template_params = { name: 'sample_shipping_confirmation' }
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/LeakyLocalVariable: Do not use local variables defined outside of examples inside of them.
+
+  describe '#perform' do
+    context 'when a valid message' do
+      it 'sends template' do
+        message = create(:message, additional_attributes: { template_params: template_params })
+        described_class.new(message: message).perform
+      end
+    end
+  end
+end

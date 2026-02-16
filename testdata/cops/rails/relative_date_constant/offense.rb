@@ -1,8 +1,10 @@
-FOO = Date.today
-^^^^^^^^^^^^^^^^ Rails/RelativeDateConstant: Do not assign relative dates to constants.
-BAR = Time.now
-^^^^^^^^^^^^^^ Rails/RelativeDateConstant: Do not assign relative dates to constants.
-DEADLINE = DateTime.current
-^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RelativeDateConstant: Do not assign relative dates to constants.
-QUX = ::Date.today
-^^^^^^^^^^^^^^^^^^ Rails/RelativeDateConstant: Do not assign relative dates to constants.
+EXPIRED_AT = 1.week.since
+^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RelativeDateConstant: Do not assign relative dates to constants.
+DEADLINE = 3.months.ago
+^^^^^^^^^^^^^^^^^^^^^^^ Rails/RelativeDateConstant: Do not assign relative dates to constants.
+STARTED = Time.now.yesterday
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RelativeDateConstant: Do not assign relative dates to constants.
+FUTURE = Date.today.tomorrow
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RelativeDateConstant: Do not assign relative dates to constants.
+LAST_WEEK = 7.days.before
+^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RelativeDateConstant: Do not assign relative dates to constants.

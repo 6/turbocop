@@ -1,4 +1,4 @@
-use crate::cop::util::{count_body_lines, count_body_lines_ex, collect_foldable_ranges};
+use crate::cop::util::{count_body_lines_ex, collect_foldable_ranges, collect_heredoc_ranges};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -50,20 +50,29 @@ impl Cop for MethodLength {
 
         let start_offset = def_node.def_keyword_loc().start_offset();
         let end_offset = end_loc.start_offset();
-        let count = if let Some(cao) = &count_as_one {
-            if !cao.is_empty() {
-                if let Some(body) = def_node.body() {
-                    let foldable = collect_foldable_ranges(source, &body, cao);
-                    count_body_lines_ex(source, start_offset, end_offset, count_comments, &foldable)
-                } else {
-                    0
+
+        // Always fold heredoc lines to match RuboCop behavior. In RuboCop's
+        // Parser AST, `body.source` for a heredoc returns only the opening
+        // delimiter, so heredoc content is never counted toward method length.
+        // Prism includes heredoc content in the node's byte range, so we must
+        // explicitly fold those lines.
+        let mut all_foldable: Vec<(usize, usize)> = if let Some(body) = def_node.body() {
+            let mut ranges = collect_heredoc_ranges(source, &body);
+            if let Some(cao) = &count_as_one {
+                if !cao.is_empty() {
+                    ranges.extend(collect_foldable_ranges(source, &body, cao));
                 }
-            } else {
-                count_body_lines(source, start_offset, end_offset, count_comments)
             }
+            ranges
         } else {
-            count_body_lines(source, start_offset, end_offset, count_comments)
+            Vec::new()
         };
+        // Deduplicate: heredoc ranges may already be in foldable ranges if
+        // CountAsOne includes "heredoc"
+        all_foldable.sort();
+        all_foldable.dedup();
+
+        let count = count_body_lines_ex(source, start_offset, end_offset, count_comments, &all_foldable);
 
         if count > max {
             let (line, column) = source.offset_to_line_col(start_offset);

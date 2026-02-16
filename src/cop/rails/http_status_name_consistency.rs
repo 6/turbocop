@@ -113,6 +113,42 @@ impl HttpStatusNameConsistency {
                 }
             }
         }
+
+        // Check conditional expressions (ternary: condition ? val1 : val2)
+        if let Some(if_node) = node.as_if_node() {
+            if let Some(stmts) = if_node.statements() {
+                for stmt in stmts.body().iter() {
+                    self.check_for_deprecated_status(source, &stmt, diagnostics);
+                }
+            }
+            if let Some(subsequent) = if_node.subsequent() {
+                if let Some(else_node) = subsequent.as_else_node() {
+                    if let Some(stmts) = else_node.statements() {
+                        for stmt in stmts.body().iter() {
+                            self.check_for_deprecated_status(source, &stmt, diagnostics);
+                        }
+                    }
+                } else if let Some(elsif_node) = subsequent.as_if_node() {
+                    self.check_for_deprecated_status(source, &elsif_node.as_node(), diagnostics);
+                }
+            }
+        }
+
+        // Check unless expressions
+        if let Some(unless_node) = node.as_unless_node() {
+            if let Some(stmts) = unless_node.statements() {
+                for stmt in stmts.body().iter() {
+                    self.check_for_deprecated_status(source, &stmt, diagnostics);
+                }
+            }
+            if let Some(else_clause) = unless_node.else_clause() {
+                if let Some(stmts) = else_clause.statements() {
+                    for stmt in stmts.body().iter() {
+                        self.check_for_deprecated_status(source, &stmt, diagnostics);
+                    }
+                }
+            }
+        }
     }
 }
 

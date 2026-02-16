@@ -38,3 +38,11 @@ it 'does something' do
   Bar.context('  does something')
   Baz.it('  does something')
 end
+
+# Multiline string with indentation — consecutive spaces after newline are OK
+context 'when
+  web widget channel' do
+  it 'does something' do
+    expect(true).to eq(true)
+  end
+end

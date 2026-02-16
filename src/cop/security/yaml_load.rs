@@ -18,8 +18,18 @@ impl Cop for YamlLoad {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // RuboCop: maximum_target_ruby_version 3.0
+        // In Ruby 3.1+ (Psych 4), YAML.load uses safe_load by default.
+        let ruby_version = config
+            .options
+            .get("TargetRubyVersion")
+            .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
+            .unwrap_or(2.7);
+        if ruby_version > 3.0 {
+            return Vec::new();
+        }
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),

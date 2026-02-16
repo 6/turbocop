@@ -1,4 +1,3 @@
-use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -6,8 +5,19 @@ use ruby_prism::Visit;
 
 pub struct RelativeDateConstant;
 
-const RELATIVE_TIME_METHODS: &[&[u8]] = &[b"today", b"now", b"current", b"yesterday", b"tomorrow"];
-const TIME_CONSTANTS: &[&[u8]] = &[b"Date", b"Time", b"DateTime"];
+/// RuboCop's RELATIVE_DATE_METHODS: methods that produce relative times when
+/// chained on a duration or date. These only evaluate once when assigned to
+/// a constant, so the constant becomes stale.
+const RELATIVE_DATE_METHODS: &[&[u8]] = &[
+    b"since",
+    b"from_now",
+    b"after",
+    b"ago",
+    b"until",
+    b"before",
+    b"yesterday",
+    b"tomorrow",
+];
 
 impl Cop for RelativeDateConstant {
     fn name(&self) -> &'static str {
@@ -34,6 +44,8 @@ impl Cop for RelativeDateConstant {
         };
 
         // Check if the value contains a relative date/time call
+        // RuboCop checks: `(send _ $RELATIVE_DATE_METHODS)` anywhere in the
+        // value subtree, skipping block nodes.
         let mut finder = RelativeDateFinder { found: false };
         finder.visit(&value);
 
@@ -63,22 +75,19 @@ impl<'a> Visit<'a> for RelativeDateFinder {
         }
 
         let method_name = node.name().as_slice();
-        if RELATIVE_TIME_METHODS.contains(&method_name) {
-            if let Some(recv) = node.receiver() {
-                // Handle both ConstantReadNode and ConstantPathNode
-                let recv_node: ruby_prism::Node<'_> = recv;
-                if let Some(name) = util::constant_name(&recv_node) {
-                    if TIME_CONSTANTS.contains(&name) {
-                        self.found = true;
-                        return;
-                    }
-                }
-            }
+        // Match any call to a relative date method on any receiver
+        if RELATIVE_DATE_METHODS.contains(&method_name) && node.receiver().is_some() {
+            self.found = true;
+            return;
         }
 
         // Continue visiting children
         ruby_prism::visit_call_node(self, node);
     }
+
+    // Skip block nodes — RuboCop does `return if node.any_block_type?`
+    fn visit_block_node(&mut self, _node: &ruby_prism::BlockNode<'a>) {}
+    fn visit_lambda_node(&mut self, _node: &ruby_prism::LambdaNode<'a>) {}
 }
 
 #[cfg(test)]

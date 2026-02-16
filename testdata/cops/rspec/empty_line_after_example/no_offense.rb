@@ -18,4 +18,43 @@ RSpec.describe Foo do
 
   it 'another thing' do
   end
+
+  # Bare example calls without blocks are NOT example declarations
+  # (e.g. `scenario` from let(:scenario), `skip(...)` inside before)
+  before do
+    skip('not configured') unless configured?
+  end
+
+  let(:scenario) { create(:scenario) }
+
+  it 'uses scenario' do
+    allow(obj).to receive(:items).and_return([scenario])
+    expect(scenario).to be_truthy
+  end
+
+  # Example inside if/else — last child before `else` needs no blank line
+  [true, false].each do |flag|
+    if flag
+      it 'does one thing' do
+        expect(flag).to be true
+      end
+    else
+      it 'does another thing' do
+        expect(flag).to be false
+      end
+    end
+  end
+
+  # One-liner followed by comment then another one-liner
+  it { is_expected.to validate_presence_of(:name) }
+  # it { is_expected.to validate_uniqueness_of(:code) }
+  it { is_expected.to belong_to(:account) }
+  it { is_expected.to have_one(:inbox) }
+
+  # Example followed by comment then `end`
+  context 'nested' do
+    it 'works' do
+    end
+    # rubocop:enable RSpec/AnyInstance
+  end
 end

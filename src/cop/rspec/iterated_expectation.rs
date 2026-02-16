@@ -68,7 +68,8 @@ impl Cop for IteratedExpectation {
         };
 
         let requireds: Vec<_> = inner_params.requireds().iter().collect();
-        if requireds.is_empty() {
+        // RuboCop pattern requires exactly one block parameter: (args (arg $_))
+        if requireds.len() != 1 {
             return Vec::new();
         }
 

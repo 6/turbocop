@@ -56,23 +56,40 @@ impl AbcCounter {
                 self.assignments += 1;
             }
 
-            // B (Branches)
+            // B (Branches) — send/csend/yield
+            // Comparison methods (==, !=, <, >, <=, >=, ===) count as conditions,
+            // not branches, matching RuboCop's behavior.
             ruby_prism::Node::CallNode { .. } => {
-                if !self.count_repeated_attributes {
-                    // An "attribute" is a receiverless call with no arguments
-                    if let Some(call) = node.as_call_node() {
-                        let has_no_args = call.arguments().is_none();
-                        let is_receiverless = call.receiver().is_none();
-                        if has_no_args && is_receiverless {
-                            let name = call.name().as_slice().to_vec();
-                            if !self.seen_attributes.insert(name) {
-                                // Already seen this attribute, don't count again
-                                return;
+                if let Some(call) = node.as_call_node() {
+                    let method_name = call.name().as_slice();
+                    if is_comparison_method(method_name) {
+                        // Comparison operators are conditions, not branches
+                        self.conditions += 1;
+                    } else {
+                        if !self.count_repeated_attributes {
+                            // An "attribute" is a receiverless call with no arguments
+                            let has_no_args = call.arguments().is_none();
+                            let is_receiverless = call.receiver().is_none();
+                            if has_no_args && is_receiverless {
+                                let name = method_name.to_vec();
+                                if !self.seen_attributes.insert(name) {
+                                    // Already seen this attribute, don't count again
+                                    return;
+                                }
                             }
+                        }
+                        self.branches += 1;
+                        // Safe navigation (&.) adds an extra condition, matching
+                        // RuboCop where csend is both a branch and a condition.
+                        if call.call_operator_loc().map_or(false, |loc| {
+                                let bytes = loc.as_slice();
+                                bytes == b"&."
+                            })
+                        {
+                            self.conditions += 1;
                         }
                     }
                 }
-                self.branches += 1;
             }
 
             // C (Conditions)
@@ -107,6 +124,15 @@ impl<'pr> Visit<'pr> for AbcCounter {
     fn visit_leaf_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
         self.count_node(&node);
     }
+}
+
+/// RuboCop comparison operators: ==, ===, !=, <=, >=, >, <
+/// These are counted as conditions, not branches, in ABC metric.
+fn is_comparison_method(name: &[u8]) -> bool {
+    matches!(
+        name,
+        b"==" | b"===" | b"!=" | b"<=" | b">=" | b">" | b"<"
+    )
 }
 
 impl Cop for AbcSize {

@@ -1,3 +1,5 @@
+use ruby_prism::Visit;
+
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -13,105 +15,116 @@ impl Cop for Pluck {
         Severity::Convention
     }
 
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let call = match node.as_call_node() {
-            Some(c) => c,
-            None => return Vec::new(),
+        let mut visitor = PluckVisitor {
+            cop: self,
+            source,
+            // Track depth of blocks that have a receiver (i.e., `receiver.method { ... }`)
+            receiver_block_depth: 0,
+            diagnostics: Vec::new(),
         };
+        visitor.visit(&parse_result.node());
+        visitor.diagnostics
+    }
+}
 
-        let method_name = call.name().as_slice();
-        if method_name != b"map" && method_name != b"collect" {
-            return Vec::new();
+struct PluckVisitor<'a, 'src> {
+    cop: &'a Pluck,
+    source: &'src SourceFile,
+    receiver_block_depth: usize,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl<'pr> Visit<'pr> for PluckVisitor<'_, '_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        let method_name = node.name().as_slice();
+
+        // Check for pluck candidate pattern: receiver.map/collect { |x| x[:key] }
+        if (method_name == b"map" || method_name == b"collect") && self.receiver_block_depth == 0 {
+            if let Some(diag) = self.check_pluck_candidate(node) {
+                self.diagnostics.push(diag);
+            }
         }
 
-        // Must have a block
-        let block = match call.block() {
-            Some(b) => b,
-            None => return Vec::new(),
-        };
+        // Track receiver block depth for nested blocks
+        if let Some(block) = node.block() {
+            if let Some(block_node) = block.as_block_node() {
+                // If this call has a receiver, nested map/collect should be skipped
+                // to prevent N+1 query issues (matching RuboCop behavior).
+                if node.receiver().is_some() {
+                    self.receiver_block_depth += 1;
+                    ruby_prism::visit_block_node(self, &block_node);
+                    self.receiver_block_depth -= 1;
+                } else {
+                    ruby_prism::visit_block_node(self, &block_node);
+                }
+                // Visit remaining children (receiver, arguments) but not the block again
+                if let Some(recv) = node.receiver() {
+                    self.visit(&recv);
+                }
+                if let Some(args) = node.arguments() {
+                    self.visit_arguments_node(&args);
+                }
+                return;
+            }
+        }
 
-        let block_node = match block.as_block_node() {
-            Some(b) => b,
-            None => return Vec::new(),
-        };
+        // Default: visit all children
+        ruby_prism::visit_call_node(self, node);
+    }
+}
+
+impl PluckVisitor<'_, '_> {
+    fn check_pluck_candidate(&self, call: &ruby_prism::CallNode<'_>) -> Option<Diagnostic> {
+        // Must have a block
+        let block = call.block()?;
+        let block_node = block.as_block_node()?;
 
         // Get block parameter name (must have exactly one)
-        let params = match block_node.parameters() {
-            Some(p) => p,
-            None => return Vec::new(),
-        };
-        let block_params = match params.as_block_parameters_node() {
-            Some(bp) => bp,
-            None => return Vec::new(),
-        };
-        let param_list = match block_params.parameters() {
-            Some(pl) => pl,
-            None => return Vec::new(),
-        };
+        let params = block_node.parameters()?;
+        let block_params = params.as_block_parameters_node()?;
+        let param_list = block_params.parameters()?;
         let requireds: Vec<_> = param_list.requireds().iter().collect();
         if requireds.len() != 1 {
-            return Vec::new();
+            return None;
         }
-        let param_node = match requireds[0].as_required_parameter_node() {
-            Some(p) => p,
-            None => return Vec::new(),
-        };
+        let param_node = requireds[0].as_required_parameter_node()?;
         let param_name = param_node.name().as_slice();
 
         // Block body should be a single indexing operation: block_param[:key]
-        let body = match block_node.body() {
-            Some(b) => b,
-            None => return Vec::new(),
-        };
-
-        let stmts = match body.as_statements_node() {
-            Some(s) => s,
-            None => return Vec::new(),
-        };
-
+        let body = block_node.body()?;
+        let stmts = body.as_statements_node()?;
         let body_nodes: Vec<_> = stmts.body().iter().collect();
         if body_nodes.len() != 1 {
-            return Vec::new();
+            return None;
         }
 
-        let inner_call = match body_nodes[0].as_call_node() {
-            Some(c) => c,
-            None => return Vec::new(),
-        };
-
+        let inner_call = body_nodes[0].as_call_node()?;
         if inner_call.name().as_slice() != b"[]" {
-            return Vec::new();
+            return None;
         }
 
         // Receiver of [] must be the block parameter (a local variable read)
-        let receiver = match inner_call.receiver() {
-            Some(r) => r,
-            None => return Vec::new(),
-        };
-
-        let lvar = match receiver.as_local_variable_read_node() {
-            Some(l) => l,
-            None => return Vec::new(),
-        };
-
+        let receiver = inner_call.receiver()?;
+        let lvar = receiver.as_local_variable_read_node()?;
         if lvar.name().as_slice() != param_name {
-            return Vec::new();
+            return None;
         }
 
-        let loc = node.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
-            source,
+        let loc = call.location();
+        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+        Some(self.cop.diagnostic(
+            self.source,
             line,
             column,
             "Use `pluck(:key)` instead of `map { |item| item[:key] }`.".to_string(),
-        )]
+        ))
     }
 }
 

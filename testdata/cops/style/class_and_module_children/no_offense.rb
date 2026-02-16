@@ -18,3 +18,19 @@ class FooClass
   class BarClass
   end
 end
+
+# Class inside class with inheritance (common pattern in policy objects)
+class InboxPolicy < ApplicationPolicy
+  class Scope
+    def resolve
+      super
+    end
+  end
+end
+
+# Module inside class (nested style is fine)
+class MyService
+  module Helpers
+    def help; end
+  end
+end

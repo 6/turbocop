@@ -98,9 +98,11 @@ impl Cop for RedundantMerge {
         }
         // Check if merge! is the last expression in a block (its return value
         // becomes the block's return value). Look for `end`/`}` on the next
-        // non-blank/non-comment line after the merge! line. This also handles
+        // non-blank/non-comment line after the merge! END line. This also handles
         // modifier conditionals like `h.merge!(k: v) if cond`.
-        let (call_line, _) = source.offset_to_line_col(call.location().start_offset());
+        // Use the call's END offset to handle multi-line merge! calls.
+        let end_off = call.location().end_offset().saturating_sub(1).max(call.location().start_offset());
+        let (call_line, _) = source.offset_to_line_col(end_off);
         let all_lines: Vec<&[u8]> = source.lines().collect();
         for next_line_idx in call_line..all_lines.len() {
             if let Some(nl) = all_lines.get(next_line_idx) {

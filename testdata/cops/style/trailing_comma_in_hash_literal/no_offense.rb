@@ -7,3 +7,9 @@
 {x: "hello", y: "world"}
 
 {foo: :bar}
+
+# Comma inside a comment between last element and closing brace
+{
+  'name' => 'hello'
+  # No language, should default
+}

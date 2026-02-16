@@ -71,6 +71,87 @@ impl Cop for SkipsModelValidations {
         if call.receiver().is_none() {
             return Vec::new();
         }
+
+        // RuboCop: METHODS_WITH_ARGUMENTS — skip if the method is in this list
+        // and has no arguments (e.g. `model.touch` with no args).
+        let methods_with_args: &[&[u8]] = &[
+            b"decrement!", b"decrement_counter", b"increment!", b"increment_counter",
+            b"insert", b"insert!", b"insert_all", b"insert_all!",
+            b"toggle!", b"update_all", b"update_attribute", b"update_column",
+            b"update_columns", b"update_counters", b"upsert", b"upsert_all",
+        ];
+        if methods_with_args.contains(&method_name) && call.arguments().is_none() {
+            return Vec::new();
+        }
+
+        // RuboCop: good_insert? — for insert/insert!, skip when the second argument
+        // is not a hash with :returning or :unique_by keys. This distinguishes
+        // String#insert(idx, str) from ActiveRecord insert(attributes_hash).
+        if method_name == b"insert" || method_name == b"insert!" {
+            if let Some(args) = call.arguments() {
+                let arg_list: Vec<_> = args.arguments().iter().collect();
+                // good_insert? pattern: (call _ {:insert :insert!} _ { !(hash ...) | (hash without :returning/:unique_by) } ...)
+                // If there are at least 2 args, check the second arg
+                if arg_list.len() >= 2 {
+                    let second = &arg_list[1];
+                    let is_ar_insert = if let Some(hash) = second.as_hash_node() {
+                        // It's a hash — only flag if it contains :returning or :unique_by
+                        hash.elements().iter().any(|elem| {
+                            if let Some(assoc) = elem.as_assoc_node() {
+                                if let Some(sym) = assoc.key().as_symbol_node() {
+                                    let name: &[u8] = sym.unescaped().as_ref();
+                                    return name == b"returning" || name == b"unique_by";
+                                }
+                            }
+                            false
+                        })
+                    } else if let Some(kw_hash) = second.as_keyword_hash_node() {
+                        kw_hash.elements().iter().any(|elem| {
+                            if let Some(assoc) = elem.as_assoc_node() {
+                                if let Some(sym) = assoc.key().as_symbol_node() {
+                                    let name: &[u8] = sym.unescaped().as_ref();
+                                    return name == b"returning" || name == b"unique_by";
+                                }
+                            }
+                            false
+                        })
+                    } else {
+                        false // Not a hash — not an AR insert
+                    };
+                    if !is_ar_insert {
+                        return Vec::new();
+                    }
+                }
+            }
+        }
+
+        // RuboCop: good_touch? — FileUtils.touch or _.touch(boolean)
+        if method_name == b"touch" {
+            if let Some(recv) = call.receiver() {
+                if let Some(cr) = recv.as_constant_read_node() {
+                    if cr.name().as_slice() == b"FileUtils" {
+                        return Vec::new();
+                    }
+                }
+                if let Some(cp) = recv.as_constant_path_node() {
+                    if let Some(name) = cp.name() {
+                        if name.as_slice() == b"FileUtils" {
+                            return Vec::new();
+                        }
+                    }
+                }
+            }
+            if let Some(args) = call.arguments() {
+                let arg_list: Vec<_> = args.arguments().iter().collect();
+                if arg_list.len() == 1 {
+                    let first = &arg_list[0];
+                    if first.as_true_node().is_some() || first.as_false_node().is_some() {
+                        return Vec::new();
+                    }
+                }
+            }
+        }
+
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         let msg = format!(
