@@ -47,6 +47,7 @@ pub mod literal_as_condition;
 pub mod literal_assignment_in_condition;
 pub mod literal_in_interpolation;
 pub mod loop_cop;
+pub mod missing_super;
 pub mod multiple_comparison;
 pub mod nested_method_definition;
 pub mod next_without_accumulator;
@@ -154,6 +155,7 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(literal_assignment_in_condition::LiteralAssignmentInCondition));
     registry.register(Box::new(literal_in_interpolation::LiteralInInterpolation));
     registry.register(Box::new(loop_cop::Loop));
+    registry.register(Box::new(missing_super::MissingSuper));
     registry.register(Box::new(multiple_comparison::MultipleComparison));
     registry.register(Box::new(nested_method_definition::NestedMethodDefinition));
     registry.register(Box::new(next_without_accumulator::NextWithoutAccumulator));

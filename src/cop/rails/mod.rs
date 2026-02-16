@@ -90,6 +90,7 @@ pub mod time_zone_assignment;
 pub mod to_formatted_s;
 pub mod to_s_with_argument;
 pub mod transaction_exit_statement;
+pub mod unique_validation_without_index;
 pub mod unknown_env;
 pub mod unused_render_content;
 pub mod validation;
@@ -192,6 +193,7 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(to_formatted_s::ToFormattedS));
     registry.register(Box::new(to_s_with_argument::ToSWithArgument));
     registry.register(Box::new(transaction_exit_statement::TransactionExitStatement));
+    registry.register(Box::new(unique_validation_without_index::UniqueValidationWithoutIndex));
     registry.register(Box::new(unknown_env::UnknownEnv));
     registry.register(Box::new(unused_render_content::UnusedRenderContent));
     registry.register(Box::new(validation::Validation));

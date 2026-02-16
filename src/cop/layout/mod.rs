@@ -2,9 +2,11 @@ pub mod access_modifier_indentation;
 pub mod argument_alignment;
 pub mod array_alignment;
 pub mod assignment_indentation;
+pub mod begin_end_alignment;
 pub mod block_alignment;
 pub mod block_end_newline;
 pub mod case_indentation;
+pub mod class_structure;
 pub mod closing_heredoc_indentation;
 pub mod closing_parenthesis_indentation;
 pub mod comment_indentation;
@@ -15,10 +17,12 @@ pub mod else_alignment;
 pub mod empty_comment;
 pub mod empty_line_after_guard_clause;
 pub mod empty_line_after_magic_comment;
+pub mod empty_line_after_multiline_condition;
 pub mod empty_line_between_defs;
 pub mod empty_lines;
 pub mod empty_lines_after_module_inclusion;
 pub mod empty_lines_around_access_modifier;
+pub mod empty_lines_around_arguments;
 pub mod empty_lines_around_attribute_accessor;
 pub mod empty_lines_around_begin_body;
 pub mod empty_lines_around_block_body;
@@ -31,8 +35,14 @@ pub mod end_of_line;
 pub mod extra_spacing;
 pub mod first_argument_indentation;
 pub mod first_array_element_indentation;
+pub mod first_array_element_line_break;
 pub mod first_hash_element_indentation;
+pub mod first_hash_element_line_break;
+pub mod first_method_argument_line_break;
+pub mod first_method_parameter_line_break;
+pub mod first_parameter_indentation;
 pub mod hash_alignment;
+pub mod heredoc_argument_closing_parenthesis;
 pub mod heredoc_indentation;
 pub mod indentation_consistency;
 pub mod indentation_style;
@@ -41,19 +51,31 @@ pub mod initial_indentation;
 pub mod leading_comment_space;
 pub mod leading_empty_lines;
 pub mod line_continuation_leading_space;
+pub mod line_continuation_spacing;
+pub mod line_end_string_concatenation_indentation;
 pub mod line_length;
 pub mod multiline_array_brace_layout;
+pub mod multiline_array_line_breaks;
+pub mod multiline_assignment_layout;
 pub mod multiline_block_layout;
 pub mod multiline_hash_brace_layout;
+pub mod multiline_hash_key_line_breaks;
+pub mod multiline_method_argument_line_breaks;
+pub mod multiline_method_call_brace_layout;
 pub mod multiline_method_call_indentation;
+pub mod multiline_method_definition_brace_layout;
+pub mod multiline_method_parameter_line_breaks;
 pub mod multiline_operation_indentation;
 pub mod parameter_alignment;
+pub mod redundant_line_break;
 pub mod rescue_ensure_alignment;
+pub mod single_line_block_chain;
 pub mod space_after_colon;
 pub mod space_after_comma;
 pub mod space_after_method_name;
 pub mod space_after_not;
 pub mod space_after_semicolon;
+pub mod space_around_block_parameters;
 pub mod space_around_equals_in_parameter_default;
 pub mod space_around_keyword;
 pub mod space_around_method_call_operator;
@@ -242,5 +264,71 @@ pub fn register_all(registry: &mut CopRegistry) {
     ));
     registry.register(Box::new(
         multiline_hash_brace_layout::MultilineHashBraceLayout,
+    ));
+    // Batch: 17 existing cops
+    registry.register(Box::new(
+        begin_end_alignment::BeginEndAlignment,
+    ));
+    registry.register(Box::new(class_structure::ClassStructure));
+    registry.register(Box::new(
+        empty_line_after_multiline_condition::EmptyLineAfterMultilineCondition,
+    ));
+    registry.register(Box::new(
+        empty_lines_around_arguments::EmptyLinesAroundArguments,
+    ));
+    registry.register(Box::new(
+        first_array_element_line_break::FirstArrayElementLineBreak,
+    ));
+    registry.register(Box::new(
+        first_hash_element_line_break::FirstHashElementLineBreak,
+    ));
+    registry.register(Box::new(
+        first_method_argument_line_break::FirstMethodArgumentLineBreak,
+    ));
+    registry.register(Box::new(
+        first_method_parameter_line_break::FirstMethodParameterLineBreak,
+    ));
+    registry.register(Box::new(
+        first_parameter_indentation::FirstParameterIndentation,
+    ));
+    registry.register(Box::new(
+        heredoc_argument_closing_parenthesis::HeredocArgumentClosingParenthesis,
+    ));
+    registry.register(Box::new(
+        line_continuation_spacing::LineContinuationSpacing,
+    ));
+    registry.register(Box::new(
+        line_end_string_concatenation_indentation::LineEndStringConcatenationIndentation,
+    ));
+    registry.register(Box::new(
+        multiline_array_line_breaks::MultilineArrayLineBreaks,
+    ));
+    registry.register(Box::new(
+        multiline_hash_key_line_breaks::MultilineHashKeyLineBreaks,
+    ));
+    registry.register(Box::new(
+        multiline_method_argument_line_breaks::MultilineMethodArgumentLineBreaks,
+    ));
+    registry.register(Box::new(
+        multiline_method_parameter_line_breaks::MultilineMethodParameterLineBreaks,
+    ));
+    registry.register(Box::new(
+        space_around_block_parameters::SpaceAroundBlockParameters,
+    ));
+    // Batch: 5 new cops
+    registry.register(Box::new(
+        multiline_assignment_layout::MultilineAssignmentLayout,
+    ));
+    registry.register(Box::new(
+        multiline_method_call_brace_layout::MultilineMethodCallBraceLayout,
+    ));
+    registry.register(Box::new(
+        multiline_method_definition_brace_layout::MultilineMethodDefinitionBraceLayout,
+    ));
+    registry.register(Box::new(
+        redundant_line_break::RedundantLineBreak,
+    ));
+    registry.register(Box::new(
+        single_line_block_chain::SingleLineBlockChain,
     ));
 }

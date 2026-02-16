@@ -1,6 +1,7 @@
 pub mod and_or;
 pub mod block_delimiters;
 pub mod class_and_module_children;
+pub mod class_vars;
 pub mod colon_method_call;
 pub mod def_with_parentheses;
 pub mod documentation;
@@ -9,6 +10,7 @@ pub mod empty_method;
 pub mod explicit_block_argument;
 pub mod frozen_string_literal_comment;
 pub mod global_vars;
+pub mod guard_clause;
 pub mod hash_syntax;
 pub mod hash_transform_keys;
 pub mod hash_transform_values;
@@ -27,6 +29,8 @@ pub mod numeric_literal_prefix;
 pub mod numeric_literals;
 pub mod numeric_predicate;
 pub mod object_then;
+pub mod one_class_per_file;
+pub mod optional_boolean_parameter;
 pub mod open_struct_use;
 pub mod or_assignment;
 pub mod parentheses_around_condition;
@@ -112,6 +116,7 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(hash_syntax::HashSyntax));
     registry.register(Box::new(method_call_with_args_parentheses::MethodCallWithArgsParentheses));
     registry.register(Box::new(and_or::AndOr));
+    registry.register(Box::new(class_vars::ClassVars));
     registry.register(Box::new(method_def_parentheses::MethodDefParentheses));
     registry.register(Box::new(def_with_parentheses::DefWithParentheses));
     registry.register(Box::new(unless_else::UnlessElse));
@@ -156,4 +161,7 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(single_argument_dig::SingleArgumentDig));
     registry.register(Box::new(select_by_regexp::SelectByRegexp));
     registry.register(Box::new(redundant_file_extension_in_require::RedundantFileExtensionInRequire));
+    registry.register(Box::new(guard_clause::GuardClause));
+    registry.register(Box::new(one_class_per_file::OneClassPerFile));
+    registry.register(Box::new(optional_boolean_parameter::OptionalBooleanParameter));
 }
