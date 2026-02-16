@@ -1,6 +1,8 @@
 pub mod abc_size;
 pub mod block_length;
+pub mod block_nesting;
 pub mod class_length;
+pub mod collection_literal_length;
 pub mod cyclomatic_complexity;
 pub mod method_length;
 pub mod module_length;
@@ -18,4 +20,8 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(abc_size::AbcSize));
     registry.register(Box::new(cyclomatic_complexity::CyclomaticComplexity));
     registry.register(Box::new(perceived_complexity::PerceivedComplexity));
+    registry.register(Box::new(block_nesting::BlockNesting));
+    registry.register(Box::new(
+        collection_literal_length::CollectionLiteralLength,
+    ));
 }

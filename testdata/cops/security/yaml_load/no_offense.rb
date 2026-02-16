@@ -1,0 +1,5 @@
+YAML.safe_load(data)
+YAML.parse(data)
+Psych.safe_load(data)
+obj.load(data)
+yaml_load(data)

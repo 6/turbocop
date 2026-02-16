@@ -1,0 +1,6 @@
+"hello #{name}"
+"foo #{1 + 2} bar"
+"#{x}"
+"no interpolation here"
+result = "value: #{compute}"
+x = "#{a} and #{b}"

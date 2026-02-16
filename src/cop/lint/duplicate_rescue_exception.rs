@@ -1,0 +1,59 @@
+use std::collections::HashSet;
+
+use crate::cop::{Cop, CopConfig};
+use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::source::SourceFile;
+
+pub struct DuplicateRescueException;
+
+impl Cop for DuplicateRescueException {
+    fn name(&self) -> &'static str {
+        "Lint/DuplicateRescueException"
+    }
+
+    fn default_severity(&self) -> Severity {
+        Severity::Warning
+    }
+
+    fn check_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
+        let begin_node = match node.as_begin_node() {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+
+        let mut seen = HashSet::new();
+        let mut diagnostics = Vec::new();
+        let mut rescue_opt = begin_node.rescue_clause();
+
+        while let Some(rescue_node) = rescue_opt {
+            for exception in rescue_node.exceptions().iter() {
+                let text = exception.location().as_slice().to_vec();
+                if !seen.insert(text) {
+                    let loc = exception.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Duplicate `rescue` exception detected.".to_string(),
+                    ));
+                }
+            }
+            rescue_opt = rescue_node.subsequent();
+        }
+
+        diagnostics
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    crate::cop_fixture_tests!(DuplicateRescueException, "cops/lint/duplicate_rescue_exception");
+}

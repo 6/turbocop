@@ -1,0 +1,6 @@
+"result is #{compute}"
+"hello #{name}"
+"#{x + y}"
+"#{foo(bar)}"
+"no interpolation"
+"#{variable}"

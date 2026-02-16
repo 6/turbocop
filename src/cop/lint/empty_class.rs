@@ -1,0 +1,95 @@
+use crate::cop::{Cop, CopConfig};
+use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::source::SourceFile;
+
+pub struct EmptyClass;
+
+impl Cop for EmptyClass {
+    fn name(&self) -> &'static str {
+        "Lint/EmptyClass"
+    }
+
+    fn default_severity(&self) -> Severity {
+        Severity::Warning
+    }
+
+    fn check_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        config: &CopConfig,
+    ) -> Vec<Diagnostic> {
+        // Handle both ClassNode and SingletonClassNode (metaclass)
+        let (body_empty, kw_loc, start_line, end_line) =
+            if let Some(class_node) = node.as_class_node() {
+                let empty = match class_node.body() {
+                    None => true,
+                    Some(body) => {
+                        if let Some(stmts) = body.as_statements_node() {
+                            stmts.body().is_empty()
+                        } else {
+                            false
+                        }
+                    }
+                };
+                let loc = class_node.location();
+                let (sl, _) = source.offset_to_line_col(loc.start_offset());
+                let (el, _) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
+                (empty, class_node.class_keyword_loc(), sl, el)
+            } else if let Some(sclass) = node.as_singleton_class_node() {
+                let empty = match sclass.body() {
+                    None => true,
+                    Some(body) => {
+                        if let Some(stmts) = body.as_statements_node() {
+                            stmts.body().is_empty()
+                        } else {
+                            false
+                        }
+                    }
+                };
+                let loc = sclass.location();
+                let (sl, _) = source.offset_to_line_col(loc.start_offset());
+                let (el, _) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
+                (empty, sclass.class_keyword_loc(), sl, el)
+            } else {
+                return Vec::new();
+            };
+
+        if !body_empty {
+            return Vec::new();
+        }
+
+        // AllowComments: default false per vendor config
+        let allow_comments = config.get_bool("AllowComments", false);
+        if allow_comments {
+            let lines: Vec<&[u8]> = source.lines().collect();
+            for line_num in start_line..=end_line {
+                if let Some(line) = lines.get(line_num - 1) {
+                    let trimmed = line
+                        .iter()
+                        .position(|&b| b != b' ' && b != b'\t')
+                        .map(|start| &line[start..])
+                        .unwrap_or(&[]);
+                    if trimmed.starts_with(b"#") {
+                        return Vec::new();
+                    }
+                }
+            }
+        }
+
+        let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
+        vec![self.diagnostic(
+            source,
+            line,
+            column,
+            "Empty class detected.".to_string(),
+        )]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    crate::cop_fixture_tests!(EmptyClass, "cops/lint/empty_class");
+}

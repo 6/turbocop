@@ -1,0 +1,76 @@
+use crate::cop::{Cop, CopConfig};
+use crate::diagnostic::Diagnostic;
+use crate::parse::source::SourceFile;
+
+pub struct MethodDefParentheses;
+
+impl Cop for MethodDefParentheses {
+    fn name(&self) -> &'static str {
+        "Style/MethodDefParentheses"
+    }
+
+    fn check_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        config: &CopConfig,
+    ) -> Vec<Diagnostic> {
+        let enforced_style = config.get_str("EnforcedStyle", "require_parentheses");
+
+        let def_node = match node.as_def_node() {
+            Some(d) => d,
+            None => return Vec::new(),
+        };
+
+        // Only apply to methods with parameters
+        let params = match def_node.parameters() {
+            Some(p) => p,
+            None => return Vec::new(),
+        };
+
+        // Check if there are actual parameters
+        if params.requireds().is_empty()
+            && params.optionals().is_empty()
+            && params.rest().is_none()
+            && params.posts().is_empty()
+            && params.keywords().is_empty()
+            && params.keyword_rest().is_none()
+            && params.block().is_none()
+        {
+            return Vec::new();
+        }
+
+        let has_parens = def_node.lparen_loc().is_some();
+
+        match enforced_style {
+            "require_parentheses" | "require_no_parentheses_except_multiline" if !has_parens => {
+                let def_loc = def_node.def_keyword_loc();
+                let (line, column) = source.offset_to_line_col(def_loc.start_offset());
+                vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use `def` with parentheses when there are parameters.".to_string(),
+                )]
+            }
+            "require_no_parentheses" if has_parens => {
+                let def_loc = def_node.def_keyword_loc();
+                let (line, column) = source.offset_to_line_col(def_loc.start_offset());
+                vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use `def` without parentheses.".to_string(),
+                )]
+            }
+            _ => Vec::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    crate::cop_fixture_tests!(MethodDefParentheses, "cops/style/method_def_parentheses");
+}

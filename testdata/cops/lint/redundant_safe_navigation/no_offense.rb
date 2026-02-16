@@ -1,0 +1,10 @@
+CONST&.do_something
+CONST_NAME&.do_something
+nil&.to_i
+foo&.bar
+foo&.respond_to?(:to_a)
+foo&.to_s&.zero?
+foo&.to_i&.zero?
+foo&.to_a&.zero?
+foo&.to_h&.zero?
+foo.bar

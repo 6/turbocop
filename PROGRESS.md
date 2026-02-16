@@ -833,11 +833,11 @@ All config keys across all 364 cops now have real implementations with behaviora
 | rubocop-rails | 98 | 98 | 100% |
 | rubocop-rspec | 113 | 113 | 100% |
 | rubocop-performance | 47 | 47 | 100% |
-| **Grand Total** | **826** | **364** | **44%** |
+| **Grand Total** | **826+** | **450** | **54%** |
 
-All three plugin departments (rails, rspec, performance) have 100% cop coverage. The remaining gap is in core rubocop cops — primarily Lint (133 missing) and Style (256 missing). Gemspec, Bundler, Security, and InternalAffairs departments are excluded (not commonly used or not applicable to external linting).
+All three plugin departments (rails, rspec, performance) have 100% cop coverage. New Security department added (7 cops). Metrics at 100% (10/10). The remaining gap is primarily in Lint (99 missing) and Style (231 missing). Gemspec, Bundler, and InternalAffairs departments are excluded.
 
-1,347 tests passing (1,255 lib + 50 codegen + 42 integration).
+1,550 tests passing (1,458 lib + 50 codegen + 42 integration).
 
 ## Milestones
 
@@ -852,9 +852,9 @@ All three plugin departments (rails, rspec, performance) have 100% cop coverage.
 | **M6**: rubocop-rails + Include/Exclude | 251 | **Done** |
 | **M7**: Autocorrect | +30 fixes | Pending |
 | **M8**: rubocop-rspec | 364 | **Done** |
-| **M9**: Core Cop Coverage | ~826 | Pending |
+| **M9**: Core Cop Coverage Batch 1 | 450 | **In Progress** |
 | **M10**: Production Readiness | 364 + config/CLI | **Done** |
 | **M11**: Config Compatibility | Drop-in .rubocop.yml | **Done** |
 | **FP Elimination**: Zero false positives | 364 | **Done** |
 
-**M9: Core Cop Coverage** — Implement remaining ~462 core rubocop cops (Lint, Style, Layout, Naming, Metrics). This is the next major milestone to bring rblint from 44% to near-complete coverage.
+**M9: Core Cop Coverage Batch 1** — Added 86 new cops (364→450). New Security department (7 cops). Metrics 100% (10/10), Naming 95% (18/19). Lint 12%→35%, Style 11%→20%, Layout 40%→48%. Unit tests all pass (1,550 total). Bench conformance has FPs on new cops — FP elimination is the next step.

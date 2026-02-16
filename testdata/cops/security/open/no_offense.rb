@@ -1,0 +1,5 @@
+File.open("file.rb")
+IO.open(fd)
+obj.open("x")
+file_open(path)
+URI.open("http://example.com")

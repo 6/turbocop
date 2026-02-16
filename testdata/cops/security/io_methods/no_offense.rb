@@ -1,0 +1,5 @@
+File.read("file.txt")
+File.write("file.txt", data)
+obj.read("x")
+io_read(path)
+IO.new(fd)

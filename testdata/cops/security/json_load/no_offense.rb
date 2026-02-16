@@ -1,0 +1,5 @@
+JSON.parse(data)
+JSON.parse("{}")
+obj.load(data)
+json_load(data)
+SomeJSON.load(x)
