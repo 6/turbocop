@@ -61,6 +61,16 @@ static REPOS: &[BenchRepo] = &[
         url: "https://github.com/rails/rails.git",
         tag: "v8.1.2",
     },
+    BenchRepo {
+        name: "rubocop",
+        url: "https://github.com/rubocop/rubocop.git",
+        tag: "v1.84.2",
+    },
+    BenchRepo {
+        name: "chatwoot",
+        url: "https://github.com/chatwoot/chatwoot.git",
+        tag: "v4.10.1",
+    },
 ];
 
 // --- Helpers ---
