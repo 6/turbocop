@@ -1,0 +1,6 @@
+OpenSSL::Cipher.new('aes-128-gcm')
+OpenSSL::Digest.new('SHA256')
+OpenSSL::Digest.digest('SHA256', 'foo')
+cipher = OpenSSL::Cipher.new('des')
+digest = OpenSSL::Digest.new('MD5')
+OpenSSL::Cipher.new(algorithm)

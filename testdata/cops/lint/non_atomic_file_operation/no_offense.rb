@@ -1,0 +1,6 @@
+FileUtils.mkdir_p(path)
+FileUtils.rm_f(path)
+FileUtils.rm_rf(path)
+FileUtils.makedirs(path)
+Dir.exist?(path)
+File.exist?(path)

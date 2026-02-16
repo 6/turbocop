@@ -1,0 +1,140 @@
+use crate::cop::util::is_blank_line;
+use crate::cop::{Cop, CopConfig};
+use crate::diagnostic::Diagnostic;
+use crate::parse::source::SourceFile;
+
+pub struct EmptyLinesAroundAttributeAccessor;
+
+const ATTRIBUTE_METHODS: &[&[u8]] = &[
+    b"attr_reader",
+    b"attr_writer",
+    b"attr_accessor",
+    b"attr",
+];
+
+const DEFAULT_ALLOWED_METHODS: &[&str] = &["alias_method", "public", "protected", "private"];
+
+impl Cop for EmptyLinesAroundAttributeAccessor {
+    fn name(&self) -> &'static str {
+        "Layout/EmptyLinesAroundAttributeAccessor"
+    }
+
+    fn check_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        config: &CopConfig,
+    ) -> Vec<Diagnostic> {
+        let _allow_alias_syntax = config.get_bool("AllowAliasSyntax", true);
+        let _allowed_methods = config.get_string_array("AllowedMethods");
+
+        let call = match node.as_call_node() {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+
+        // Must be a bare call (no receiver)
+        if call.receiver().is_some() {
+            return Vec::new();
+        }
+
+        let method_name = call.name().as_slice();
+        if !ATTRIBUTE_METHODS.iter().any(|&m| m == method_name) {
+            return Vec::new();
+        }
+
+        // Must have arguments (e.g., `attr_reader :foo`)
+        if call.arguments().is_none() {
+            return Vec::new();
+        }
+
+        let loc = call.location();
+        let (last_line, _) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
+        let lines: Vec<&[u8]> = source.lines().collect();
+
+        // Check if the next line exists and is not empty
+        if last_line >= lines.len() {
+            return Vec::new(); // End of file
+        }
+
+        let next_line = lines[last_line]; // 0-indexed: last_line (1-based) maps to lines[last_line] for next
+
+        // If next line is blank, no offense
+        if is_blank_line(next_line) {
+            return Vec::new();
+        }
+
+        // If next line is end of class/module, no offense
+        let next_trimmed: Vec<u8> = next_line
+            .iter()
+            .copied()
+            .skip_while(|&b| b == b' ' || b == b'\t')
+            .collect();
+        if next_trimmed.starts_with(b"end") {
+            let after_end = &next_trimmed[3..];
+            if after_end.is_empty()
+                || after_end[0] == b' '
+                || after_end[0] == b'\n'
+                || after_end[0] == b'\r'
+                || after_end[0] == b'#'
+            {
+                return Vec::new();
+            }
+        }
+
+        // If next line is another attribute accessor, no offense
+        for &attr in ATTRIBUTE_METHODS {
+            if next_trimmed.starts_with(attr) {
+                let after = next_trimmed.get(attr.len());
+                if after.is_none() || matches!(after, Some(b' ') | Some(b'(') | Some(b'\n')) {
+                    return Vec::new();
+                }
+            }
+        }
+
+        // Check if next line is an allowed method
+        let allowed = config.get_string_array("AllowedMethods");
+        let allowed_methods: Vec<String> = allowed.unwrap_or_else(|| {
+            DEFAULT_ALLOWED_METHODS
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        });
+
+        for allowed_method in &allowed_methods {
+            let method_bytes = allowed_method.as_bytes();
+            if next_trimmed.starts_with(method_bytes) {
+                let after = next_trimmed.get(method_bytes.len());
+                if after.is_none()
+                    || matches!(after, Some(b' ') | Some(b'(') | Some(b'\n') | Some(b'\r'))
+                {
+                    return Vec::new();
+                }
+            }
+        }
+
+        // Check if next line is an alias
+        if _allow_alias_syntax && next_trimmed.starts_with(b"alias ") {
+            return Vec::new();
+        }
+
+        let (line, col) = source.offset_to_line_col(loc.start_offset());
+        vec![self.diagnostic(
+            source,
+            line,
+            col,
+            "Add an empty line after attribute accessor.".to_string(),
+        )]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    crate::cop_fixture_tests!(
+        EmptyLinesAroundAttributeAccessor,
+        "cops/layout/empty_lines_around_attribute_accessor"
+    );
+}

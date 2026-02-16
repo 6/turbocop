@@ -440,7 +440,7 @@ fn all_registered_cops_can_fire() {
 #[test]
 fn registry_has_expected_cop_count() {
     let registry = CopRegistry::default_registry();
-    assert_eq!(registry.len(), 514, "Expected 514 registered cops");
+    assert_eq!(registry.len(), 569, "Expected 569 registered cops");
 
     let names = registry.names();
     let expected = [
@@ -485,7 +485,7 @@ fn registry_has_expected_cop_count() {
         "Layout/AssignmentIndentation",
         "Layout/MultilineMethodCallIndentation",
         "Layout/MultilineOperationIndentation",
-        // Lint (19)
+        // Lint (44)
         "Lint/Debugger",
         "Lint/LiteralAsCondition",
         "Lint/EmptyConditionalBody",
@@ -505,6 +505,31 @@ fn registry_has_expected_cop_count() {
         "Lint/ElseLayout",
         "Lint/RedundantStringCoercion",
         "Lint/EachWithObjectArgument",
+        "Lint/AmbiguousAssignment",
+        "Lint/AmbiguousOperatorPrecedence",
+        "Lint/AmbiguousRange",
+        "Lint/ConstantOverwrittenInRescue",
+        "Lint/ConstantReassignment",
+        "Lint/DeprecatedOpenSSLConstant",
+        "Lint/EmptyInPattern",
+        "Lint/HashCompareByIdentity",
+        "Lint/IneffectiveAccessModifier",
+        "Lint/NextWithoutAccumulator",
+        "Lint/NoReturnInBeginEndBlocks",
+        "Lint/NonAtomicFileOperation",
+        "Lint/NumberedParameterAssignment",
+        "Lint/RedundantDirGlobSort",
+        "Lint/RedundantSplatExpansion",
+        "Lint/RequireRangeParentheses",
+        "Lint/SendWithMixinArgument",
+        "Lint/ShadowedException",
+        "Lint/StructNewOverride",
+        "Lint/ToEnumArguments",
+        "Lint/TrailingCommaInAttributeDeclaration",
+        "Lint/UnreachableLoop",
+        "Lint/UselessAccessModifier",
+        "Lint/UselessAssignment",
+        "Lint/UselessSetterCall",
         // Metrics (8)
         "Metrics/MethodLength",
         "Metrics/ClassLength",
@@ -1646,8 +1671,8 @@ fn list_cops_prints_all_registered_cops() {
     let lines: Vec<&str> = stdout.lines().collect();
     assert_eq!(
         lines.len(),
-        514,
-        "Expected 514 cop names, got {}",
+        569,
+        "Expected 569 cop names, got {}",
         lines.len()
     );
 

@@ -1,0 +1,9 @@
+foo.bar
+foo.bar.buzz
+foo&.bar
+foo&.bar&.buzz
+RuboCop::Cop
+RuboCop::Cop::Base
+foo
+  .bar
+  .buzz

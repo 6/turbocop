@@ -511,16 +511,16 @@ Added 45 new cops across Lint (25), Style (4), and Layout (16). Fixed all remain
 
 | Department | RuboCop | rblint | Coverage |
 |------------|--------:|-------:|---------:|
-| Layout | 100 | 64 | 64% |
-| Lint | 152 | 78 | 51% |
-| Style | 287 | 60 | 21% |
+| Layout | 100 | 74 | 74% |
+| Lint | 152 | 103 | 68% |
+| Style | 287 | 80 | 28% |
 | Metrics | 10 | 10 | **100%** |
 | Naming | 19 | 19 | **100%** |
 | Security | 7 | 7 | **100%** |
 | Bundler | 7 | 7 | **100%** |
 | Gemspec | 10 | 10 | **100%** |
 | Migration | 1 | 1 | **100%** |
-| **Total Core** | **593** | **256** | **43.2%** |
+| **Total Core** | **593** | **311** | **52.4%** |
 
 ### Plugin departments
 
@@ -535,11 +535,9 @@ Added 45 new cops across Lint (25), Style (4), and Layout (16). Fixed all remain
 
 | | RuboCop | rblint | Coverage |
 |--|--------:|-------:|---------:|
-| **All departments** | **851** | **514** | **60.4%** |
+| **All departments** | **851** | **569** | **66.9%** |
 
-Remaining gaps: Style (227 missing), Lint (74 missing), Layout (36 missing).
-
-1,649 tests passing (1,607 unit + 42 integration).
+Remaining gaps: Style (207 missing), Lint (49 missing), Layout (26 missing).
 
 ### Bench Conformance
 
@@ -631,6 +629,80 @@ Major fixes:
 - [x] 3 repos at 100%: Mastodon, Discourse, Rails
 - [x] chatwoot: 87 FP + 5 FN → ~11 FP + 0 FN
 
+## In Progress: M13 — Core Cop Expansion Batch 2 (569 cops)
+
+Adding 55 new cops across Lint (25), Style (20), and Layout (10) departments. Focus on cops active across multiple bench repos.
+
+### M13 Cops — Lint (25 new → 103 total)
+
+- [x] Lint/AmbiguousAssignment — `x =+ 1` flagged as `x = +1`
+- [x] Lint/AmbiguousOperatorPrecedence — Ambiguous operator precedence
+- [x] Lint/AmbiguousRange — Ambiguous range in expressions
+- [ ] Lint/ConstantOverwrittenInRescue — Constant overwritten in rescue clause
+- [x] Lint/ConstantReassignment — Reassigning a constant
+- [x] Lint/DeprecatedOpenSSLConstant — Deprecated OpenSSL constants
+- [x] Lint/EmptyInPattern — Empty `in` pattern in case
+- [x] Lint/HashCompareByIdentity — Hash#compare_by_identity flag
+- [ ] Lint/IneffectiveAccessModifier — Private/protected inside class << self
+- [x] Lint/NextWithoutAccumulator — `next` without value in `inject`
+- [x] Lint/NoReturnInBeginEndBlocks — No return from begin/end blocks
+- [x] Lint/NonAtomicFileOperation — Non-atomic file operations
+- [x] Lint/NumberedParameterAssignment — Numbered parameter assignment
+- [ ] Lint/RedundantDirGlobSort — Redundant Dir.glob.sort
+- [ ] Lint/RedundantSplatExpansion — Redundant splat expansion
+- [ ] Lint/RequireRangeParentheses — Parentheses around range
+- [ ] Lint/SendWithMixinArgument — send with include/extend
+- [ ] Lint/ShadowedException — Shadowed exception in rescue
+- [ ] Lint/StructNewOverride — Struct.new member override
+- [x] Lint/ToEnumArguments — to_enum/enum_for argument mismatch
+- [x] Lint/TrailingCommaInAttributeDeclaration — Trailing comma in attr_*
+- [x] Lint/UnreachableLoop — Loop that only executes once
+- [x] Lint/UselessAccessModifier — Useless access modifier
+- [x] Lint/UselessAssignment — Assigned but never used variable
+- [x] Lint/UselessSetterCall — Setter call on local at end of method
+
+### M13 Cops — Style (20 new → 80 total)
+
+- [x] Style/NilLambda — `-> { nil }` → `-> {}`
+- [x] Style/NonNilCheck — `!x.nil?` → `x`
+- [x] Style/NumericLiteralPrefix — Octal/hex/binary literal prefix
+- [x] Style/NumericPredicate — `.zero?` vs `== 0`
+- [x] Style/ObjectThen — `then` vs `yield_self`
+- [x] Style/OrAssignment — `x = x || y` → `x ||= y`
+- [x] Style/PreferredHashMethods — `has_key?` → `key?`
+- [x] Style/RedundantConditional — `if x then true else false end`
+- [ ] Style/RedundantFileExtensionInRequire — Redundant `.rb` in require
+- [x] Style/RedundantSort — `sort.first` → `min`
+- [x] Style/SafeNavigation — `x && x.foo` → `x&.foo`
+- [x] Style/Sample — `shuffle.first` → `sample`
+- [x] Style/SelectByRegexp — `select { |x| x.match?(...) }` → `grep`
+- [x] Style/SelfAssignment — `x = x + 1` → `x += 1`
+- [x] Style/SingleArgumentDig — `dig(0)` → `[]`
+- [x] Style/SlicingWithRange — `[0..-1]` → `[]`
+- [x] Style/StringConcatenation — `"a" + "b"` → string interpolation
+- [x] Style/Strip — `lstrip.rstrip` → `strip`
+- [x] Style/UnpackFirst — `unpack('x').first` → `unpack1`
+- [x] Style/ZeroLengthPredicate — `.length == 0` → `.empty?`
+
+### M13 Cops — Layout (10 new → 74 total)
+
+- [x] Layout/ClosingHeredocIndentation — Heredoc closing tag indentation
+- [x] Layout/EmptyLinesAfterModuleInclusion — Blank line after include/extend
+- [x] Layout/EmptyLinesAroundAttributeAccessor — Blank line around attr_*
+- [x] Layout/ExtraSpacing — Extra spaces between tokens
+- [x] Layout/HeredocIndentation — Heredoc body indentation
+- [x] Layout/LineContinuationLeadingSpace — Leading space after backslash
+- [x] Layout/MultilineArrayBraceLayout — Array brace on new line
+- [x] Layout/MultilineHashBraceLayout — Hash brace on new line
+- [x] Layout/SpaceAroundMethodCallOperator — Space around `.` and `::`
+- [x] Layout/SpaceInsideReferenceBrackets — Space inside `foo[ 0 ]`
+
+### M13 Summary
+
+- [ ] 569 cops registered (was 514)
+- [ ] Tests passing
+- [ ] Conformance maintained on Mastodon, Discourse, Rails
+
 ## Milestones
 
 | Milestone | Cops | Status |
@@ -649,3 +721,4 @@ Major fixes:
 | **M11**: Config Compatibility | Drop-in .rubocop.yml | **Done** |
 | **M12**: Core Cop Expansion + 100% Conformance | 514 | **Done** |
 | **M12c**: Chatwoot FP/FN Elimination | 514 | **Done** |
+| **M13**: Core Cop Expansion Batch 2 | 569 | In Progress |

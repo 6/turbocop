@@ -1,0 +1,6 @@
+require 'foo'
+require 'foo.so'
+require_relative '../foo'
+require_relative '../foo.so'
+require 'bar/baz'
+load 'foo.rb'

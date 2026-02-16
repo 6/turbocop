@@ -5,6 +5,7 @@ pub mod assignment_indentation;
 pub mod block_alignment;
 pub mod block_end_newline;
 pub mod case_indentation;
+pub mod closing_heredoc_indentation;
 pub mod closing_parenthesis_indentation;
 pub mod comment_indentation;
 pub mod condition_position;
@@ -16,7 +17,9 @@ pub mod empty_line_after_guard_clause;
 pub mod empty_line_after_magic_comment;
 pub mod empty_line_between_defs;
 pub mod empty_lines;
+pub mod empty_lines_after_module_inclusion;
 pub mod empty_lines_around_access_modifier;
+pub mod empty_lines_around_attribute_accessor;
 pub mod empty_lines_around_begin_body;
 pub mod empty_lines_around_block_body;
 pub mod empty_lines_around_class_body;
@@ -25,18 +28,23 @@ pub mod empty_lines_around_method_body;
 pub mod empty_lines_around_module_body;
 pub mod end_alignment;
 pub mod end_of_line;
+pub mod extra_spacing;
 pub mod first_argument_indentation;
 pub mod first_array_element_indentation;
 pub mod first_hash_element_indentation;
 pub mod hash_alignment;
+pub mod heredoc_indentation;
 pub mod indentation_consistency;
 pub mod indentation_style;
 pub mod indentation_width;
 pub mod initial_indentation;
 pub mod leading_comment_space;
 pub mod leading_empty_lines;
+pub mod line_continuation_leading_space;
 pub mod line_length;
+pub mod multiline_array_brace_layout;
 pub mod multiline_block_layout;
+pub mod multiline_hash_brace_layout;
 pub mod multiline_method_call_indentation;
 pub mod multiline_operation_indentation;
 pub mod parameter_alignment;
@@ -48,6 +56,7 @@ pub mod space_after_not;
 pub mod space_after_semicolon;
 pub mod space_around_equals_in_parameter_default;
 pub mod space_around_keyword;
+pub mod space_around_method_call_operator;
 pub mod space_around_operators;
 pub mod space_before_block_braces;
 pub mod space_before_brackets;
@@ -63,6 +72,7 @@ pub mod space_inside_hash_literal_braces;
 pub mod space_inside_parens;
 pub mod space_inside_percent_literal_delimiters;
 pub mod space_inside_range_literal;
+pub mod space_inside_reference_brackets;
 pub mod space_inside_string_interpolation;
 pub mod trailing_empty_lines;
 pub mod trailing_whitespace;
@@ -206,4 +216,31 @@ pub fn register_all(registry: &mut CopRegistry) {
         space_inside_array_percent_literal::SpaceInsideArrayPercentLiteral,
     ));
     registry.register(Box::new(space_before_brackets::SpaceBeforeBrackets));
+    // New layout cops
+    registry.register(Box::new(
+        closing_heredoc_indentation::ClosingHeredocIndentation,
+    ));
+    registry.register(Box::new(heredoc_indentation::HeredocIndentation));
+    registry.register(Box::new(extra_spacing::ExtraSpacing));
+    registry.register(Box::new(
+        space_around_method_call_operator::SpaceAroundMethodCallOperator,
+    ));
+    registry.register(Box::new(
+        space_inside_reference_brackets::SpaceInsideReferenceBrackets,
+    ));
+    registry.register(Box::new(
+        empty_lines_around_attribute_accessor::EmptyLinesAroundAttributeAccessor,
+    ));
+    registry.register(Box::new(
+        empty_lines_after_module_inclusion::EmptyLinesAfterModuleInclusion,
+    ));
+    registry.register(Box::new(
+        line_continuation_leading_space::LineContinuationLeadingSpace,
+    ));
+    registry.register(Box::new(
+        multiline_array_brace_layout::MultilineArrayBraceLayout,
+    ));
+    registry.register(Box::new(
+        multiline_hash_brace_layout::MultilineHashBraceLayout,
+    ));
 }

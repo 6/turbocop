@@ -1,0 +1,6 @@
+Good = Struct.new(:id, :name)
+g = Good.new(1, "foo")
+Point = Struct.new(:x, :y)
+Person = Struct.new(:first_name, :last_name)
+Config = Struct.new(:host, :port)
+Item = Struct.new(:title, :price)
