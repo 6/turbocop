@@ -1,4 +1,7 @@
+pub mod bundler;
+pub mod gemspec;
 pub mod layout;
+pub mod migration;
 pub mod lint;
 pub mod metrics;
 pub mod naming;

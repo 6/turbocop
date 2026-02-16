@@ -1,0 +1,6 @@
+source 'https://rubygems.org'
+gem 'rubocop'
+gem 'flog'
+gem 'rails'
+gem 'puma'
+gem 'nokogiri'
