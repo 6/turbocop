@@ -86,6 +86,49 @@ impl SafeNavigation {
         }
         None
     }
+
+    /// Check if a call node is a dotless operator method ([], []=, +, -, etc.)
+    fn is_dotless_operator(call: &ruby_prism::CallNode<'_>) -> bool {
+        // If there's a dot/call operator, it's not a dotless operator call
+        if call.call_operator_loc().is_some() {
+            return false;
+        }
+        let name = call.name().as_slice();
+        // [] and []= subscript operators
+        if name == b"[]" || name == b"[]=" {
+            return true;
+        }
+        // Binary/unary operator methods (called without dot)
+        matches!(
+            name,
+            b"+" | b"-" | b"*" | b"/" | b"%" | b"**"
+                | b"==" | b"!=" | b"<" | b">" | b"<=" | b">="
+                | b"<=>" | b"<<" | b">>" | b"&" | b"|" | b"^"
+                | b"~" | b"!" | b"+@" | b"-@"
+        )
+    }
+
+    /// Check if any call in the chain from innermost to outermost is a dotless operator
+    fn has_dotless_operator_in_chain(node: &ruby_prism::Node<'_>) -> bool {
+        if let Some(call) = node.as_call_node() {
+            if Self::is_dotless_operator(&call) {
+                return true;
+            }
+            // Walk up: check receiver chain
+            if let Some(recv) = call.receiver() {
+                if let Some(recv_call) = recv.as_call_node() {
+                    if Self::is_dotless_operator(&recv_call) {
+                        return true;
+                    }
+                    // Continue recursing into the receiver chain
+                    if Self::has_dotless_operator_in_chain(&recv) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
 }
 
 impl Cop for SafeNavigation {
@@ -136,6 +179,12 @@ impl Cop for SafeNavigation {
         };
 
         if chain_len > max_chain_length {
+            return Vec::new();
+        }
+
+        // Skip if any call in the chain uses a dotless operator ([], []=, +, -, etc.)
+        // e.g. `obj && obj['key'].foo` — `obj&.[]('key')` is not idiomatic
+        if Self::has_dotless_operator_in_chain(&rhs) {
             return Vec::new();
         }
 

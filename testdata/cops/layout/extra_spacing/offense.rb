@@ -5,5 +5,5 @@ website  = "https://github.com/rubocop"
 x  = 1
   ^ Layout/ExtraSpacing: Unnecessary spacing detected.
 
-foo  (1, 2)
-    ^ Layout/ExtraSpacing: Unnecessary spacing detected.
+method_call(arg1,  arg2)
+                  ^ Layout/ExtraSpacing: Unnecessary spacing detected.

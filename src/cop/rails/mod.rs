@@ -193,7 +193,10 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(to_formatted_s::ToFormattedS));
     registry.register(Box::new(to_s_with_argument::ToSWithArgument));
     registry.register(Box::new(transaction_exit_statement::TransactionExitStatement));
-    registry.register(Box::new(unique_validation_without_index::UniqueValidationWithoutIndex));
+    // UniqueValidationWithoutIndex requires db/schema.rb parsing (schema analysis)
+    // to determine whether a table has a unique index. Since rblint does not perform
+    // schema analysis, this cop is not registered to avoid false positives.
+    // registry.register(Box::new(unique_validation_without_index::UniqueValidationWithoutIndex));
     registry.register(Box::new(unknown_env::UnknownEnv));
     registry.register(Box::new(unused_render_content::UnusedRenderContent));
     registry.register(Box::new(validation::Validation));

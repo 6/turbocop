@@ -32,37 +32,114 @@ impl Cop for EmptyLinesAroundArguments {
             return Vec::new();
         }
 
-        let first_arg = &args_list[0];
-        let last_arg = &args_list[args_list.len() - 1];
-
-        let (first_line, _) = source.offset_to_line_col(first_arg.location().start_offset());
-        let last_end = last_arg.location().end_offset().saturating_sub(1);
-        let (last_line, _) = source.offset_to_line_col(last_end);
-
-        // Only check multiline argument lists
-        if first_line == last_line {
+        // Check if the entire send node is single-line (not just the args)
+        let (call_start_line, _) = source.offset_to_line_col(call.location().start_offset());
+        let call_end = call.location().end_offset().saturating_sub(1);
+        let (call_end_line, _) = source.offset_to_line_col(call_end);
+        if call_start_line == call_end_line {
             return Vec::new();
         }
 
-        let lines: Vec<&[u8]> = source.lines().collect();
-        let mut diagnostics = Vec::new();
-
-        // Check for blank lines within the argument range
-        for line_num in first_line..=last_line {
-            if line_num > 0 && line_num <= lines.len() {
-                let line = lines[line_num - 1];
-                if is_blank_line(line) {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line_num,
-                        0,
-                        "Extra empty line detected inside method arguments.".to_string(),
-                    ));
+        // Skip if receiver and method call are on different lines
+        // (e.g., `foo.\n  bar(arg)`)
+        if let Some(receiver) = call.receiver() {
+            if let Some(msg_loc) = call.message_loc() {
+                let recv_end = receiver.location().end_offset().saturating_sub(1);
+                let (recv_end_line, _) = source.offset_to_line_col(recv_end);
+                let (msg_line, _) = source.offset_to_line_col(msg_loc.start_offset());
+                if recv_end_line != msg_line {
+                    return Vec::new();
                 }
             }
         }
 
+        let lines: Vec<&[u8]> = source.lines().collect();
+        let bytes = source.as_bytes();
+        let mut diagnostics = Vec::new();
+
+        // RuboCop's approach: for each argument's start position and the closing
+        // paren, look backward through whitespace. If there are blank lines
+        // immediately before that position, flag them.
+        //
+        // This avoids flagging blank lines INSIDE argument values (hashes,
+        // arrays, blocks, heredocs, etc.) which are not "around" the arguments.
+
+        // Check before each argument
+        for arg in &args_list {
+            check_blank_lines_before(
+                source,
+                bytes,
+                &lines,
+                arg.location().start_offset(),
+                &mut diagnostics,
+                self,
+            );
+        }
+
+        // Check before closing paren (if present)
+        if let Some(close_loc) = call.closing_loc() {
+            if close_loc.as_slice() == b")" {
+                check_blank_lines_before(
+                    source,
+                    bytes,
+                    &lines,
+                    close_loc.start_offset(),
+                    &mut diagnostics,
+                    self,
+                );
+            }
+        }
+
         diagnostics
+    }
+}
+
+/// Check if there are blank lines immediately before `offset` by scanning
+/// backwards through whitespace. If the whitespace gap spans more than 1 line,
+/// there are blank lines that should be flagged.
+fn check_blank_lines_before(
+    source: &SourceFile,
+    bytes: &[u8],
+    lines: &[&[u8]],
+    offset: usize,
+    diagnostics: &mut Vec<Diagnostic>,
+    cop: &EmptyLinesAroundArguments,
+) {
+    // Find the start of the line containing `offset`
+    let (target_line, _) = source.offset_to_line_col(offset);
+
+    // Scan backwards from `offset` to find the first non-whitespace character
+    let mut pos = offset;
+    while pos > 0 {
+        let b = bytes[pos - 1];
+        if b == b' ' || b == b'\t' || b == b'\r' || b == b'\n' {
+            pos -= 1;
+        } else {
+            break;
+        }
+    }
+
+    // `pos` now points just past the last non-whitespace char before our target.
+    // Find what line that's on.
+    let prev_line = if pos == 0 {
+        1
+    } else {
+        source.offset_to_line_col(pos.saturating_sub(1)).0
+    };
+
+    // If there's more than 1 line gap, there are blank lines between them
+    if target_line > prev_line + 1 {
+        // Flag each blank line in the gap
+        for line_num in (prev_line + 1)..target_line {
+            if line_num > 0 && line_num <= lines.len() && is_blank_line(lines[line_num - 1]) {
+                diagnostics.push(cop.diagnostic(
+                    source,
+                    line_num,
+                    0,
+                    "Empty line detected around arguments.".to_string(),
+                ));
+            }
+        }
     }
 }
 

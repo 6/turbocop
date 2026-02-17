@@ -30,6 +30,23 @@ impl Cop for DeprecatedOpenSSLConstant {
             return Vec::new();
         }
 
+        // RuboCop skips when arguments contain variables, method calls, or constants
+        // because autocorrection can't handle dynamic values
+        if let Some(args) = call.arguments() {
+            for arg in args.arguments().iter() {
+                if arg.as_local_variable_read_node().is_some()
+                    || arg.as_instance_variable_read_node().is_some()
+                    || arg.as_class_variable_read_node().is_some()
+                    || arg.as_global_variable_read_node().is_some()
+                    || arg.as_call_node().is_some()
+                    || arg.as_constant_read_node().is_some()
+                    || arg.as_constant_path_node().is_some()
+                {
+                    return Vec::new();
+                }
+            }
+        }
+
         // Check for pattern: OpenSSL::Cipher::XXX.new or OpenSSL::Digest::XXX.new/digest
         let recv = match call.receiver() {
             Some(r) => r,

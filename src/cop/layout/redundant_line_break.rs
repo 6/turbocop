@@ -14,65 +14,127 @@ impl Cop for RedundantLineBreak {
         &self,
         source: &SourceFile,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _code_map: &CodeMap,
-        _config: &CopConfig,
+        code_map: &CodeMap,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // RedundantLineBreak is disabled by default and has complex single-line
-        // suitability logic (checking Layout/LineLength max, string concatenation,
-        // block inspection, etc.). Implementing the full detection requires
-        // integrating with LineLength config and doing expression reconstruction.
-        //
-        // For now, detect the simplest and most common pattern:
-        // A line ending with a backslash where the current + next line (minus the
-        // backslash and leading whitespace) would fit within a reasonable length.
-        //
-        // This is intentionally conservative to avoid false positives.
-        let _inspect_blocks = _config.get_bool("InspectBlocks", false);
+        let _inspect_blocks = config.get_bool("InspectBlocks", false);
+        let max_line_length = config.get_usize("MaxLineLength", 120);
 
+        let content = source.as_bytes();
         let lines: Vec<&[u8]> = source.lines().collect();
         let mut diagnostics = Vec::new();
 
-        let mut skip_next = false;
+        // Precompute byte offset of each line start.
+        // source.lines() splits on '\n', so line i starts at cumulative offset.
+        let mut line_starts: Vec<usize> = Vec::with_capacity(lines.len());
+        let mut offset = 0usize;
         for (i, line) in lines.iter().enumerate() {
-            if skip_next {
-                skip_next = false;
-                continue;
+            line_starts.push(offset);
+            offset += line.len();
+            if i < lines.len() - 1 || (offset < content.len() && content[offset] == b'\n') {
+                offset += 1;
             }
+        }
 
+        let mut i = 0;
+        while i < lines.len() {
+            let line = lines[i];
             let trimmed = trim_trailing_whitespace(line);
+
             if trimmed.is_empty() {
+                i += 1;
                 continue;
             }
 
-            // Detect backslash continuation lines
-            if trimmed.ends_with(b"\\") && i + 1 < lines.len() {
-                let before_backslash = &trimmed[..trimmed.len() - 1];
-                let before_backslash = trim_trailing_whitespace(before_backslash);
-                let next_line = trim_leading_whitespace(lines[i + 1]);
+            // Check if this line ends with a backslash continuation
+            if !trimmed.ends_with(b"\\") || i + 1 >= lines.len() {
+                i += 1;
+                continue;
+            }
 
-                // Check if the combined line would be reasonably short
-                // We use the indentation of the current line + content
-                let indent = leading_whitespace_len(line);
-                let combined_len = indent + before_backslash.len() - indent + 1 + next_line.len();
-                // Use the actual line content length (indentation + before_backslash content + space + next_line)
-                let actual_combined = before_backslash.len() + 1 + next_line.len();
-                let _ = combined_len;
+            // Skip if the trimmed line is a comment (backslash in # ... is not continuation)
+            let trimmed_content = trim_leading_whitespace(trimmed);
+            if trimmed_content.starts_with(b"#") {
+                i += 1;
+                continue;
+            }
 
-                // Skip if combined would be too long (> 120 chars as a safe default)
-                if actual_combined <= 120 {
-                    // Additional check: don't flag operator keywords (&&, ||) after backslash
-                    // as those are separate style choices
-                    if !next_line.starts_with(b"&&") && !next_line.starts_with(b"||") {
-                        diagnostics.push(self.diagnostic(
-                            source,
-                            i + 1, // 1-based
-                            0,
-                            "Redundant line break detected.".to_string(),
-                        ));
-                        skip_next = true;
-                    }
+            // Find the byte offset of the backslash to check if it's inside a
+            // string/heredoc/regexp via the CodeMap.
+            let backslash_offset = line_starts[i] + trimmed.len() - 1;
+            if !code_map.is_code(backslash_offset) {
+                i += 1;
+                continue;
+            }
+
+            // Collect the full continuation group: all consecutive lines ending
+            // with backslash.
+            let group_start = i;
+            let mut group_end = i;
+            while group_end + 1 < lines.len() {
+                let t = trim_trailing_whitespace(lines[group_end]);
+                if !t.ends_with(b"\\") {
+                    break;
+                }
+                let next_trimmed_content =
+                    trim_leading_whitespace(trim_trailing_whitespace(lines[group_end + 1]));
+                if next_trimmed_content.starts_with(b"#") {
+                    break;
+                }
+                group_end += 1;
+            }
+            let final_line_idx = group_end + 1;
+            if final_line_idx >= lines.len() {
+                i = final_line_idx;
+                continue;
+            }
+
+            // Build the combined single-line version.
+            let indent = leading_whitespace_len(lines[group_start]);
+            let mut combined = Vec::new();
+            combined.extend_from_slice(&lines[group_start][..indent]);
+
+            for j in group_start..=group_end {
+                let t = trim_trailing_whitespace(lines[j]);
+                let before_bs = trim_trailing_whitespace(&t[..t.len() - 1]);
+                let content_part = trim_leading_whitespace(before_bs);
+
+                if j == group_start {
+                    combined.extend_from_slice(content_part);
+                } else {
+                    combined.push(b' ');
+                    combined.extend_from_slice(content_part);
                 }
             }
+
+            let final_content = trim_leading_whitespace(lines[final_line_idx]);
+            if !final_content.is_empty() {
+                combined.push(b' ');
+                combined.extend_from_slice(trim_trailing_whitespace(final_content));
+            }
+
+            let combined_len = combined.len();
+
+            if combined_len > max_line_length {
+                i = final_line_idx + 1;
+                continue;
+            }
+
+            // Skip if next line starts with && or || (style choice)
+            let next_content = trim_leading_whitespace(lines[group_start + 1]);
+            if next_content.starts_with(b"&&") || next_content.starts_with(b"||") {
+                i = final_line_idx + 1;
+                continue;
+            }
+
+            diagnostics.push(self.diagnostic(
+                source,
+                group_start + 1,
+                0,
+                "Redundant line break detected.".to_string(),
+            ));
+
+            i = final_line_idx + 1;
         }
 
         diagnostics

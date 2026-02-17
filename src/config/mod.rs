@@ -1215,6 +1215,7 @@ impl ResolvedConfig {
                 | "Style/WhileUntilModifier"
                 | "Style/GuardClause"
                 | "Style/SoleNestedConditional"
+                | "Layout/RedundantLineBreak"
         ) {
             if !config.options.contains_key("MaxLineLength") {
                 let max = self
