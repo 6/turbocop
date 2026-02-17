@@ -45,6 +45,11 @@ pub mod sum;
 pub mod times_map;
 pub mod unfreeze_string;
 pub mod uri_default_parser;
+pub mod collection_literal_in_loop;
+pub mod constant_regexp;
+pub mod fixed_size;
+pub mod string_bytesize;
+pub mod zip_without_block;
 
 use super::registry::CopRegistry;
 
@@ -96,4 +101,9 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(times_map::TimesMap));
     registry.register(Box::new(unfreeze_string::UnfreezeString));
     registry.register(Box::new(uri_default_parser::UriDefaultParser));
+    registry.register(Box::new(collection_literal_in_loop::CollectionLiteralInLoop));
+    registry.register(Box::new(constant_regexp::ConstantRegexp));
+    registry.register(Box::new(fixed_size::FixedSize));
+    registry.register(Box::new(string_bytesize::StringBytesize));
+    registry.register(Box::new(zip_without_block::ZipWithoutBlock));
 }
