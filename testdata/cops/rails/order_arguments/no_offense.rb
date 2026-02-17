@@ -1,0 +1,6 @@
+User.order(:name)
+User.order(name: :desc)
+User.order(:email)
+User.order(created_at: :asc)
+User.order('complex_expression()')
+User.order(:name, :email)

@@ -1,0 +1,6 @@
+User.where(name: 'Gabe')
+User.where(name: nil)
+User.where(name: ['john', 'jane'])
+User.where('name LIKE ?', '%test%')
+User.where('age > ?', 18)
+User.where('name = ? AND age = ?', 'Gabe', 30)

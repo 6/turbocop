@@ -1,0 +1,150 @@
+use crate::cop::util::constant_name;
+use crate::cop::{Cop, CopConfig};
+use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::source::SourceFile;
+
+/// Checks for redundant type conversions like `"text".to_s`, `:sym.to_sym`,
+/// `42.to_i`, `[].to_a`, etc.
+pub struct RedundantTypeConversion;
+
+impl Cop for RedundantTypeConversion {
+    fn name(&self) -> &'static str {
+        "Lint/RedundantTypeConversion"
+    }
+
+    fn default_severity(&self) -> Severity {
+        Severity::Warning
+    }
+
+    fn check_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
+        let call = match node.as_call_node() {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+
+        let method_name = call.name().as_slice();
+
+        // Must have no arguments
+        if call.arguments().is_some() {
+            return Vec::new();
+        }
+
+        let receiver = match call.receiver() {
+            Some(r) => r,
+            None => return Vec::new(),
+        };
+
+        let is_redundant = match method_name {
+            b"to_s" => {
+                receiver.as_string_node().is_some()
+                    || receiver.as_interpolated_string_node().is_some()
+                    || is_constructor(&receiver, b"String", b"new")
+                    || is_chained_method(&receiver, b"to_s")
+                    || is_chained_method(&receiver, b"inspect")
+            }
+            b"to_sym" => {
+                receiver.as_symbol_node().is_some()
+                    || receiver.as_interpolated_symbol_node().is_some()
+                    || is_chained_method(&receiver, b"to_sym")
+            }
+            b"to_i" => {
+                receiver.as_integer_node().is_some()
+                    || is_chained_method(&receiver, b"to_i")
+                    || is_kernel_method(&receiver, b"Integer")
+            }
+            b"to_f" => {
+                receiver.as_float_node().is_some()
+                    || is_chained_method(&receiver, b"to_f")
+                    || is_kernel_method(&receiver, b"Float")
+            }
+            b"to_r" => {
+                receiver.as_rational_node().is_some()
+                    || is_chained_method(&receiver, b"to_r")
+                    || is_kernel_method(&receiver, b"Rational")
+            }
+            b"to_c" => {
+                receiver.as_imaginary_node().is_some()
+                    || is_chained_method(&receiver, b"to_c")
+                    || is_kernel_method(&receiver, b"Complex")
+            }
+            b"to_a" => {
+                receiver.as_array_node().is_some()
+                    || is_constructor(&receiver, b"Array", b"new")
+                    || is_constructor(&receiver, b"Array", b"[]")
+                    || is_chained_method(&receiver, b"to_a")
+                    || is_kernel_method(&receiver, b"Array")
+            }
+            b"to_h" => {
+                receiver.as_hash_node().is_some()
+                    || is_constructor(&receiver, b"Hash", b"new")
+                    || is_constructor(&receiver, b"Hash", b"[]")
+                    || is_chained_method(&receiver, b"to_h")
+            }
+            _ => false,
+        };
+
+        if !is_redundant {
+            return Vec::new();
+        }
+
+        let method_str = std::str::from_utf8(method_name).unwrap_or("to_s");
+        let msg_loc = call.message_loc().unwrap_or(call.location());
+        let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
+        vec![self.diagnostic(
+            source,
+            line,
+            column,
+            format!("Redundant `{}` detected.", method_str),
+        )]
+    }
+}
+
+fn is_constructor(node: &ruby_prism::Node<'_>, class_name: &[u8], method: &[u8]) -> bool {
+    if let Some(call) = node.as_call_node() {
+        if call.name().as_slice() == method {
+            if let Some(recv) = call.receiver() {
+                if let Some(name) = constant_name(&recv) {
+                    return name == class_name;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn is_chained_method(node: &ruby_prism::Node<'_>, method: &[u8]) -> bool {
+    if let Some(call) = node.as_call_node() {
+        return call.name().as_slice() == method;
+    }
+    false
+}
+
+fn is_kernel_method(node: &ruby_prism::Node<'_>, method: &[u8]) -> bool {
+    if let Some(call) = node.as_call_node() {
+        if call.name().as_slice() != method {
+            return false;
+        }
+        // Must be receiverless or Kernel.Method
+        if call.receiver().is_none() {
+            return true;
+        }
+        if let Some(recv) = call.receiver() {
+            if let Some(name) = constant_name(&recv) {
+                return name == b"Kernel";
+            }
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    crate::cop_fixture_tests!(RedundantTypeConversion, "cops/lint/redundant_type_conversion");
+}

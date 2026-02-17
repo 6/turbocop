@@ -1,0 +1,6 @@
+get '/users', to: 'users#index'
+post '/other_path', to: 'users#create'
+put '/x', to: 'w#v'
+patch '/y', to: 'w#u'
+delete '/z', to: 'w#t'
+get '/foo'

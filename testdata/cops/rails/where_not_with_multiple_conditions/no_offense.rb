@@ -1,0 +1,6 @@
+User.where.not(trashed: true)
+User.where.not(role: ['moderator', 'admin'])
+User.where.not(trashed: true).where.not(role: 'admin')
+User.where.not('trashed = ? OR role = ?', true, 'admin')
+User.where(name: 'test')
+User.where.not(active: false)

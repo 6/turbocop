@@ -1,0 +1,6 @@
+User.order(:created_at)
+Post.order(created_at: :asc)
+Comment.order(updated_at: :desc)
+User.order(:name)
+Post.order('created_at DESC')
+Article.order(:published_at)

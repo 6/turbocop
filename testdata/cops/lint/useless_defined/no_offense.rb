@@ -1,0 +1,5 @@
+defined?(FooBar)
+defined?(foo_bar)
+defined?(@@class_var)
+defined?($global_var)
+defined?(@instance_var)

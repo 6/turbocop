@@ -1,0 +1,5 @@
+ERB.new(str)
+ERB.new(str, trim_mode: '-')
+ERB.new(str, trim_mode: '-', eoutvar: '@output_buffer')
+SomeClass.new(str, nil, '-')
+x = ERB.new(template)

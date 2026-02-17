@@ -10,6 +10,7 @@ pub mod performance;
 pub mod rails;
 pub mod registry;
 pub mod rspec;
+pub mod rspec_rails;
 pub mod security;
 pub mod style;
 pub mod util;

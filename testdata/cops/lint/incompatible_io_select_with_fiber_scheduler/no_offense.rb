@@ -1,0 +1,5 @@
+io.wait_readable(timeout)
+io.wait_writable(timeout)
+IO.select([io1, io2])
+IO.select([io], [], [err])
+IO.select([a], [b])
