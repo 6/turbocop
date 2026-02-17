@@ -840,7 +840,7 @@ Final push to achieve perfect conformance on all 4 target repos.
 - [x] Discourse + Rails: still **100%**
 - [x] 4 of 6 bench repos at perfect conformance
 
-## In Progress: M14 — Core Expansion Batch 3 + FactoryBot (628 cops)
+## Completed: M14 — Core Expansion Batch 3 + FactoryBot (628 cops)
 
 Added 32 new cops: 11 Lint, 10 Style, 11 FactoryBot (new department). Fixed IndentationWidth regression. Improved several existing cops (RedundantMatch, Semicolon, DuplicateBranch, ParenthesesAsGroupedExpression).
 
@@ -897,9 +897,32 @@ Added 32 new cops: 11 Lint, 10 Style, 11 FactoryBot (new department). Fixed Inde
 - [x] 628 cops registered (was 596, +32 new)
 - [x] 1,898 lib tests passing
 - [x] New department: FactoryBot (11 cops)
+- [x] **5 of 6 bench repos at 100% conformance**
+- [x] Mastodon: **100%** (was 84.6% → fixed AmbiguousRange, RedundantMatch)
 - [x] Discourse: **100%** conformance
-- [x] Mastodon: **84.6%** (42 FP, 3 FN — new cops need FP fixes)
-- [x] Errbit: **99.3%** (11 FP — new cops need FP fixes)
+- [x] Rails: **100%** conformance
+- [x] Rubocop: **100%** (was 0.8% — fixed 252 FP across 28 cops)
+- [x] Errbit: **100%** (was 99.3%)
+- [x] Chatwoot: 8 FP (all RuboCop version differences, 1.75.6 vs 1.84.2)
+
+### M14 FP Fixes (post-initial commit)
+
+- Style/CommentedKeyword: switched to parsed comments (eliminated 211 heredoc FP)
+- Lint/AmbiguousRange: reject operator methods as range boundaries (4 FN fixed)
+- Performance/RedundantMatch: reset parent_is_condition in and/or nodes (1 FP fixed)
+- Security/CompoundHash: rewrote to detect monuple/redundant patterns only
+- Layout/BlockAlignment: handle multiline bracket expressions
+- Layout/ConditionPosition: skip modifier-form if/unless
+- Layout/MultilineBlockLayout: add line_break_necessary check
+- Lint/EmptyBlock: implement AllowEmptyLambdas
+- Lint/RedundantDirGlobSort: add TargetRubyVersion >= 3.0 check
+- Metrics/CyclomaticComplexity+PerceivedComplexity: fix iterating methods list
+- Naming/MemoizedInstanceVariableName: skip initialize methods
+- RSpec/DescribedClass: stop recursion into def nodes
+- RSpec/LetBeforeExamples: skip shared_examples groups
+- Style/HashTransformKeys: require destructured block params
+- Style/SymbolArray: skip arrays containing comments
+- Plus 13 more single-FP fixes across Layout, Lint, Naming, Style, Gemspec
 
 ## Milestones
 
