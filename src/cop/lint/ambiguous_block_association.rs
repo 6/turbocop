@@ -34,9 +34,12 @@ impl Cop for AmbiguousBlockAssociation {
             return Vec::new();
         }
 
-        // Skip operator methods (==, !=, +, -, etc.)
+        // Skip operator methods (==, !=, +, -, etc.) and assignment methods (x=)
         let outer_name = call.name().as_slice();
         if is_operator(outer_name) {
+            return Vec::new();
+        }
+        if outer_name.ends_with(b"=") && outer_name != b"==" && outer_name != b"!=" {
             return Vec::new();
         }
 
@@ -57,19 +60,34 @@ impl Cop for AmbiguousBlockAssociation {
 
         // Check the last argument - it should be a CallNode with a block
         let last_arg = args.iter().last().unwrap();
+
+        // Skip lambda/proc/Proc.new — these are block builders, not ambiguous
+        if is_lambda_or_proc(&last_arg) {
+            return Vec::new();
+        }
+
         let inner_call = match last_arg.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
         };
 
-        // The inner call must have a block
-        if inner_call.block().is_none() {
+        // The inner call must have a real block (do...end or { }),
+        // not just a block argument (&method). In Prism, block() returns
+        // both BlockNode and BlockArgumentNode. We only care about BlockNode.
+        let has_real_block = match inner_call.block() {
+            Some(block) => block.as_block_node().is_some(),
+            None => false,
+        };
+        if !has_real_block {
             return Vec::new();
         }
 
-        // The inner call must NOT have parentheses itself (if it does, it's unambiguous)
-        // Actually, the key point is that the outer call lacks parens, making it
-        // unclear whether the block belongs to the outer or inner call.
+        // If the inner call has arguments (parenthesized or not), the block
+        // clearly belongs to it — no ambiguity. RuboCop checks:
+        // `!send_node.last_argument.send_node.arguments?`
+        if inner_call.arguments().is_some() {
+            return Vec::new();
+        }
 
         // Check AllowedMethods
         let allowed_methods = config.get_string_array("AllowedMethods");
@@ -115,6 +133,42 @@ impl Cop for AmbiguousBlockAssociation {
             ),
         )]
     }
+}
+
+/// Check if the node is a `lambda { }`, `proc { }`, or `Proc.new { }` call.
+/// These are block builders and their block association is never ambiguous.
+fn is_lambda_or_proc(node: &ruby_prism::Node<'_>) -> bool {
+    // `-> { }` is a LambdaNode in Prism, not a CallNode
+    if node.as_lambda_node().is_some() {
+        return true;
+    }
+
+    if let Some(call) = node.as_call_node() {
+        // Must have a block
+        if call.block().is_none() {
+            return false;
+        }
+
+        let name = call.name().as_slice();
+
+        // `lambda { }` or `proc { }` — bare method call, no receiver
+        if call.receiver().is_none() && (name == b"lambda" || name == b"proc") {
+            return true;
+        }
+
+        // `Proc.new { }` — receiver is `Proc`, method is `new`
+        if name == b"new" {
+            if let Some(recv) = call.receiver() {
+                if let Some(cr) = recv.as_constant_read_node() {
+                    if cr.name().as_slice() == b"Proc" {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    false
 }
 
 fn is_operator(name: &[u8]) -> bool {

@@ -32,6 +32,18 @@ impl Cop for AmbiguousRegexpLiteral {
             return Vec::new();
         }
 
+        // Skip operator method calls (=~, ==, etc.) — they are never ambiguous
+        let name = call.name().as_slice();
+        if matches!(
+            name,
+            b"==" | b"!=" | b"<" | b">" | b"<=" | b">=" | b"<=>"
+                | b"+" | b"-" | b"*" | b"/" | b"%" | b"**"
+                | b"&" | b"|" | b"^" | b"~" | b"<<" | b">>"
+                | b"[]" | b"[]=" | b"=~" | b"!~"
+        ) {
+            return Vec::new();
+        }
+
         let arguments = match call.arguments() {
             Some(a) => a,
             None => return Vec::new(),
@@ -67,6 +79,12 @@ impl Cop for AmbiguousRegexpLiteral {
             Some(o) => o,
             None => return Vec::new(),
         };
+
+        // Only `/.../ ` syntax is ambiguous. `%r{...}`, `%r(...)`, `%r/.../` etc.
+        // are never ambiguous because they can't be confused with division.
+        if source.as_bytes().get(regexp_start) != Some(&b'/') {
+            return Vec::new();
+        }
 
         // Check there's a space between the method name and the `/`
         // In Prism, when there are no parens, the call node's message_loc ends

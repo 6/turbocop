@@ -72,6 +72,31 @@ fn has_mixed_captures(pattern: &str) -> bool {
             continue;
         }
 
+        // Skip character classes `[...]` — parentheses inside are literal
+        if bytes[i] == b'[' {
+            i += 1;
+            // `]` as the first char in a class is literal, e.g. `[]foo]`
+            // Also handle `[^]...]`
+            if i < len && bytes[i] == b'^' {
+                i += 1;
+            }
+            if i < len && bytes[i] == b']' {
+                i += 1;
+            }
+            while i < len && bytes[i] != b']' {
+                if bytes[i] == b'\\' {
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            // Skip the closing `]`
+            if i < len {
+                i += 1;
+            }
+            continue;
+        }
+
         if bytes[i] == b'(' && i + 1 < len {
             if bytes[i + 1] == b'?' {
                 // Look at what follows `(?`

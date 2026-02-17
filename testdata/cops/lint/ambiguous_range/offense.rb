@@ -1,8 +1,9 @@
-a + 1..b
-^^^^^ Lint/AmbiguousRange: Wrap complex range boundaries with parentheses to avoid ambiguity.
+x || 1..2
+^^^^^^ Lint/AmbiguousRange: Wrap complex range boundaries with parentheses to avoid ambiguity.
 
-a * 2..b
-^^^^^ Lint/AmbiguousRange: Wrap complex range boundaries with parentheses to avoid ambiguity.
+x || 1..y || 2
+^^^^^^ Lint/AmbiguousRange: Wrap complex range boundaries with parentheses to avoid ambiguity.
+        ^^^^^^ Lint/AmbiguousRange: Wrap complex range boundaries with parentheses to avoid ambiguity.
 
 1..2.to_a
    ^^^^^^ Lint/AmbiguousRange: Wrap complex range boundaries with parentheses to avoid ambiguity.

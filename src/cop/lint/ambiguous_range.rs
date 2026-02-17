@@ -127,14 +127,11 @@ fn is_acceptable_boundary(node: &ruby_prism::Node<'_>, require_parens_for_chains
             }
         }
 
-        // Operator method calls (except []) are NOT acceptable
-        // e.g., `x - 1` in `x - 1..2` or `x + 1` in `x + 1..2`
-        if is_operator_method(name) && name != b"[]" {
-            return false;
-        }
-
-        // Non-operator method calls with receiver: acceptable unless
-        // RequireParenthesesForMethodChains is true
+        // Method calls with receiver (including operators): acceptable unless
+        // RequireParenthesesForMethodChains is true.
+        // Note: RuboCop 1.84.2+ added an explicit check for operator methods,
+        // but 1.75.6 (used by bench repos) does not have it, so we match that
+        // behavior for now.
         return !require_parens_for_chains;
     }
 
@@ -144,41 +141,6 @@ fn is_acceptable_boundary(node: &ruby_prism::Node<'_>, require_parens_for_chains
     }
 
     false
-}
-
-fn is_operator_method(name: &[u8]) -> bool {
-    matches!(
-        name,
-        b"|" | b"^"
-            | b"&"
-            | b"<=>"
-            | b"=="
-            | b"==="
-            | b"=~"
-            | b">"
-            | b">="
-            | b"<"
-            | b"<="
-            | b"<<"
-            | b">>"
-            | b"+"
-            | b"-"
-            | b"*"
-            | b"/"
-            | b"%"
-            | b"**"
-            | b"~"
-            | b"+@"
-            | b"-@"
-            | b"!@"
-            | b"~@"
-            | b"[]"
-            | b"[]="
-            | b"!"
-            | b"!="
-            | b"!~"
-            | b"`"
-    )
 }
 
 fn is_basic_literal(node: &ruby_prism::Node<'_>) -> bool {

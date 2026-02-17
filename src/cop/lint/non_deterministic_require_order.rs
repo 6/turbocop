@@ -19,8 +19,19 @@ impl Cop for NonDeterministicRequireOrder {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // RuboCop: maximum_target_ruby_version 2.7
+        // Dir.glob and Dir[] return sorted results in Ruby 3.0+, making this cop
+        // unnecessary. Skip if the target Ruby version is 3.0 or later.
+        let ruby_version = config
+            .options
+            .get("TargetRubyVersion")
+            .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
+            .unwrap_or(2.7);
+        if ruby_version >= 3.0 {
+            return Vec::new();
+        }
         // Pattern 1: Dir["..."].each { |f| require f }
         // Pattern 2: Dir.glob("...").each { |f| require f }
         // Pattern 3: Dir.glob("...") { |f| require f } (direct block)

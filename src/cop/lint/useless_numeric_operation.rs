@@ -23,12 +23,26 @@ impl Cop for UselessNumericOperation {
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
         // Check for binary operator calls: x + 0, x - 0, x * 1, x / 1, x ** 1
-        // Also method-style: x.+(0), x&.+(0)
+        // RuboCop only matches `(call (call nil? $_) $_ (int $_))`, meaning the
+        // receiver must be a bare method call (no receiver of its own). This
+        // corresponds to simple method-name references (x + 0), NOT local
+        // variables, instance variables, constants, or chained calls.
         if let Some(call) = node.as_call_node() {
             let method = call.name().as_slice();
 
-            // Check receiver exists
-            if call.receiver().is_none() {
+            // Check receiver exists and is a bare method call (no receiver of its own)
+            let recv = match call.receiver() {
+                Some(r) => r,
+                None => return Vec::new(),
+            };
+
+            // RuboCop's pattern: (call (call nil? $_) $_ (int $_))
+            // The receiver must be a CallNode with no receiver (bare method call).
+            let is_bare_method_call = match recv.as_call_node() {
+                Some(recv_call) => recv_call.receiver().is_none(),
+                None => false,
+            };
+            if !is_bare_method_call {
                 return Vec::new();
             }
 
