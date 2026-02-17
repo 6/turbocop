@@ -40,12 +40,28 @@ when 2
   do_other
 end
 
-# Block on chained method — body indented relative to dot
+# Block on chained method — body indented relative to end keyword
 source.passive_relationships
       .where(account: Account.local)
       .in_batches do |follows|
         process(follows)
       end
+
+# Block body indented from end, not from dot (start_of_line default)
+source.passive_relationships
+      .where(account: Account.local)
+      .in_batches do |follows|
+  process(follows)
+end
+
+# Chained method with do..end block, end at different indent than dot
+account.conversations
+       .joins(:inbox)
+       .where(created_at: range)
+       .each_with_object({}) do |((channel_type, status), count), grouped|
+  grouped[channel_type] ||= {}
+  grouped[channel_type][status] = count
+end
 
 # Assignment context (variable style): body indented from LHS, end at LHS
 x = if foo

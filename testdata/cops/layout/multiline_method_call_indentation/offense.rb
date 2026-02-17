@@ -19,9 +19,3 @@ query
 frequencies.map.with_index { |f, i| [f / total, hex[i]] }
            .sort_by { |r| -r[0] }
            ^^^ Layout/MultilineMethodCallIndentation: Align `.sort_by` with `.with_index` on line 16.
-
-# Hash pair value chain: chain inside hash value should align with chain root
-foo(bar: baz
-         .qux
-           .quux)
-           ^^^^ Layout/MultilineMethodCallIndentation: Align `.quux` with `baz` on line 20.

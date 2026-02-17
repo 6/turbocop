@@ -28,6 +28,7 @@ impl Cop for FirstHashElementIndentation {
             width,
             diagnostics: Vec::new(),
             handled_hashes: Vec::new(),
+            parent_pair_col: None,
         };
         visitor.visit(&parse_result.node());
         visitor.diagnostics
@@ -42,6 +43,9 @@ struct HashIndentVisitor<'a> {
     diagnostics: Vec<Diagnostic>,
     /// Start offsets of hash nodes already checked via a parent call with parentheses.
     handled_hashes: Vec<usize>,
+    /// When visiting a hash that is a value in a pair (AssocNode), this stores
+    /// the pair's column and whether a right sibling begins on a subsequent line.
+    parent_pair_col: Option<usize>,
 }
 
 impl HashIndentVisitor<'_> {
@@ -77,7 +81,15 @@ impl HashIndentVisitor<'_> {
             "consistent" => open_line_indent + self.width,
             "align_braces" => open_col + self.width,
             _ => {
-                if let Some(paren_col) = left_paren_col {
+                // RuboCop's indent_base priority for special_inside_parentheses:
+                // 1. If parent is a pair (hash key/value) where key and value start
+                //    on the same line and the pair has a right sibling on a
+                //    subsequent line, use the pair's column.
+                // 2. If inside parenthesized method call, use paren_col + 1.
+                // 3. Fall back to line indentation.
+                if let Some(pair_col) = self.parent_pair_col {
+                    pair_col + self.width
+                } else if let Some(paren_col) = left_paren_col {
                     paren_col + 1 + self.width
                 } else {
                     open_line_indent + self.width
@@ -167,6 +179,77 @@ impl HashIndentVisitor<'_> {
     }
 }
 
+impl HashIndentVisitor<'_> {
+    /// For each pair element whose value is a HashNode starting with `{`,
+    /// check RuboCop's parent_hash_key indentation condition: if the pair's
+    /// key and value start on the same line AND the pair has a right sibling
+    /// on a subsequent line, set `parent_pair_col` so the child hash uses
+    /// the pair's column as indent base.
+    fn visit_pairs_with_hash_values(
+        &mut self,
+        elements: ruby_prism::NodeList<'_>,
+    ) {
+        let elems: Vec<_> = elements.iter().collect();
+        for (i, elem) in elems.iter().enumerate() {
+            let assoc = match elem.as_assoc_node() {
+                Some(a) => a,
+                None => {
+                    self.visit(elem);
+                    continue;
+                }
+            };
+
+            // Check if the value is a HashNode with `{`
+            let value = assoc.value();
+            let is_hash_value = value.as_hash_node().is_some_and(|h| {
+                h.opening_loc().as_slice() == b"{"
+            });
+
+            if !is_hash_value || self.style == "consistent" || self.style == "align_braces" {
+                self.visit(elem);
+                continue;
+            }
+
+            // Check condition: key and value begin on the same line
+            let (key_line, _) = self.source.offset_to_line_col(
+                assoc.key().location().start_offset(),
+            );
+            let (val_line, _) = self.source.offset_to_line_col(
+                value.location().start_offset(),
+            );
+            if key_line != val_line {
+                self.visit(elem);
+                continue;
+            }
+
+            // Check condition: right sibling begins on a subsequent line
+            let has_right_sibling_on_next_line = if i + 1 < elems.len() {
+                let (pair_last_line, _) = self.source.offset_to_line_col(
+                    elem.location().end_offset(),
+                );
+                let (sibling_line, _) = self.source.offset_to_line_col(
+                    elems[i + 1].location().start_offset(),
+                );
+                pair_last_line < sibling_line
+            } else {
+                false
+            };
+
+            if has_right_sibling_on_next_line {
+                let (_, pair_col) = self.source.offset_to_line_col(
+                    elem.location().start_offset(),
+                );
+                let saved = self.parent_pair_col;
+                self.parent_pair_col = Some(pair_col);
+                self.visit(elem);
+                self.parent_pair_col = saved;
+            } else {
+                self.visit(elem);
+            }
+        }
+    }
+}
+
 impl Visit<'_> for HashIndentVisitor<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'_>) {
         if let Some(open_paren_loc) = node.opening_loc() {
@@ -188,7 +271,19 @@ impl Visit<'_> for HashIndentVisitor<'_> {
         if !self.handled_hashes.contains(&offset) {
             self.check_hash(node, None);
         }
-        ruby_prism::visit_hash_node(self, node);
+        // Clear parent_pair_col after the immediate hash uses it,
+        // so that nested hashes inside this one don't inherit it.
+        let saved = self.parent_pair_col;
+        self.parent_pair_col = None;
+        // Before visiting children, check if any element is a pair whose value
+        // is a hash. If so, set parent_pair_col for that child hash.
+        self.visit_pairs_with_hash_values(node.elements());
+        self.parent_pair_col = saved;
+    }
+
+    fn visit_keyword_hash_node(&mut self, node: &ruby_prism::KeywordHashNode<'_>) {
+        // keyword hashes can also contain pairs whose values are hashes
+        self.visit_pairs_with_hash_values(node.elements());
     }
 }
 

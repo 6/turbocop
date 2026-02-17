@@ -34,3 +34,11 @@ HEREDOC
 # Empty heredocs are fine
 d = <<~RUBY
 RUBY
+
+# Interpolated squiggly heredoc with correct indentation
+def generate_response
+  <<~RESPONSE
+    #{total_count > 100 ? "First #{total_count}" : "All #{total_count}"}
+    #{articles.map(&:to_text).join("\n")}
+  RESPONSE
+end

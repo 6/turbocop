@@ -23,6 +23,11 @@ impl Cop for ArgumentAlignment {
             None => return Vec::new(),
         };
 
+        // RuboCop skips []= calls (bracket assignment)
+        if call_node.name().as_slice() == b"[]=" {
+            return Vec::new();
+        }
+
         let arguments = match call_node.arguments() {
             Some(args) => args,
             None => return Vec::new(),

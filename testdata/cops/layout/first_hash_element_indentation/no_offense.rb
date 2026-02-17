@@ -49,3 +49,10 @@ func(
     a: 1
   }
 )
+
+# Parent hash key pattern: when hash is a pair value, key and value on same
+# line, and right sibling on subsequent line, indent from the pair key column.
+patch "/users/#{user.id}", params: {
+                             name: 'test123', email: 'new@test.com'
+                           },
+                           headers: { api_access_token: token }, as: :json

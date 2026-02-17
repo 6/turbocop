@@ -37,3 +37,12 @@ frequencies.map.with_index { |f, i| [f / total, hex[i]] }
 foo(bar: baz
          .qux
          .quux)
+
+# Chain inside parenthesized args (RuboCop skips these)
+foo(bar: baz
+         .qux
+           .quux)
+
+# Chain inside parenthesized call — constant receiver
+contacts = Current.account.contacts.where(id: ::OnlineStatusTracker
+              .get_available_contact_ids(Current.account.id))

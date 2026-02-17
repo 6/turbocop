@@ -20,3 +20,10 @@ contain_exactly(a_hash_including({
 }), a_hash_including({
   name: 'foo',
 }))
+
+# Bracket assignment []= is skipped by RuboCop
+options['pre_chat_fields'][index] =
+  field.deep_merge({
+                     'label' => attribute['display_name'],
+                     'placeholder' => attribute['display_name']
+                   })
