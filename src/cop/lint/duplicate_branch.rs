@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use ruby_prism::Visit;
+
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -40,10 +42,62 @@ impl Cop for DuplicateBranch {
     }
 }
 
-fn stmts_source(stmts: &Option<ruby_prism::StatementsNode<'_>>) -> Vec<u8> {
+/// Extract a comparison key for branch body.
+/// For heredocs, Prism's `location()` on the node only covers the opening
+/// delimiter (`<<~RUBY`), not the heredoc content/closing. We use a
+/// `MaxExtentFinder` visitor to discover the true end offset including
+/// heredoc closing locations, then slice the full source range.
+fn stmts_source(source: &SourceFile, stmts: &Option<ruby_prism::StatementsNode<'_>>) -> Vec<u8> {
     match stmts {
-        Some(s) => s.location().as_slice().to_vec(),
+        Some(s) => {
+            let loc = s.location();
+            let start = loc.start_offset();
+            let mut end = loc.end_offset();
+
+            // Walk descendants to find heredoc closings that extend beyond loc
+            let mut finder = MaxExtentFinder { max_end: end };
+            finder.visit(&s.as_node());
+            end = finder.max_end;
+
+            let bytes = source.as_bytes();
+            if end <= bytes.len() {
+                bytes[start..end].to_vec()
+            } else {
+                loc.as_slice().to_vec()
+            }
+        }
         None => Vec::new(),
+    }
+}
+
+/// Visitor that finds the maximum source offset among all descendant nodes,
+/// including heredoc closing locations which extend beyond the parent node's range.
+struct MaxExtentFinder {
+    max_end: usize,
+}
+
+impl<'pr> Visit<'pr> for MaxExtentFinder {
+    fn visit_interpolated_string_node(
+        &mut self,
+        node: &ruby_prism::InterpolatedStringNode<'pr>,
+    ) {
+        if let Some(close) = node.closing_loc() {
+            let end = close.end_offset();
+            if end > self.max_end {
+                self.max_end = end;
+            }
+        }
+        ruby_prism::visit_interpolated_string_node(self, node);
+    }
+
+    fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+        if let Some(close) = node.closing_loc() {
+            let end = close.end_offset();
+            if end > self.max_end {
+                self.max_end = end;
+            }
+        }
+        ruby_prism::visit_string_node(self, node);
     }
 }
 
@@ -59,18 +113,18 @@ fn check_if_branches(
     let mut branches: Vec<(Vec<u8>, ruby_prism::Location<'_>)> = Vec::new();
 
     // The if branch
-    let if_body = stmts_source(&if_node.statements());
+    let if_body = stmts_source(source, &if_node.statements());
     branches.push((if_body, if_node.location()));
 
     // Walk elsif/else chain
     let mut subsequent = if_node.subsequent();
     while let Some(sub) = subsequent {
         if let Some(elsif) = sub.as_if_node() {
-            let body = stmts_source(&elsif.statements());
+            let body = stmts_source(source, &elsif.statements());
             branches.push((body, elsif.location()));
             subsequent = elsif.subsequent();
         } else if let Some(else_node) = sub.as_else_node() {
-            let body = stmts_source(&else_node.statements());
+            let body = stmts_source(source, &else_node.statements());
             branches.push((body, else_node.location()));
             break;
         } else {
@@ -107,10 +161,7 @@ fn check_case_branches(
 
     for when_ref in case_node.conditions().iter() {
         if let Some(when_node) = when_ref.as_when_node() {
-            let body = match when_node.statements() {
-                Some(s) => s.location().as_slice().to_vec(),
-                None => Vec::new(),
-            };
+            let body = stmts_source(source, &when_node.statements());
             if !body.is_empty() && !seen.insert(body) {
                 let loc = when_node.keyword_loc();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());

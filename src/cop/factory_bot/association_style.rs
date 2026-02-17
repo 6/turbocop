@@ -75,19 +75,28 @@ impl Cop for AssociationStyle {
             None => return Vec::new(),
         };
 
-        let body = match block.as_block_node().and_then(|b| b.body()) {
+        let block_node = match block.as_block_node() {
+            Some(b) => b,
+            None => return Vec::new(),
+        };
+
+        let body = match block_node.body() {
             Some(body) => body,
             None => return Vec::new(),
         };
 
         let style = config.get_str("EnforcedStyle", "implicit");
 
-        let children = collect_body_children(&body);
-
         let mut diagnostics = Vec::new();
+
+        let children: Vec<_> = if let Some(stmts) = body.as_statements_node() {
+            stmts.body().iter().collect()
+        } else {
+            vec![body]
+        };
+
         for child in &children {
             if style == "implicit" {
-                // Flag explicit `association :name` calls (without strategy: :build)
                 if is_explicit_association(child) && !has_strategy_build(child) && !has_keyword_arg(child) {
                     let loc = child.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -99,7 +108,6 @@ impl Cop for AssociationStyle {
                     ));
                 }
             } else {
-                // explicit style: flag implicit associations (bare method calls in factory)
                 if is_implicit_association(child, node) {
                     let loc = child.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -114,15 +122,6 @@ impl Cop for AssociationStyle {
         }
 
         diagnostics
-    }
-}
-
-/// Collect children from a body node (handles both begin and single statement).
-fn collect_body_children<'a>(body: &ruby_prism::Node<'a>) -> Vec<ruby_prism::Node<'a>> {
-    if let Some(stmts) = body.as_statements_node() {
-        stmts.body().iter().collect()
-    } else {
-        vec![body.clone()]
     }
 }
 
@@ -172,9 +171,9 @@ fn has_strategy_build(node: &ruby_prism::Node<'_>) -> bool {
             for elem in hash.elements().iter() {
                 if let Some(pair) = elem.as_assoc_node() {
                     if let Some(key_sym) = pair.key().as_symbol_node() {
-                        if key_sym.unescaped().as_slice() == b"strategy" {
+                        if key_sym.unescaped() == b"strategy" {
                             if let Some(val_sym) = pair.value().as_symbol_node() {
-                                if val_sym.unescaped().as_slice() == b"build" {
+                                if val_sym.unescaped() == b"build" {
                                     return true;
                                 }
                             }
@@ -187,9 +186,9 @@ fn has_strategy_build(node: &ruby_prism::Node<'_>) -> bool {
             for elem in hash.elements().iter() {
                 if let Some(pair) = elem.as_assoc_node() {
                     if let Some(key_sym) = pair.key().as_symbol_node() {
-                        if key_sym.unescaped().as_slice() == b"strategy" {
+                        if key_sym.unescaped() == b"strategy" {
                             if let Some(val_sym) = pair.value().as_symbol_node() {
-                                if val_sym.unescaped().as_slice() == b"build" {
+                                if val_sym.unescaped() == b"build" {
                                     return true;
                                 }
                             }
@@ -216,7 +215,7 @@ fn has_keyword_arg(node: &ruby_prism::Node<'_>) -> bool {
 
     for arg in args.arguments().iter() {
         if let Some(sym) = arg.as_symbol_node() {
-            let name = std::str::from_utf8(sym.unescaped().as_slice()).unwrap_or("");
+            let name = std::str::from_utf8(sym.unescaped()).unwrap_or("");
             if is_ruby_keyword(name) {
                 return true;
             }
@@ -226,32 +225,26 @@ fn has_keyword_arg(node: &ruby_prism::Node<'_>) -> bool {
 }
 
 /// Check if a node is an implicit association in explicit style.
-/// An implicit association is a bare method call (no receiver, no args that
-/// look like non-association calls) inside a factory/trait block.
 fn is_implicit_association(node: &ruby_prism::Node<'_>, factory_or_trait_node: &ruby_prism::Node<'_>) -> bool {
     let call = match node.as_call_node() {
         Some(c) => c,
         None => return false,
     };
 
-    // Must have no receiver
     if call.receiver().is_some() {
         return false;
     }
 
     let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
 
-    // Skip reserved methods
     if is_reserved_method(method_name) {
         return false;
     }
 
-    // Check if this method name matches a trait defined in the enclosing factory
     if is_trait_within_factory(method_name, factory_or_trait_node) {
         return false;
     }
 
-    // Must not have a block (blocks indicate attribute definitions, not associations)
     if call.block().is_some() {
         return false;
     }
@@ -266,7 +259,6 @@ fn is_trait_within_factory(method_name: &str, factory_node: &ruby_prism::Node<'_
         None => return false,
     };
 
-    // Only check for factory blocks (not trait blocks - trait within trait is OK)
     if call.name().as_slice() != b"factory" {
         return false;
     }
@@ -286,7 +278,6 @@ fn is_trait_within_factory(method_name: &str, factory_node: &ruby_prism::Node<'_
         None => return false,
     };
 
-    // Collect trait names
     struct TraitCollector {
         trait_names: Vec<String>,
     }
@@ -296,12 +287,13 @@ fn is_trait_within_factory(method_name: &str, factory_node: &ruby_prism::Node<'_
                 if let Some(args) = node.arguments() {
                     let arg_list: Vec<_> = args.arguments().iter().collect();
                     if let Some(sym) = arg_list.first().and_then(|a| a.as_symbol_node()) {
-                        if let Ok(name) = std::str::from_utf8(sym.unescaped().as_slice()) {
+                        if let Ok(name) = std::str::from_utf8(sym.unescaped()) {
                             self.trait_names.push(name.to_string());
                         }
                     }
                 }
             }
+            ruby_prism::visit_call_node(self, node);
         }
     }
 

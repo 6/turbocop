@@ -34,6 +34,17 @@ impl Cop for AmbiguousBlockAssociation {
             return Vec::new();
         }
 
+        // Skip operator methods (==, !=, +, -, etc.)
+        let outer_name = call.name().as_slice();
+        if is_operator(outer_name) {
+            return Vec::new();
+        }
+
+        // Must have a message_loc (named method call, not just a block)
+        if call.message_loc().is_none() {
+            return Vec::new();
+        }
+
         let arguments = match call.arguments() {
             Some(a) => a,
             None => return Vec::new(),
@@ -104,6 +115,16 @@ impl Cop for AmbiguousBlockAssociation {
             ),
         )]
     }
+}
+
+fn is_operator(name: &[u8]) -> bool {
+    matches!(
+        name,
+        b"==" | b"!=" | b"<" | b">" | b"<=" | b">=" | b"<=>"
+            | b"+" | b"-" | b"*" | b"/" | b"%" | b"**"
+            | b"&" | b"|" | b"^" | b"~" | b"<<" | b">>"
+            | b"[]" | b"[]=" | b"=~" | b"!~"
+    )
 }
 
 #[cfg(test)]

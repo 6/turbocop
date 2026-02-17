@@ -20,13 +20,16 @@ impl Cop for LambdaWithoutLiteralBlock {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // Look for `lambda(&something)` — lambda called with a block argument
+        // Look for `lambda(&something)` -- lambda called with a block argument
         // instead of a literal block.
         //
-        // In Prism, `lambda(&pr)` is a CallNode where:
+        // In Prism, `lambda(&pr)` parses as a CallNode where:
         // - method name is "lambda"
         // - no receiver
-        // - has a block_argument (BlockArgumentNode) instead of a block (BlockNode)
+        // - block() returns a BlockArgumentNode (not a BlockNode)
+        //
+        // `lambda { ... }` parses with block() returning a BlockNode.
+        // `lambda(&:do_something)` should NOT be flagged (symbol proc).
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -41,19 +44,66 @@ impl Cop for LambdaWithoutLiteralBlock {
             return Vec::new();
         }
 
-        // Check if it has a block — if it has a literal block, that's fine
-        if call.block().is_some() {
+        // Check if block() is a BlockArgumentNode (not a literal block)
+        let block = match call.block() {
+            Some(b) => b,
+            None => {
+                // No block at all -- check arguments for &something
+                return self.check_arguments(call, source);
+            }
+        };
+
+        // If it's a literal block (BlockNode), that's fine
+        if block.as_block_node().is_some() {
             return Vec::new();
         }
 
-        // Check arguments for a block argument (&something)
+        // If it's a BlockArgumentNode, check what's inside
+        if let Some(block_arg) = block.as_block_argument_node() {
+            // Skip symbol procs like `lambda(&:do_something)`
+            if let Some(expr) = block_arg.expression() {
+                if expr.as_symbol_node().is_some() {
+                    return Vec::new();
+                }
+            }
+
+            let loc = call.location();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            return vec![self.diagnostic(
+                source,
+                line,
+                column,
+                "lambda without a literal block is deprecated; use the proc without lambda instead."
+                    .to_string(),
+            )];
+        }
+
+        Vec::new()
+    }
+}
+
+impl LambdaWithoutLiteralBlock {
+    fn check_arguments(
+        &self,
+        call: ruby_prism::CallNode<'_>,
+        source: &SourceFile,
+    ) -> Vec<Diagnostic> {
         let arguments = match call.arguments() {
             Some(a) => a,
             None => return Vec::new(),
         };
 
         let args = arguments.arguments();
-        let has_block_arg = args.iter().any(|a| a.as_block_argument_node().is_some());
+        let has_block_arg = args.iter().any(|a| {
+            if let Some(block_arg) = a.as_block_argument_node() {
+                // Skip symbol procs
+                if let Some(expr) = block_arg.expression() {
+                    return !expr.as_symbol_node().is_some();
+                }
+                return true;
+            }
+            false
+        });
 
         if !has_block_arg {
             return Vec::new();

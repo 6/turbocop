@@ -512,15 +512,15 @@ Added 45 new cops across Lint (25), Style (4), and Layout (16). Fixed all remain
 | Department | RuboCop | rblint | Coverage |
 |------------|--------:|-------:|---------:|
 | Layout | 100 | 100 | **100%** |
-| Lint | 152 | 104 | 68% |
-| Style | 287 | 80 | 28% |
+| Lint | 152 | 115 | 76% |
+| Style | 287 | 90 | 31% |
 | Metrics | 10 | 10 | **100%** |
 | Naming | 19 | 19 | **100%** |
 | Security | 7 | 7 | **100%** |
 | Bundler | 7 | 7 | **100%** |
 | Gemspec | 10 | 10 | **100%** |
 | Migration | 1 | 1 | **100%** |
-| **Total Core** | **593** | **338** | **57.0%** |
+| **Total Core** | **593** | **359** | **60.5%** |
 
 ### Plugin departments
 
@@ -529,28 +529,29 @@ Added 45 new cops across Lint (25), Style (4), and Layout (16). Fixed all remain
 | rubocop-rails | 98 | 99 | **100%** |
 | rubocop-rspec | 113 | 113 | **100%** |
 | rubocop-performance | 47 | 47 | **100%** |
-| **Total Plugins** | **258** | **259** | **100%** |
+| rubocop-factory_bot | 11 | 11 | **100%** |
+| **Total Plugins** | **269** | **270** | **100%** |
 
 ### Grand total
 
 | | RuboCop | rblint | Coverage |
 |--|--------:|-------:|---------:|
-| **All departments** | **851** | **597** | **70.2%** |
+| **All departments** | **862** | **628** | **72.9%** |
 
-Remaining gaps: Style (207 missing), Lint (48 missing).
+Remaining gaps: Style (197 missing), Lint (37 missing).
 
 ### Bench Conformance
 
 | Repo | Category | FPs | FNs | Match Rate |
 |------|----------|----:|----:|---------:|
-| Mastodon | Large Rails app | 0 | 0 | **100.0%** |
+| Mastodon | Large Rails app | 42 | 3 | **84.6%** |
 | Discourse | Large Rails app | 0 | 0 | **100.0%** |
-| Rails | Framework | 1 | 0 | **75.0%** |
-| rubocop | Ruby tool (RSpec-heavy) | 634 | 0 | 0.3% |
-| chatwoot | Large Rails app | 106 | 0 | 0.0% |
-| errbit | Small Rails app | 0 | 0 | **100.0%** |
+| Rails | Framework | 680 | 2 | 0.1% |
+| rubocop | Ruby tool (RSpec-heavy) | 307 | 0 | 0.6% |
+| chatwoot | Large Rails app | 47 | 0 | 0.0% |
+| errbit | Small Rails app | 11 | 0 | **99.3%** |
 
-6 bench repos total. 4 at 100% conformance (mastodon, discourse, rails*, errbit) on 596 covered cops.
+6 bench repos total. 628 covered cops. Discourse at 100%. New cops added in M14 need FP fixes to restore mastodon/errbit/rails conformance (the new cops fire but are disabled or have bugs in bench repos).
 
 ### Bench Repo Candidates (Evaluated)
 
@@ -839,6 +840,67 @@ Final push to achieve perfect conformance on all 4 target repos.
 - [x] Discourse + Rails: still **100%**
 - [x] 4 of 6 bench repos at perfect conformance
 
+## In Progress: M14 — Core Expansion Batch 3 + FactoryBot (628 cops)
+
+Added 32 new cops: 11 Lint, 10 Style, 11 FactoryBot (new department). Fixed IndentationWidth regression. Improved several existing cops (RedundantMatch, Semicolon, DuplicateBranch, ParenthesesAsGroupedExpression).
+
+### M14 New Department — FactoryBot (11 cops)
+
+- [x] FactoryBot/AssociationStyle — Prefer explicit association style
+- [x] FactoryBot/AttributeDefinedStatically — Static attribute detection
+- [x] FactoryBot/ConsistentParenthesesStyle — Consistent parentheses in factories
+- [x] FactoryBot/CreateList — Prefer create_list over n.times { create }
+- [x] FactoryBot/ExcessiveCreateList — Flag large create_list counts
+- [x] FactoryBot/FactoryAssociationWithStrategy — Association with strategy override
+- [x] FactoryBot/FactoryClassName — Factory class name matches factory name
+- [x] FactoryBot/FactoryNameStyle — Factory name style (symbol vs string)
+- [x] FactoryBot/IdSequence — Sequence for ID fields
+- [x] FactoryBot/RedundantFactoryOption — Redundant factory option
+- [x] FactoryBot/SyntaxMethods — Prefer FactoryBot syntax methods
+
+### M14 Cops — Lint (11 new → 115 total)
+
+- [x] Lint/AmbiguousBlockAssociation — Ambiguous block association in method call
+- [x] Lint/AmbiguousRegexpLiteral — Ambiguous regexp literal
+- [x] Lint/LambdaWithoutLiteralBlock — Lambda without literal block
+- [x] Lint/MixedRegexpCaptureTypes — Mixed named/numbered regexp captures
+- [x] Lint/NonDeterministicRequireOrder — Dir.glob without sort
+- [x] Lint/ParenthesesAsGroupedExpression — Rewritten with AST analysis
+- [x] Lint/RequireRelativeSelfPath — require_relative with self path
+- [x] Lint/SafeNavigationWithEmpty — Safe navigation with .empty?
+- [x] Lint/UnderscorePrefixedVariableName — Underscore-prefixed var used
+- [x] Lint/UselessNumericOperation — Useless numeric operation (x * 1, x + 0)
+- [x] Lint/UselessTimes — 0.times or 1.times
+
+### M14 Cops — Style (10 new → 90 total)
+
+- [x] Style/CommentedKeyword — Comment on keyword line
+- [x] Style/EmptyCaseCondition — Case without condition
+- [x] Style/Encoding — Encoding magic comment
+- [x] Style/ExpandPathArguments — File.expand_path with __FILE__
+- [x] Style/IfWithBooleanLiteralBranches — if/unless with true/false branches
+- [x] Style/MissingRespondToMissing — method_missing without respond_to_missing?
+- [x] Style/MultilineIfModifier — Multiline if modifier
+- [x] Style/MultilineIfThen — then keyword on multiline if
+- [x] Style/MultilineMemoization — Multiline memoization
+- [x] Style/MultilineWhenThen — then keyword on multiline when
+
+### M14 Fixes
+
+- Layout/IndentationWidth: Fixed chained-block regression — always use `end` keyword column as base for start_of_line style
+- Performance/RedundantMatch: Rewritten with check_source visitor for value-used tracking
+- Style/Semicolon: Improved no_offense handling
+- Lint/DuplicateBranch: Enhanced branch comparison logic
+
+### M14 Summary
+
+- [x] 628 cops registered (was 596, +32 new)
+- [x] 1,898 lib tests passing
+- [x] New department: FactoryBot (11 cops)
+- [x] Discourse: **100%** conformance
+- [x] Mastodon: **84.6%** (42 FP, 3 FN — new cops need FP fixes)
+- [x] Errbit: **99.3%** (11 FP — new cops need FP fixes)
+
 ## Milestones
 
 | Milestone | Cops | Status |
@@ -861,3 +923,4 @@ Final push to achieve perfect conformance on all 4 target repos.
 | **M13b**: Layout 100% + Core Expansion | 596 | **Done** |
 | **M13c**: Mastodon + Errbit Conformance | 596 | **Done** |
 | **M13d**: Mastodon + Errbit 100% | 596 | **Done** |
+| **M14**: Core Expansion Batch 3 + FactoryBot | 628 | **In Progress** |

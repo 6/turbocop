@@ -18,31 +18,20 @@ impl Cop for MultilineMemoization {
     ) -> Vec<Diagnostic> {
         let enforced_style = config.get_str("EnforcedStyle", "keyword");
 
-        // Look for `||=` (OrAssign nodes)
-        let or_assign = match node.as_or_write_node()
-            .map(|n| (n.location(), n.value()))
-            .or_else(|| {
-                node.as_instance_variable_or_write_node()
-                    .map(|n| (n.location(), n.value()))
-            })
-            .or_else(|| {
-                node.as_class_variable_or_write_node()
-                    .map(|n| (n.location(), n.value()))
-            })
-            .or_else(|| {
-                node.as_local_variable_or_write_node()
-                    .map(|n| (n.location(), n.value()))
-            })
-            .or_else(|| {
-                node.as_global_variable_or_write_node()
-                    .map(|n| (n.location(), n.value()))
-            })
-        {
-            Some(info) => info,
-            None => return Vec::new(),
+        // Extract (location, value) from any kind of ||= node
+        let (assign_loc, value) = if let Some(n) = node.as_local_variable_or_write_node() {
+            (n.location(), n.value())
+        } else if let Some(n) = node.as_instance_variable_or_write_node() {
+            (n.location(), n.value())
+        } else if let Some(n) = node.as_class_variable_or_write_node() {
+            (n.location(), n.value())
+        } else if let Some(n) = node.as_global_variable_or_write_node() {
+            (n.location(), n.value())
+        } else if let Some(n) = node.as_constant_or_write_node() {
+            (n.location(), n.value())
+        } else {
+            return Vec::new();
         };
-
-        let (assign_loc, value) = or_assign;
 
         // Check if the value spans multiple lines
         let assign_line = source.offset_to_line_col(assign_loc.start_offset()).0;

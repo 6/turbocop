@@ -19,7 +19,7 @@ impl CopRegistry {
     pub fn default_registry() -> Self {
         let mut registry = Self::new();
         super::bundler::register_all(&mut registry);
-        // super::factory_bot::register_all(&mut registry); // temporarily disabled
+        super::factory_bot::register_all(&mut registry);
         super::gemspec::register_all(&mut registry);
         super::layout::register_all(&mut registry);
         super::migration::register_all(&mut registry);
@@ -84,7 +84,7 @@ mod tests {
     fn default_registry_has_cops() {
         let reg = CopRegistry::default_registry();
         assert!(!reg.is_empty());
-        assert_eq!(reg.len(), 596);
+        assert_eq!(reg.len(), 628);
         // Spot-check cops from each department
         assert!(reg.get("Layout/TrailingWhitespace").is_some());
         assert!(reg.get("Layout/LineLength").is_some());

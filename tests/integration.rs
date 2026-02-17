@@ -440,7 +440,7 @@ fn all_registered_cops_can_fire() {
 #[test]
 fn registry_has_expected_cop_count() {
     let registry = CopRegistry::default_registry();
-    assert_eq!(registry.len(), 596, "Expected 596 registered cops");
+    assert_eq!(registry.len(), 628, "Expected 628 registered cops");
 
     let names = registry.names();
     let expected = [
@@ -452,6 +452,18 @@ fn registry_has_expected_cop_count() {
         "Bundler/GemVersion",
         "Bundler/InsecureProtocolSource",
         "Bundler/OrderedGems",
+        // FactoryBot (11)
+        "FactoryBot/AssociationStyle",
+        "FactoryBot/AttributeDefinedStatically",
+        "FactoryBot/ConsistentParenthesesStyle",
+        "FactoryBot/CreateList",
+        "FactoryBot/ExcessiveCreateList",
+        "FactoryBot/FactoryAssociationWithStrategy",
+        "FactoryBot/FactoryClassName",
+        "FactoryBot/FactoryNameStyle",
+        "FactoryBot/IdSequence",
+        "FactoryBot/RedundantFactoryOption",
+        "FactoryBot/SyntaxMethods",
         // Gemspec (10)
         "Gemspec/AddRuntimeDependency",
         "Gemspec/AttributeAssignment",

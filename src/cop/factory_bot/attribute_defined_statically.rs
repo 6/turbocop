@@ -14,53 +14,33 @@ fn is_reserved_method(name: &[u8]) -> bool {
     RESERVED_METHODS.contains(&s)
 }
 
-/// Check if the first argument of a call has a `factory:` key (indicating association).
-fn has_factory_option(node: &ruby_prism::Node<'_>) -> bool {
-    let call = match node.as_call_node() {
-        Some(c) => c,
-        None => return false,
-    };
-
+/// Check if a call has a hash argument with a `factory:` key.
+fn has_factory_option(call: &ruby_prism::CallNode<'_>) -> bool {
     let args = match call.arguments() {
         Some(a) => a,
         None => return false,
     };
 
-    let first = match args.arguments().iter().next() {
-        Some(a) => a,
-        None => return false,
-    };
-
-    // Check hash arg for factory: key
-    if let Some(hash) = first.as_hash_node() {
-        return hash_has_factory_key(&hash);
-    }
-    if let Some(hash) = first.as_keyword_hash_node() {
-        return keyword_hash_has_factory_key(&hash);
-    }
-
-    false
-}
-
-fn hash_has_factory_key(hash: &ruby_prism::HashNode<'_>) -> bool {
-    for elem in hash.elements().iter() {
-        if let Some(pair) = elem.as_assoc_node() {
-            if let Some(sym) = pair.key().as_symbol_node() {
-                if sym.unescaped().as_slice() == b"factory" {
-                    return true;
+    for arg in args.arguments().iter() {
+        if let Some(hash) = arg.as_keyword_hash_node() {
+            for elem in hash.elements().iter() {
+                if let Some(pair) = elem.as_assoc_node() {
+                    if let Some(sym) = pair.key().as_symbol_node() {
+                        if sym.unescaped() == b"factory" {
+                            return true;
+                        }
+                    }
                 }
             }
         }
-    }
-    false
-}
-
-fn keyword_hash_has_factory_key(hash: &ruby_prism::KeywordHashNode<'_>) -> bool {
-    for elem in hash.elements().iter() {
-        if let Some(pair) = elem.as_assoc_node() {
-            if let Some(sym) = pair.key().as_symbol_node() {
-                if sym.unescaped().as_slice() == b"factory" {
-                    return true;
+        if let Some(hash) = arg.as_hash_node() {
+            for elem in hash.elements().iter() {
+                if let Some(pair) = elem.as_assoc_node() {
+                    if let Some(sym) = pair.key().as_symbol_node() {
+                        if sym.unescaped() == b"factory" {
+                            return true;
+                        }
+                    }
                 }
             }
         }
@@ -100,34 +80,43 @@ impl Cop for AttributeDefinedStatically {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // We look for blocks whose send is an attribute-defining method
-        // e.g., `factory :post do ... end` or `trait :published do ... end`
-        let block = match node.as_block_node() {
-            Some(b) => b,
-            None => return Vec::new(),
-        };
-
-        let block_call = match block.call().as_call_node() {
+        // Match on CallNode for attribute-defining methods (factory, trait, etc.)
+        let outer_call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
         };
 
-        let block_method = block_call.name().as_slice();
-        if !is_attribute_defining_method(block_method) {
+        let method = outer_call.name().as_slice();
+        if !is_attribute_defining_method(method) {
             return Vec::new();
         }
 
-        let body = match block.body() {
+        // Must have a block
+        let block = match outer_call.block() {
             Some(b) => b,
             None => return Vec::new(),
         };
 
-        let children = collect_body_children(&body);
+        let block_node = match block.as_block_node() {
+            Some(b) => b,
+            None => return Vec::new(),
+        };
+
+        let body = match block_node.body() {
+            Some(b) => b,
+            None => return Vec::new(),
+        };
+
+        let children: Vec<_> = if let Some(stmts) = body.as_statements_node() {
+            stmts.body().iter().collect()
+        } else {
+            vec![body]
+        };
 
         let mut diagnostics = Vec::new();
 
-        // Get the block's first parameter name (if any) for receiver matching
-        let block_param_name = block
+        // Get the block's first parameter name (if any)
+        let block_param_name = block_node
             .parameters()
             .and_then(|p| p.as_block_parameters_node())
             .and_then(|bp| {
@@ -164,13 +153,12 @@ impl Cop for AttributeDefinedStatically {
                 continue;
             }
 
-            // Skip if it's an association (has factory: key in first arg)
-            if has_factory_option(child) {
+            // Skip if it's an association (has factory: key)
+            if has_factory_option(&call) {
                 continue;
             }
 
-            // Must have a block already? No - we're looking for calls WITHOUT blocks
-            // (that's the offense: they should use blocks)
+            // Must NOT have a block (that's the offense: should use blocks)
             if call.block().is_some() {
                 continue;
             }
@@ -182,7 +170,6 @@ impl Cop for AttributeDefinedStatically {
                     if recv.as_self_node().is_some() {
                         true
                     } else if let Some(lvar) = recv.as_local_variable_read_node() {
-                        // Check if it matches the block parameter
                         if let Some(ref param) = block_param_name {
                             lvar.name().as_slice() == param.as_slice()
                         } else {
@@ -209,14 +196,6 @@ impl Cop for AttributeDefinedStatically {
         }
 
         diagnostics
-    }
-}
-
-fn collect_body_children<'a>(body: &ruby_prism::Node<'a>) -> Vec<ruby_prism::Node<'a>> {
-    if let Some(stmts) = body.as_statements_node() {
-        stmts.body().iter().collect()
-    } else {
-        vec![body.clone()]
     }
 }
 

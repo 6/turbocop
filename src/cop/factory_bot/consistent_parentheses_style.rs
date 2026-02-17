@@ -5,16 +5,6 @@ use crate::parse::source::SourceFile;
 
 pub struct ConsistentParenthesesStyle;
 
-/// Parent node types that make omitting parentheses ambiguous.
-fn is_ambiguous_parent(parent: &ruby_prism::Node<'_>) -> bool {
-    parent.as_call_node().is_some()
-        || parent.as_assoc_node().is_some()
-        || parent.as_array_node().is_some()
-        || parent.as_and_node().is_some()
-        || parent.as_or_node().is_some()
-        || parent.as_if_node().is_some()
-}
-
 impl Cop for ConsistentParenthesesStyle {
     fn name(&self) -> &'static str {
         "FactoryBot/ConsistentParenthesesStyle"

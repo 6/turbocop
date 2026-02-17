@@ -20,39 +20,38 @@ impl Cop for ParenthesesAsGroupedExpression {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // Look for method calls where there's a space before the opening parenthesis
-        // e.g. `a.func (x)` should be `a.func(x)`
+        // Look for method calls where there's a space before the opening parenthesis.
+        // `a.func (x)` should be `a.func(x)`.
+        //
+        // Prism parses `a.func (x)` as a call WITHOUT opening_loc (no call parens),
+        // where the first argument is a ParenthesesNode wrapping `x`.
+        // So we look for CallNode with no opening_loc where:
+        // 1. There is a message_loc (method name)
+        // 2. The first argument is a ParenthesesNode
+        // 3. There's whitespace between message end and the `(`
+        // 4. There's only ONE argument (the ParenthesesNode)
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
         };
 
-        // Must have parentheses on the arguments
-        let open_loc = match call.opening_loc() {
-            Some(loc) => loc,
-            None => return Vec::new(),
-        };
+        // Must NOT have opening_loc (no call-level parens)
+        if call.opening_loc().is_some() {
+            return Vec::new();
+        }
 
-        // Must have a method name (message_loc)
+        // Skip operator methods (%, +, -, ==, etc.)
+        let method_name = call.name().as_slice();
+        if is_operator(method_name) {
+            return Vec::new();
+        }
+
+        // Must have a method name
         let msg_loc = match call.message_loc() {
             Some(loc) => loc,
             None => return Vec::new(),
         };
 
-        let msg_end = msg_loc.end_offset();
-        let open_start = open_loc.start_offset();
-
-        // There must be a space between method name and opening paren
-        if open_start <= msg_end {
-            return Vec::new();
-        }
-
-        let between = &source.as_bytes()[msg_end..open_start];
-        if between.is_empty() || !between.iter().all(|&b| b == b' ' || b == b'\t') {
-            return Vec::new();
-        }
-
-        // Must have arguments
         let arguments = match call.arguments() {
             Some(a) => a,
             None => return Vec::new(),
@@ -60,84 +59,88 @@ impl Cop for ParenthesesAsGroupedExpression {
 
         let args = arguments.arguments();
 
-        // If there are multiple arguments (not wrapped in extra parens), it's not
-        // a grouped expression - e.g. `assert_equal (0..1.9), acceleration.domain`
-        if args.len() > 1 {
-            return Vec::new();
-        }
-
-        if args.is_empty() {
+        // Must have exactly one argument (the parenthesized expression)
+        if args.len() != 1 {
             return Vec::new();
         }
 
         let first_arg = args.iter().next().unwrap();
 
-        // If the single argument is followed by an operator or method chain
-        // (the expression continues beyond the closing paren), skip it.
-        // e.g. `func (x) || y`, `func (x).foo.bar`, `puts (2 + 3) * 4`
-        let close_loc = match call.closing_loc() {
-            Some(loc) => loc,
+        // The argument must be a ParenthesesNode
+        let paren_node = match first_arg.as_parentheses_node() {
+            Some(p) => p,
             None => return Vec::new(),
         };
 
-        let close_end = close_loc.end_offset();
-        let call_end = call.location().end_offset();
+        // There must be a space between method name end and the `(` of the ParenthesesNode
+        let msg_end = msg_loc.end_offset();
+        let paren_start = paren_node.location().start_offset();
 
-        // If the call extends beyond the closing paren, there's something after
-        // like an operator or method chain
-        if call_end > close_end {
+        if paren_start <= msg_end {
             return Vec::new();
         }
 
-        // Check if the argument itself is followed by operators/ternary outside paren.
-        // This is tricky; check if the parent call's args extend beyond our close paren.
-        // Actually, if the call_end == close_end, the call IS just `method (args)`.
+        let between = &source.as_bytes()[msg_end..paren_start];
+        if between.is_empty() || !between.iter().all(|&b| b == b' ' || b == b'\t') {
+            return Vec::new();
+        }
 
-        // Check for hash rocket pattern: `transition (foo - bar) => value`
-        // The source after closing paren starts with ` =>`
-        if close_end < source.as_bytes().len() {
-            let rest = &source.as_bytes()[close_end..];
+        // Check what's after the closing paren - if there's an operator, method chain,
+        // ternary, or hash rocket, it's not a grouped expression
+        let paren_end = paren_node.location().end_offset();
+        let call_end = call.location().end_offset();
+
+        // If the call extends beyond the paren, something follows (operator/chain)
+        if call_end > paren_end {
+            return Vec::new();
+        }
+
+        // Check what's after the closing paren on the same line
+        if paren_end < source.as_bytes().len() {
+            let rest = &source.as_bytes()[paren_end..];
+            // Find the first non-whitespace character
             let trimmed = rest.iter().position(|&b| b != b' ' && b != b'\t');
             if let Some(pos) = trimmed {
-                if rest[pos..].starts_with(b"=>") {
-                    return Vec::new();
-                }
-                // Ternary: `? ...`
-                if rest[pos] == b'?' {
-                    return Vec::new();
-                }
-                // Binary operators: ||, &&, +, -, *, etc
-                if rest[pos] == b'|' || rest[pos] == b'&' || rest[pos] == b'+' || rest[pos] == b'-' || rest[pos] == b'*' {
-                    return Vec::new();
-                }
-                // Method chain: `.something` or `&.something`
-                if rest[pos] == b'.' {
-                    return Vec::new();
+                // Stop at newline
+                if rest[pos] != b'\n' && rest[pos] != b'\r' {
+                    let ch = rest[pos];
+                    // Hash rocket
+                    if rest[pos..].starts_with(b"=>") {
+                        return Vec::new();
+                    }
+                    // Ternary
+                    if ch == b'?' {
+                        return Vec::new();
+                    }
+                    // Binary operators
+                    if ch == b'|' || ch == b'&' || ch == b'+' || ch == b'-' || ch == b'*' {
+                        return Vec::new();
+                    }
+                    // Method chain
+                    if ch == b'.' {
+                        return Vec::new();
+                    }
                 }
             }
         }
 
-        // Check for compound range: `rand (a - b)..(c - d)` — skip if content has `..`
-        // and the sub-expressions are not simple literals
-        if let Some(paren) = first_arg.as_parentheses_node() {
-            if let Some(body) = paren.body() {
-                if let Some(stmts) = body.as_statements_node() {
-                    let inner = stmts.body();
-                    if inner.len() == 1 {
-                        let expr = inner.iter().next().unwrap();
-                        if expr.as_range_node().is_some() {
-                            // Check if sub-expressions of the range contain calls/operations
-                            // (compound range). Simple literal ranges should still be flagged.
-                            if let Some(range) = expr.as_range_node() {
-                                let is_compound = |n: &ruby_prism::Node<'_>| -> bool {
-                                    n.as_call_node().is_some() || n.as_parentheses_node().is_some()
-                                };
-                                let left_compound = range.left().map(|l| is_compound(&l)).unwrap_or(false);
-                                let right_compound = range.right().map(|r| is_compound(&r)).unwrap_or(false);
-                                if left_compound || right_compound {
-                                    return Vec::new();
-                                }
-                            }
+        // Check for compound range inside the parens: `rand (a - b)..(c - d)`
+        if let Some(body) = paren_node.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                let inner = stmts.body();
+                if inner.len() == 1 {
+                    let expr = inner.iter().next().unwrap();
+                    if let Some(range) = expr.as_range_node() {
+                        // Check if sub-expressions are compound (not simple literals)
+                        let is_compound = |n: &ruby_prism::Node<'_>| -> bool {
+                            n.as_call_node().is_some() || n.as_parentheses_node().is_some()
+                        };
+                        let left_compound =
+                            range.left().map(|l| is_compound(&l)).unwrap_or(false);
+                        let right_compound =
+                            range.right().map(|r| is_compound(&r)).unwrap_or(false);
+                        if left_compound || right_compound {
+                            return Vec::new();
                         }
                     }
                 }
@@ -145,11 +148,10 @@ impl Cop for ParenthesesAsGroupedExpression {
         }
 
         // Build the argument text for the message
-        let arg_start = open_loc.start_offset();
-        let arg_end = close_end;
-        let arg_text = std::str::from_utf8(&source.as_bytes()[arg_start..arg_end]).unwrap_or("(...)");
+        let arg_text =
+            std::str::from_utf8(&source.as_bytes()[paren_start..paren_end]).unwrap_or("(...)");
 
-        let (line, column) = source.offset_to_line_col(open_start);
+        let (line, column) = source.offset_to_line_col(paren_start);
         vec![self.diagnostic(
             source,
             line,
@@ -159,8 +161,21 @@ impl Cop for ParenthesesAsGroupedExpression {
     }
 }
 
+fn is_operator(name: &[u8]) -> bool {
+    matches!(
+        name,
+        b"==" | b"!=" | b"<" | b">" | b"<=" | b">=" | b"<=>"
+            | b"+" | b"-" | b"*" | b"/" | b"%" | b"**"
+            | b"&" | b"|" | b"^" | b"~" | b"<<" | b">>"
+            | b"[]" | b"[]=" | b"=~" | b"!~"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ParenthesesAsGroupedExpression, "cops/lint/parentheses_as_grouped_expression");
+    crate::cop_fixture_tests!(
+        ParenthesesAsGroupedExpression,
+        "cops/lint/parentheses_as_grouped_expression"
+    );
 }

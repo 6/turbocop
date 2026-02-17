@@ -148,6 +148,7 @@ fn is_dir_glob_or_index(node: &ruby_prism::Node<'_>) -> bool {
 
 fn block_contains_require(call: &ruby_prism::CallNode<'_>) -> bool {
     // Check if the block argument is &method(:require)
+    // In Prism, `&method(:require)` can be in call.arguments() or call.block()
     if let Some(args) = call.arguments() {
         for arg in args.arguments().iter() {
             if is_require_block_arg(&arg) {
@@ -156,8 +157,12 @@ fn block_contains_require(call: &ruby_prism::CallNode<'_>) -> bool {
         }
     }
 
-    // Check literal block
+    // Check literal block or block argument
     if let Some(block) = call.block() {
+        // Check if it's a BlockArgumentNode with &method(:require)
+        if is_require_block_arg(&block) {
+            return true;
+        }
         return block_node_contains_require(&block);
     }
 

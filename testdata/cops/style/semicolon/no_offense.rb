@@ -10,3 +10,6 @@ def show; end
 def foo; bar; end
 class EmptyError < StandardError; end
 module Mixin; end
+# Embedded single-line def inside a block (not flagged by RuboCop)
+foo { def bar; end }
+let(:cop_class) { stub_cop_class('Some::Cop') { def foo; end } }

@@ -18,24 +18,18 @@ impl Cop for IfWithBooleanLiteralBranches {
     ) -> Vec<Diagnostic> {
         let allowed_methods = config.get_string_array("AllowedMethods");
 
-        // Check `if` nodes
+        // Check `if` nodes (including ternary)
         if let Some(if_node) = node.as_if_node() {
-            let if_kw_loc = match if_node.if_keyword_loc() {
-                Some(loc) => loc,
-                None => return Vec::new(), // ternary without explicit keyword
-            };
+            // Detect ternary: no if_keyword_loc means it's a ternary
+            let is_ternary = if_node.if_keyword_loc().is_none();
 
-            let kw_text = if_kw_loc.as_slice();
-
-            // Must be `if`, not `elsif`
-            if kw_text != b"if" {
-                return Vec::new();
+            if !is_ternary {
+                let kw_text = if_node.if_keyword_loc().unwrap().as_slice();
+                // Must be `if`, not `elsif`
+                if kw_text != b"if" {
+                    return Vec::new();
+                }
             }
-
-            // Check for ternary (no end keyword)
-            let is_ternary = if_node.end_keyword_loc().is_none()
-                && if_node.statements().is_some()
-                && if_node.subsequent().is_some();
 
             // Need both branches (if body and else)
             let if_body = match if_node.statements() {
@@ -60,7 +54,8 @@ impl Cop for IfWithBooleanLiteralBranches {
             if let (Some(if_val), Some(else_val)) = (if_bool, else_bool) {
                 // Both branches are boolean literals
                 if (if_val && !else_val) || (!if_val && else_val) {
-                    // Check if condition is "known boolean" (comparison or predicate)
+                    // For ternaries, the condition is always "known" (direct expression)
+                    // For non-ternaries, check if condition returns boolean
                     if !is_ternary && !condition_returns_boolean(&if_node.predicate(), &allowed_methods) {
                         return Vec::new();
                     }
@@ -84,6 +79,7 @@ impl Cop for IfWithBooleanLiteralBranches {
                         )];
                     }
 
+                    let if_kw_loc = if_node.if_keyword_loc().unwrap();
                     let (line, column) = source.offset_to_line_col(if_kw_loc.start_offset());
                     return vec![self.diagnostic(
                         source,

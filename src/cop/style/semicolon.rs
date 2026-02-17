@@ -42,6 +42,12 @@ impl Cop for Semicolon {
                 continue;
             }
 
+            // Skip semicolons that are part of embedded `def foo; end` patterns
+            // (e.g., inside a block: `{ def foo; end }`)
+            if is_embedded_single_line_body(line_bytes, column) {
+                continue;
+            }
+
             // AllowAsExpressionSeparator: skip semicolons used between expressions
             if allow_separator && column + 1 < line_bytes.len() {
                 let after = trim_bytes(&line_bytes[column + 1..]);
@@ -79,6 +85,64 @@ fn is_single_line_body(trimmed: &[u8]) -> bool {
         || trimmed.starts_with(b"until ")
         || trimmed.starts_with(b"begin");
     starts_keyword && trimmed.ends_with(b"; end")
+}
+
+/// Check if a semicolon at a given column is part of a `def/class/module ... ; end`
+/// pattern embedded within a larger line (e.g., inside a block).
+/// RuboCop doesn't flag these because its token-based detection doesn't find them.
+fn is_embedded_single_line_body(line_bytes: &[u8], semicolon_col: usize) -> bool {
+    // Look backwards from the semicolon for a keyword
+    let before = &line_bytes[..semicolon_col];
+    let after = &line_bytes[semicolon_col + 1..];
+
+    // Check if there's a `def ` before the semicolon (possibly with other stuff before)
+    let has_def = find_keyword_before(before, b"def ");
+    let has_class = find_keyword_before(before, b"class ");
+    let has_module = find_keyword_before(before, b"module ");
+
+    if !has_def && !has_class && !has_module {
+        return false;
+    }
+
+    // Check if after the semicolon there's `end` or `...; end` pattern
+    let trimmed_after = trim_bytes_start(after);
+    if trimmed_after.starts_with(b"end")
+        && (trimmed_after.len() == 3
+            || !trimmed_after[3].is_ascii_alphanumeric() && trimmed_after[3] != b'_')
+    {
+        return true;
+    }
+    // Also check for `something; end` after
+    if let Some(next_semi) = after.iter().position(|&b| b == b';') {
+        let after_next = trim_bytes_start(&after[next_semi + 1..]);
+        if after_next.starts_with(b"end")
+            && (after_next.len() == 3
+                || !after_next[3].is_ascii_alphanumeric() && after_next[3] != b'_')
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn find_keyword_before(before: &[u8], keyword: &[u8]) -> bool {
+    // Search for the keyword preceded by a non-alphanumeric character (or start of string)
+    if before.len() < keyword.len() {
+        return false;
+    }
+    for i in 0..=before.len() - keyword.len() {
+        if &before[i..i + keyword.len()] == keyword {
+            if i == 0 || !before[i - 1].is_ascii_alphanumeric() && before[i - 1] != b'_' {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn trim_bytes_start(b: &[u8]) -> &[u8] {
+    let start = b.iter().position(|&c| c != b' ' && c != b'\t').unwrap_or(b.len());
+    &b[start..]
 }
 
 #[cfg(test)]

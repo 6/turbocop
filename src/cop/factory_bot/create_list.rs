@@ -1,3 +1,5 @@
+use ruby_prism::Visit;
+
 use crate::cop::factory_bot::{is_factory_call, FACTORY_BOT_SPEC_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -25,21 +27,20 @@ impl Cop for CreateList {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let call = match node.as_call_node() {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+
         let style = config.get_str("EnforcedStyle", "create_list");
         let explicit_only = config.get_bool("ExplicitOnly", false);
 
         if style == "create_list" {
-            // Check blocks: n.times { create :user }, n.times.map { ... }, Array.new(n) { ... }
-            if let Some(block) = node.as_block_node() {
-                return self.check_block_for_create_list(source, &block, explicit_only);
-            }
+            return self.check_for_create_list_style(source, &call, explicit_only);
         }
 
         if style == "n_times" {
-            // Check create_list calls
-            if let Some(call) = node.as_call_node() {
-                return self.check_call_for_n_times(source, &call, explicit_only);
-            }
+            return self.check_for_n_times_style(source, &call, explicit_only);
         }
 
         Vec::new()
@@ -47,53 +48,56 @@ impl Cop for CreateList {
 }
 
 impl CreateList {
-    fn check_block_for_create_list(
+    /// With create_list style: flag `n.times { create :user }`, `n.times.map { create ... }`,
+    /// `Array.new(n) { create ... }` blocks
+    fn check_for_create_list_style(
         &self,
         source: &SourceFile,
-        block: &ruby_prism::BlockNode<'_>,
+        call: &ruby_prism::CallNode<'_>,
         explicit_only: bool,
     ) -> Vec<Diagnostic> {
-        let send = match block.call().as_call_node() {
-            Some(c) => c,
-            None => return Vec::new(),
-        };
-
-        // Try to extract repeat count from:
-        // - n.times { ... }
-        // - n.times.map { ... }
-        // - Array.new(n) { ... }
-        let count = get_repeat_count(&send);
-        let count = match count {
-            Some(c) if c > 1 => c,
-            _ => return Vec::new(),
-        };
-
-        // Check if block arg is used (if so, skip)
-        if block_arg_is_used(block) {
-            return Vec::new();
-        }
-
-        let body = match block.body() {
+        // Check if this call has a block containing a single create
+        let block = match call.block() {
             Some(b) => b,
             None => return Vec::new(),
         };
 
-        // Body must be a single factory create call
-        let body_call = get_single_create_call(&body);
-        let body_call = match body_call {
-            Some(c) => c,
+        let block_node = match block.as_block_node() {
+            Some(b) => b,
             None => return Vec::new(),
         };
 
-        if !is_factory_call(body_call.receiver(), explicit_only) {
+        // Extract repeat count from the call (n.times, n.times.map, Array.new(n))
+        let count = match get_repeat_count_from_source(call, source) {
+            Some(c) if c > 1 => c,
+            _ => return Vec::new(),
+        };
+
+        // Check if block arg is used
+        if block_param_is_used(&block_node) {
             return Vec::new();
         }
+
+        let body = match block_node.body() {
+            Some(b) => b,
+            None => return Vec::new(),
+        };
+
+        // Body must be a single factory create call (or create with a sub-block)
+        let body_call = match get_single_create_call(&body) {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
 
         if body_call.name().as_slice() != b"create" {
             return Vec::new();
         }
 
-        // First arg must be a symbol
+        if !is_factory_call(body_call.receiver(), explicit_only) {
+            return Vec::new();
+        }
+
+        // Must have arguments, first must be symbol
         let args = match body_call.arguments() {
             Some(a) => a,
             None => return Vec::new(),
@@ -108,8 +112,9 @@ impl CreateList {
             return Vec::new();
         }
 
-        let send_loc = send.location();
-        let (line, column) = source.offset_to_line_col(send_loc.start_offset());
+        let _ = count;
+        let loc = call.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
         vec![self.diagnostic(
             source,
             line,
@@ -118,7 +123,8 @@ impl CreateList {
         )]
     }
 
-    fn check_call_for_n_times(
+    /// With n_times style: flag `create_list :user, 3` calls
+    fn check_for_n_times_style(
         &self,
         source: &SourceFile,
         call: &ruby_prism::CallNode<'_>,
@@ -148,11 +154,8 @@ impl CreateList {
         }
 
         // Second arg: integer (count)
-        let count = match arg_list[1].as_integer_node() {
-            Some(int) => {
-                let val = int.value();
-                val.try_into().unwrap_or(0i64)
-            }
+        let count = match get_integer_value(&arg_list[1], source) {
+            Some(c) => c,
             None => return Vec::new(),
         };
 
@@ -171,29 +174,36 @@ impl CreateList {
     }
 }
 
-/// Extract repeat count from n.times, n.times.map, or Array.new(n).
-fn get_repeat_count(call: &ruby_prism::CallNode<'_>) -> Option<i64> {
+/// Get repeat count from source bytes (since integer value parsing needs source).
+fn get_repeat_count_from_source(
+    call: &ruby_prism::CallNode<'_>,
+    source: &SourceFile,
+) -> Option<i64> {
     let method = call.name().as_slice();
 
     if method == b"times" {
-        // n.times — receiver is integer literal
         if let Some(recv) = call.receiver() {
             if let Some(int) = recv.as_integer_node() {
-                let val: i64 = int.value().try_into().unwrap_or(0);
-                return Some(val);
+                let src = &source.as_bytes()
+                    [int.location().start_offset()..int.location().end_offset()];
+                if let Ok(s) = std::str::from_utf8(src) {
+                    return s.parse::<i64>().ok();
+                }
             }
         }
     }
 
     if method == b"map" {
-        // n.times.map — receiver is n.times
         if let Some(recv) = call.receiver() {
             if let Some(times_call) = recv.as_call_node() {
                 if times_call.name().as_slice() == b"times" {
                     if let Some(int_recv) = times_call.receiver() {
                         if let Some(int) = int_recv.as_integer_node() {
-                            let val: i64 = int.value().try_into().unwrap_or(0);
-                            return Some(val);
+                            let src = &source.as_bytes()
+                                [int.location().start_offset()..int.location().end_offset()];
+                            if let Ok(s) = std::str::from_utf8(src) {
+                                return s.parse::<i64>().ok();
+                            }
                         }
                     }
                 }
@@ -202,7 +212,6 @@ fn get_repeat_count(call: &ruby_prism::CallNode<'_>) -> Option<i64> {
     }
 
     if method == b"new" {
-        // Array.new(n)
         if let Some(recv) = call.receiver() {
             let is_array = if let Some(cr) = recv.as_constant_read_node() {
                 cr.name().as_slice() == b"Array"
@@ -216,8 +225,11 @@ fn get_repeat_count(call: &ruby_prism::CallNode<'_>) -> Option<i64> {
                 if let Some(args) = call.arguments() {
                     let arg_list: Vec<_> = args.arguments().iter().collect();
                     if let Some(int) = arg_list.first().and_then(|a| a.as_integer_node()) {
-                        let val: i64 = int.value().try_into().unwrap_or(0);
-                        return Some(val);
+                        let src = &source.as_bytes()
+                            [int.location().start_offset()..int.location().end_offset()];
+                        if let Ok(s) = std::str::from_utf8(src) {
+                            return s.parse::<i64>().ok();
+                        }
                     }
                 }
             }
@@ -227,9 +239,9 @@ fn get_repeat_count(call: &ruby_prism::CallNode<'_>) -> Option<i64> {
     None
 }
 
-/// Check if a block has named parameters that are actually used in the body.
-fn block_arg_is_used(block: &ruby_prism::BlockNode<'_>) -> bool {
-    let params = match block.parameters() {
+/// Check if a block has parameters that are used in the body.
+fn block_param_is_used(block_node: &ruby_prism::BlockNode<'_>) -> bool {
+    let params = match block_node.parameters() {
         Some(p) => p,
         None => return false,
     };
@@ -244,7 +256,6 @@ fn block_arg_is_used(block: &ruby_prism::BlockNode<'_>) -> bool {
         None => return false,
     };
 
-    // Get parameter names
     let param_names: Vec<Vec<u8>> = inner_params
         .requireds()
         .iter()
@@ -256,71 +267,57 @@ fn block_arg_is_used(block: &ruby_prism::BlockNode<'_>) -> bool {
         return false;
     }
 
-    // Check if any param is used in arguments of the create call in the body
-    let body = match block.body() {
+    let body = match block_node.body() {
         Some(b) => b,
         None => return false,
     };
 
-    // Simple check: see if the param name appears as a local variable read in the body
     has_local_var_read(&body, &param_names)
 }
 
 fn has_local_var_read(node: &ruby_prism::Node<'_>, names: &[Vec<u8>]) -> bool {
-    if let Some(lvar) = node.as_local_variable_read_node() {
-        if names.iter().any(|n| lvar.name().as_slice() == n.as_slice()) {
-            return true;
+    struct VarFinder {
+        names: Vec<Vec<u8>>,
+        found: bool,
+    }
+
+    impl<'pr> Visit<'pr> for VarFinder {
+        fn visit_local_variable_read_node(
+            &mut self,
+            node: &ruby_prism::LocalVariableReadNode<'pr>,
+        ) {
+            if self.names.iter().any(|n| node.name().as_slice() == n.as_slice()) {
+                self.found = true;
+            }
         }
     }
 
-    // Recurse into children
-    for child in node.child_nodes().iter().flatten() {
-        if has_local_var_read(&child, names) {
-            return true;
-        }
-    }
-
-    false
+    let mut finder = VarFinder {
+        names: names.to_vec(),
+        found: false,
+    };
+    finder.visit(node);
+    finder.found
 }
 
-/// Get the create call from a block body (single statement only).
+/// Get the single create call from a block body.
 fn get_single_create_call<'a>(
     body: &ruby_prism::Node<'a>,
 ) -> Option<ruby_prism::CallNode<'a>> {
-    // If body is a statements node, it must have exactly one child
     if let Some(stmts) = body.as_statements_node() {
         let children: Vec<_> = stmts.body().iter().collect();
         if children.len() != 1 {
             return None;
         }
-        // The child can be a call node or a block node wrapping a call
-        let child = &children[0];
-        if let Some(c) = child.as_call_node() {
-            return Some(c);
-        }
-        if let Some(b) = child.as_block_node() {
-            if let Some(c) = b.call().as_call_node() {
-                return Some(c);
-            }
-        }
-        return None;
+        return children[0].as_call_node();
     }
 
-    // Single node body
-    if let Some(c) = body.as_call_node() {
-        return Some(c);
-    }
-    if let Some(b) = body.as_block_node() {
-        if let Some(c) = b.call().as_call_node() {
-            return Some(c);
-        }
-    }
-    None
+    // Single expression body
+    body.as_call_node()
 }
 
 /// Check if arguments to create include a method call (like `rand`).
 fn arguments_include_method_call(args: &[ruby_prism::Node<'_>]) -> bool {
-    // Skip the first arg (factory name)
     for arg in args.iter().skip(1) {
         if contains_send_node(arg) {
             return true;
@@ -330,16 +327,13 @@ fn arguments_include_method_call(args: &[ruby_prism::Node<'_>]) -> bool {
 }
 
 fn contains_send_node(node: &ruby_prism::Node<'_>) -> bool {
-    // Direct call node with arguments that's not a keyword hash
     if let Some(call) = node.as_call_node() {
-        // Only flag if it's a real method call (not just a symbol/literal)
+        // A method call with receiver, arguments, or block
         if call.receiver().is_some() || call.arguments().is_some() || call.block().is_some() {
             return true;
         }
         // A bare method call like `rand`
-        if call.receiver().is_none() && call.arguments().is_none() {
-            return true;
-        }
+        return true;
     }
 
     // Check keyword hash values
@@ -364,6 +358,17 @@ fn contains_send_node(node: &ruby_prism::Node<'_>) -> bool {
     }
 
     false
+}
+
+/// Extract integer value from a node via source bytes.
+fn get_integer_value(node: &ruby_prism::Node<'_>, source: &SourceFile) -> Option<i64> {
+    if let Some(int) = node.as_integer_node() {
+        let src =
+            &source.as_bytes()[int.location().start_offset()..int.location().end_offset()];
+        let s = std::str::from_utf8(src).ok()?;
+        return s.parse::<i64>().ok();
+    }
+    None
 }
 
 #[cfg(test)]

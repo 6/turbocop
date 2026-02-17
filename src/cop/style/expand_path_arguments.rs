@@ -97,8 +97,8 @@ impl Cop for ExpandPathArguments {
 /// Extract a simple string value from a string node.
 fn extract_string_value(node: &ruby_prism::Node<'_>) -> Option<String> {
     let string_node = node.as_string_node()?;
-    let content = string_node.content();
-    String::from_utf8(content.as_slice().to_vec()).ok()
+    let content = string_node.content_loc().as_slice();
+    String::from_utf8(content.to_vec()).ok()
 }
 
 /// Build the suggested replacement for File.expand_path(path, __FILE__).

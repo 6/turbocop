@@ -1,5 +1,5 @@
 if cond then
-         ^^^^ Style/MultilineIfThen: Do not use `then` for multi-line `if`.
+        ^^^^ Style/MultilineIfThen: Do not use `then` for multi-line `if`.
 end
 
 if cond1

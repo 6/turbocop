@@ -21,8 +21,6 @@ impl Cop for CommentedKeyword {
                 Err(_) => continue,
             };
 
-            let trimmed = line_str.trim();
-
             // Find a comment `#` on this line
             // We need to find the # that starts a comment, not one inside a string
             // Simple heuristic: find last `#` that has a space or is at start of comment portion

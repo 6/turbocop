@@ -57,8 +57,12 @@ impl Cop for ExcessiveCreateList {
         // Second arg must be an integer
         let count = match arg_list[1].as_integer_node() {
             Some(int) => {
-                let val: i64 = int.value().try_into().unwrap_or(0);
-                val
+                let src = &source.as_bytes()
+                    [int.location().start_offset()..int.location().end_offset()];
+                match std::str::from_utf8(src).ok().and_then(|s| s.parse::<i64>().ok()) {
+                    Some(v) => v,
+                    None => return Vec::new(),
+                }
             }
             None => return Vec::new(),
         };
