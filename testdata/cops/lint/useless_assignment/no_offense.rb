@@ -79,3 +79,17 @@ items.each do |item|
   x = compute(item)
   process(x)
 end
+
+# Bare `binding` captures all local variables, so assignments are not useless
+def render_template
+  github_user = `git config github.user`.chomp
+  template = File.read("template.erb")
+  ERB.new(template).result(binding)
+end
+
+# `binding` in a block also captures all locals in that scope
+task :announce do
+  version = ENV["VERSION"]
+  github_user = `git config github.user`.chomp
+  puts ERB.new(template).result(binding)
+end

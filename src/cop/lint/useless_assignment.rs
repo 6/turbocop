@@ -56,6 +56,7 @@ struct WriteReadCollector {
     writes: Vec<WriteInfo>,
     reads: HashSet<String>,
     has_forwarding_super: bool,
+    has_binding_call: bool,
 }
 
 impl WriteReadCollector {
@@ -64,6 +65,7 @@ impl WriteReadCollector {
             writes: Vec::new(),
             reads: HashSet::new(),
             has_forwarding_super: false,
+            has_binding_call: false,
         }
     }
 
@@ -123,6 +125,20 @@ impl<'pr> Visit<'pr> for WriteReadCollector {
     ) {
         self.add_read(node.name().as_slice());
         self.visit(&node.value());
+    }
+
+    // A bare `binding` call (no receiver, no arguments) captures the entire
+    // local scope, so all local variable assignments are implicitly "used".
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if node.receiver().is_none()
+            && node.name().as_slice() == b"binding"
+            && (node.arguments().is_none()
+                || node.arguments().map_or(true, |a| a.arguments().is_empty()))
+        {
+            self.has_binding_call = true;
+        }
+        // Continue visiting children (arguments, blocks, etc.)
+        ruby_prism::visit_call_node(self, node);
     }
 
     // Bare `super` (no args, no parens) implicitly forwards all method parameters,
@@ -211,6 +227,11 @@ fn collect_param_names(node: &ruby_prism::DefNode<'_>) -> HashSet<String> {
 impl UselessAssignVisitor<'_, '_> {
     /// Analyze a body (from a def or block) for useless assignments and report diagnostics.
     fn analyze_body(&mut self, collector: &WriteReadCollector) {
+        // A bare `binding` call captures all local variables, so every
+        // assignment is implicitly used.
+        if collector.has_binding_call {
+            return;
+        }
         for write in &collector.writes {
             if write.name.starts_with('_') {
                 continue;
