@@ -127,7 +127,9 @@ impl Cop for OutputSafety {
             return Vec::new();
         }
 
-        let loc = node.location();
+        // Use message_loc to point to the method name (html_safe/raw/safe_concat)
+        // instead of the entire call expression, matching RuboCop's `node.loc.selector`.
+        let loc = call.message_loc().unwrap_or(node.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         vec![self.diagnostic(
             source,

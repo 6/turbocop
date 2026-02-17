@@ -17,4 +17,11 @@ RSpec.describe Foo do
   # a comment
   it 'yet another' do
   end
+
+  # One-liner followed by multi-liner should fire
+  it("returns false") { expect(true).to be false }
+  ^^ RSpec/EmptyLineAfterExample: Add an empty line after `it`.
+  it "adds the errors" do
+    expect(true).to be true
+  end
 end

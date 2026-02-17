@@ -51,9 +51,16 @@ impl Cop for ExpectChange {
             if arg_list.len() != 2 {
                 return Vec::new();
             }
-            // First arg should be a constant, second a symbol
+            // First arg should be a constant or local variable, second a symbol
             let first = &arg_list[0];
-            if first.as_constant_read_node().is_none() && first.as_constant_path_node().is_none() {
+            if first.as_constant_read_node().is_none()
+                && first.as_constant_path_node().is_none()
+                && first.as_local_variable_read_node().is_none()
+                && first.as_instance_variable_read_node().is_none()
+                && !first.as_call_node().is_some_and(|c| {
+                    c.receiver().is_none() && c.arguments().is_none() && c.block().is_none()
+                })
+            {
                 return Vec::new();
             }
             if arg_list[1].as_symbol_node().is_none() {
@@ -116,9 +123,17 @@ impl Cop for ExpectChange {
             return Vec::new();
         }
 
-        // The receiver must be a constant (User, Admin::Base, etc.) — not a method call
+        // The receiver must be a simple expression — constant, local variable, or
+        // simple method call without args. Not arbitrary expressions.
         let recv = inner_call.receiver().unwrap();
-        if recv.as_constant_read_node().is_none() && recv.as_constant_path_node().is_none() {
+        let is_simple_receiver = recv.as_constant_read_node().is_some()
+            || recv.as_constant_path_node().is_some()
+            || recv.as_local_variable_read_node().is_some()
+            || recv.as_instance_variable_read_node().is_some()
+            || (recv.as_call_node().is_some_and(|c| {
+                c.receiver().is_none() && c.arguments().is_none() && c.block().is_none()
+            }));
+        if !is_simple_receiver {
             return Vec::new();
         }
 

@@ -171,6 +171,13 @@ impl Cop for IfUnlessModifier {
             return Vec::new();
         }
 
+        // Skip if the body itself is a conditional (nested conditional).
+        // e.g., `if x; return true if y; end` — RuboCop doesn't suggest modifier form
+        // for the outer if because it already contains an inner conditional.
+        if body_node.as_if_node().is_some() || body_node.as_unless_node().is_some() {
+            return Vec::new();
+        }
+
         // Body must be on a single line to be eligible for modifier form
         let (body_start_line, _) = source.offset_to_line_col(body_node.location().start_offset());
         let body_end_off = body_node.location().end_offset().saturating_sub(1).max(body_node.location().start_offset());
@@ -239,6 +246,9 @@ impl Cop for IfUnlessModifier {
         }
 
         let max_line_length = config.get_usize("MaxLineLength", 120);
+        // When MaxLineLength is 0, Layout/LineLength is disabled — skip line length check
+        // (matches RuboCop's behavior: return true unless max_line_length)
+        let line_length_enabled = config.get_bool("LineLengthEnabled", max_line_length > 0);
 
         // Estimate modifier line length: body + " " + keyword + " " + condition
         let body_text = &source.as_bytes()
@@ -253,7 +263,7 @@ impl Cop for IfUnlessModifier {
         let (_, kw_col) = source.offset_to_line_col(kw_loc.start_offset());
         let modifier_len = kw_col + body_text.len() + 1 + keyword.len() + 1 + cond_text.len();
 
-        if modifier_len <= max_line_length {
+        if !line_length_enabled || modifier_len <= max_line_length {
             let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
             return vec![self.diagnostic(source, line, column, format!(
                 "Favor modifier `{keyword}` usage when having a single-line body."

@@ -13,3 +13,7 @@ end
 it 'displays shoulder text' do
   expect(page).to have_content('shoulder')
 end
+# specify is not checked (RuboCop only checks `it` blocks)
+specify 'should do something' do
+  expect(true).to be true
+end

@@ -56,13 +56,24 @@ impl Cop for RakeEnvironment {
             return Vec::new();
         }
 
-        // Check if any argument is a hash containing :environment
+        // Check if any argument is a hash with dependencies.
+        // RuboCop checks for *any* dependency, not just :environment.
+        // Dependency forms:
+        //   task foo: :environment        (first arg is keyword hash)
+        //   task :foo => :environment     (keyword hash with symbol value)
+        //   task :foo, [:arg] => [:env]   (keyword hash with array value)
         for arg in &arg_list {
             if let Some(kw) = arg.as_keyword_hash_node() {
                 for elem in kw.elements().iter() {
                     if let Some(assoc) = elem.as_assoc_node() {
-                        if let Some(sym) = assoc.value().as_symbol_node() {
-                            if sym.unescaped() == b"environment" {
+                        let value = assoc.value();
+                        // Symbol value: `=> :environment` or `foo: :environment`
+                        if value.as_symbol_node().is_some() {
+                            return Vec::new();
+                        }
+                        // Array value: `=> [:environment]` or `=> [:env1, :env2]`
+                        if let Some(arr) = value.as_array_node() {
+                            if arr.elements().iter().next().is_some() {
                                 return Vec::new();
                             }
                         }

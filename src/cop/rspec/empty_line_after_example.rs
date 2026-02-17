@@ -81,12 +81,13 @@ impl Cop for EmptyLineAfterExample {
                 };
 
                 // If consecutive one-liners are allowed, check if the next
-                // meaningful line is also a one-liner example
+                // meaningful line is also a one-liner example.
+                // Both the current AND next example must be one-liners.
                 if allow_consecutive && is_one_liner {
                     let trimmed = check_line.iter().position(|&b| b != b' ' && b != b'\t');
                     if let Some(start) = trimmed {
                         let rest = &check_line[start..];
-                        if starts_with_example_keyword(rest) {
+                        if starts_with_example_keyword(rest) && is_single_line_block(rest) {
                             return Vec::new();
                         }
                     }
@@ -150,6 +151,20 @@ fn is_terminator_line(line: &[u8]) -> bool {
                 }
             }
         }
+    }
+    false
+}
+
+/// Check if a line represents a single-line block (contains closing `end` or `}` on same line).
+fn is_single_line_block(line: &[u8]) -> bool {
+    // Single-line brace block: `it { something }`
+    if line.contains(&b'{') && line.contains(&b'}') {
+        return true;
+    }
+    // Single-line do..end: `it "foo" do something end` (very rare but possible)
+    // Check if line contains both `do` and `end`
+    if line.windows(2).any(|w| w == b"do") && line.windows(3).any(|w| w == b"end") {
+        return true;
     }
     false
 }

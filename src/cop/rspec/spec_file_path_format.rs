@@ -107,8 +107,9 @@ impl Cop for SpecFilePathFormat {
             snake_parts.join("/")
         };
 
-        // IgnoreMetadata: if the describe call has metadata with keys in ignore_metadata,
-        // skip this check entirely (path format can't be determined with ignored metadata)
+        // IgnoreMetadata: if the describe call has metadata matching key:value pairs in
+        // ignore_metadata, skip this check. E.g., `type: routing` means skip when metadata
+        // has `type: :routing`.
         if !ignore_metadata.is_empty() && arg_list.len() >= 2 {
             for arg in &arg_list[1..] {
                 if let Some(hash) = arg.as_keyword_hash_node() {
@@ -116,8 +117,18 @@ impl Cop for SpecFilePathFormat {
                         if let Some(assoc) = elem.as_assoc_node() {
                             if let Some(sym) = assoc.key().as_symbol_node() {
                                 let key_str = std::str::from_utf8(sym.unescaped()).unwrap_or("");
-                                if ignore_metadata.contains_key(key_str) {
-                                    return Vec::new();
+                                if let Some(expected_value) = ignore_metadata.get(key_str) {
+                                    // Extract the actual metadata value
+                                    let actual_value = if let Some(val_sym) = assoc.value().as_symbol_node() {
+                                        std::str::from_utf8(val_sym.unescaped()).unwrap_or("").to_string()
+                                    } else if let Some(val_str) = assoc.value().as_string_node() {
+                                        std::str::from_utf8(val_str.unescaped()).unwrap_or("").to_string()
+                                    } else {
+                                        String::new()
+                                    };
+                                    if actual_value == *expected_value {
+                                        return Vec::new();
+                                    }
                                 }
                             }
                         }
@@ -265,14 +276,14 @@ mod tests {
     }
 
     #[test]
-    fn ignore_metadata_skips_check() {
+    fn ignore_metadata_skips_check_when_value_matches() {
         use crate::cop::CopConfig;
         use std::collections::HashMap;
 
         let mut ignore_meta = serde_yml::Mapping::new();
         ignore_meta.insert(
             serde_yml::Value::String("type".into()),
-            serde_yml::Value::String("true".into()),
+            serde_yml::Value::String("routing".into()),
         );
         let config = CopConfig {
             options: HashMap::from([(
@@ -281,10 +292,33 @@ mod tests {
             )]),
             ..CopConfig::default()
         };
-        // describe with metadata that should be ignored
-        let source = b"describe MyClass, type: :model do\nend\n";
+        // describe with metadata value matching the ignored value
+        let source = b"describe MyClass, type: :routing do\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&SpecFilePathFormat, source, config);
-        assert!(diags.is_empty(), "IgnoreMetadata should skip path check when metadata key is ignored");
+        assert!(diags.is_empty(), "IgnoreMetadata should skip path check when metadata value matches");
+    }
+
+    #[test]
+    fn ignore_metadata_does_not_skip_when_value_differs() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        let mut ignore_meta = serde_yml::Mapping::new();
+        ignore_meta.insert(
+            serde_yml::Value::String("type".into()),
+            serde_yml::Value::String("routing".into()),
+        );
+        let config = CopConfig {
+            options: HashMap::from([(
+                "IgnoreMetadata".into(),
+                serde_yml::Value::Mapping(ignore_meta),
+            )]),
+            ..CopConfig::default()
+        };
+        // describe with metadata value NOT matching the ignored value
+        let source = b"describe MyClass, type: :controller do\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&SpecFilePathFormat, source, config);
+        assert!(!diags.is_empty(), "IgnoreMetadata should NOT skip when metadata value differs");
     }
 
     #[test]

@@ -47,15 +47,32 @@ impl Cop for ContextWording {
             return Vec::new();
         }
 
-        let string_node = match arg_list[0].as_string_node() {
-            Some(s) => s,
-            None => return Vec::new(),
-        };
-
-        let content = string_node.unescaped();
-        let content_str = match std::str::from_utf8(&content) {
-            Ok(s) => s,
-            Err(_) => return Vec::new(),
+        // Extract description text from string or interpolated string
+        let content_str: String;
+        if let Some(s) = arg_list[0].as_string_node() {
+            let content = s.unescaped();
+            content_str = match std::str::from_utf8(&content) {
+                Ok(s) => s.to_string(),
+                Err(_) => return Vec::new(),
+            };
+        } else if let Some(interp) = arg_list[0].as_interpolated_string_node() {
+            // For interpolated strings, extract leading text before first interpolation
+            let parts: Vec<_> = interp.parts().iter().collect();
+            if let Some(first) = parts.first() {
+                if let Some(s) = first.as_string_node() {
+                    let text = s.unescaped();
+                    content_str = match std::str::from_utf8(&text) {
+                        Ok(s) => s.to_string(),
+                        Err(_) => return Vec::new(),
+                    };
+                } else {
+                    return Vec::new();
+                }
+            } else {
+                return Vec::new();
+            }
+        } else {
+            return Vec::new();
         };
 
         // Config: AllowedPatterns — regex patterns to skip
@@ -65,7 +82,7 @@ impl Cop for ContextWording {
         if let Some(ref patterns) = allowed_patterns {
             for pat in patterns {
                 if let Ok(re) = regex::Regex::new(pat) {
-                    if re.is_match(content_str) {
+                    if re.is_match(&content_str) {
                         return Vec::new();
                     }
                 }
