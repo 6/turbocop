@@ -10,3 +10,6 @@
 [submodule "vendor/rubocop-rspec"]
 	path = vendor/rubocop-rspec
 	url = https://github.com/rubocop/rubocop-rspec.git
+[submodule "vendor/rubocop-factory_bot"]
+	path = vendor/rubocop-factory_bot
+	url = https://github.com/rubocop/rubocop-factory_bot.git
