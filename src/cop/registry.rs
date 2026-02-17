@@ -19,6 +19,7 @@ impl CopRegistry {
     pub fn default_registry() -> Self {
         let mut registry = Self::new();
         super::bundler::register_all(&mut registry);
+        // super::factory_bot::register_all(&mut registry); // temporarily disabled
         super::gemspec::register_all(&mut registry);
         super::layout::register_all(&mut registry);
         super::migration::register_all(&mut registry);

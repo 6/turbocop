@@ -1,4 +1,5 @@
 pub mod bundler;
+// pub mod factory_bot; // temporarily disabled due to WIP compilation errors
 pub mod gemspec;
 pub mod layout;
 pub mod migration;

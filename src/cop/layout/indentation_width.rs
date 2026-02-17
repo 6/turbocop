@@ -265,22 +265,16 @@ impl Cop for IndentationWidth {
                         }
                     }
 
-                    // RuboCop's block_body_indentation_base: with the default
-                    // `start_of_line` style, always use the `end` keyword column.
-                    // Only with `relative_to_receiver` do we use the dot column
-                    // when the dot is on a new line.
-                    let base_col = if align_style == "relative_to_receiver" {
-                        if let Some(dot_loc) = call_node.call_operator_loc() {
-                            if let Some(recv) = call_node.receiver() {
-                                let (recv_last_line, _) =
-                                    source.offset_to_line_col(recv.location().end_offset());
-                                let (dot_line, dot_col) =
-                                    source.offset_to_line_col(dot_loc.start_offset());
-                                if recv_last_line < dot_line {
-                                    dot_col
-                                } else {
-                                    closing_col
-                                }
+                    // RuboCop's block_body_indentation_base: if the dot is
+                    // on a new line, use the dot column; otherwise `end`.
+                    let base_col = if let Some(dot_loc) = call_node.call_operator_loc() {
+                        if let Some(recv) = call_node.receiver() {
+                            let (recv_last_line, _) =
+                                source.offset_to_line_col(recv.location().end_offset());
+                            let (dot_line, dot_col) =
+                                source.offset_to_line_col(dot_loc.start_offset());
+                            if recv_last_line < dot_line {
+                                dot_col
                             } else {
                                 closing_col
                             }

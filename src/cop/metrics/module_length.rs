@@ -1,4 +1,4 @@
-use crate::cop::util::{count_body_lines_ex, collect_foldable_ranges};
+use crate::cop::util::{count_body_lines_full, collect_foldable_ranges};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -80,27 +80,22 @@ impl Cop for ModuleLength {
         let end_offset = module_node.end_keyword_loc().start_offset();
 
         // Collect foldable ranges from CountAsOne config
-        let mut exclude_ranges = Vec::new();
+        let mut foldable_ranges = Vec::new();
         if let Some(cao) = &count_as_one {
             if !cao.is_empty() {
                 if let Some(body) = module_node.body() {
-                    exclude_ranges.extend(collect_foldable_ranges(source, &body, cao));
+                    foldable_ranges.extend(collect_foldable_ranges(source, &body, cao));
                 }
             }
         }
 
-        // Collect inner class/module line ranges to subtract
+        // Collect inner class/module line ranges to fully exclude from the count
+        let mut inner_ranges = Vec::new();
         if let Some(body) = module_node.body() {
-            for (inner_start, inner_end) in inner_classlike_ranges(source, &body) {
-                // Add all lines of inner class/module as "folded" (excluded from count)
-                for line in inner_start..=inner_end {
-                    exclude_ranges.push((line, line));
-                }
-            }
+            inner_ranges = inner_classlike_ranges(source, &body);
         }
 
-        // Deduplicate: convert to a set-like representation via count_body_lines_ex
-        let count = count_body_lines_ex(source, start_offset, end_offset, count_comments, &exclude_ranges);
+        let count = count_body_lines_full(source, start_offset, end_offset, count_comments, &foldable_ranges, &inner_ranges);
 
         if count > max {
             let (line, column) = source.offset_to_line_col(start_offset);

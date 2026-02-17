@@ -1,9 +1,35 @@
-use crate::cop::util::{count_body_lines, count_body_lines_ex, collect_foldable_ranges};
+use crate::cop::util::{count_body_lines_full, collect_foldable_ranges};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct ClassLength;
+
+/// Collect line ranges of inner class/module definitions within a body node.
+/// Returns (start_line, end_line) pairs (1-indexed) for each inner class/module.
+fn inner_classlike_ranges(source: &SourceFile, body: &ruby_prism::Node<'_>) -> Vec<(usize, usize)> {
+    let stmts = match body.as_statements_node() {
+        Some(s) => s,
+        None => return Vec::new(),
+    };
+    let mut ranges = Vec::new();
+    for node in stmts.body().iter() {
+        if let Some(cls) = node.as_class_node() {
+            let loc = cls.location();
+            let (start, _) = source.offset_to_line_col(loc.start_offset());
+            let end_off = loc.end_offset().saturating_sub(1).max(loc.start_offset());
+            let (end, _) = source.offset_to_line_col(end_off);
+            ranges.push((start, end));
+        } else if let Some(m) = node.as_module_node() {
+            let loc = m.location();
+            let (start, _) = source.offset_to_line_col(loc.start_offset());
+            let end_off = loc.end_offset().saturating_sub(1).max(loc.start_offset());
+            let (end, _) = source.offset_to_line_col(end_off);
+            ranges.push((start, end));
+        }
+    }
+    ranges
+}
 
 impl Cop for ClassLength {
     fn name(&self) -> &'static str {
@@ -28,20 +54,27 @@ impl Cop for ClassLength {
 
         let start_offset = class_node.class_keyword_loc().start_offset();
         let end_offset = class_node.end_keyword_loc().start_offset();
-        let count = if let Some(cao) = &count_as_one {
+
+        // Collect foldable ranges from CountAsOne config
+        let mut foldable_ranges = Vec::new();
+        if let Some(cao) = &count_as_one {
             if !cao.is_empty() {
                 if let Some(body) = class_node.body() {
-                    let foldable = collect_foldable_ranges(source, &body, cao);
-                    count_body_lines_ex(source, start_offset, end_offset, count_comments, &foldable)
-                } else {
-                    0
+                    foldable_ranges.extend(collect_foldable_ranges(source, &body, cao));
                 }
-            } else {
-                count_body_lines(source, start_offset, end_offset, count_comments)
             }
-        } else {
-            count_body_lines(source, start_offset, end_offset, count_comments)
-        };
+        }
+
+        // Collect inner class/module line ranges to fully exclude from the count
+        let mut inner_ranges = Vec::new();
+        if let Some(body) = class_node.body() {
+            inner_ranges = inner_classlike_ranges(source, &body);
+        }
+
+        let count = count_body_lines_full(
+            source, start_offset, end_offset, count_comments,
+            &foldable_ranges, &inner_ranges,
+        );
 
         if count > max {
             let (line, column) = source.offset_to_line_col(start_offset);

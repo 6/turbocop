@@ -22,6 +22,22 @@ pub fn count_body_lines_ex(
     count_comments: bool,
     foldable_ranges: &[(usize, usize)],
 ) -> usize {
+    count_body_lines_full(source, start_offset, end_offset, count_comments, foldable_ranges, &[])
+}
+
+/// Count body lines with foldable line ranges and fully excluded line ranges.
+/// `foldable_ranges` contains (start_line, end_line) pairs (1-indexed) of multiline
+/// constructs that should count as a single line instead of their actual line count.
+/// `excluded_ranges` contains (start_line, end_line) pairs (1-indexed) of lines to
+/// completely exclude from the count (e.g., inner class/module definitions).
+pub fn count_body_lines_full(
+    source: &SourceFile,
+    start_offset: usize,
+    end_offset: usize,
+    count_comments: bool,
+    foldable_ranges: &[(usize, usize)],
+    excluded_ranges: &[(usize, usize)],
+) -> usize {
     let (start_line, _) = source.offset_to_line_col(start_offset);
     let (end_line, _) = source.offset_to_line_col(end_offset);
 
@@ -34,6 +50,14 @@ pub fn count_body_lines_ex(
         }
     }
 
+    // Build a set of fully excluded lines (inner class/module definitions)
+    let mut excluded_lines = std::collections::HashSet::new();
+    for &(excl_start, excl_end) in excluded_ranges {
+        for line in excl_start..=excl_end {
+            excluded_lines.insert(line);
+        }
+    }
+
     // Count lines between (exclusive of def/end lines)
     let lines: Vec<&[u8]> = source.lines().collect();
     let mut count = 0;
@@ -43,6 +67,11 @@ pub fn count_body_lines_ex(
     for line_num in (start_line + 1)..end_line {
         if line_num > lines.len() {
             break;
+        }
+
+        // Skip fully excluded lines (inner class/module)
+        if excluded_lines.contains(&line_num) {
+            continue;
         }
 
         // Skip folded continuation lines

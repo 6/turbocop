@@ -20,7 +20,7 @@ impl Cop for AmbiguousRange {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let _require_parens_for_chains =
+        let require_parens_for_chains =
             config.get_bool("RequireParenthesesForMethodChains", false);
 
         let range = match node.as_range_node() {
@@ -32,7 +32,7 @@ impl Cop for AmbiguousRange {
 
         // Check left boundary
         if let Some(left) = range.left() {
-            if !is_acceptable_boundary(&left) {
+            if !is_acceptable_boundary(&left, require_parens_for_chains) {
                 let loc = left.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 diagnostics.push(self.diagnostic(
@@ -47,7 +47,7 @@ impl Cop for AmbiguousRange {
 
         // Check right boundary
         if let Some(right) = range.right() {
-            if !is_acceptable_boundary(&right) {
+            if !is_acceptable_boundary(&right, require_parens_for_chains) {
                 let loc = right.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 diagnostics.push(self.diagnostic(
@@ -64,7 +64,7 @@ impl Cop for AmbiguousRange {
     }
 }
 
-fn is_acceptable_boundary(node: &ruby_prism::Node<'_>) -> bool {
+fn is_acceptable_boundary(node: &ruby_prism::Node<'_>, require_parens_for_chains: bool) -> bool {
     // Parenthesized expression
     if node.as_parentheses_node().is_some() {
         return true;
@@ -120,21 +120,22 @@ fn is_acceptable_boundary(node: &ruby_prism::Node<'_>) -> bool {
             return true;
         }
 
-        // Binary operator calls (receiver + arguments) are NOT acceptable
-        // e.g., `x - 1` in `x - 1..2` or `x || 1` in `x || 1..2`
-        if call.receiver().is_some() && call.arguments().is_some() {
-            return false;
-        }
-
-        // Method calls on literals are NOT acceptable (e.g., 2.to_a in 1..2.to_a)
+        // Method calls on basic literals are NOT acceptable (e.g., 2.to_a in 1..2.to_a)
         if let Some(recv) = call.receiver() {
             if is_basic_literal(&recv) {
                 return false;
             }
         }
 
-        // Method call with receiver, no arguments (property access) - acceptable
-        return true;
+        // Operator method calls (except []) are NOT acceptable
+        // e.g., `x - 1` in `x - 1..2` or `x + 1` in `x + 1..2`
+        if is_operator_method(name) && name != b"[]" {
+            return false;
+        }
+
+        // Non-operator method calls with receiver: acceptable unless
+        // RequireParenthesesForMethodChains is true
+        return !require_parens_for_chains;
     }
 
     // OrNode, AndNode are NOT acceptable
@@ -143,6 +144,41 @@ fn is_acceptable_boundary(node: &ruby_prism::Node<'_>) -> bool {
     }
 
     false
+}
+
+fn is_operator_method(name: &[u8]) -> bool {
+    matches!(
+        name,
+        b"|" | b"^"
+            | b"&"
+            | b"<=>"
+            | b"=="
+            | b"==="
+            | b"=~"
+            | b">"
+            | b">="
+            | b"<"
+            | b"<="
+            | b"<<"
+            | b">>"
+            | b"+"
+            | b"-"
+            | b"*"
+            | b"/"
+            | b"%"
+            | b"**"
+            | b"~"
+            | b"+@"
+            | b"-@"
+            | b"!@"
+            | b"~@"
+            | b"[]"
+            | b"[]="
+            | b"!"
+            | b"!="
+            | b"!~"
+            | b"`"
+    )
 }
 
 fn is_basic_literal(node: &ruby_prism::Node<'_>) -> bool {
