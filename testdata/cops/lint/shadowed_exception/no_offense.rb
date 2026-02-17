@@ -23,3 +23,17 @@ rescue StandardError
 rescue Exception
   handle_exception
 end
+
+# LoadError and SyntaxError are ScriptError subclasses, not StandardError
+begin
+  something
+rescue StandardError, SyntaxError, LoadError => e
+  handle_error(e)
+end
+
+# LoadError, StandardError in same rescue (different hierarchy branches)
+begin
+  something
+rescue LoadError, StandardError
+  handle_error
+end

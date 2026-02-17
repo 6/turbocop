@@ -18,8 +18,19 @@ impl Cop for RedundantDirGlobSort {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // RuboCop: minimum_target_ruby_version 3.0
+        // Dir.glob and Dir[] return sorted results in Ruby 3.0+, so `.sort` is
+        // redundant only when targeting 3.0 or later.
+        let ruby_version = config
+            .options
+            .get("TargetRubyVersion")
+            .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
+            .unwrap_or(3.4);
+        if ruby_version < 3.0 {
+            return Vec::new();
+        }
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),

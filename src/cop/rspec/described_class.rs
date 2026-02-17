@@ -282,9 +282,10 @@ impl<'pr> Visit<'pr> for DescribedClassVisitor<'_> {
         // Don't recurse into children — the constant path is handled as a whole
     }
 
-    // Don't descend into class/module definitions
+    // Don't descend into class/module/def definitions — they change scope
     fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
     fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
+    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
 }
 
 fn extract_constant_source(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<Vec<u8>> {

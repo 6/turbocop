@@ -6,3 +6,11 @@ Gem::Specification.new do |spec|
   spec.authors = ['Author']
   spec.summary = 'An example gem'
 end
+
+# Also detect hash-style metadata assignment
+Gem::Specification.new do |s|
+  s.name = 'example2'
+  s.metadata = {
+    'rubygems_mfa_required' => 'true'
+  }
+end

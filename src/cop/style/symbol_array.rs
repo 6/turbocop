@@ -13,7 +13,7 @@ impl Cop for SymbolArray {
         &self,
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let array_node = match node.as_array_node() {
@@ -42,6 +42,18 @@ impl Cop for SymbolArray {
 
         if elements.len() < min_size {
             return Vec::new();
+        }
+
+        // Skip arrays containing comments — %i[] can't contain comments
+        let array_start_line = source.offset_to_line_col(array_node.location().start_offset()).0;
+        let array_end_line = source.offset_to_line_col(array_node.location().end_offset().saturating_sub(1)).0;
+        if array_start_line != array_end_line {
+            for comment in parse_result.comments() {
+                let comment_line = source.offset_to_line_col(comment.location().start_offset()).0;
+                if comment_line >= array_start_line && comment_line <= array_end_line {
+                    return Vec::new();
+                }
+            }
         }
 
         // All elements must be symbol nodes

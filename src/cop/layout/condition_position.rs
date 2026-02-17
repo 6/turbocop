@@ -23,10 +23,18 @@ impl Cop for ConditionPosition {
             };
             let keyword = if kw_loc.as_slice() == b"if" {
                 "if"
-            } else {
-                // unless - still check
+            } else if kw_loc.as_slice() == b"unless" {
                 "unless"
+            } else {
+                // elsif — keyword_loc is "elsif"; end_keyword_loc is None
+                // for elsif nodes (the end belongs to the outermost if)
+                "elsif"
             };
+            // Skip modifier form (postfix if/unless) — no `end` keyword and
+            // not an elsif (which also lacks end_keyword_loc).
+            if if_node.end_keyword_loc().is_none() && keyword != "elsif" {
+                return Vec::new();
+            }
             let (kw_line, _) = source.offset_to_line_col(kw_loc.start_offset());
             let predicate = if_node.predicate();
             let (pred_line, pred_col) =
@@ -40,6 +48,10 @@ impl Cop for ConditionPosition {
                 )];
             }
         } else if let Some(while_node) = node.as_while_node() {
+            // Skip modifier form (postfix while) — no closing `end` keyword
+            if while_node.closing_loc().is_none() {
+                return Vec::new();
+            }
             let kw_loc = while_node.keyword_loc();
             let (kw_line, _) = source.offset_to_line_col(kw_loc.start_offset());
             let predicate = while_node.predicate();
@@ -54,6 +66,10 @@ impl Cop for ConditionPosition {
                 )];
             }
         } else if let Some(until_node) = node.as_until_node() {
+            // Skip modifier form (postfix until) — no closing `end` keyword
+            if until_node.closing_loc().is_none() {
+                return Vec::new();
+            }
             let kw_loc = until_node.keyword_loc();
             let (kw_line, _) = source.offset_to_line_col(kw_loc.start_offset());
             let predicate = until_node.predicate();

@@ -55,6 +55,14 @@ impl Cop for MemoizedInstanceVariableName {
         let method_name = def_node.name().as_slice();
         let method_name_str = std::str::from_utf8(method_name).unwrap_or("");
 
+        // RuboCop skips initialize methods — `||=` there is default initialization, not memoization
+        if matches!(
+            method_name_str,
+            "initialize" | "initialize_clone" | "initialize_copy" | "initialize_dup"
+        ) {
+            return Vec::new();
+        }
+
         // Strip trailing ? or ! from method name for matching
         let base_name = method_name_str.trim_end_matches(|c| c == '?' || c == '!');
 

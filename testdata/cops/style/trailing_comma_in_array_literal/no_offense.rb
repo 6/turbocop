@@ -31,3 +31,10 @@
   2,
   3
 ]
+
+# Array containing a heredoc element (heredoc content has commas, not array commas)
+[
+  <<~OUTPUT.chomp
+    The `Style/PredicateName` cop has been renamed, please update it
+  OUTPUT
+]

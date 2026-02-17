@@ -19,8 +19,6 @@ const KNOWN_ITERATING_METHODS: &[&[u8]] = &[
     b"minmax", b"minmax_by", b"sort_by", b"group_by",
     b"partition", b"zip", b"take_while", b"drop_while",
     b"chunk", b"chunk_while", b"slice_before", b"slice_after", b"slice_when",
-    b"times", b"upto", b"downto", b"step",
-    b"loop", b"tap", b"then", b"yield_self",
     b"each_index", b"reverse_each",
 ];
 

@@ -29,3 +29,9 @@ match = line[pos..]&.match(/\S+/)
 line&.match(/pattern/)
 # ||= assignment: result IS used
 in_ruby_section ||= line.match(/pattern/)
+# Inside && — value is used by the && operator (not direct condition of if)
+if status == :starting && line.match('Streaming API')
+  do_something
+end
+# Inside || — same applies
+something || line.match(/pattern/)

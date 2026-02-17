@@ -28,3 +28,16 @@ RSpec.describe Another do
     it_behaves_like 'throttled endpoint'
   end
 end
+
+# Inside shared_examples, let after examples is allowed
+shared_examples 'detect/correct empty case, accept non-empty case' do
+  it 'registers an offense' do
+    expect_offense(source)
+  end
+
+  let(:source_with_case) { source.sub('case', 'case :a') }
+
+  it 'accepts the source with case' do
+    expect_no_offenses(source_with_case)
+  end
+end

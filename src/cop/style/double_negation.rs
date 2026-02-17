@@ -76,17 +76,27 @@ impl Cop for DoubleNegation {
                 }
             }
 
-            // More importantly: check if we're the last expression in a method body.
-            // We use a heuristic: if the !! starts on a line and the next non-whitespace
-            // after the !! expression is `end` or end of file, it's a return position.
-            // This is a simplification, but catches the common case of:
+            // Check if we're the last expression in a method body.
+            // Skip to the end of the current statement (end of line, possibly
+            // continuing onto subsequent lines), then check if `end` follows.
+            //
+            // This handles common patterns:
             //   def foo?
             //     !!bar
             //   end
+            // and also:
+            //   def comparison?
+            //     !!simple_comparison(node) || nested_comparison?(node)
+            //   end
             let end_offset = loc.end_offset();
             if end_offset < src.len() {
-                let after = &src[end_offset..];
-                // Skip whitespace and newlines, see what comes next
+                // Skip to end of line (the !! might be part of a larger expression)
+                let mut pos = end_offset;
+                while pos < src.len() && src[pos] != b'\n' {
+                    pos += 1;
+                }
+                // Now skip blank lines and check what comes next
+                let after = &src[pos..];
                 let trimmed_after = after.trim_ascii_start();
                 if trimmed_after.starts_with(b"end")
                     && (trimmed_after.len() == 3

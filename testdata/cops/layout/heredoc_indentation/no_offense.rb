@@ -42,3 +42,14 @@ def generate_response
     #{articles.map(&:to_text).join("\n")}
   RESPONSE
 end
+
+# Multiple heredocs on the same line
+def test_multiple
+  method_call <<~FIRST, <<~SECOND
+    first body
+    more first
+  FIRST
+    second body
+    more second
+  SECOND
+end

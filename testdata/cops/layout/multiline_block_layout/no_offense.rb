@@ -42,3 +42,9 @@ data.map { |x|
 rescue TypeError
   nil
 }
+
+# Block args on multiple lines — acceptable when single-line would exceed max line length
+annotations_collection.zip(other_annotations_collection) do |(_actual_line, actual_annotation),
+                                                             (_expected_line, expected_annotation)|
+  compare(actual_annotation, expected_annotation)
+end

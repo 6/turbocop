@@ -200,6 +200,31 @@ fn find_chain_expression_start(bytes: &[u8], do_offset: usize) -> usize {
         line_start -= 1;
     }
 
+    // First, check if the do-line itself has more closing brackets than opening.
+    // This means the expression started on a previous line (e.g., a multiline %i[] array).
+    // If so, scan backwards to find where the bracket was opened.
+    {
+        let do_line_content = &bytes[line_start..do_offset];
+        let bracket_balance = compute_bracket_balance(do_line_content);
+        if bracket_balance < 0 {
+            // More closing than opening brackets on the do-line.
+            // Walk backwards to find the line that opens the bracket.
+            let mut depth = bracket_balance;
+            let mut search_start = line_start;
+            while depth < 0 && search_start > 0 {
+                let prev_line_end = search_start - 1;
+                let mut prev_line_start = prev_line_end;
+                while prev_line_start > 0 && bytes[prev_line_start - 1] != b'\n' {
+                    prev_line_start -= 1;
+                }
+                let prev_content = &bytes[prev_line_start..prev_line_end];
+                depth += compute_bracket_balance(prev_content);
+                search_start = prev_line_start;
+            }
+            line_start = search_start;
+        }
+    }
+
     // Look at previous lines to check if they're part of the same chain
     loop {
         if line_start == 0 {
@@ -251,6 +276,24 @@ fn find_chain_expression_start(bytes: &[u8], do_offset: usize) -> usize {
         indent += 1;
     }
     indent
+}
+
+/// Compute bracket balance for a line (positive = more opening, negative = more closing).
+/// Ignores brackets inside strings.
+fn compute_bracket_balance(line: &[u8]) -> i32 {
+    let mut balance: i32 = 0;
+    let mut in_single = false;
+    let mut in_double = false;
+    for &b in line {
+        match b {
+            b'\'' if !in_double => in_single = !in_single,
+            b'"' if !in_single => in_double = !in_double,
+            b'(' | b'[' | b'{' if !in_single && !in_double => balance += 1,
+            b')' | b']' | b'}' if !in_single && !in_double => balance -= 1,
+            _ => {}
+        }
+    }
+    balance
 }
 
 #[cfg(test)]

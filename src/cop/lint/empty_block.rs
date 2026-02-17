@@ -36,6 +36,30 @@ fn is_disable_comment_for_cop(comment_bytes: &[u8], cop_name: &[u8]) -> bool {
         })
 }
 
+/// Check if the block starting at `block_start` offset is attached to a `lambda` or `proc` call.
+/// Scans backwards from the block's location to find the preceding identifier.
+fn is_lambda_or_proc_block(bytes: &[u8], block_start: usize) -> bool {
+    // The BlockNode's location starts at `do` or `{`. We need to find what
+    // comes before it. The pattern is: `lambda do` or `lambda {` or `proc do`, etc.
+    // There may be block parameters between the call and the block keyword:
+    // `lambda do |arg|` — but the BlockNode location starts at `do`, not `|`.
+    // Actually, for `lambda do |_processed_source| end`, the block location
+    // covers `do |_processed_source| end`. Before `do` we should find `lambda `.
+    let mut pos = block_start;
+    // Skip backwards over whitespace
+    while pos > 0 && bytes[pos - 1].is_ascii_whitespace() {
+        pos -= 1;
+    }
+    // Now we should be at the end of the preceding identifier (e.g., 'a' of 'lambda')
+    let end = pos;
+    // Scan backwards over word characters
+    while pos > 0 && (bytes[pos - 1].is_ascii_alphanumeric() || bytes[pos - 1] == b'_') {
+        pos -= 1;
+    }
+    let word = &bytes[pos..end];
+    word == b"lambda" || word == b"proc"
+}
+
 impl Cop for EmptyBlock {
     fn name(&self) -> &'static str {
         "Lint/EmptyBlock"
@@ -72,20 +96,17 @@ impl Cop for EmptyBlock {
             return Vec::new();
         }
 
-        // AllowEmptyLambdas: skip lambda blocks
+        // AllowEmptyLambdas: skip lambda/proc blocks
         let allow_empty_lambdas = config.get_bool("AllowEmptyLambdas", true);
         if allow_empty_lambdas {
-            // Check if this block belongs to a lambda call
-            // In Prism, lambda { } is represented as a LambdaNode, not a BlockNode
-            // attached to a CallNode. But `-> {}` might be a LambdaNode.
-            // For BlockNode, check if the parent call is `lambda`.
-            // We don't have parent access, but we can check if the block_node
-            // is part of a lambda by checking its opening_loc for `{` vs `do`
-            // Actually, lambda nodes in Prism are separate LambdaNode, not BlockNode.
-            // But `lambda { }` is a CallNode with a BlockNode.
-            // We can't tell from BlockNode alone, so skip this for now.
-            // The node visitor gives us BlockNode directly; we'd need to check
-            // the call that owns this block. Let's skip this edge case.
+            // Check if this block is attached to a `lambda` or `proc` call.
+            // Since BlockNode doesn't have a parent reference, scan backwards
+            // from the block start to find the preceding call name.
+            let block_start = block_node.location().start_offset();
+            let bytes = source.as_bytes();
+            if is_lambda_or_proc_block(bytes, block_start) {
+                return Vec::new();
+            }
         }
 
         // AllowComments: when true, blocks with comments on or inside them are not offenses.

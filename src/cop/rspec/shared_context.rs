@@ -76,7 +76,7 @@ impl Cop for SharedContext {
                 let m = c.name().as_slice();
                 if is_example_method(m) {
                     has_examples = true;
-                } else if is_context_method(m) {
+                } else if is_context_method(m) || is_context_inclusion(m) {
                     has_context_setup = true;
                 }
             }
@@ -127,7 +127,15 @@ fn is_example_method(name: &[u8]) -> bool {
             | b"its"
             | b"describe"
             | b"context"
+            // Example inclusions also count as examples
+            | b"it_behaves_like"
+            | b"it_should_behave_like"
+            | b"include_examples"
     )
+}
+
+fn is_context_inclusion(name: &[u8]) -> bool {
+    matches!(name, b"include_context")
 }
 
 fn is_context_method(name: &[u8]) -> bool {

@@ -35,3 +35,8 @@ end
 def used_in_block(items, transform)
   items.map { |item| transform.call(item) }
 end
+
+# parameter used as default value for another parameter counts as used
+def check_children_line_break(node, start = node)
+  puts start
+end

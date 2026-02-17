@@ -16,52 +16,81 @@ impl Cop for HeredocIndentation {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // Check StringNode and InterpolatedStringNode for heredoc openings
-        let (opening_loc, _closing_loc, content_start, content_end) =
+        // Check StringNode and InterpolatedStringNode for heredoc openings.
+        let (opening_loc, closing_loc, raw_content_start) =
             if let Some(s) = node.as_string_node() {
                 match (s.opening_loc(), s.closing_loc()) {
-                    (Some(o), Some(c)) => {
-                        let cl = s.content_loc();
-                        (o, c, cl.start_offset(), cl.end_offset())
-                    }
+                    (Some(o), Some(c)) => (o, c, Some(s.content_loc().start_offset())),
                     _ => return Vec::new(),
                 }
             } else if let Some(s) = node.as_interpolated_string_node() {
                 match (s.opening_loc(), s.closing_loc()) {
-                    (Some(o), Some(c)) => {
-                        let parts = s.parts();
-                        if parts.is_empty() {
-                            return Vec::new();
-                        }
-                        // For heredocs with interpolation, use the raw source range
-                        // between the line after the opening and the closing delimiter
-                        // line. Prism's <<~ dedent may strip leading whitespace from
-                        // StringNode parts, so parts' locations don't reflect the raw
-                        // indentation.
-                        let src_bytes = source.as_bytes();
-                        let mut body_start = o.end_offset();
-                        // Advance past the rest of the opening line (including .squish etc.)
-                        while body_start < src_bytes.len() && src_bytes[body_start] != b'\n' {
-                            body_start += 1;
-                        }
-                        if body_start < src_bytes.len() {
-                            body_start += 1; // skip the \n
-                        }
-                        // Content ends at the start of the closing delimiter's line
-                        let mut body_end = c.start_offset();
-                        while body_end > 0 && src_bytes[body_end - 1] != b'\n' {
-                            body_end -= 1;
-                        }
-                        if body_start >= body_end {
-                            return Vec::new();
-                        }
-                        (o, c, body_start, body_end)
-                    }
+                    (Some(o), Some(c)) => (o, c, None),
                     _ => return Vec::new(),
                 }
             } else {
                 return Vec::new();
             };
+
+        let src_bytes = source.as_bytes();
+
+        // Content ends at the start of the closing delimiter's line
+        let mut content_end = closing_loc.start_offset();
+        while content_end > 0 && src_bytes[content_end - 1] != b'\n' {
+            content_end -= 1;
+        }
+
+        // Find content_start: for StringNode, content_loc().start_offset()
+        // is usually correct but for <<~ heredocs, Prism may report the same
+        // offset for all heredocs on the same line. For InterpolatedStringNode,
+        // use the first part's location.
+        //
+        // We use the closing_loc to bound the body: walk backwards from
+        // content_end to get the real body start, using the line after the
+        // opening (or after the previous heredoc) as a floor.
+        let content_start = if let Some(s) = node.as_interpolated_string_node() {
+            let parts = s.parts();
+            if parts.is_empty() {
+                return Vec::new();
+            }
+            // For InterpolatedStringNode, use the first part's location
+            let first_part_start = parts.iter().next().unwrap().location().start_offset();
+            let mut line_start = first_part_start;
+            while line_start > 0 && src_bytes[line_start - 1] != b'\n' {
+                line_start -= 1;
+            }
+            line_start
+        } else if let Some(rcs) = raw_content_start {
+            // For StringNode, content_loc might be unreliable for <<~ with
+            // multiple heredocs. Verify: the content_start should be between
+            // the line after the opening and content_end.
+            let mut line_start = rcs;
+            while line_start > 0 && src_bytes[line_start - 1] != b'\n' {
+                line_start -= 1;
+            }
+            // Verify this is within range
+            if line_start < content_end {
+                line_start
+            } else {
+                // Fallback: scan forward from opening
+                let mut start = opening_loc.end_offset();
+                while start < src_bytes.len() && src_bytes[start] != b'\n' {
+                    start += 1;
+                }
+                if start < src_bytes.len() { start + 1 } else { start }
+            }
+        } else {
+            // Fallback: scan forward from opening
+            let mut start = opening_loc.end_offset();
+            while start < src_bytes.len() && src_bytes[start] != b'\n' {
+                start += 1;
+            }
+            if start < src_bytes.len() { start + 1 } else { start }
+        };
+
+        if content_start >= content_end {
+            return Vec::new();
+        }
 
         let bytes = source.as_bytes();
         let opening = &bytes[opening_loc.start_offset()..opening_loc.end_offset()];

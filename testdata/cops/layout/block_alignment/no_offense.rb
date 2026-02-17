@@ -42,3 +42,11 @@ add_offense(node,
                             flag: true)) do |corrector|
   corrector.replace(node, replacement)
 end
+
+# Multiline %i[] array with .each do block — end aligns with %i[
+%i[opposite_style_detected unexpected_style_detected
+   ambiguous_style_detected conflicting_styles_detected
+   unrecognized_style_detected
+   no_acceptable_style!].each do |method|
+  puts method
+end

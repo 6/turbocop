@@ -12,6 +12,10 @@ struct CyclomaticCounter {
     /// Tracks whether we are already inside a rescue chain to avoid
     /// counting subsequent rescue clauses (Prism chains them via `subsequent`).
     in_rescue_chain: bool,
+    /// Tracks local variables that have been seen with `&.` (safe navigation).
+    /// Only the first `&.` call on a variable counts; subsequent ones on the
+    /// same variable are discounted (matching RuboCop's RepeatedCsendDiscount).
+    seen_csend_vars: std::collections::HashSet<Vec<u8>>,
 }
 
 /// Known iterating method names that make blocks count toward complexity.
@@ -27,8 +31,6 @@ const KNOWN_ITERATING_METHODS: &[&[u8]] = &[
     b"minmax", b"minmax_by", b"sort_by", b"group_by",
     b"partition", b"zip", b"take_while", b"drop_while",
     b"chunk", b"chunk_while", b"slice_before", b"slice_after", b"slice_when",
-    b"times", b"upto", b"downto", b"step",
-    b"loop", b"tap", b"then", b"yield_self",
     b"each_index", b"reverse_each",
 ];
 
@@ -69,9 +71,23 @@ impl CyclomaticCounter {
             // CallNode: count &. (safe navigation) and iterating blocks
             ruby_prism::Node::CallNode { .. } => {
                 if let Some(call) = node.as_call_node() {
-                    // Safe navigation (&.) counts
+                    // Safe navigation (&.) counts, with repeated csend discount:
+                    // Only count the first &. on each local variable receiver.
                     if call.call_operator_loc().is_some_and(|loc| loc.as_slice() == b"&.") {
-                        self.complexity += 1;
+                        let should_count = if let Some(receiver) = call.receiver() {
+                            if let Some(lvar) = receiver.as_local_variable_read_node() {
+                                // First time seeing this variable with &.?
+                                let var_name = lvar.name().as_slice().to_vec();
+                                self.seen_csend_vars.insert(var_name)
+                            } else {
+                                true // Non-local-variable receivers always count
+                            }
+                        } else {
+                            true
+                        };
+                        if should_count {
+                            self.complexity += 1;
+                        }
                     }
                     // Iterating block counts
                     if call.block().is_some_and(|b| b.as_block_node().is_some()) {
@@ -80,6 +96,14 @@ impl CyclomaticCounter {
                             self.complexity += 1;
                         }
                     }
+                }
+            }
+
+            // Reset csend tracking when a local variable is reassigned
+            ruby_prism::Node::LocalVariableWriteNode { .. } => {
+                if let Some(write) = node.as_local_variable_write_node() {
+                    let var_name = write.name().as_slice().to_vec();
+                    self.seen_csend_vars.remove(&var_name);
                 }
             }
 

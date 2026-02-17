@@ -27,11 +27,21 @@ impl Cop for RequireMfa {
             }
 
             // Check for metadata['rubygems_mfa_required'] or metadata["rubygems_mfa_required"]
+            // in assignment form: metadata['key'] = 'true'
             if (trimmed.contains("metadata['rubygems_mfa_required']")
                 || trimmed.contains("metadata[\"rubygems_mfa_required\"]"))
                 && trimmed.contains("= ")
             {
-                // Check if set to 'true'
+                if trimmed.contains("'true'") || trimmed.contains("\"true\"") {
+                    found_mfa = true;
+                }
+            }
+
+            // Also check for hash-style metadata:
+            // 'rubygems_mfa_required' => 'true'  (inside .metadata = { ... })
+            if (trimmed.contains("'rubygems_mfa_required'") || trimmed.contains("\"rubygems_mfa_required\""))
+                && trimmed.contains("=>")
+            {
                 if trimmed.contains("'true'") || trimmed.contains("\"true\"") {
                     found_mfa = true;
                 }

@@ -101,6 +101,11 @@ impl Cop for MultilineOperationIndentation {
 
         // Check AndNode
         if let Some(and_node) = node.as_and_node() {
+            // Skip if inside a grouped expression (parentheses) or method call
+            // arg list parentheses — matches RuboCop's not_for_this_cop? check.
+            if is_inside_parentheses(source, node) {
+                return Vec::new();
+            }
             return self.check_binary_node(
                 source,
                 &and_node.left(),
@@ -112,6 +117,10 @@ impl Cop for MultilineOperationIndentation {
 
         // Check OrNode
         if let Some(or_node) = node.as_or_node() {
+            // Skip if inside a grouped expression or method call arg list parentheses
+            if is_inside_parentheses(source, node) {
+                return Vec::new();
+            }
             return self.check_binary_node(
                 source,
                 &or_node.left(),
@@ -123,6 +132,59 @@ impl Cop for MultilineOperationIndentation {
 
         Vec::new()
     }
+}
+
+/// Check if a node is enclosed by parentheses by scanning the source.
+/// This matches RuboCop's `not_for_this_cop?` which skips and/or nodes inside
+/// grouped expressions `(expr)` or method call arg list parentheses `foo(expr)`.
+///
+/// We scan backwards from the node's start offset counting unbalanced parens.
+/// If we find an unmatched `(` that is also balanced by a `)` after the node's
+/// end, the node is inside parentheses.
+fn is_inside_parentheses(source: &SourceFile, node: &ruby_prism::Node<'_>) -> bool {
+    let bytes = source.as_bytes();
+    let node_start = node.location().start_offset();
+    let node_end = node.location().end_offset();
+
+    // Scan backwards from node_start to find unmatched '('
+    let mut depth = 0i32;
+    let mut pos = node_start;
+    while pos > 0 {
+        pos -= 1;
+        match bytes[pos] {
+            b')' => depth += 1,
+            b'(' => {
+                if depth > 0 {
+                    depth -= 1;
+                } else {
+                    // Found an unmatched '(' before the node.
+                    // Now verify there's a matching ')' after the node.
+                    let mut fwd_depth = 0i32;
+                    for &b in &bytes[node_end..] {
+                        match b {
+                            b'(' => fwd_depth += 1,
+                            b')' => {
+                                if fwd_depth > 0 {
+                                    fwd_depth -= 1;
+                                } else {
+                                    return true;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    return false;
+                }
+            }
+            // Don't cross method/class/module boundaries
+            b'\n' => {
+                // Check if this line starts a method/class def (rough check)
+                // We allow scanning through multiple lines within a single expression.
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 impl MultilineOperationIndentation {

@@ -34,11 +34,14 @@ impl Cop for LetBeforeExamples {
 
         let method_name = call.name().as_slice();
 
-        // Check for example group calls (including ::RSpec.describe)
+        // Check for example group calls (including ::RSpec.describe).
+        // Exclude shared groups (shared_examples, shared_context, etc.) — RuboCop's
+        // `example_group_with_body?` only matches ExampleGroups (describe/context/feature),
+        // not SharedGroups, so let ordering inside shared_examples is allowed.
         let is_example_group = if let Some(recv) = call.receiver() {
             util::constant_name(&recv).map_or(false, |n| n == b"RSpec") && method_name == b"describe"
         } else {
-            is_rspec_example_group(method_name)
+            is_rspec_example_group(method_name) && !is_shared_group(method_name)
         };
 
         if !is_example_group {
@@ -116,6 +119,13 @@ fn is_non_shared_example_group(name: &[u8]) -> bool {
             | b"fdescribe"
             | b"fcontext"
             | b"ffeature"
+    )
+}
+
+fn is_shared_group(name: &[u8]) -> bool {
+    matches!(
+        name,
+        b"shared_examples" | b"shared_examples_for" | b"shared_context"
     )
 }
 

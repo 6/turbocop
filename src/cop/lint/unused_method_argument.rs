@@ -98,12 +98,26 @@ impl Cop for UnusedMethodArgument {
             return Vec::new();
         }
 
-        // Find all local variable reads in the body
+        // Find all local variable reads in the body AND in parameter defaults.
+        // A parameter used as a default value for another parameter counts as used
+        // (e.g., `def foo(node, start = node)` — `node` is used in default of `start`).
         let mut finder = VarReadFinder {
             names: Vec::new(),
             has_forwarding_super: false,
         };
         finder.visit(&body);
+
+        // Also scan parameter default values for variable reads
+        for opt in params.optionals().iter() {
+            if let Some(op) = opt.as_optional_parameter_node() {
+                finder.visit(&op.value());
+            }
+        }
+        for kw in params.keywords().iter() {
+            if let Some(kp) = kw.as_optional_keyword_parameter_node() {
+                finder.visit(&kp.value());
+            }
+        }
 
         // If the body contains bare `super` (ForwardingSuperNode), all args are
         // implicitly forwarded and therefore "used".

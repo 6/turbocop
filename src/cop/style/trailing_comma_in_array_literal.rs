@@ -43,7 +43,29 @@ impl Cop for TrailingCommaInArrayLiteral {
         let last_end = last_elem.location().end_offset();
         let closing_start = closing_loc.start_offset();
         let bytes = source.as_bytes();
-        let has_comma = has_trailing_comma(bytes, last_end, closing_start);
+
+        // For heredoc elements (or method calls on heredocs), the node's
+        // location.end_offset() might be on the opening line (before the
+        // heredoc body), while the closing `]` is after the heredoc body.
+        // In this case, scanning from last_end to closing_start would scan
+        // through heredoc content and find false commas. Instead, scan only
+        // the line just before the closing bracket for a trailing comma.
+        let effective_last_end = {
+            let closing_line = source.offset_to_line_col(closing_start).0;
+            let last_end_line = source.offset_to_line_col(last_end).0;
+            if closing_line > last_end_line + 1 {
+                // Gap between last element end and closing bracket -- likely heredoc content.
+                // Scan from the start of the closing bracket's line instead.
+                let mut pos = closing_start;
+                while pos > 0 && bytes[pos - 1] != b'\n' {
+                    pos -= 1;
+                }
+                pos
+            } else {
+                last_end
+            }
+        };
+        let has_comma = has_trailing_comma(bytes, effective_last_end, closing_start);
 
         let style = config.get_str("EnforcedStyleForMultiline", "no_comma");
 

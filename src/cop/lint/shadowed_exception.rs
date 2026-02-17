@@ -5,6 +5,9 @@ use crate::parse::source::SourceFile;
 pub struct ShadowedException;
 
 // Known Ruby exception hierarchy (simplified)
+// Known Ruby exception hierarchy.
+// LoadError, NotImplementedError and SyntaxError are subclasses of ScriptError
+// (NOT StandardError). This matters for Lint/ShadowedException correctness.
 const EXCEPTION_HIERARCHY: &[(&str, &[&str])] = &[
     ("Exception", &["StandardError", "ScriptError", "SecurityError", "SignalException",
                      "SystemExit", "SystemStackError", "NoMemoryError", "RuntimeError",
@@ -19,8 +22,8 @@ const EXCEPTION_HIERARCHY: &[(&str, &[&str])] = &[
     ("StandardError", &["RuntimeError", "NameError", "TypeError", "ArgumentError",
                          "RangeError", "IOError", "EOFError", "RegexpError",
                          "ZeroDivisionError", "ThreadError", "Errno::ENOENT",
-                         "Errno::EACCES", "LoadError", "NotImplementedError",
-                         "NoMethodError", "StopIteration", "IndexError", "KeyError"]),
+                         "Errno::EACCES", "NoMethodError", "StopIteration",
+                         "IndexError", "KeyError"]),
     ("ScriptError", &["LoadError", "NotImplementedError", "SyntaxError"]),
     ("NameError", &["NoMethodError"]),
     ("RangeError", &["FloatDomainError"]),

@@ -39,3 +39,11 @@ end.to not_change(Conversation, :count) # No conversation created yet
 
 # end followed by dot and method call
 end.to eq(42) # some comment
+
+# Comments inside heredocs are not real comments — parser doesn't see them
+x = <<~RUBY
+  class Foo # this is inside a heredoc
+    def bar # also inside heredoc
+    end # not a real comment
+  end # still inside heredoc
+RUBY

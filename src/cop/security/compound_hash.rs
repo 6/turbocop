@@ -40,19 +40,58 @@ impl Cop for CompoundHash {
             None => return Vec::new(),
         };
 
-        if recv.as_array_node().is_none() {
-            return Vec::new();
+        let array_node = match recv.as_array_node() {
+            Some(a) => a,
+            None => return Vec::new(),
+        };
+
+        let elements: Vec<ruby_prism::Node<'_>> = array_node.elements().iter().collect();
+
+        // RuboCop's CompoundHash cop detects:
+        // 1. Manual hash combining with ^/+/*/| inside def hash (COMBINATOR pattern)
+        // 2. [single_value].hash (MONUPLE pattern - wrapping single value is redundant)
+        // 3. [a.hash, b.hash].hash (REDUNDANT pattern - .hash on elements is redundant)
+        //
+        // [a, b].hash is the RECOMMENDED pattern - never flag it.
+
+        // Check for monuple: [single_value].hash
+        if elements.len() == 1 {
+            let msg_loc = call.message_loc().unwrap();
+            let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
+            return vec![self.diagnostic(
+                source,
+                line,
+                column,
+                "Delegate hash directly without wrapping in an array when only using a single value."
+                    .to_string(),
+            )];
         }
 
-        let msg_loc = call.message_loc().unwrap();
-        let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        vec![self.diagnostic(
-            source,
-            line,
-            column,
-            "Use `Array#hash` with caution. Consider using a more secure hashing method."
-                .to_string(),
-        )]
+        // Check for redundant: all elements call .hash
+        if elements.len() >= 2 {
+            let all_call_hash = elements.iter().all(|e| {
+                if let Some(c) = e.as_call_node() {
+                    c.name().as_slice() == b"hash"
+                        && c.arguments().is_none()
+                        && c.receiver().is_some()
+                } else {
+                    false
+                }
+            });
+            if all_call_hash {
+                let msg_loc = call.message_loc().unwrap();
+                let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Calling `.hash` on elements of a hashed array is redundant."
+                        .to_string(),
+                )];
+            }
+        }
+
+        Vec::new()
     }
 }
 

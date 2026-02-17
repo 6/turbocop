@@ -8,3 +8,9 @@ bar(a, b, c)
 # $, global variable is not a comma separator
 def safe_join(array, sep = $,)
 end
+
+# Trailing comma in block parameters: |var,| ignores extra values
+items.each { |key,| puts key }
+items.all? do |detected_sequence,|
+  detected_sequence.valid?
+end

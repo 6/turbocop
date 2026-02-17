@@ -7,8 +7,13 @@ pub struct BinaryOperatorParameterName;
 const BINARY_OPERATORS: &[&[u8]] = &[
     b"+", b"-", b"*", b"/", b"%", b"**",
     b"==", b"!=", b"<", b">", b"<=", b">=", b"<=>",
-    b"&", b"|", b"^", b"<<", b">>",
-    b"===", b"=~",
+    b"&", b"|", b"^", b">>",
+    b"eql?", b"equal?",
+];
+
+// Operators excluded from this cop per RuboCop: +@ -@ [] []= << === ` =~
+const EXCLUDED_OPERATORS: &[&[u8]] = &[
+    b"+@", b"-@", b"[]", b"[]=", b"<<", b"===", b"`", b"=~",
 ];
 
 impl Cop for BinaryOperatorParameterName {
@@ -28,14 +33,27 @@ impl Cop for BinaryOperatorParameterName {
             None => return Vec::new(),
         };
 
-        let method_name = def_node.name().as_slice();
-        if !BINARY_OPERATORS.iter().any(|&op| op == method_name) {
+        // Skip singleton methods (def self.foo, def obj.foo) — RuboCop only
+        // handles :def, not :defs
+        if def_node.receiver().is_some() {
             return Vec::new();
         }
 
-        // Skip [] and []= (indexer methods)
-        if method_name == b"[]" || method_name == b"[]=" {
+        let method_name = def_node.name().as_slice();
+
+        // Skip excluded operators
+        if EXCLUDED_OPERATORS.iter().any(|&op| op == method_name) {
             return Vec::new();
+        }
+
+        // Check if this is a binary operator or operator-like method
+        if !BINARY_OPERATORS.iter().any(|&op| op == method_name) {
+            // Also accept non-word methods (operators) that aren't excluded
+            let name_str = std::str::from_utf8(method_name).unwrap_or("");
+            let is_op = !name_str.is_empty() && !name_str.starts_with(|c: char| c.is_alphanumeric() || c == '_');
+            if !is_op {
+                return Vec::new();
+            }
         }
 
         let params = match def_node.parameters() {
@@ -51,7 +69,8 @@ impl Cop for BinaryOperatorParameterName {
         let first_param = &requireds.iter().next().unwrap();
         if let Some(req) = first_param.as_required_parameter_node() {
             let param_name = req.name().as_slice();
-            if param_name != b"other" {
+            // Accept both `other` and `_other` as valid names
+            if param_name != b"other" && param_name != b"_other" {
                 let loc = req.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 let op_str = std::str::from_utf8(method_name).unwrap_or("");

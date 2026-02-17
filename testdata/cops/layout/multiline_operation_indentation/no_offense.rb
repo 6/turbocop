@@ -32,3 +32,15 @@ def regexp_first_argument?(send_node)
   send_node.first_argument&.regexp_type? \
     && REGEXP_ARGUMENT_METHODS.include?(send_node.method_name)
 end
+
+# Operations inside parentheses (grouped expressions) are not checked
+if style != :either ||
+   (start_loc.line == source_line_column[:line] &&
+       start_loc.column == source_line_column[:column])
+  do_something
+end
+
+# Method call with parenthesized args containing multiline op
+!(method_name.start_with?(prefix) &&
+    method_name.match?(/^foo/)) ||
+  method_name == expected

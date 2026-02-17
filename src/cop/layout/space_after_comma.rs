@@ -26,6 +26,11 @@ impl Cop for SpaceAfterComma {
                     continue;
                 }
                 let next = bytes.get(i + 1).copied();
+                // Skip trailing commas in block parameters: |var,| — the comma
+                // before closing | is valid Ruby syntax to ignore extra yielded values.
+                if next == Some(b'|') {
+                    continue;
+                }
                 if !matches!(next, Some(b' ') | Some(b'\n') | Some(b'\r') | None) {
                     let (line, column) = source.offset_to_line_col(i);
                     diagnostics.push(self.diagnostic(

@@ -63,6 +63,32 @@ impl Cop for HashTransformKeys {
             }
         }
 
+        // RuboCop requires destructured block parameters: |(k, v), h|
+        // This ensures the receiver is iterated as key-value pairs (i.e. a hash).
+        // Simple params like |klass, classes| indicate an array/enumerable, not a hash.
+        let params = match block_node.parameters() {
+            Some(p) => p,
+            None => return Vec::new(),
+        };
+        let block_params = match params.as_block_parameters_node() {
+            Some(bp) => bp,
+            None => return Vec::new(),
+        };
+        let bp_params = match block_params.parameters() {
+            Some(p) => p,
+            None => return Vec::new(),
+        };
+
+        // Need exactly 2 params: first must be destructured (mlhs), second is the hash accumulator
+        let reqs: Vec<_> = bp_params.requireds().iter().collect();
+        if reqs.len() != 2 {
+            return Vec::new();
+        }
+        // First param must be destructured (MultiTargetNode)
+        if reqs[0].as_multi_target_node().is_none() {
+            return Vec::new();
+        }
+
         // Check body has a single statement that looks like h[expr] = v
         // where expr is NOT a simple variable (key is transformed)
         let body = match block_node.body() {

@@ -24,3 +24,10 @@ describe MyModule do
   extend MyModule
   prepend MyModule
 end
+
+# Class reference inside a def method — described_class not available there
+RSpec.describe RuboCop::Cop::Utils::FormatString do
+  def format_sequences(string)
+    RuboCop::Cop::Utils::FormatString.new(string).format_sequences
+  end
+end

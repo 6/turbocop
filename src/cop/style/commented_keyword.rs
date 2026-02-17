@@ -12,28 +12,35 @@ impl Cop for CommentedKeyword {
         "Style/CommentedKeyword"
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
+        let bytes = source.as_bytes();
         let mut diagnostics = Vec::new();
 
-        for (i, line) in source.lines().enumerate() {
-            let line_str = match std::str::from_utf8(line) {
+        // Iterate over parser-recognized comments only.
+        // This avoids false positives from `#` inside heredocs, strings, etc.
+        for comment in parse_result.comments() {
+            let loc = comment.location();
+            let comment_start = loc.start_offset();
+            let comment_end = loc.end_offset();
+            let comment_text = &bytes[comment_start..comment_end];
+
+            // Must start with #
+            if comment_text.is_empty() || comment_text[0] != b'#' {
+                continue;
+            }
+
+            let after_hash = &comment_text[1..]; // skip the '#'
+            let after_hash_str = match std::str::from_utf8(after_hash) {
                 Ok(s) => s,
                 Err(_) => continue,
             };
-
-            // Find a comment `#` on this line
-            // We need to find the # that starts a comment, not one inside a string
-            // Simple heuristic: find last `#` that has a space or is at start of comment portion
-            let comment_pos = match find_comment_start(line_str) {
-                Some(pos) => pos,
-                None => continue,
-            };
-
-            let comment_text = &line_str[comment_pos..];
-
-            // Check if this is an allowed comment type
-            let after_hash = &comment_text[1..]; // skip the '#'
-            let after_hash_trimmed = after_hash.trim_start();
+            let after_hash_trimmed = after_hash_str.trim_start();
 
             // Allow :nodoc: and :yields: (RDoc annotations)
             if after_hash_trimmed.starts_with(":nodoc:") || after_hash_trimmed.starts_with(":yields:") {
@@ -41,18 +48,8 @@ impl Cop for CommentedKeyword {
             }
 
             // Allow rubocop directives (rubocop:disable, rubocop:todo, etc.)
-            // Match: rubocop:, rubocop :
             if after_hash_trimmed.starts_with("rubocop:") || after_hash_trimmed.starts_with("rubocop :") {
                 continue;
-            }
-
-            // Allow RBS::Inline `#:` annotations on def and end lines
-            if after_hash.starts_with(':') && after_hash.get(1..2).is_some_and(|c| c != "[") {
-                // #: is an RBS type annotation, allowed on def and end
-                let before_comment = line_str[..comment_pos].trim();
-                if starts_with_keyword(before_comment, "def") || starts_with_keyword(before_comment, "end") {
-                    continue;
-                }
             }
 
             // Allow steep:ignore annotations
@@ -60,28 +57,42 @@ impl Cop for CommentedKeyword {
                 continue;
             }
 
+            // Get the source line containing this comment
+            let (line_num, comment_col) = source.offset_to_line_col(comment_start);
+
+            // Get the full source line text before the comment
+            let line_start_offset = comment_start - comment_col;
+            let before_comment = match std::str::from_utf8(&bytes[line_start_offset..comment_start]) {
+                Ok(s) => s.trim(),
+                Err(_) => continue,
+            };
+
+            // Skip if the comment is the only thing on the line (full-line comment)
+            if before_comment.is_empty() {
+                continue;
+            }
+
+            // Allow RBS::Inline `#:` annotations on def and end lines
+            if after_hash_str.starts_with(':') && after_hash_str.get(1..2).is_some_and(|c| c != "[") {
+                if starts_with_keyword(before_comment, "def") || starts_with_keyword(before_comment, "end") {
+                    continue;
+                }
+            }
+
             // Check for RBS::Inline generics annotation on class with superclass: `class X < Y #[String]`
-            if after_hash.starts_with('[') && after_hash.ends_with(']') {
-                let before_comment = line_str[..comment_pos].trim();
+            if after_hash_str.starts_with('[') && after_hash_str.ends_with(']') {
                 if before_comment.contains('<') && starts_with_keyword(before_comment, "class") {
                     continue;
                 }
             }
 
             // Check if the code before the comment starts with a keyword
-            let before_comment = line_str[..comment_pos].trim();
-            if before_comment.is_empty() {
-                continue;
-            }
-
             for &keyword in KEYWORDS {
                 if starts_with_keyword(before_comment, keyword) {
-                    let (line_num, _) = (i + 1, 0);
-                    let col = comment_pos;
                     diagnostics.push(self.diagnostic(
                         source,
                         line_num,
-                        col,
+                        comment_col,
                         format!(
                             "Do not place comments on the same line as the `{}` keyword.",
                             keyword
@@ -110,37 +121,6 @@ fn starts_with_keyword(trimmed: &str, keyword: &str) -> bool {
     // `;` and `(` are handled transitively: `def x; end # comment` matches on `def`,
     // and `def x(a, b) # comment` also matches `def` followed by space.
     after.is_empty() || after.starts_with(' ')
-}
-
-/// Find the byte offset of the comment `#` in a line, skipping `#` inside strings.
-/// This is a simple heuristic: we look for `#` that is preceded by whitespace or
-/// is at the start of the line, and not inside a string literal.
-fn find_comment_start(line: &str) -> Option<usize> {
-    let bytes = line.as_bytes();
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        match b {
-            b'\\' if in_double_quote || in_single_quote => {
-                i += 2; // skip escaped char
-                continue;
-            }
-            b'\'' if !in_double_quote => {
-                in_single_quote = !in_single_quote;
-            }
-            b'"' if !in_single_quote => {
-                in_double_quote = !in_double_quote;
-            }
-            b'#' if !in_single_quote && !in_double_quote => {
-                return Some(i);
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    None
 }
 
 #[cfg(test)]

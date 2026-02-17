@@ -296,6 +296,30 @@ impl<'pr> ruby_prism::Visit<'pr> for RedundantMatchVisitor<'_> {
         self.value_used = old;
     }
 
+    fn visit_and_node(&mut self, node: &ruby_prism::AndNode<'pr>) {
+        // Inside `&&`, the direct parent of children is `and`, not `if`.
+        // RuboCop's `only_truthiness_matters?` only matches when the match call
+        // is the DIRECT child of if/while/until/case. Reset parent_is_condition.
+        // Both operands' values are "used" by the `&&` operator.
+        let old_condition = self.parent_is_condition;
+        let old_used = self.value_used;
+        self.parent_is_condition = false;
+        self.value_used = true;
+        ruby_prism::visit_and_node(self, node);
+        self.parent_is_condition = old_condition;
+        self.value_used = old_used;
+    }
+
+    fn visit_or_node(&mut self, node: &ruby_prism::OrNode<'pr>) {
+        let old_condition = self.parent_is_condition;
+        let old_used = self.value_used;
+        self.parent_is_condition = false;
+        self.value_used = true;
+        ruby_prism::visit_or_node(self, node);
+        self.parent_is_condition = old_condition;
+        self.value_used = old_used;
+    }
+
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
         let old = self.value_used;
         // Block body: last expression's value may be used as block return

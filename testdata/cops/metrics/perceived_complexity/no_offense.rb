@@ -59,3 +59,27 @@ def multiple_rescues(x)
     handle_std
   end
 end
+
+# loop do...end blocks do not count toward complexity (not an iterating method)
+def method_with_loop
+  if a
+    1
+  end
+  if b
+    2
+  end
+  if c
+    3
+  end
+  loop do
+    if d
+      break
+    end
+    if e
+      next
+    end
+    if f
+      return
+    end
+  end
+end

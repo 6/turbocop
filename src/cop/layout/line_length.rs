@@ -13,7 +13,7 @@ impl Cop for LineLength {
         let max = config.get_usize("Max", 120);
         let allow_heredoc = config.get_bool("AllowHeredoc", true);
         let allow_uri = config.get_bool("AllowURI", true);
-        let allow_qualified_name = config.get_bool("AllowQualifiedName", false);
+        let allow_qualified_name = config.get_bool("AllowQualifiedName", true);
         let uri_schemes = config.get_string_array("URISchemes")
             .unwrap_or_else(|| vec!["http".into(), "https".into()]);
         let allow_rbs = config.get_bool("AllowRBSInlineAnnotation", false);
@@ -141,11 +141,12 @@ impl Cop for LineLength {
                 }
             }
 
-            // AllowQualifiedName: skip lines that are long only because of a qualified name (Foo::Bar::Baz)
+            // AllowQualifiedName: skip lines where a qualified name (Foo::Bar::Baz)
+            // makes the line too long. Works like AllowURI: the qualified name must
+            // start before max AND extend to the end of the line (after extending).
             if allow_qualified_name {
                 if let Ok(line_str) = std::str::from_utf8(line) {
-                    let stripped = line_str.trim();
-                    if stripped.contains("::") && !stripped.contains(' ') && stripped.len() > max {
+                    if qualified_name_extends_to_end(line_str, max) {
                         continue;
                     }
                 }
@@ -160,6 +161,108 @@ impl Cop for LineLength {
         }
         diagnostics
     }
+}
+
+/// Check if the last qualified name match in the line extends to the end of the line
+/// AND starts before `max`. This matches RuboCop's `allowed_position?` logic for
+/// qualified names (e.g. `Foo::Bar::Baz`).
+fn qualified_name_extends_to_end(line: &str, max: usize) -> bool {
+    // Match qualified names: one or more uppercase-starting segments joined by ::
+    // Pattern from RuboCop: /\b(?:[A-Z][A-Za-z0-9_]*::)+[A-Za-z_][A-Za-z0-9_]*\b/
+    // Find the last occurrence
+    let mut last_match: Option<(usize, usize)> = None; // (start, end) byte positions
+
+    let bytes = line.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
+        // Look for a word boundary followed by an uppercase letter
+        let at_word_boundary = i == 0 || !is_word_char(bytes[i - 1]);
+        if at_word_boundary && i < len && bytes[i].is_ascii_uppercase() {
+            // Try to match a qualified name starting here
+            if let Some(end) = match_qualified_name(bytes, i) {
+                // Verify there's at least one :: (it's actually a qualified name)
+                let segment = &bytes[i..end];
+                if segment.windows(2).any(|w| w == b"::") {
+                    last_match = Some((i, end));
+                }
+                i = end;
+                continue;
+            }
+        }
+        i += 1;
+    }
+
+    let (start, end) = match last_match {
+        Some(m) => m,
+        None => return false,
+    };
+
+    // Extend end position (matching RuboCop's extend_end_position):
+    // 1. YARD brace extension
+    let mut end_pos = end;
+    if line.contains('{') && line.ends_with('}') {
+        if let Some(brace_pos) = line[end_pos..].rfind('}') {
+            end_pos += brace_pos + 1;
+        }
+    }
+    // 2. Extend to next word boundary
+    let rest = &line[end_pos..];
+    let non_ws_len = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
+    end_pos += non_ws_len;
+
+    // Check allowed_position?: start_chars < max AND end_pos reaches end of line
+    let start_chars = line[..start].chars().count();
+    start_chars < max && end_pos >= line.len()
+}
+
+fn is_word_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// Match a qualified name starting at position `start` in the byte slice.
+/// Returns the end position if a valid qualified name is found, or None.
+/// A qualified name is: UpperIdent(::Ident)+ where each segment starts with uppercase or underscore.
+fn match_qualified_name(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut pos = start;
+    let len = bytes.len();
+
+    // First segment: [A-Z][A-Za-z0-9_]*
+    if pos >= len || !bytes[pos].is_ascii_uppercase() {
+        return None;
+    }
+    pos += 1;
+    while pos < len && (bytes[pos].is_ascii_alphanumeric() || bytes[pos] == b'_') {
+        pos += 1;
+    }
+
+    let mut has_double_colon = false;
+
+    // Subsequent segments: ::[A-Za-z_][A-Za-z0-9_]*
+    loop {
+        if pos + 1 < len && bytes[pos] == b':' && bytes[pos + 1] == b':' {
+            pos += 2; // skip ::
+            if pos >= len || !(bytes[pos].is_ascii_alphabetic() || bytes[pos] == b'_') {
+                // :: not followed by valid identifier start -- backtrack
+                return if has_double_colon { Some(pos - 2) } else { None };
+            }
+            has_double_colon = true;
+            pos += 1;
+            while pos < len && (bytes[pos].is_ascii_alphanumeric() || bytes[pos] == b'_') {
+                pos += 1;
+            }
+        } else {
+            break;
+        }
+    }
+
+    // Verify word boundary at end
+    if pos < len && is_word_char(bytes[pos]) {
+        return None; // No word boundary
+    }
+
+    if has_double_colon { Some(pos) } else { None }
 }
 
 /// Normalize a Ruby regex pattern string for use with Rust's regex crate.
