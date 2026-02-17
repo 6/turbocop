@@ -10,3 +10,10 @@ keys.map { |key| key.split(':')[2] }
 # Nested inside another block with a receiver — skip to prevent N+1 queries
 # The inner map { |e| e['timestamp'] } is inside the outer responses.map block
 responses.map { |r| r.map { |e| e[:timestamp] } }
+# Nested inside a block without explicit receiver — also skip (any ancestor block)
+class_methods do
+  built_in_agent_tools.map { |tool| tool[:id] }
+end
+do_something do
+  items.map { |item| item[:name] }
+end

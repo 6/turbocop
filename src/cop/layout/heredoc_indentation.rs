@@ -33,9 +33,29 @@ impl Cop for HeredocIndentation {
                         if parts.is_empty() {
                             return Vec::new();
                         }
-                        let first = parts.iter().next().unwrap();
-                        let last = parts.iter().last().unwrap();
-                        (o, c, first.location().start_offset(), last.location().end_offset())
+                        // For heredocs with interpolation, use the raw source range
+                        // between the line after the opening and the closing delimiter
+                        // line. Prism's <<~ dedent may strip leading whitespace from
+                        // StringNode parts, so parts' locations don't reflect the raw
+                        // indentation.
+                        let src_bytes = source.as_bytes();
+                        let mut body_start = o.end_offset();
+                        // Advance past the rest of the opening line (including .squish etc.)
+                        while body_start < src_bytes.len() && src_bytes[body_start] != b'\n' {
+                            body_start += 1;
+                        }
+                        if body_start < src_bytes.len() {
+                            body_start += 1; // skip the \n
+                        }
+                        // Content ends at the start of the closing delimiter's line
+                        let mut body_end = c.start_offset();
+                        while body_end > 0 && src_bytes[body_end - 1] != b'\n' {
+                            body_end -= 1;
+                        }
+                        if body_start >= body_end {
+                            return Vec::new();
+                        }
+                        (o, c, body_start, body_end)
                     }
                     _ => return Vec::new(),
                 }

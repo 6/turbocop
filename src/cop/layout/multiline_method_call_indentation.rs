@@ -76,9 +76,8 @@ impl ChainVisitor<'_> {
             return;
         }
 
-        // RuboCop skips inside parenthesized call arguments, UNLESS the chain
-        // is inside a hash pair value (where it applies hash-pair alignment).
-        if self.in_paren_args && !self.in_hash_value {
+        // RuboCop skips inside parenthesized call arguments.
+        if self.in_paren_args {
             return;
         }
 

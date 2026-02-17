@@ -25,8 +25,7 @@ impl Cop for Pluck {
         let mut visitor = PluckVisitor {
             cop: self,
             source,
-            // Track depth of blocks that have a receiver (i.e., `receiver.method { ... }`)
-            receiver_block_depth: 0,
+            block_depth: 0,
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
@@ -37,7 +36,9 @@ impl Cop for Pluck {
 struct PluckVisitor<'a, 'src> {
     cop: &'a Pluck,
     source: &'src SourceFile,
-    receiver_block_depth: usize,
+    // Track depth of any ancestor blocks — map/collect inside any block is skipped
+    // to prevent N+1 query issues (matching RuboCop behavior).
+    block_depth: usize,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -46,24 +47,20 @@ impl<'pr> Visit<'pr> for PluckVisitor<'_, '_> {
         let method_name = node.name().as_slice();
 
         // Check for pluck candidate pattern: receiver.map/collect { |x| x[:key] }
-        if (method_name == b"map" || method_name == b"collect") && self.receiver_block_depth == 0 {
+        // Only at the top level (not inside any ancestor block) to prevent N+1 queries.
+        if (method_name == b"map" || method_name == b"collect") && self.block_depth == 0 {
             if let Some(diag) = self.check_pluck_candidate(node) {
                 self.diagnostics.push(diag);
             }
         }
 
-        // Track receiver block depth for nested blocks
+        // Track block depth for ALL blocks — any map/collect inside any block is skipped
+        // to prevent N+1 query issues (matching RuboCop behavior).
         if let Some(block) = node.block() {
             if let Some(block_node) = block.as_block_node() {
-                // If this call has a receiver, nested map/collect should be skipped
-                // to prevent N+1 query issues (matching RuboCop behavior).
-                if node.receiver().is_some() {
-                    self.receiver_block_depth += 1;
-                    ruby_prism::visit_block_node(self, &block_node);
-                    self.receiver_block_depth -= 1;
-                } else {
-                    ruby_prism::visit_block_node(self, &block_node);
-                }
+                self.block_depth += 1;
+                ruby_prism::visit_block_node(self, &block_node);
+                self.block_depth -= 1;
                 // Visit remaining children (receiver, arguments) but not the block again
                 if let Some(recv) = node.receiver() {
                     self.visit(&recv);

@@ -39,13 +39,16 @@ impl Cop for ResponseParsedBody {
             return Vec::new();
         }
 
-        // First argument should be `response.body`
+        // Must have exactly 1 argument (response.body) — no keyword args or extra args.
+        // RuboCop's node pattern requires exactly one argument:
+        //   (send (const {nil? cbase} :JSON) :parse (send (send nil? :response) :body))
+        // If there are additional arguments (e.g., symbolize_names: true), it does NOT match.
         let args = match call.arguments() {
             Some(a) => a,
             None => return Vec::new(),
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
-        if arg_list.is_empty() {
+        if arg_list.len() != 1 {
             return Vec::new();
         }
 

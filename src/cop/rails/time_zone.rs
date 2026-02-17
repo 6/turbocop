@@ -47,6 +47,21 @@ impl Cop for TimeZone {
             return Vec::new();
         }
 
+        // RuboCop skips Time.parse/new/at when the first string argument already has
+        // a timezone specifier (e.g., "2023-05-29 00:00:00 UTC", "2015-03-02T19:05:37Z",
+        // "2015-03-02T19:05:37+05:00"). Pattern: /([A-Za-z]|[+-]\d{2}:?\d{2})\z/
+        if let Some(args) = call.arguments() {
+            let first_arg = args.arguments().iter().next();
+            if let Some(arg) = first_arg {
+                if let Some(str_node) = arg.as_string_node() {
+                    let content = str_node.unescaped().as_ref();
+                    if has_timezone_specifier(content) {
+                        return Vec::new();
+                    }
+                }
+            }
+        }
+
         let style = config.get_str("EnforcedStyle", "flexible");
 
         if style == "flexible" {
@@ -76,6 +91,47 @@ impl Cop for TimeZone {
             ),
         )]
     }
+}
+
+/// Check if a string value ends with a timezone specifier.
+/// Matches RuboCop's TIMEZONE_SPECIFIER: /([A-Za-z]|[+-]\d{2}:?\d{2})\z/
+fn has_timezone_specifier(bytes: &[u8]) -> bool {
+    if bytes.is_empty() {
+        return false;
+    }
+    let last = bytes[bytes.len() - 1];
+    // Ends with a letter (e.g., "UTC", "Z", "EST")
+    if last.is_ascii_alphabetic() {
+        return true;
+    }
+    // Ends with +/-HH:MM or +/-HHMM pattern
+    // Check for pattern: [+-]\d{2}:?\d{2} at end
+    let len = bytes.len();
+    // +/-HHMM (5 chars) or +/-HH:MM (6 chars)
+    if len >= 6 {
+        let s = &bytes[len - 6..];
+        if (s[0] == b'+' || s[0] == b'-')
+            && s[1].is_ascii_digit()
+            && s[2].is_ascii_digit()
+            && s[3] == b':'
+            && s[4].is_ascii_digit()
+            && s[5].is_ascii_digit()
+        {
+            return true;
+        }
+    }
+    if len >= 5 {
+        let s = &bytes[len - 5..];
+        if (s[0] == b'+' || s[0] == b'-')
+            && s[1].is_ascii_digit()
+            && s[2].is_ascii_digit()
+            && s[3].is_ascii_digit()
+            && s[4].is_ascii_digit()
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// Check if the bytes start with a timezone-safe method name followed by a
