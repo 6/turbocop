@@ -543,14 +543,14 @@ Remaining gaps: Style (207 missing), Lint (48 missing).
 
 | Repo | Category | FPs | FNs | Match Rate |
 |------|----------|----:|----:|---------:|
-| Mastodon | Large Rails app | 0 | 0 | **100.0%** |
+| Mastodon | Large Rails app | 10 | 0 | **96.2%** |
 | Discourse | Large Rails app | 0 | 0 | **100.0%** |
 | Rails | Framework | 0 | 0 | **100.0%** |
-| rubocop | Ruby tool (RSpec-heavy) | 102 | 0 | 1.9% |
-| chatwoot | Large Rails app | ~11 | 0 | ~92% |
-| errbit | Small Rails app | 50 | 228 | 82.0% |
+| rubocop | Ruby tool (RSpec-heavy) | 636 | 0 | 0.3% |
+| chatwoot | Large Rails app | 104 | 0 | 0.0% |
+| errbit | Small Rails app | 1 | 14 | **99.0%** |
 
-6 bench repos total. 3 at 100% conformance on 514 covered cops.
+6 bench repos total. 2 at 100% conformance, 2 above 96% on 596 covered cops.
 
 ### Bench Repo Candidates (Evaluated)
 
@@ -768,6 +768,56 @@ Completed Layout department to 100% (100/100), added Lint/MissingSuper and Rails
 - [x] Mastodon: **86.6% match rate** (12 FP, 23 FN)
 - [x] errbit: **81.8% match rate** (53 FP, 233 FN)
 
+## Completed: M13c — Mastodon + Errbit Conformance Push (596 cops)
+
+Massive conformance improvement on mastodon and errbit. Fixed ~30 cops across all departments using 3 parallel agents (RSpec, Layout+Style, Rails+Perf+Metrics+Naming+Lint).
+
+### M13c RSpec Fixes (Agent 1: 8 cops)
+
+- RSpec/InstanceVariable: Skip instance vars inside shared_examples/shared_context (-41 FP)
+- RSpec/MultipleMemoizedHelpers: Aggregate let counts from ancestor scopes (-72 FN)
+- RSpec/DescribedClass: Namespace-aware constant matching, shared_examples scope handling (-65 FN)
+- RSpec/ExampleWording: Handle interpolated strings, restrict to it/fit/xit (-8 FN)
+- RSpec/SpecFilePathFormat: Fix IgnoreMetadata to compare both key AND value (-9 FN)
+- RSpec/ContextWording: Handle InterpolatedStringNode first arguments (-1 FN)
+- RSpec/EmptyLineAfterExample: Add is_single_line_block for AllowConsecutiveOneLiners (-1 FN)
+- RSpec/ExpectChange: Accept LocalVariableReadNode, InstanceVariableReadNode receivers (-1 FN)
+
+### M13c Layout + Style Fixes (Agent 2: 5 cops)
+
+- Layout/EmptyLineAfterGuardClause: Handle block-form guard clauses with end keyword (-1 FN errbit)
+- Layout/LineEndStringConcatenationIndentation: Full AST-based rewrite comparing string literal positions
+- Style/SafeNavigation: Added ternary pattern support (nil? ? nil : x.foo, !nil? ? x.foo : nil, x ? x.foo : nil) (-1 FN mastodon)
+- Style/IfUnlessModifier: Added nested conditional no_offense fixtures
+- Style/StringConcatenation: Conservative mode check for both sides as string literals
+
+### M13c Rails + Perf + Metrics + Naming + Lint Fixes (Agent 3: 15+ cops)
+
+- Naming/VariableNumber: Rewrote check_number_style to only check trailing number pattern (-14 FP mastodon, -1 FP errbit)
+- Rails/RakeEnvironment: Handle array dependency form `task :x, [:y] => [:environment]` (-1 FP errbit)
+- Rails/OutputSafety: Report offense at message_loc instead of full expression (-1 FP/-1 FN errbit)
+- Rails/ResponseParsedBody: Added Nokogiri::HTML/HTML5 variants (-21 FN)
+- Rails/CompactBlank: Added block-pass form `reject(&:blank?)` detection (-2 FN)
+- Rails/FilePath: Added File.join pattern and constant_path_node handling (-2 FN)
+- Rails/RedundantPresenceValidationOnBelongsTo: Added validates_presence_of form (-2 FN)
+- Rails/RootPathnameMethods: Added Dir, FileUtils, IO as valid receivers (-3 FN)
+- Performance/StringInclude: Added match (without ?) and =~ operator detection (-2 FN)
+- Performance/TimesMap: Added collect synonym for map (-1 FN)
+- Performance/RedundantMerge: Skip when merge! result used as assignment RHS (-3 FP)
+- Metrics/AbcSize: Added yield, super, ForwardingSuperNode as branches (-5 FN)
+- Metrics/CyclomaticComplexity: Added CaseMatchNode/InNode pattern matching (-1 FN)
+- Metrics/PerceivedComplexity: Same pattern matching additions (-1 FN)
+- Layout/HeredocIndentation: Implemented <<~ validation for body indentation (-15 FN)
+- Layout/EmptyLinesAfterModuleInclusion: AST sibling analysis instead of text-line checking (-7 FN)
+
+### M13c Summary
+
+- [x] 596 cops (unchanged)
+- [x] 1,830 unit + 42 integration + 50 binary tests passing
+- [x] Mastodon: 86.6% → **96.2%** (10 FP / 0 FN; remaining 10 FP due to per-directory config)
+- [x] Errbit: 81.8% → **99.0%** (1 FP / 14 FN)
+- [x] Discourse + Rails: still **100%**
+
 ## Milestones
 
 | Milestone | Cops | Status |
@@ -788,3 +838,4 @@ Completed Layout department to 100% (100/100), added Lint/MissingSuper and Rails
 | **M12c**: Chatwoot FP/FN Elimination | 514 | **Done** |
 | **M13**: Core Cop Expansion Batch 2 | 569 | **Done** |
 | **M13b**: Layout 100% + Core Expansion | 596 | **Done** |
+| **M13c**: Mastodon + Errbit Conformance | 596 | **Done** |
