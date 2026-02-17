@@ -4,6 +4,72 @@ use crate::parse::source::SourceFile;
 
 pub struct TrailingMethodEndStatement;
 
+/// Find the last content line of a body node. For BeginNode (implicit begin
+/// wrapping rescue/ensure), the node's own end_offset includes the `end`
+/// keyword, so we drill into the last clause to get the real content end.
+fn body_last_line(source: &SourceFile, body: &ruby_prism::Node<'_>) -> usize {
+    if let Some(begin_node) = body.as_begin_node() {
+        // Try ensure clause first (it comes last)
+        if let Some(ensure) = begin_node.ensure_clause() {
+            if let Some(stmts) = ensure.statements() {
+                let loc = stmts.location();
+                let (line, _) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
+                return line;
+            }
+            // ensure with no body — use ensure keyword line
+            let loc = ensure.ensure_keyword_loc();
+            let (line, _) = source.offset_to_line_col(loc.start_offset());
+            return line;
+        }
+
+        // Try else clause (between rescue and ensure).
+        // ElseNode location may include the closing `end`, so use its statements.
+        if let Some(else_clause) = begin_node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                let loc = stmts.location();
+                let (line, _) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
+                return line;
+            }
+            // else with no body — use else keyword line
+            let loc = else_clause.else_keyword_loc();
+            let (line, _) = source.offset_to_line_col(loc.start_offset());
+            return line;
+        }
+
+        // Try last rescue clause
+        if let Some(rescue) = begin_node.rescue_clause() {
+            // Walk to the last rescue clause
+            let mut current = rescue;
+            while let Some(next) = current.subsequent() {
+                current = next;
+            }
+            // Use the rescue clause's statements end, not the clause location
+            // (which may extend to the next clause boundary)
+            if let Some(stmts) = current.statements() {
+                let loc = stmts.location();
+                let (line, _) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
+                return line;
+            }
+            // Rescue with no body — use rescue keyword line
+            let loc = current.keyword_loc();
+            let (line, _) = source.offset_to_line_col(loc.start_offset());
+            return line;
+        }
+
+        // Fall back to statements
+        if let Some(stmts) = begin_node.statements() {
+            let loc = stmts.location();
+            let (line, _) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
+            return line;
+        }
+    }
+
+    // Non-BeginNode: use body's own end offset
+    let body_loc = body.location();
+    let (line, _) = source.offset_to_line_col(body_loc.end_offset().saturating_sub(1));
+    line
+}
+
 impl Cop for TrailingMethodEndStatement {
     fn name(&self) -> &'static str {
         "Style/TrailingMethodEndStatement"
@@ -45,12 +111,10 @@ impl Cop for TrailingMethodEndStatement {
             return Vec::new();
         }
 
-        // Check if body last line == end line
-        let body_loc = body.location();
-        let body_end_offset = body_loc.end_offset().saturating_sub(1);
-        let (body_last_line, _) = source.offset_to_line_col(body_end_offset);
+        // Check if body's last content line == end line
+        let last_line = body_last_line(source, &body);
 
-        if body_last_line == end_line {
+        if last_line == end_line {
             return vec![self.diagnostic(
                 source,
                 end_line,

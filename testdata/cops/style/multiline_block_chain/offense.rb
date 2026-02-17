@@ -14,5 +14,7 @@ items.select { |i|
 
 foo.each do |x|
   x
-end.count
-    ^^^^^ Style/MultilineBlockChain: Avoid multi-line chains of blocks.
+end.map do |y|
+    ^^^ Style/MultilineBlockChain: Avoid multi-line chains of blocks.
+  y.to_s
+end

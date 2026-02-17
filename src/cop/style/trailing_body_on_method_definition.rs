@@ -27,10 +27,49 @@ impl Cop for TrailingBodyOnMethodDefinition {
                 None => return Vec::new(),
             };
 
+            // Method must be multiline (def on different line than end)
             let def_loc = def_node.def_keyword_loc();
             let (def_line, _) = source.offset_to_line_col(def_loc.start_offset());
-            let body_loc = body.location();
-            let (body_line, body_column) = source.offset_to_line_col(body_loc.start_offset());
+            let end_loc = match def_node.end_keyword_loc() {
+                Some(loc) => loc,
+                None => return Vec::new(),
+            };
+            let (end_line, _) = source.offset_to_line_col(end_loc.start_offset());
+            if def_line == end_line {
+                return Vec::new();
+            }
+
+            // When body is a BeginNode (implicit begin wrapping rescue/ensure),
+            // look at the first statement inside, not the BeginNode itself
+            // (whose location may start on the def line in Prism).
+            let (body_line, body_column) = if let Some(begin_node) = body.as_begin_node() {
+                if let Some(stmts) = begin_node.statements() {
+                    let stmts_body = stmts.body();
+                    if let Some(first_stmt) = stmts_body.iter().next() {
+                        let loc = first_stmt.location();
+                        source.offset_to_line_col(loc.start_offset())
+                    } else {
+                        // No statements in begin body — check rescue clause
+                        if let Some(rescue) = begin_node.rescue_clause() {
+                            let loc = rescue.location();
+                            source.offset_to_line_col(loc.start_offset())
+                        } else {
+                            return Vec::new();
+                        }
+                    }
+                } else {
+                    // No statements — check rescue clause location
+                    if let Some(rescue) = begin_node.rescue_clause() {
+                        let loc = rescue.location();
+                        source.offset_to_line_col(loc.start_offset())
+                    } else {
+                        return Vec::new();
+                    }
+                }
+            } else {
+                let body_loc = body.location();
+                source.offset_to_line_col(body_loc.start_offset())
+            };
 
             if def_line == body_line {
                 return vec![self.diagnostic(

@@ -37,12 +37,14 @@ impl Cop for IfWithSemicolon {
             return Vec::new();
         }
 
-        // Check if there's a semicolon between the predicate and the body/else/end.
-        // Prism may or may not set then_keyword_loc for semicolons.
+        // RuboCop checks node.loc.begin which is the then keyword.
+        // In Prism, then_keyword_loc may be ";" or "then", but Prism sometimes
+        // doesn't set it for single-line `if foo; bar end`. As a fallback, scan
+        // the source between predicate end and body start on the SAME LINE only
+        // (to avoid false positives from semicolons in comments on subsequent lines).
         let has_semicolon = if let Some(then_loc) = if_node.then_keyword_loc() {
             then_loc.as_slice() == b";"
         } else {
-            // Check the source between predicate end and body/end start
             let pred_end = if_node.predicate().location().end_offset();
             let body_start = if let Some(stmts) = if_node.statements() {
                 stmts.location().start_offset()
@@ -55,7 +57,9 @@ impl Cop for IfWithSemicolon {
             };
             if pred_end < body_start {
                 let between = &source.content[pred_end..body_start];
-                between.contains(&b';')
+                // Only flag if semicolon appears before any newline
+                // (single-line if with semicolon vs multi-line if with comments)
+                between.iter().take_while(|&&b| b != b'\n').any(|&b| b == b';')
             } else {
                 false
             }

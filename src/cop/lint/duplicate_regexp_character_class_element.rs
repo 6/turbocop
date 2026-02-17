@@ -56,10 +56,23 @@ impl Cop for DuplicateRegexpCharacterClassElement {
                 }
 
                 while j < chars.len() {
-                    if chars[j] == ']' && (j == 0 || chars[j - 1] != '\\') {
+                    if chars[j] == '\\' && j + 1 < chars.len() {
+                        j += 2; // skip escaped char
+                    } else if chars[j] == '[' && j + 1 < chars.len() && chars[j + 1] == ':' {
+                        // POSIX character class like [:digit:] — skip to :]
+                        j += 2;
+                        while j + 1 < chars.len() {
+                            if chars[j] == ':' && chars[j + 1] == ']' {
+                                j += 2;
+                                break;
+                            }
+                            j += 1;
+                        }
+                    } else if chars[j] == ']' {
                         break;
+                    } else {
+                        j += 1;
                     }
-                    j += 1;
                 }
 
                 if j < chars.len() {
@@ -74,7 +87,35 @@ impl Cop for DuplicateRegexpCharacterClassElement {
                         k += 1;
                     }
                     while k < class_chars.len() {
-                        if class_chars[k] == '\\' && k + 1 < class_chars.len() {
+                        // Skip POSIX character classes like [:digit:], [:alpha:], etc.
+                        // Also skip nested character classes like [[:alnum:]]
+                        if class_chars[k] == '[' && k + 1 < class_chars.len() && class_chars[k + 1] == ':' {
+                            // Find the closing ":]"
+                            let mut p = k + 2;
+                            while p + 1 < class_chars.len() {
+                                if class_chars[p] == ':' && class_chars[p + 1] == ']' {
+                                    p += 2;
+                                    break;
+                                }
+                                p += 1;
+                            }
+                            // Treat the whole POSIX class as a single entity
+                            let posix_class: String = class_chars[k..p].iter().collect();
+                            if !seen.insert(posix_class.clone()) {
+                                let char_offset: usize = chars[..start + k].iter().map(|c| c.len_utf8()).sum();
+                                let byte_pos = content_start + char_offset;
+                                if byte_pos < bytes.len() {
+                                    let (line, column) = source.offset_to_line_col(byte_pos);
+                                    diagnostics.push(self.diagnostic(
+                                        source,
+                                        line,
+                                        column,
+                                        "Duplicate element inside regexp character class".to_string(),
+                                    ));
+                                }
+                            }
+                            k = p;
+                        } else if class_chars[k] == '\\' && k + 1 < class_chars.len() {
                             // Escaped character, treat as a single entity
                             let escaped: String = class_chars[k..k + 2].iter().collect();
                             if !seen.insert(escaped.clone()) {
