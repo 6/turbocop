@@ -43,6 +43,16 @@ impl PerceivedCounter {
                     }
                 }
             }
+            // unless is a separate node type in Prism
+            ruby_prism::Node::UnlessNode { .. } => {
+                if let Some(unless_node) = node.as_unless_node() {
+                    if unless_node.else_clause().is_some() {
+                        self.complexity += 2;
+                    } else {
+                        self.complexity += 1;
+                    }
+                }
+            }
 
             ruby_prism::Node::WhileNode { .. }
             | ruby_prism::Node::UntilNode { .. }
@@ -135,6 +145,13 @@ impl<'pr> Visit<'pr> for PerceivedCounter {
 
     fn visit_leaf_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
         self.count_node(&node);
+    }
+
+    // RescueNode is visited via visit_rescue_node (not visit_branch_node_enter)
+    // because Prism's visit_begin_node calls visitor.visit_rescue_node directly.
+    fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
+        self.complexity += 1;
+        ruby_prism::visit_rescue_node(self, node);
     }
 }
 

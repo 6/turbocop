@@ -217,12 +217,21 @@ impl AbcCounter {
             }
 
             // C (Conditions)
-            // if/case with explicit 'else' gets +2 (one for the condition, one for else)
+            // if/unless/case with explicit 'else' gets +2 (one for the condition, one for else)
             ruby_prism::Node::IfNode { .. } => {
                 self.conditions += 1;
                 if let Some(if_node) = node.as_if_node() {
                     // Add +1 for explicit else (not elsif)
                     if if_node.subsequent().is_some_and(|s| s.as_else_node().is_some()) {
+                        self.conditions += 1;
+                    }
+                }
+            }
+            // unless is a separate node type in Prism (not an IfNode)
+            ruby_prism::Node::UnlessNode { .. } => {
+                self.conditions += 1;
+                if let Some(unless_node) = node.as_unless_node() {
+                    if unless_node.else_clause().is_some() {
                         self.conditions += 1;
                     }
                 }
@@ -438,8 +447,6 @@ impl Cop for AbcSize {
         counter.visit(&body);
 
         let score = counter.score();
-        eprintln!("DEBUG ABC: {} -> A={} B={} C={} score={:.2} max={}",
-            method_name_str, counter.assignments, counter.branches, counter.conditions, score, max);
         if score > max as f64 {
             let method_name =
                 std::str::from_utf8(def_node.name().as_slice()).unwrap_or("unknown");

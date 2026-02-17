@@ -33,6 +33,7 @@ impl CyclomaticCounter {
     fn count_node(&mut self, node: &ruby_prism::Node<'_>) {
         match node {
             ruby_prism::Node::IfNode { .. }
+            | ruby_prism::Node::UnlessNode { .. }
             | ruby_prism::Node::WhileNode { .. }
             | ruby_prism::Node::UntilNode { .. }
             | ruby_prism::Node::ForNode { .. }
@@ -89,6 +90,13 @@ impl<'pr> Visit<'pr> for CyclomaticCounter {
 
     fn visit_leaf_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
         self.count_node(&node);
+    }
+
+    // RescueNode is visited via visit_rescue_node (not visit_branch_node_enter)
+    // because Prism's visit_begin_node calls visitor.visit_rescue_node directly.
+    fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
+        self.complexity += 1;
+        ruby_prism::visit_rescue_node(self, node);
     }
 }
 
