@@ -15,3 +15,12 @@ def third_method
   unused = 'hello'
   ^^^^^^ Lint/UselessAssignment: Useless assignment to variable - `unused`.
 end
+
+# Useless assignment inside a block (not inside a def)
+describe "something" do
+  it "does something" do
+    problem = create(:problem)
+    ^^^^^^^ Lint/UselessAssignment: Useless assignment to variable - `problem`.
+    expect(true).to eq(true)
+  end
+end

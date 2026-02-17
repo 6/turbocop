@@ -1288,8 +1288,10 @@ impl ResolvedConfig {
                 .entry("TargetRubyVersion".to_string())
                 .or_insert_with(|| Value::Number(serde_yml::Number::from(version)));
         }
-        // Inject MaxLineLength from Layout/LineLength's Max into cops that need
-        // it (mirrors RuboCop's `config.for_cop('Layout/LineLength')['Max']`).
+        // Inject MaxLineLength and LineLengthEnabled from Layout/LineLength into
+        // cops that need it (mirrors RuboCop's `config.for_cop('Layout/LineLength')`).
+        // When Layout/LineLength is disabled, max_line_length returns nil in RuboCop,
+        // which causes modifier_fits_on_single_line? to return true (no length limit).
         if matches!(
             name,
             "Style/IfUnlessModifier"
@@ -1298,16 +1300,23 @@ impl ResolvedConfig {
                 | "Style/SoleNestedConditional"
                 | "Layout/RedundantLineBreak"
         ) {
+            let line_length_config = self.cop_configs.get("Layout/LineLength");
             if !config.options.contains_key("MaxLineLength") {
-                let max = self
-                    .cop_configs
-                    .get("Layout/LineLength")
+                let max = line_length_config
                     .and_then(|cc| cc.options.get("Max"))
                     .and_then(|v| v.as_u64())
                     .unwrap_or(120);
                 config
                     .options
                     .insert("MaxLineLength".to_string(), Value::Number(serde_yml::Number::from(max)));
+            }
+            if !config.options.contains_key("LineLengthEnabled") {
+                let enabled = line_length_config
+                    .map(|cc| !matches!(cc.enabled, crate::cop::EnabledState::False))
+                    .unwrap_or(true);
+                config
+                    .options
+                    .insert("LineLengthEnabled".to_string(), Value::Bool(enabled));
             }
         }
         config

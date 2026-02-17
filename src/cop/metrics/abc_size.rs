@@ -218,11 +218,13 @@ impl AbcCounter {
 
             // C (Conditions)
             // if/unless/case with explicit 'else' gets +2 (one for the condition, one for else)
+            // Ternary (x ? y : z) has no if_keyword_loc and counts as 1 (not 2).
             ruby_prism::Node::IfNode { .. } => {
                 self.conditions += 1;
                 if let Some(if_node) = node.as_if_node() {
-                    // Add +1 for explicit else (not elsif)
-                    if if_node.subsequent().is_some_and(|s| s.as_else_node().is_some()) {
+                    // Add +1 for explicit else (not elsif), but NOT for ternary
+                    let is_ternary = if_node.if_keyword_loc().is_none();
+                    if !is_ternary && if_node.subsequent().is_some_and(|s| s.as_else_node().is_some()) {
                         self.conditions += 1;
                     }
                 }
@@ -320,62 +322,6 @@ fn is_setter_method(name: &[u8]) -> bool {
         && !matches!(name, b"==" | b"!=" | b"<=" | b">=" | b"===" | b"[]=")
 }
 
-/// Count method parameters as assignments. In RuboCop, method and block
-/// parameters (arg, optarg, restarg, kwarg, kwoptarg, kwrestarg, blockarg)
-/// all count as assignments if their name doesn't start with underscore.
-fn count_parameters(params: &ruby_prism::ParametersNode<'_>, counter: &mut AbcCounter) {
-    // Required params (positional)
-    for param in params.requireds().iter() {
-        if let Some(req) = param.as_required_parameter_node() {
-            if !req.name().as_slice().starts_with(b"_") {
-                counter.assignments += 1;
-            }
-        }
-    }
-    // Optional params
-    for param in params.optionals().iter() {
-        if let Some(opt) = param.as_optional_parameter_node() {
-            if !opt.name().as_slice().starts_with(b"_") {
-                counter.assignments += 1;
-            }
-        }
-    }
-    // Rest param (*args)
-    if let Some(rest) = params.rest() {
-        if let Some(rest_param) = rest.as_rest_parameter_node() {
-            if rest_param.name().is_some_and(|n| !n.as_slice().starts_with(b"_")) {
-                counter.assignments += 1;
-            }
-        }
-    }
-    // Keyword params
-    for param in params.keywords().iter() {
-        if let Some(kw) = param.as_required_keyword_parameter_node() {
-            if !kw.name().as_slice().starts_with(b"_") {
-                counter.assignments += 1;
-            }
-        } else if let Some(kw) = param.as_optional_keyword_parameter_node() {
-            if !kw.name().as_slice().starts_with(b"_") {
-                counter.assignments += 1;
-            }
-        }
-    }
-    // Keyword rest param (**kwargs)
-    if let Some(kw_rest) = params.keyword_rest() {
-        if let Some(kw_rest_param) = kw_rest.as_keyword_rest_parameter_node() {
-            if kw_rest_param.name().is_some_and(|n| !n.as_slice().starts_with(b"_")) {
-                counter.assignments += 1;
-            }
-        }
-    }
-    // Block param (&block)
-    if let Some(block) = params.block() {
-        if block.name().is_some_and(|n| !n.as_slice().starts_with(b"_")) {
-            counter.assignments += 1;
-        }
-    }
-}
-
 impl Cop for AbcSize {
     fn name(&self) -> &'static str {
         "Metrics/AbcSize"
@@ -414,34 +360,11 @@ impl Cop for AbcSize {
 
         let mut counter = AbcCounter::new(count_repeated_attributes);
 
-        // Count method parameters as assignments (matching RuboCop's argument? check).
-        // Parameters whose name starts with _ are not counted.
-        if let Some(params) = def_node.parameters() {
-            count_parameters(&params, &mut counter);
-        }
-
-        // Visit body
+        // RuboCop's AbcSize passes only the method body to AbcSizeCalculator,
+        // so method-level parameters are NOT counted as assignments. Block
+        // parameters inside the body ARE counted because the visitor traverses them.
         let body = match def_node.body() {
             Some(b) => b,
-            None if def_node.parameters().is_some() => {
-                // Method has params but no body — still need to score
-                let score = counter.score();
-                if score > max as f64 {
-                    let method_name =
-                        std::str::from_utf8(def_node.name().as_slice()).unwrap_or("unknown");
-                    let start_offset = def_node.def_keyword_loc().start_offset();
-                    let (line, column) = source.offset_to_line_col(start_offset);
-                    return vec![self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        format!(
-                            "Assignment Branch Condition size for {method_name} is too high. [{score:.2}/{max}]"
-                        ),
-                    )];
-                }
-                return Vec::new();
-            }
             None => return Vec::new(),
         };
         counter.visit(&body);

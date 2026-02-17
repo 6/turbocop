@@ -21,7 +21,7 @@ def complex_method
 end
 
 def branchy_method(x)
-^^^ Metrics/AbcSize: Assignment Branch Condition size for branchy_method is too high. [19.10/17]
+^^^ Metrics/AbcSize: Assignment Branch Condition size for branchy_method is too high. [18.38/17]
   a = x.foo
   b = x.bar
   c = x.baz
@@ -38,7 +38,7 @@ def branchy_method(x)
 end
 
 def mixed_method(x)
-^^^ Metrics/AbcSize: Assignment Branch Condition size for mixed_method is too high. [17.92/17]
+^^^ Metrics/AbcSize: Assignment Branch Condition size for mixed_method is too high. [17.15/17]
   a = x.foo
   b = x.bar
   c = x.baz

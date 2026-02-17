@@ -298,4 +298,27 @@ mod tests {
         let source2 = b"if some_very_long_condition_variable_name\n  do_something_important_here\nend\n";
         assert_cop_no_offenses_full_with_config(&IfUnlessModifier, source2, config);
     }
+
+    #[test]
+    fn config_line_length_disabled() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        // When LineLengthEnabled is false (Layout/LineLength disabled),
+        // modifier form should always be suggested regardless of line length.
+        // This matches RuboCop behavior where `max_line_length` returns nil
+        // when the cop is disabled.
+        let config = CopConfig {
+            options: HashMap::from([
+                ("LineLengthEnabled".into(), serde_yml::Value::Bool(false)),
+                ("MaxLineLength".into(), serde_yml::Value::Number(40.into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // This body + condition would exceed 40 chars, but since line length is
+        // disabled, it should still suggest modifier form.
+        let source = b"if some_very_long_condition_variable_name\n  do_something_important_here\nend\n";
+        let diags = run_cop_full_with_config(&IfUnlessModifier, source, config);
+        assert!(!diags.is_empty(), "Should fire when LineLengthEnabled is false regardless of line length");
+    }
 }

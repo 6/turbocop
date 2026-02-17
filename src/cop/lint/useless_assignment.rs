@@ -27,6 +27,8 @@ impl Cop for UselessAssignment {
             cop: self,
             source,
             diagnostics: Vec::new(),
+            inside_def: false,
+            inside_analyzed_block: false,
         };
         visitor.visit(&parse_result.node());
         visitor.diagnostics
@@ -37,6 +39,12 @@ struct UselessAssignVisitor<'a, 'src> {
     cop: &'a UselessAssignment,
     source: &'src SourceFile,
     diagnostics: Vec<Diagnostic>,
+    /// True when inside a def node. Block analysis is skipped since the def
+    /// analysis already covers nested blocks.
+    inside_def: bool,
+    /// True when inside a block that's being independently analyzed. Prevents
+    /// nested blocks from being double-analyzed.
+    inside_analyzed_block: bool,
 }
 
 struct WriteInfo {
@@ -200,6 +208,26 @@ fn collect_param_names(node: &ruby_prism::DefNode<'_>) -> HashSet<String> {
     names
 }
 
+impl UselessAssignVisitor<'_, '_> {
+    /// Analyze a body (from a def or block) for useless assignments and report diagnostics.
+    fn analyze_body(&mut self, collector: &WriteReadCollector) {
+        for write in &collector.writes {
+            if write.name.starts_with('_') {
+                continue;
+            }
+            if !collector.reads.contains(&write.name) {
+                let (line, column) = self.source.offset_to_line_col(write.offset);
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
+                    line,
+                    column,
+                    format!("Useless assignment to variable - `{}`.", write.name),
+                ));
+            }
+        }
+    }
+}
+
 impl<'pr> Visit<'pr> for UselessAssignVisitor<'_, '_> {
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
         if let Some(body) = node.body() {
@@ -214,20 +242,123 @@ impl<'pr> Visit<'pr> for UselessAssignVisitor<'_, '_> {
                 }
             }
 
-            // Find writes that are never read
-            for write in &collector.writes {
-                if write.name.starts_with('_') {
-                    continue;
+            self.analyze_body(&collector);
+        }
+
+        // Mark that we're inside a def so nested blocks don't re-analyze
+        let was_inside_def = self.inside_def;
+        self.inside_def = true;
+        ruby_prism::visit_def_node(self, node);
+        self.inside_def = was_inside_def;
+    }
+
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        // Only analyze blocks that are NOT inside a def AND not already inside
+        // a block being analyzed. Blocks inside defs are already covered by the
+        // def's analysis. Nested blocks share scope with the outermost analyzed
+        // block, so they shouldn't be analyzed independently.
+        if !self.inside_def && !self.inside_analyzed_block {
+            if let Some(body) = node.body() {
+                let mut collector = WriteReadCollector::new();
+                collector.visit(&body);
+
+                // Block parameters are implicitly "read" (they're arguments, not
+                // useless assignments). Add them to reads so they're not flagged.
+                if let Some(params) = node.parameters() {
+                    collect_block_param_names(&params, &mut collector.reads);
                 }
-                if !collector.reads.contains(&write.name) {
-                    let (line, column) = self.source.offset_to_line_col(write.offset);
-                    self.diagnostics.push(self.cop.diagnostic(
-                        self.source,
-                        line,
-                        column,
-                        format!("Useless assignment to variable - `{}`.", write.name),
-                    ));
+
+                self.analyze_body(&collector);
+            }
+
+            // Mark that we're inside an analyzed block so nested blocks don't
+            // re-analyze (they're already covered by this block's collector
+            // which recurses into them).
+            let was_inside = self.inside_analyzed_block;
+            self.inside_analyzed_block = true;
+            ruby_prism::visit_block_node(self, node);
+            self.inside_analyzed_block = was_inside;
+        } else {
+            // Continue visiting to find nested defs
+            ruby_prism::visit_block_node(self, node);
+        }
+    }
+
+    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
+        // Lambdas create scopes similar to blocks
+        if !self.inside_def && !self.inside_analyzed_block {
+            if let Some(body) = node.body() {
+                let mut collector = WriteReadCollector::new();
+                collector.visit(&body);
+
+                if let Some(params) = node.parameters() {
+                    if let Some(params) = params.as_block_parameters_node() {
+                        if let Some(inner) = params.parameters() {
+                            collect_parameters_node_names(&inner, &mut collector.reads);
+                        }
+                    }
                 }
+
+                self.analyze_body(&collector);
+            }
+
+            let was_inside = self.inside_analyzed_block;
+            self.inside_analyzed_block = true;
+            ruby_prism::visit_lambda_node(self, node);
+            self.inside_analyzed_block = was_inside;
+        } else {
+            ruby_prism::visit_lambda_node(self, node);
+        }
+    }
+}
+
+/// Collect parameter names from a BlockNode's parameter list into a reads set.
+fn collect_block_param_names(params: &ruby_prism::Node<'_>, reads: &mut HashSet<String>) {
+    if let Some(block_params) = params.as_block_parameters_node() {
+        if let Some(inner_params) = block_params.parameters() {
+            collect_parameters_node_names(&inner_params, reads);
+        }
+    } else if let Some(numbered) = params.as_numbered_parameters_node() {
+        // Numbered params (_1, _2, etc.) — add them as reads
+        for i in 1..=numbered.maximum() {
+            reads.insert(format!("_{i}"));
+        }
+    }
+}
+
+/// Collect parameter names from a ParametersNode into a reads set.
+fn collect_parameters_node_names(params: &ruby_prism::ParametersNode<'_>, reads: &mut HashSet<String>) {
+    for p in params.requireds().iter() {
+        if let Some(req) = p.as_required_parameter_node() {
+            if let Ok(s) = std::str::from_utf8(req.name().as_slice()) {
+                reads.insert(s.to_string());
+            }
+        }
+    }
+    for p in params.optionals().iter() {
+        if let Some(opt) = p.as_optional_parameter_node() {
+            if let Ok(s) = std::str::from_utf8(opt.name().as_slice()) {
+                reads.insert(s.to_string());
+            }
+        }
+    }
+    if let Some(rest) = params.rest() {
+        if let Some(rest_param) = rest.as_rest_parameter_node() {
+            if let Some(name) = rest_param.name() {
+                if let Ok(s) = std::str::from_utf8(name.as_slice()) {
+                    reads.insert(s.to_string());
+                }
+            }
+        }
+    }
+    for p in params.keywords().iter() {
+        if let Some(kw) = p.as_required_keyword_parameter_node() {
+            if let Ok(s) = std::str::from_utf8(kw.name().as_slice()) {
+                reads.insert(s.trim_end_matches(':').to_string());
+            }
+        } else if let Some(kw) = p.as_optional_keyword_parameter_node() {
+            if let Ok(s) = std::str::from_utf8(kw.name().as_slice()) {
+                reads.insert(s.trim_end_matches(':').to_string());
             }
         }
     }

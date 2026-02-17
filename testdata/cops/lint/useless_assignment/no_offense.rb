@@ -62,3 +62,20 @@ def compound_string_concat
     lines += "HEY ALSO\n"
   end
 end
+
+# Variable assigned in block but read in nested block
+describe "something" do
+  it "does something" do
+    app = create(:app)
+    problem = create(:problem, app: app)
+    expect do
+      destroy(problem.id)
+    end.to change(Problem, :count).by(-1)
+  end
+end
+
+# Variable read inside same block (not nested)
+items.each do |item|
+  x = compute(item)
+  process(x)
+end

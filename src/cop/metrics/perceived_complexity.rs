@@ -33,10 +33,11 @@ impl PerceivedCounter {
     fn count_node(&mut self, node: &ruby_prism::Node<'_>) {
         match node {
             // if with else (not elsif) counts as 2, otherwise 1
+            // Ternary (x ? y : z) has no if_keyword_loc and counts as 1 (not 2).
             ruby_prism::Node::IfNode { .. } => {
                 if let Some(if_node) = node.as_if_node() {
-                    // Check if this if has an else that is NOT an elsif
-                    if if_node.subsequent().is_some_and(|s| s.as_else_node().is_some()) {
+                    let is_ternary = if_node.if_keyword_loc().is_none();
+                    if !is_ternary && if_node.subsequent().is_some_and(|s| s.as_else_node().is_some()) {
                         self.complexity += 2;
                     } else {
                         self.complexity += 1;
