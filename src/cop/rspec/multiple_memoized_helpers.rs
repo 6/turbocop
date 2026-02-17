@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::cop::util::{self, is_rspec_example_group, is_rspec_let, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -34,8 +36,8 @@ impl Cop for MultipleMemoizedHelpers {
             source,
             max,
             allow_subject,
-            // Stack of ancestor let counts (each entry is the direct count for that group)
-            ancestor_counts: Vec::new(),
+            // Stack of ancestor helper name sets (each entry is the set of names for that group)
+            ancestor_names: Vec::new(),
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
@@ -48,9 +50,46 @@ struct MemoizedHelperVisitor<'a> {
     source: &'a SourceFile,
     max: usize,
     allow_subject: bool,
-    /// Stack of direct let/subject counts for each ancestor example group.
-    ancestor_counts: Vec<usize>,
+    /// Stack of helper name sets for each ancestor example group.
+    /// Each entry contains the names defined directly in that group.
+    ancestor_names: Vec<HashSet<Vec<u8>>>,
     diagnostics: Vec<Diagnostic>,
+}
+
+/// Extract the helper name from a let/let!/subject/subject! call.
+/// For `let(:foo) { ... }` or `let(:foo!) { ... }`, returns "foo" or "foo!".
+/// For `subject(:bar) { ... }`, returns "bar".
+/// For bare `subject { ... }`, returns "subject".
+fn extract_helper_name(call: &ruby_prism::CallNode<'_>) -> Option<Vec<u8>> {
+    let method_name = call.name().as_slice();
+
+    // For subject/subject! without args, the name is "subject"
+    if util::is_rspec_subject(method_name) {
+        if let Some(args) = call.arguments() {
+            let arg_list: Vec<_> = args.arguments().iter().collect();
+            if let Some(first) = arg_list.first() {
+                if let Some(sym) = first.as_symbol_node() {
+                    return Some(sym.unescaped().to_vec());
+                }
+            }
+        }
+        // Bare subject/subject! — use "subject" as the name
+        return Some(b"subject".to_vec());
+    }
+
+    // For let/let!, extract the symbol name from the first argument
+    if is_rspec_let(method_name) {
+        if let Some(args) = call.arguments() {
+            let arg_list: Vec<_> = args.arguments().iter().collect();
+            if let Some(first) = arg_list.first() {
+                if let Some(sym) = first.as_symbol_node() {
+                    return Some(sym.unescaped().to_vec());
+                }
+            }
+        }
+    }
+
+    None
 }
 
 impl<'a> MemoizedHelperVisitor<'a> {
@@ -65,30 +104,34 @@ impl<'a> MemoizedHelperVisitor<'a> {
         }
     }
 
-    /// Count direct let/let!/subject/subject! declarations in a block body.
-    fn count_direct_helpers(&self, block: &ruby_prism::BlockNode<'_>) -> usize {
+    /// Collect the set of helper names defined directly in a block body.
+    fn collect_direct_helper_names(&self, block: &ruby_prism::BlockNode<'_>) -> HashSet<Vec<u8>> {
+        let mut names = HashSet::new();
         let body = match block.body() {
             Some(b) => b,
-            None => return 0,
+            None => return names,
         };
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return 0,
+            None => return names,
         };
-        let mut count = 0;
         for stmt in stmts.body().iter() {
             if let Some(c) = stmt.as_call_node() {
                 if c.receiver().is_none() {
-                    let name = c.name().as_slice();
-                    if is_rspec_let(name) {
-                        count += 1;
-                    } else if !self.allow_subject && util::is_rspec_subject(name) {
-                        count += 1;
+                    let method_name = c.name().as_slice();
+                    if is_rspec_let(method_name) {
+                        if let Some(name) = extract_helper_name(&c) {
+                            names.insert(name);
+                        }
+                    } else if !self.allow_subject && util::is_rspec_subject(method_name) {
+                        if let Some(name) = extract_helper_name(&c) {
+                            names.insert(name);
+                        }
                     }
                 }
             }
         }
-        count
+        names
     }
 }
 
@@ -114,12 +157,21 @@ impl<'pr> Visit<'pr> for MemoizedHelperVisitor<'_> {
             }
         };
 
-        // Count direct helpers for this group
-        let direct_count = self.count_direct_helpers(&block);
+        // Collect direct helper names for this group
+        let direct_names = self.collect_direct_helper_names(&block);
 
-        // Total = own + all ancestors
-        let ancestor_total: usize = self.ancestor_counts.iter().sum();
-        let total = ancestor_total + direct_count;
+        // Total = union of all ancestor names + this group's names
+        // Overrides (same name in child) don't increase the count.
+        let mut all_names: HashSet<Vec<u8>> = HashSet::new();
+        for ancestor_set in &self.ancestor_names {
+            for name in ancestor_set {
+                all_names.insert(name.clone());
+            }
+        }
+        for name in &direct_names {
+            all_names.insert(name.clone());
+        }
+        let total = all_names.len();
 
         if total > self.max {
             let loc = node.location();
@@ -135,10 +187,10 @@ impl<'pr> Visit<'pr> for MemoizedHelperVisitor<'_> {
             ));
         }
 
-        // Push this group's direct count onto the ancestor stack and recurse
-        self.ancestor_counts.push(direct_count);
+        // Push this group's direct names onto the ancestor stack and recurse
+        self.ancestor_names.push(direct_names);
         ruby_prism::visit_call_node(self, node);
-        self.ancestor_counts.pop();
+        self.ancestor_names.pop();
     }
 }
 
@@ -192,5 +244,14 @@ mod tests {
         // The parent describe should NOT fire (4 <= 5)
         assert_eq!(diags.len(), 1, "Should fire on nested context with 6 total helpers");
         assert!(diags[0].message.contains("[6/5]"));
+    }
+
+    #[test]
+    fn overriding_lets_in_child_do_not_increase_count() {
+        // Parent has 5 lets at the limit. Child overrides 2 of them.
+        // Total unique names = 5 (not 7), so no offense.
+        let source = b"describe Foo do\n  let(:a) { 1 }\n  let(:b) { 2 }\n  let(:c) { 3 }\n  let(:d) { 4 }\n  let(:e) { 5 }\n\n  context 'overrides' do\n    let(:a) { 10 }\n    let(:b) { 20 }\n    it { expect(a).to eq(10) }\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&MultipleMemoizedHelpers, source);
+        assert!(diags.is_empty(), "Overriding lets should not increase count: {:?}", diags);
     }
 }

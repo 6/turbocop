@@ -71,6 +71,10 @@ impl Cop for StringLiterals {
         match enforced_style {
             "single_quotes" => {
                 if opening_byte == b'"' {
+                    // Skip multi-line strings — RuboCop doesn't flag these
+                    if content.contains(&b'\n') {
+                        return Vec::new();
+                    }
                     // Check if single quotes can be used:
                     // - No single quotes in content
                     // - No escape sequences (no backslash in content)

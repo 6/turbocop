@@ -4,6 +4,23 @@ use crate::parse::source::SourceFile;
 
 pub struct SafeNavigation;
 
+/// Methods that `nil` responds to in vanilla Ruby.
+/// Converting `foo && foo.bar.is_a?(X)` to `foo&.bar&.is_a?(X)` changes behavior
+/// because nil already responds to these methods.
+const NIL_METHODS: &[&[u8]] = &[
+    b"nil?", b"is_a?", b"kind_of?", b"instance_of?", b"respond_to?",
+    b"eql?", b"equal?", b"frozen?", b"class", b"clone", b"dup",
+    b"freeze", b"hash", b"inspect", b"to_s", b"to_a", b"to_f",
+    b"to_i", b"to_r", b"to_c", b"object_id", b"send", b"__send__",
+    b"__id__", b"public_send", b"tap", b"then", b"yield_self",
+    b"itself", b"display", b"method", b"public_method",
+    b"singleton_method", b"define_singleton_method",
+    b"extend", b"pp", b"respond_to_missing?",
+    b"instance_variable_get", b"instance_variable_set",
+    b"instance_variable_defined?", b"instance_variables",
+    b"remove_instance_variable",
+];
+
 impl SafeNavigation {
     /// Check if two nodes represent the same identifier, including:
     /// - local variable reads
@@ -130,20 +147,53 @@ impl SafeNavigation {
         false
     }
 
-    /// Check the outermost call of a method chain for unsafe patterns.
-    fn is_unsafe_method_call(call: &ruby_prism::CallNode<'_>) -> bool {
-        let name_bytes = call.name().as_slice();
-        // Skip nil methods like .nil?
-        if name_bytes == b"nil?" {
-            return true;
-        }
-        // Skip .empty? (nil&.empty? returns nil, not false)
+    /// Check if a single method name is inherently unsafe for safe navigation.
+    fn is_unsafe_single_method(name_bytes: &[u8]) -> bool {
+        // empty? — nil&.empty? returns nil, not false, changing behavior
         if name_bytes == b"empty?" {
             return true;
         }
-        // Skip assignment methods
+        // Assignment methods
         if name_bytes.ends_with(b"=") && !name_bytes.ends_with(b"==") {
             return true;
+        }
+        false
+    }
+
+    /// Check if any method in the call chain is unsafe for safe navigation conversion.
+    /// This checks:
+    /// 1. Methods that nil responds to (is_a?, respond_to?, etc.)
+    /// 2. Methods in the AllowedMethods config
+    /// 3. Inherently unsafe methods (empty?, assignment methods)
+    fn has_unsafe_method_in_chain(node: &ruby_prism::Node<'_>, allowed_methods: &Option<Vec<String>>) -> bool {
+        if let Some(call) = node.as_call_node() {
+            let name_bytes = call.name().as_slice();
+
+            // Check if this method is inherently unsafe
+            if Self::is_unsafe_single_method(name_bytes) {
+                return true;
+            }
+
+            // Check if this method is one that nil responds to
+            if NIL_METHODS.contains(&name_bytes) {
+                return true;
+            }
+
+            // Check if this method is in the AllowedMethods config
+            if let Some(allowed) = allowed_methods {
+                if let Ok(name_str) = std::str::from_utf8(name_bytes) {
+                    if allowed.iter().any(|m| m == name_str) {
+                        return true;
+                    }
+                }
+            }
+
+            // Recurse into the receiver chain
+            if let Some(recv) = call.receiver() {
+                if Self::has_unsafe_method_in_chain(&recv, allowed_methods) {
+                    return true;
+                }
+            }
         }
         false
     }
@@ -178,7 +228,8 @@ impl Cop for SafeNavigation {
     ) -> Vec<Diagnostic> {
         let max_chain_length = config.get_usize("MaxChainLength", 2);
         let _convert_nil = config.get_bool("ConvertCodeThatCanStartToReturnNil", false);
-        let _allowed_methods = config.get_string_array("AllowedMethods");
+        let allowed_methods = config.get_string_array("AllowedMethods")
+            .or_else(|| Some(vec!["present?".to_string(), "blank?".to_string()]));
 
         // Pattern 1: foo && foo.bar (AndNode)
         if let Some(and_node) = node.as_and_node() {
@@ -216,7 +267,8 @@ impl Cop for SafeNavigation {
                 return Vec::new();
             }
 
-            if Self::is_unsafe_method_call(&rhs_call) {
+            // Skip if any method in the chain is unsafe for safe navigation
+            if Self::has_unsafe_method_in_chain(&rhs, &allowed_methods) {
                 return Vec::new();
             }
 
@@ -234,7 +286,7 @@ impl Cop for SafeNavigation {
         if let Some(if_node) = node.as_if_node() {
             // Check if it's a ternary (no `if` keyword location in Prism)
             if if_node.if_keyword_loc().is_none() {
-                return self.check_ternary(source, node, &if_node, max_chain_length);
+                return self.check_ternary(source, node, &if_node, max_chain_length, &allowed_methods);
             }
 
             // Check modifier if patterns: `foo.bar if foo`
@@ -256,7 +308,7 @@ impl Cop for SafeNavigation {
                 return Vec::new();
             }
 
-            return self.check_modifier_if(source, node, &if_node, is_unless, max_chain_length);
+            return self.check_modifier_if(source, node, &if_node, is_unless, max_chain_length, &allowed_methods);
         }
 
         Vec::new()
@@ -270,6 +322,7 @@ impl SafeNavigation {
         node: &ruby_prism::Node<'_>,
         if_node: &ruby_prism::IfNode<'_>,
         max_chain_length: usize,
+        allowed_methods: &Option<Vec<String>>,
     ) -> Vec<Diagnostic> {
         let condition = if_node.predicate();
         let bytes = source.as_bytes();
@@ -409,7 +462,8 @@ impl SafeNavigation {
             return Vec::new();
         }
 
-        if Self::is_unsafe_method_call(&body_call) {
+        // Skip if any method in the chain is unsafe for safe navigation
+        if Self::has_unsafe_method_in_chain(&body, allowed_methods) {
             return Vec::new();
         }
 
@@ -491,6 +545,7 @@ impl SafeNavigation {
         if_node: &ruby_prism::IfNode<'_>,
         is_unless: bool,
         max_chain_length: usize,
+        allowed_methods: &Option<Vec<String>>,
     ) -> Vec<Diagnostic> {
         let condition = if_node.predicate();
         let body_stmts = match if_node.statements() {
@@ -574,7 +629,8 @@ impl SafeNavigation {
             return Vec::new();
         }
 
-        if Self::is_unsafe_method_call(&body_call) {
+        // Skip if any method in the chain is unsafe for safe navigation
+        if Self::has_unsafe_method_in_chain(&body, allowed_methods) {
             return Vec::new();
         }
 

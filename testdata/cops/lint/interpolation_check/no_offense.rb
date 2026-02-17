@@ -18,3 +18,8 @@ result = `git tag | grep '^#{tag}$'`
 code = <<~RUBY
   controller.send(:'#{method}', ...)
 RUBY
+
+# Mustache/Liquid template syntax that looks like interpolation
+# but would be invalid Ruby if double-quoted
+template = 'Created order #{{ response.order_number }} for {{ response.product }}'
+url = 'https://example.com/users/{{ user_id }}/orders'

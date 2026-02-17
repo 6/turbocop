@@ -10,3 +10,7 @@ foo { bar }
 items.each do |x|
   # TODO: implement
 end
+
+# Inline empty block with trailing comment on same line
+Mail.connection {} # rubocop:disable:block
+foo.bar {} # some explanation comment

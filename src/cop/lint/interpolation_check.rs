@@ -69,6 +69,18 @@ impl Cop for InterpolationCheck {
                 }
 
                 if has_closing {
+                    // Validate that the double-quoted version would be valid Ruby syntax.
+                    // This filters out template syntax like Mustache/Liquid `#{{ var }}`
+                    // that looks like interpolation but isn't valid Ruby.
+                    let mut double_quoted = Vec::new();
+                    double_quoted.push(b'"');
+                    double_quoted.extend_from_slice(content_bytes);
+                    double_quoted.push(b'"');
+                    let parse_result_check = ruby_prism::parse(&double_quoted);
+                    if parse_result_check.errors().count() > 0 {
+                        break;
+                    }
+
                     // Report at the #{ position
                     let interp_offset = content_loc.start_offset() + i;
                     let (line, column) = source.offset_to_line_col(interp_offset);

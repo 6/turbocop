@@ -35,3 +35,27 @@ def single_case(x)
     :two
   end
 end
+
+# Multiple rescue clauses count as a single decision point
+def multiple_rescues(x)
+  if x > 0
+    1
+  else
+    0
+  end
+  if x > 1
+    2
+  end
+  while x > 10
+    x -= 1
+  end
+  begin
+    risky
+  rescue ArgumentError
+    handle_arg
+  rescue TypeError
+    handle_type
+  rescue StandardError
+    handle_std
+  end
+end

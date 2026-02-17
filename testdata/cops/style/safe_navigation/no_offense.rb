@@ -24,3 +24,13 @@ foo.nil? ? nil : foo.empty?
 
 # Ternary: foo ? nil : foo.bar — wrong direction
 foo ? nil : foo.bar
+
+# Methods that nil responds to in the chain — unsafe to convert
+foo && foo.owner.is_a?(SomeClass)
+foo && foo.value.respond_to?(:call)
+foo && foo.name.kind_of?(String)
+
+# AllowedMethods (present?, blank?) in the chain
+config && config.value.present?
+foo && foo.bar.blank?
+portal && portal.custom_domain.present?

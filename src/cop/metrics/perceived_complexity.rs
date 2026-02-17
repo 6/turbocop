@@ -27,6 +27,9 @@ const KNOWN_ITERATING_METHODS: &[&[u8]] = &[
 #[derive(Default)]
 struct PerceivedCounter {
     complexity: usize,
+    /// Tracks whether we are already inside a rescue chain to avoid
+    /// counting subsequent rescue clauses (Prism chains them via `subsequent`).
+    in_rescue_chain: bool,
 }
 
 impl PerceivedCounter {
@@ -58,12 +61,14 @@ impl PerceivedCounter {
             ruby_prism::Node::WhileNode { .. }
             | ruby_prism::Node::UntilNode { .. }
             | ruby_prism::Node::ForNode { .. }
-            | ruby_prism::Node::RescueNode { .. }
             | ruby_prism::Node::AndNode { .. }
             | ruby_prism::Node::OrNode { .. }
             | ruby_prism::Node::InNode { .. } => {
                 self.complexity += 1;
             }
+            // Note: RescueNode is NOT counted here — it is handled in visit_rescue_node
+            // to ensure it counts as a single decision point regardless of how many
+            // rescue clauses exist (Prism chains them via `subsequent`).
 
             // case with condition: 0.8 + 0.2 * branches (rounded)
             // case without condition (case/when with no predicate): when nodes count individually
@@ -150,9 +155,18 @@ impl<'pr> Visit<'pr> for PerceivedCounter {
 
     // RescueNode is visited via visit_rescue_node (not visit_branch_node_enter)
     // because Prism's visit_begin_node calls visitor.visit_rescue_node directly.
+    // In Prism, rescue clauses are chained via `subsequent`, so visit_rescue_node
+    // is called once per clause. RuboCop counts `rescue` as a single decision point,
+    // so we only count +1 for the first rescue in the chain.
     fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
-        self.complexity += 1;
-        ruby_prism::visit_rescue_node(self, node);
+        if !self.in_rescue_chain {
+            self.complexity += 1;
+            self.in_rescue_chain = true;
+            ruby_prism::visit_rescue_node(self, node);
+            self.in_rescue_chain = false;
+        } else {
+            ruby_prism::visit_rescue_node(self, node);
+        }
     }
 }
 
