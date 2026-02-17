@@ -129,6 +129,39 @@ impl SafeNavigation {
         }
         false
     }
+
+    /// Check the outermost call of a method chain for unsafe patterns.
+    fn is_unsafe_method_call(call: &ruby_prism::CallNode<'_>) -> bool {
+        let name_bytes = call.name().as_slice();
+        // Skip nil methods like .nil?
+        if name_bytes == b"nil?" {
+            return true;
+        }
+        // Skip .empty? (nil&.empty? returns nil, not false)
+        if name_bytes == b"empty?" {
+            return true;
+        }
+        // Skip assignment methods
+        if name_bytes.ends_with(b"=") && !name_bytes.ends_with(b"==") {
+            return true;
+        }
+        false
+    }
+
+    /// Get the single statement from a StatementsNode, if exactly one.
+    fn single_stmt_from_stmts<'a>(stmts: &ruby_prism::StatementsNode<'a>) -> Option<ruby_prism::Node<'a>> {
+        let body: Vec<_> = stmts.body().iter().collect();
+        if body.len() == 1 {
+            Some(body.into_iter().next().unwrap())
+        } else {
+            None
+        }
+    }
+
+    /// Check if a node is a nil literal.
+    fn is_nil(node: &ruby_prism::Node<'_>) -> bool {
+        node.as_nil_node().is_some()
+    }
 }
 
 impl Cop for SafeNavigation {
@@ -147,61 +180,236 @@ impl Cop for SafeNavigation {
         let _convert_nil = config.get_bool("ConvertCodeThatCanStartToReturnNil", false);
         let _allowed_methods = config.get_string_array("AllowedMethods");
 
-        // Pattern: foo && foo.bar
-        let and_node = match node.as_and_node() {
-            Some(n) => n,
-            None => return Vec::new(),
-        };
+        // Pattern 1: foo && foo.bar (AndNode)
+        if let Some(and_node) = node.as_and_node() {
+            let lhs = and_node.left();
+            let rhs = and_node.right();
 
-        let lhs = and_node.left();
-        let rhs = and_node.right();
+            // LHS must be a simple variable or bare method
+            if !Self::is_simple_identifier(&lhs) {
+                return Vec::new();
+            }
 
-        // LHS must be a simple variable or bare method
-        if !Self::is_simple_identifier(&lhs) {
-            return Vec::new();
+            // RHS must be a method call chain
+            let rhs_call = match rhs.as_call_node() {
+                Some(c) => c,
+                None => return Vec::new(),
+            };
+
+            // The outermost call must use a dot operator
+            if rhs_call.call_operator_loc().is_none() {
+                return Vec::new();
+            }
+
+            // Check if the innermost receiver matches the LHS variable
+            let chain_len = match Self::matches_receiver_chain(&rhs, &lhs) {
+                Some(d) => d,
+                None => return Vec::new(),
+            };
+
+            if chain_len > max_chain_length {
+                return Vec::new();
+            }
+
+            // Skip if any call in the chain uses a dotless operator
+            if Self::has_dotless_operator_in_chain(&rhs) {
+                return Vec::new();
+            }
+
+            if Self::is_unsafe_method_call(&rhs_call) {
+                return Vec::new();
+            }
+
+            let loc = node.location();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            return vec![self.diagnostic(
+                source,
+                line,
+                column,
+                "Use safe navigation (`&.`) instead of checking if an object exists before calling the method.".to_string(),
+            )];
         }
 
-        // RHS must be a method call chain
-        let rhs_call = match rhs.as_call_node() {
+        // Pattern 2: Ternary and modifier if/unless forms
+        if let Some(if_node) = node.as_if_node() {
+            // Check if it's a ternary (no `if` keyword location in Prism)
+            if if_node.if_keyword_loc().is_none() {
+                return self.check_ternary(source, node, &if_node, max_chain_length);
+            }
+
+            // Check modifier if patterns: `foo.bar if foo`
+            let kw = if_node.if_keyword_loc().unwrap();
+            let is_unless = kw.as_slice() == b"unless";
+
+            // Skip elsif
+            if kw.as_slice() == b"elsif" {
+                return Vec::new();
+            }
+
+            // Must be modifier form (no end keyword)
+            if if_node.end_keyword_loc().is_some() {
+                return Vec::new();
+            }
+
+            // Must not have else/elsif
+            if if_node.subsequent().is_some() {
+                return Vec::new();
+            }
+
+            return self.check_modifier_if(source, node, &if_node, is_unless, max_chain_length);
+        }
+
+        Vec::new()
+    }
+}
+
+impl SafeNavigation {
+    fn check_ternary(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        if_node: &ruby_prism::IfNode<'_>,
+        max_chain_length: usize,
+    ) -> Vec<Diagnostic> {
+        let condition = if_node.predicate();
+        let bytes = source.as_bytes();
+
+        // Extract checked_variable range and determine which branch is the body
+        // Patterns:
+        // 1. foo.nil? ? nil : foo.bar  => checked_var = foo, body = else_branch
+        // 2. !foo.nil? ? foo.bar : nil => checked_var = foo, body = if_branch
+        // 3. foo ? foo.bar : nil       => checked_var = foo, body = if_branch
+
+        // Determine condition type
+        let (checked_var_range, body_is_else) = if let Some(call) = condition.as_call_node() {
+            let name = call.name().as_slice();
+            if name == b"nil?" {
+                // foo.nil? ? nil : foo.bar
+                if let Some(recv) = call.receiver() {
+                    let range = (recv.location().start_offset(), recv.location().end_offset());
+                    // if_branch must be nil
+                    let if_is_nil = if_node.statements()
+                        .and_then(|s| Self::single_stmt_from_stmts(&s))
+                        .map_or(true, |n| Self::is_nil(&n));
+                    if !if_is_nil {
+                        return Vec::new();
+                    }
+                    (range, true) // body is else branch
+                } else {
+                    return Vec::new();
+                }
+            } else if name == b"!" {
+                // !foo or !foo.nil?
+                if let Some(recv) = call.receiver() {
+                    if let Some(inner_call) = recv.as_call_node() {
+                        if inner_call.name().as_slice() == b"nil?" {
+                            // !foo.nil? ? foo.bar : nil
+                            if let Some(inner_recv) = inner_call.receiver() {
+                                let range = (inner_recv.location().start_offset(), inner_recv.location().end_offset());
+                                // else_branch must be nil
+                                let else_is_nil = self.else_branch_is_nil(if_node);
+                                if !else_is_nil {
+                                    return Vec::new();
+                                }
+                                (range, false) // body is if branch
+                            } else {
+                                return Vec::new();
+                            }
+                        } else {
+                            // !foo ? nil : foo.bar
+                            let range = (recv.location().start_offset(), recv.location().end_offset());
+                            let if_is_nil = if_node.statements()
+                                .and_then(|s| Self::single_stmt_from_stmts(&s))
+                                .map_or(true, |n| Self::is_nil(&n));
+                            if !if_is_nil {
+                                return Vec::new();
+                            }
+                            (range, true) // body is else branch
+                        }
+                    } else {
+                        // !foo ? nil : foo.bar
+                        let range = (recv.location().start_offset(), recv.location().end_offset());
+                        let if_is_nil = if_node.statements()
+                            .and_then(|s| Self::single_stmt_from_stmts(&s))
+                            .map_or(true, |n| Self::is_nil(&n));
+                        if !if_is_nil {
+                            return Vec::new();
+                        }
+                        (range, true)
+                    }
+                } else {
+                    return Vec::new();
+                }
+            } else {
+                // foo ? foo.bar : nil => plain variable/expression check
+                let range = (condition.location().start_offset(), condition.location().end_offset());
+                // else_branch must be nil
+                let else_is_nil = self.else_branch_is_nil(if_node);
+                if !else_is_nil {
+                    return Vec::new();
+                }
+                (range, false) // body is if branch
+            }
+        } else {
+            // Non-call condition: foo ? foo.bar : nil
+            let range = (condition.location().start_offset(), condition.location().end_offset());
+            let else_is_nil = self.else_branch_is_nil(if_node);
+            if !else_is_nil {
+                return Vec::new();
+            }
+            (range, false)
+        };
+
+        // Get the body node (the non-nil branch)
+        let body = if body_is_else {
+            // Body is in else branch
+            let subsequent = match if_node.subsequent() {
+                Some(s) => s,
+                None => return Vec::new(),
+            };
+            let else_node = match subsequent.as_else_node() {
+                Some(e) => e,
+                None => return Vec::new(),
+            };
+            match else_node.statements().and_then(|s| Self::single_stmt_from_stmts(&s)) {
+                Some(n) => n,
+                None => return Vec::new(),
+            }
+        } else {
+            // Body is in if branch
+            match if_node.statements().and_then(|s| Self::single_stmt_from_stmts(&s)) {
+                Some(n) => n,
+                None => return Vec::new(),
+            }
+        };
+
+        // Body must be a method call chain with a dot operator
+        let body_call = match body.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
         };
 
-        // The outermost call must use a dot operator
-        if rhs_call.call_operator_loc().is_none() {
+        if body_call.call_operator_loc().is_none() {
             return Vec::new();
         }
 
-        // Check if the innermost receiver matches the LHS variable
-        let chain_len = match Self::matches_receiver_chain(&rhs, &lhs) {
-            Some(d) => d,
-            None => return Vec::new(),
-        };
+        // Find matching receiver using source byte comparison
+        let checked_src = &bytes[checked_var_range.0..checked_var_range.1];
+        if !self.find_receiver_by_bytes(&body, checked_src, bytes) {
+            return Vec::new();
+        }
 
+        let chain_len = self.chain_length_by_bytes(&body, checked_src, bytes);
         if chain_len > max_chain_length {
             return Vec::new();
         }
 
-        // Skip if any call in the chain uses a dotless operator ([], []=, +, -, etc.)
-        // e.g. `obj && obj['key'].foo` — `obj&.[]('key')` is not idiomatic
-        if Self::has_dotless_operator_in_chain(&rhs) {
+        // Check if the call directly on the matched receiver is a dotless operator
+        if self.call_on_receiver_is_dotless_by_bytes(&body, checked_src, bytes) {
             return Vec::new();
         }
 
-        // Check the outermost method name for unsafe patterns
-        let name = rhs_call.name();
-        let name_bytes = name.as_slice();
-
-        // Skip nil methods like .nil? (safe nav would change semantics)
-        if name_bytes == b"nil?" {
-            return Vec::new();
-        }
-        // Skip .empty? in conditionals (nil&.empty? returns nil, not false)
-        if name_bytes == b"empty?" {
-            return Vec::new();
-        }
-        // Skip assignment methods
-        if name_bytes.ends_with(b"=") && !name_bytes.ends_with(b"==") {
+        if Self::is_unsafe_method_call(&body_call) {
             return Vec::new();
         }
 
@@ -213,6 +421,187 @@ impl Cop for SafeNavigation {
             column,
             "Use safe navigation (`&.`) instead of checking if an object exists before calling the method.".to_string(),
         )]
+    }
+
+    fn else_branch_is_nil(&self, if_node: &ruby_prism::IfNode<'_>) -> bool {
+        match if_node.subsequent() {
+            Some(subsequent) => {
+                match subsequent.as_else_node() {
+                    Some(else_node) => {
+                        match else_node.statements() {
+                            Some(stmts) => {
+                                match Self::single_stmt_from_stmts(&stmts) {
+                                    Some(n) => Self::is_nil(&n),
+                                    None => true, // empty else => nil
+                                }
+                            }
+                            None => true, // no statements => nil
+                        }
+                    }
+                    None => false,
+                }
+            }
+            None => false, // no else branch at all — not the pattern we want
+        }
+    }
+
+    fn find_receiver_by_bytes(&self, node: &ruby_prism::Node<'_>, checked_src: &[u8], bytes: &[u8]) -> bool {
+        if let Some(call) = node.as_call_node() {
+            if let Some(recv) = call.receiver() {
+                let recv_src = &bytes[recv.location().start_offset()..recv.location().end_offset()];
+                if recv_src == checked_src {
+                    return true;
+                }
+                return self.find_receiver_by_bytes(&recv, checked_src, bytes);
+            }
+        }
+        false
+    }
+
+    fn chain_length_by_bytes(&self, node: &ruby_prism::Node<'_>, checked_src: &[u8], bytes: &[u8]) -> usize {
+        if let Some(call) = node.as_call_node() {
+            if let Some(recv) = call.receiver() {
+                let recv_src = &bytes[recv.location().start_offset()..recv.location().end_offset()];
+                if recv_src == checked_src {
+                    return 1;
+                }
+                return 1 + self.chain_length_by_bytes(&recv, checked_src, bytes);
+            }
+        }
+        0
+    }
+
+    fn call_on_receiver_is_dotless_by_bytes(&self, node: &ruby_prism::Node<'_>, checked_src: &[u8], bytes: &[u8]) -> bool {
+        if let Some(call) = node.as_call_node() {
+            if let Some(recv) = call.receiver() {
+                let recv_src = &bytes[recv.location().start_offset()..recv.location().end_offset()];
+                if recv_src == checked_src {
+                    return Self::is_dotless_operator(&call);
+                }
+                return self.call_on_receiver_is_dotless_by_bytes(&recv, checked_src, bytes);
+            }
+        }
+        false
+    }
+
+    fn check_modifier_if(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        if_node: &ruby_prism::IfNode<'_>,
+        is_unless: bool,
+        max_chain_length: usize,
+    ) -> Vec<Diagnostic> {
+        let condition = if_node.predicate();
+        let body_stmts = match if_node.statements() {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        // Must have exactly one body statement
+        let body = match Self::single_stmt_from_stmts(&body_stmts) {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+
+        let bytes = source.as_bytes();
+
+        // Extract the checked variable source range from the condition
+        let checked_src: Option<&[u8]> = if let Some(call) = condition.as_call_node() {
+            let name = call.name().as_slice();
+            if name == b"nil?" {
+                // unless foo.nil? => check foo
+                if is_unless {
+                    call.receiver().map(|r| &bytes[r.location().start_offset()..r.location().end_offset()])
+                } else {
+                    return Vec::new();
+                }
+            } else if name == b"!" {
+                // if !foo or if !foo.nil?
+                call.receiver().and_then(|r| {
+                    if let Some(inner) = r.as_call_node() {
+                        if inner.name().as_slice() == b"nil?" {
+                            inner.receiver().map(|ir| &bytes[ir.location().start_offset()..ir.location().end_offset()])
+                        } else {
+                            Some(&bytes[r.location().start_offset()..r.location().end_offset()])
+                        }
+                    } else {
+                        Some(&bytes[r.location().start_offset()..r.location().end_offset()])
+                    }
+                })
+            } else {
+                // foo.bar if foo
+                if !is_unless {
+                    Some(&bytes[condition.location().start_offset()..condition.location().end_offset()])
+                } else {
+                    return Vec::new();
+                }
+            }
+        } else {
+            // Plain variable: `foo.bar if foo`
+            if !is_unless {
+                Some(&bytes[condition.location().start_offset()..condition.location().end_offset()])
+            } else {
+                return Vec::new();
+            }
+        };
+
+        let checked_src = match checked_src {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        // Body must be a method call chain
+        let body_call = match body.as_call_node() {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+
+        if body_call.call_operator_loc().is_none() {
+            return Vec::new();
+        }
+
+        if !self.find_receiver_by_bytes(&body, checked_src, bytes) {
+            return Vec::new();
+        }
+
+        let chain_len = self.chain_length_by_bytes(&body, checked_src, bytes);
+        if chain_len > max_chain_length {
+            return Vec::new();
+        }
+
+        if Self::has_dotless_operator_in_chain(&body) {
+            return Vec::new();
+        }
+
+        if Self::is_unsafe_method_call(&body_call) {
+            return Vec::new();
+        }
+
+        // RuboCop: use_var_only_in_unless_modifier? — for `unless foo`, skip
+        // if the checked variable is used only in the condition (not a method call)
+        if is_unless && !Self::is_method_called(&condition) {
+            return Vec::new();
+        }
+
+        let loc = node.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        vec![self.diagnostic(
+            source,
+            line,
+            column,
+            "Use safe navigation (`&.`) instead of checking if an object exists before calling the method.".to_string(),
+        )]
+    }
+
+    /// Check if the condition node is a method call (has a parent send)
+    fn is_method_called(node: &ruby_prism::Node<'_>) -> bool {
+        // In RuboCop, this checks `send_node&.parent&.send_type?`
+        // We approximate: if the condition itself is a call node with a receiver
+        if let Some(call) = node.as_call_node() {
+            return call.receiver().is_some();
+        }
+        false
     }
 }
 

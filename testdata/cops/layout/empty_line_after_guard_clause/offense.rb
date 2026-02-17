@@ -15,3 +15,14 @@ def quux
                          ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
   process
 end
+
+def notice_params
+  return @notice_params if @notice_params
+                                        ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  @notice_params = params[:data] || request.raw_post
+  if @notice_params.blank?
+    fail ParamsError, "Need a data params in GET or raw post data"
+  end
+  ^^^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  @notice_params
+end

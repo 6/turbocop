@@ -79,3 +79,17 @@ end
 if x = compute_value
   process(x)
 end
+
+# Nested conditional in body: don't suggest modifier for outer if
+if x
+  return true if y
+end
+
+unless a
+  do_something unless b
+end
+
+# Ternary in body (Prism parses ternary as IfNode)
+if condition
+  x ? do_this : do_that
+end

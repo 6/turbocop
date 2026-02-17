@@ -20,28 +20,41 @@ impl Cop for EmptyLineAfterGuardClause {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // Handle modifier `if` and modifier `unless` forms
-        let (body_stmts, loc) = if let Some(if_node) = node.as_if_node() {
-            // Must be modifier form (no `end` keyword)
-            if if_node.end_keyword_loc().is_some() {
+        // Extract body statements, the overall location, and whether it's block form.
+        // We handle both modifier and block-form if/unless.
+        let (body_stmts, loc, end_keyword_loc) = if let Some(if_node) = node.as_if_node() {
+            // Skip elsif nodes
+            if let Some(kw) = if_node.if_keyword_loc() {
+                if kw.as_slice() == b"elsif" {
+                    return Vec::new();
+                }
+            }
+            // Skip ternaries
+            if if_node.if_keyword_loc().is_none() {
+                return Vec::new();
+            }
+            // Skip if/else or if/elsif forms — only simple if/unless (no else branch)
+            if if_node.subsequent().is_some() {
                 return Vec::new();
             }
             match if_node.statements() {
-                Some(s) => (s, if_node.location()),
+                Some(s) => (s, if_node.location(), if_node.end_keyword_loc()),
                 None => return Vec::new(),
             }
         } else if let Some(unless_node) = node.as_unless_node() {
-            // Must be modifier form (no `end` keyword)
-            if unless_node.end_keyword_loc().is_some() {
+            // Skip unless/else forms
+            if unless_node.else_clause().is_some() {
                 return Vec::new();
             }
             match unless_node.statements() {
-                Some(s) => (s, unless_node.location()),
+                Some(s) => (s, unless_node.location(), unless_node.end_keyword_loc()),
                 None => return Vec::new(),
             }
         } else {
             return Vec::new();
         };
+
+        let is_modifier = end_keyword_loc.is_none();
 
         let stmts: Vec<_> = body_stmts.body().iter().collect();
         if stmts.is_empty() {
@@ -53,9 +66,29 @@ impl Cop for EmptyLineAfterGuardClause {
             return Vec::new();
         }
 
+        // For block form, the body must be a single guard statement
+        if !is_modifier && stmts.len() != 1 {
+            return Vec::new();
+        }
+
         let lines: Vec<&[u8]> = source.lines().collect();
-        let end_offset = loc.end_offset().saturating_sub(1);
-        let (if_end_line, end_col) = source.offset_to_line_col(end_offset);
+
+        // Determine the end offset to use for computing the "last line" of the guard.
+        // For modifier form: end of the whole if node.
+        // For block form: end of the `end` keyword.
+        let effective_end_offset = if let Some(ref end_kw) = end_keyword_loc {
+            end_kw.end_offset().saturating_sub(1)
+        } else {
+            loc.end_offset().saturating_sub(1)
+        };
+        // For the offense location, use the start of `end` keyword (block form)
+        // or end of the if expression (modifier form).
+        let offense_offset = if let Some(ref end_kw) = end_keyword_loc {
+            end_kw.start_offset()
+        } else {
+            loc.end_offset().saturating_sub(1)
+        };
+        let (if_end_line, end_col) = source.offset_to_line_col(effective_end_offset);
 
         // Check if the guard clause is embedded inside a larger expression on the
         // same line (e.g. `arr.each { |x| return x if cond }`). If there is
@@ -102,7 +135,7 @@ impl Cop for EmptyLineAfterGuardClause {
             }
         }
 
-        let (line, col) = source.offset_to_line_col(end_offset);
+        let (line, col) = source.offset_to_line_col(offense_offset);
         vec![self.diagnostic(
             source,
             line,

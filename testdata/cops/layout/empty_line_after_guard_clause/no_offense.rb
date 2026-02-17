@@ -204,3 +204,28 @@ def long_comment_between_guards
 
   true
 end
+
+# Block-form if with guard clause followed by empty line — no offense
+def block_guard_with_blank
+  if params.blank?
+    fail ParamsError, "Missing params"
+  end
+
+  process(params)
+end
+
+# Block-form if with guard clause at end of method — no offense
+def block_guard_at_end
+  if invalid?
+    raise "invalid"
+  end
+end
+
+# Block-form if with multiple statements — not a guard clause
+def block_not_guard
+  if condition?
+    setup
+    process
+  end
+  finalize
+end
