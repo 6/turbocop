@@ -8,3 +8,6 @@ def method1; end
 :sym1
 def func(arg1); end
 _1 = 'implicit param'
+disable_2fa = true
+:disable_2fa
+def method_2fa; end

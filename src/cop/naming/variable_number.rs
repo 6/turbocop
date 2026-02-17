@@ -184,25 +184,23 @@ fn check_number_style(
         return None;
     }
 
-    let violation = match enforced_style {
-        "normalcase" => {
-            // normalcase: digits should not be preceded by underscore
-            // e.g., foo1 is OK, foo_1 is not
-            has_underscore_before_digit(name)
-        }
-        "snake_case" => {
-            // snake_case: digits must be preceded by underscore
-            // e.g., foo_1 is OK, foo1 is not
-            !has_underscore_before_digit(name) && has_digit_after_alpha(name)
-        }
-        "non_integer" => {
-            // non_integer: no digits allowed at all
-            has_digit
-        }
-        _ => false,
+    // Strip trailing `?` or `!` (method name suffixes) before checking
+    let check_name = name.trim_end_matches(|c| c == '?' || c == '!');
+
+    // RuboCop checks the END of the identifier against a format regex.
+    // The key insight is only the TRAILING number pattern matters.
+    //
+    // normalcase:  /(?:\D|[^_\d]\d+|\A\d+)\z/ — trailing digits must NOT be preceded by _
+    // snake_case:  /(?:\D|_\d+|\A\d+)\z/      — trailing digits MUST be preceded by _
+    // non_integer: /(\D|\A\d+)\z/              — no trailing digits allowed
+    let valid = match enforced_style {
+        "normalcase" => is_valid_normalcase(check_name),
+        "snake_case" => is_valid_snake_case(check_name),
+        "non_integer" => is_valid_non_integer(check_name),
+        _ => true,
     };
 
-    if violation {
+    if !valid {
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         return Some(cop.diagnostic(
             source,
@@ -215,24 +213,66 @@ fn check_number_style(
     None
 }
 
-fn has_underscore_before_digit(name: &str) -> bool {
+/// normalcase: /(?:\D|[^_\d]\d+|\A\d+)\z/
+/// Valid if: ends with non-digit, OR ends with digits NOT preceded by _, OR is all digits
+fn is_valid_normalcase(name: &str) -> bool {
     let bytes = name.as_bytes();
-    for i in 1..bytes.len() {
-        if bytes[i].is_ascii_digit() && bytes[i - 1] == b'_' {
-            return true;
-        }
+    if bytes.is_empty() {
+        return true;
     }
-    false
+    let last = bytes[bytes.len() - 1];
+    // Ends with non-digit → OK
+    if !last.is_ascii_digit() {
+        return true;
+    }
+    // Ends with digits. Find where the trailing digit run starts.
+    let mut i = bytes.len();
+    while i > 0 && bytes[i - 1].is_ascii_digit() {
+        i -= 1;
+    }
+    // If trailing digits span the whole string → OK (all digits)
+    if i == 0 {
+        return true;
+    }
+    // The character before the trailing digits must NOT be underscore
+    bytes[i - 1] != b'_'
 }
 
-fn has_digit_after_alpha(name: &str) -> bool {
+/// snake_case: /(?:\D|_\d+|\A\d+)\z/
+/// Valid if: ends with non-digit, OR ends with digits preceded by _, OR is all digits
+fn is_valid_snake_case(name: &str) -> bool {
     let bytes = name.as_bytes();
-    for i in 1..bytes.len() {
-        if bytes[i].is_ascii_digit() && bytes[i - 1].is_ascii_alphabetic() {
-            return true;
-        }
+    if bytes.is_empty() {
+        return true;
     }
-    false
+    let last = bytes[bytes.len() - 1];
+    if !last.is_ascii_digit() {
+        return true;
+    }
+    let mut i = bytes.len();
+    while i > 0 && bytes[i - 1].is_ascii_digit() {
+        i -= 1;
+    }
+    if i == 0 {
+        return true;
+    }
+    // The character before the trailing digits MUST be underscore
+    bytes[i - 1] == b'_'
+}
+
+/// non_integer: /(\D|\A\d+)\z/
+/// Valid if: ends with non-digit, OR is all digits
+fn is_valid_non_integer(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    if bytes.is_empty() {
+        return true;
+    }
+    let last = bytes[bytes.len() - 1];
+    if !last.is_ascii_digit() {
+        return true;
+    }
+    // Only valid if ALL digits
+    bytes.iter().all(|b| b.is_ascii_digit())
 }
 
 #[cfg(test)]
