@@ -13,3 +13,6 @@
 [submodule "vendor/rubocop-factory_bot"]
 	path = vendor/rubocop-factory_bot
 	url = https://github.com/rubocop/rubocop-factory_bot.git
+[submodule "vendor/rubocop-rspec_rails"]
+	path = vendor/rubocop-rspec_rails
+	url = https://github.com/rubocop/rubocop-rspec_rails.git
