@@ -36,6 +36,11 @@ impl Cop for BlockLength {
             None => return Vec::new(),
         };
 
+        // RuboCop skips class constructor blocks (Struct.new, Class.new, etc.)
+        if is_class_constructor(&call_node) {
+            return Vec::new();
+        }
+
         let max = config.get_usize("Max", 25);
         let count_comments = config.get_bool("CountComments", false);
         let count_as_one = config.get_string_array("CountAsOne");
@@ -89,6 +94,31 @@ impl Cop for BlockLength {
 
         Vec::new()
     }
+}
+
+/// Check if a call is a class constructor like `Struct.new`, `Class.new`, `Module.new`, etc.
+/// RuboCop's Metrics/BlockLength does not count these blocks.
+fn is_class_constructor(call: &ruby_prism::CallNode<'_>) -> bool {
+    if call.name().as_slice() != b"new" {
+        return false;
+    }
+    let recv = match call.receiver() {
+        Some(r) => r,
+        None => return false,
+    };
+    // Check for simple constant receiver (Struct, Class, Module, etc.)
+    if let Some(cr) = recv.as_constant_read_node() {
+        let name = cr.name().as_slice();
+        return matches!(name, b"Struct" | b"Class" | b"Module");
+    }
+    // Check for constant path (e.g., ::Struct.new)
+    if let Some(cp) = recv.as_constant_path_node() {
+        if let Some(name_node) = cp.name() {
+            let name = name_node.as_slice();
+            return matches!(name, b"Struct" | b"Class" | b"Module");
+        }
+    }
+    false
 }
 
 #[cfg(test)]

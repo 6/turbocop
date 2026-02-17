@@ -13,6 +13,18 @@ describe 'doing z' do
   its(:y) { is_expected.to be_present }
 end
 
+# Repeated examples inside shared_examples are NOT checked by RuboCop
+# (shared_examples is a SharedGroup, not an ExampleGroup)
+shared_examples 'common' do
+  it 'does thing one' do
+    expect_no_offenses('a = 1')
+  end
+
+  it 'does thing two' do
+    expect_no_offenses('a = 1')
+  end
+end
+
 # Heredoc examples with different content are NOT duplicates
 # even though the StatementsNode source looks the same
 describe 'heredoc examples' do

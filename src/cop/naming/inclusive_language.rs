@@ -99,6 +99,13 @@ impl Cop for InclusiveLanguage {
                         };
 
                         if should_flag && (!term.whole_word || is_whole_word(&line_lower, abs_pos, term.pattern.len())) {
+                            // Skip hash label syntax (e.g., `auto_correct:`).
+                            // RuboCop's token-based detection uses tLABEL for these,
+                            // which is not in its check_token mapping.
+                            if !in_comment && is_hash_label(line, abs_pos, term.pattern.len()) {
+                                search_start = abs_pos + term.pattern.len();
+                                continue;
+                            }
                             let msg = format_message(&term.name, &term.suggestions);
                             diagnostics.push(self.diagnostic(source, line_num, abs_pos, msg));
                         }
@@ -256,6 +263,29 @@ fn is_whole_word(line: &str, pos: usize, len: usize) -> bool {
     let after_pos = pos + len;
     let after_ok = after_pos >= line.len() || !line.as_bytes()[after_pos].is_ascii_alphanumeric();
     before_ok && after_ok
+}
+
+/// Check if a match at `pos` of length `len` in `line` falls within a hash label.
+/// Hash labels are identifier tokens followed by `:` (e.g., `auto_correct:`).
+/// RuboCop tokenizes these as tLABEL which is not checked by the cop.
+/// The match might be a substring of the label (e.g., `auto_correct` within
+/// `safe_auto_correct:`), so we expand outward to find the full identifier.
+fn is_hash_label(line: &[u8], pos: usize, _len: usize) -> bool {
+    // Expand forward from pos to find the end of the identifier
+    let mut end = pos;
+    while end < line.len() && (line[end].is_ascii_alphanumeric() || line[end] == b'_' || line[end] == b'?' || line[end] == b'!') {
+        end += 1;
+    }
+    // Check if the identifier is followed by `:` (label syntax)
+    if end >= line.len() || line[end] != b':' {
+        return false;
+    }
+    // Must not be followed by another `:` (would be `::` constant path)
+    let after_colon = end + 1;
+    if after_colon < line.len() && line[after_colon] == b':' {
+        return false;
+    }
+    true
 }
 
 fn find_comment_start(line: &[u8]) -> Option<usize> {

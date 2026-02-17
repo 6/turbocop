@@ -38,3 +38,12 @@ end
 describe "should not send a notification if a notification service is not" \
          "configured" do
 end
+
+# Aligned in case/when branch (when is NOT always-indented parent)
+def message
+  case style
+  when :first_column_after_left_parenthesis
+    'Indent the right bracket the same as the first position ' \
+    'after the preceding left parenthesis.'
+  end
+end

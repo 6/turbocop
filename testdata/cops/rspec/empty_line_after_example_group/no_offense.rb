@@ -16,4 +16,19 @@ RSpec.describe Foo do
     it { expect(1).to eq(1) }
   end
   # TODO: add more tests
+
+  # Context followed by else/elsif is OK (part of enclosing if/else)
+  if some_condition
+    context 'when condition' do
+      it 'works' do
+        expect(1).to eq(1)
+      end
+    end
+  else
+    context 'when other' do
+      it 'also works' do
+        expect(2).to eq(2)
+      end
+    end
+  end
 end

@@ -126,9 +126,10 @@ fn is_expectation_with_param(node: &ruby_prism::Node<'_>, param_name: &[u8]) -> 
         None => return false,
     };
 
-    // Should be something.to(...) or something.to_not(...) or something.not_to(...)
+    // RuboCop's pattern only matches `.to`, NOT `.not_to` or `.to_not`:
+    //   (send (send nil? :expect (lvar %)) :to ...)
     let method = call.name().as_slice();
-    if method != b"to" && method != b"to_not" && method != b"not_to" {
+    if method != b"to" {
         return false;
     }
 

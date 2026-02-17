@@ -17,3 +17,10 @@ end
 results.reject do |r|
   r.nil?
 end
+
+# Struct.new blocks are always exempt (class_constructor?)
+Entry = Struct.new(:type, :body, :ref_type, :ref_id, :user) do
+  def foo; 1; end
+  def bar; 2; end
+  def baz; 3; end
+end

@@ -81,7 +81,22 @@ impl Cop for ExampleWithoutDescription {
                 Vec::new()
             }
             "disallow" => {
-                // All examples must have descriptions
+                // All examples must have descriptions,
+                // but `specify` is always allowed when multiline
+                if method_name == b"specify" {
+                    let block = call.block().unwrap();
+                    let block_loc = block.location();
+                    let (start_line, _) =
+                        source.offset_to_line_col(block_loc.start_offset());
+                    let end_off = block_loc
+                        .end_offset()
+                        .saturating_sub(1)
+                        .max(block_loc.start_offset());
+                    let (end_line, _) = source.offset_to_line_col(end_off);
+                    if start_line != end_line {
+                        return Vec::new();
+                    }
+                }
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 vec![self.diagnostic(
@@ -104,6 +119,12 @@ impl Cop for ExampleWithoutDescription {
                 let (end_line, _) = source.offset_to_line_col(end_off);
 
                 if start_line != end_line {
+                    // RuboCop always allows `specify` without description when
+                    // multiline, regardless of EnforcedStyle. See:
+                    //   return if node.method?(:specify) && node.parent.multiline?
+                    if method_name == b"specify" {
+                        return Vec::new();
+                    }
                     let loc = call.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
                     return vec![self.diagnostic(

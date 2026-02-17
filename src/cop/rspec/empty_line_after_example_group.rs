@@ -71,6 +71,17 @@ impl Cop for EmptyLineAfterExampleGroup {
                         if rest.starts_with(b"end") && (rest.len() == 3 || !rest[3].is_ascii_alphanumeric()) {
                             return Vec::new(); // Next meaningful line is `end` — OK
                         }
+                        // Control flow keywords that are part of the enclosing
+                        // construct (if/unless/case/begin) — not a new statement
+                        if starts_with_keyword(rest, b"else")
+                            || starts_with_keyword(rest, b"elsif")
+                            || starts_with_keyword(rest, b"rescue")
+                            || starts_with_keyword(rest, b"ensure")
+                            || starts_with_keyword(rest, b"when")
+                            || starts_with_keyword(rest, b"in")
+                        {
+                            return Vec::new();
+                        }
                     }
                     break; // Found a non-blank, non-comment, non-end line — offense
                 }
@@ -93,6 +104,15 @@ impl Cop for EmptyLineAfterExampleGroup {
             format!("Add an empty line after `{method_str}`."),
         )]
     }
+}
+
+/// Check if a byte slice starts with a Ruby keyword followed by a non-identifier char
+/// (or end of line).
+fn starts_with_keyword(rest: &[u8], keyword: &[u8]) -> bool {
+    rest.starts_with(keyword)
+        && (rest.len() == keyword.len()
+            || (!rest[keyword.len()].is_ascii_alphanumeric()
+                && rest[keyword.len()] != b'_'))
 }
 
 #[cfg(test)]

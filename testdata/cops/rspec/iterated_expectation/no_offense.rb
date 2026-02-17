@@ -15,3 +15,9 @@ end
 ].each do |report_data, label, label_name|
   expect(report_data).to include(id: label.id, name: label_name)
 end
+# not_to/to_not are NOT flagged (RuboCop pattern only matches .to)
+bodies.each { |body| expect(body).not_to match(/^[a-z]/) }
+found_files.each do |file|
+  expect(file).to include('/dir1/')
+  expect(file).not_to include('/dir2/')
+end

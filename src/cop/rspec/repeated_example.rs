@@ -130,6 +130,8 @@ fn example_body_signature(source: &SourceFile, call: &ruby_prism::CallNode<'_>) 
 }
 
 fn is_example_group(name: &[u8]) -> bool {
+    // RuboCop only checks ExampleGroups (describe/context/feature),
+    // NOT SharedGroups (shared_examples/shared_context).
     matches!(
         name,
         b"describe"
@@ -142,9 +144,6 @@ fn is_example_group(name: &[u8]) -> bool {
             | b"fdescribe"
             | b"fcontext"
             | b"ffeature"
-            | b"shared_examples"
-            | b"shared_examples_for"
-            | b"shared_context"
     )
 }
 
