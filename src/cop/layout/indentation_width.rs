@@ -265,9 +265,25 @@ impl Cop for IndentationWidth {
                         }
                     }
 
-                    // For start_of_line style (default), body indentation
-                    // is always relative to the `end`/`}` keyword column.
-                    let base_col = closing_col;
+                    // Determine base column: if the call's dot is on a new line
+                    // relative to its receiver (multiline chain), use the dot column
+                    // as the base (matching RuboCop's `block_body_indentation_base`).
+                    // Otherwise, use the `end`/`}` keyword column.
+                    let base_col = if let Some(dot_loc) = call_node.call_operator_loc() {
+                        if let Some(receiver) = call_node.receiver() {
+                            let (recv_end_line, _) = source.offset_to_line_col(receiver.location().end_offset());
+                            let (dot_line, dot_col) = source.offset_to_line_col(dot_loc.start_offset());
+                            if dot_line > recv_end_line {
+                                dot_col
+                            } else {
+                                closing_col
+                            }
+                        } else {
+                            closing_col
+                        }
+                    } else {
+                        closing_col
+                    };
                     return self.check_body_indentation(
                         source,
                         opening_offset,

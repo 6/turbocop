@@ -47,20 +47,25 @@ source.passive_relationships
         process(follows)
       end
 
-# Block body indented from end, not from dot (start_of_line default)
+# Block body indented from dot when dot is on a new line (matching RuboCop)
 source.passive_relationships
       .where(account: Account.local)
       .in_batches do |follows|
-  process(follows)
-end
+        process(follows)
+      end
 
-# Chained method with do..end block, end at different indent than dot
+# Chained method with do..end block, body indented from dot
 account.conversations
        .joins(:inbox)
        .where(created_at: range)
        .each_with_object({}) do |((channel_type, status), count), grouped|
-  grouped[channel_type] ||= {}
-  grouped[channel_type][status] = count
+         grouped[channel_type] ||= {}
+         grouped[channel_type][status] = count
+       end
+
+# Block with dot NOT on a new line — uses end column as base
+items.each do |item|
+  process(item)
 end
 
 # Assignment context (variable style): body indented from LHS, end at LHS

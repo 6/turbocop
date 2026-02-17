@@ -54,9 +54,9 @@ impl Cop for IfWithBooleanLiteralBranches {
             if let (Some(if_val), Some(else_val)) = (if_bool, else_bool) {
                 // Both branches are boolean literals
                 if (if_val && !else_val) || (!if_val && else_val) {
-                    // For ternaries, the condition is always "known" (direct expression)
-                    // For non-ternaries, check if condition returns boolean
-                    if !is_ternary && !condition_returns_boolean(&if_node.predicate(), &allowed_methods) {
+                    // Check if condition is known to return boolean.
+                    // Applies to both ternary and if/unless forms (matching RuboCop).
+                    if !condition_returns_boolean(&if_node.predicate(), &allowed_methods) {
                         return Vec::new();
                     }
 
@@ -197,10 +197,13 @@ fn condition_returns_boolean(node: &ruby_prism::Node<'_>, allowed_methods: &Opti
         }
     }
 
-    // Check for `and` / `or` / `&&` / `||` - check if all operands return boolean
+    // Check for `and` / `or` / `&&` / `||`
+    // For `&&` (and): only check the RIGHT operand (matches RuboCop behavior).
+    // e.g., `foo? && bar && baz?` is flagged because RHS `baz?` is boolean.
+    // For `||` (or): check BOTH operands.
+    // e.g., `foo? || bar` is NOT flagged because `bar` is not boolean.
     if let Some(and_node) = node.as_and_node() {
-        return condition_returns_boolean(&and_node.left(), allowed_methods)
-            && condition_returns_boolean(&and_node.right(), allowed_methods);
+        return condition_returns_boolean(&and_node.right(), allowed_methods);
     }
     if let Some(or_node) = node.as_or_node() {
         return condition_returns_boolean(&or_node.left(), allowed_methods)

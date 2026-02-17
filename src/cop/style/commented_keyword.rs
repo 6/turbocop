@@ -104,12 +104,12 @@ fn starts_with_keyword(trimmed: &str, keyword: &str) -> bool {
         return false;
     }
     let after = &trimmed[keyword.len()..];
-    // After keyword must be empty, whitespace, punctuation, or end of line
-    after.is_empty()
-        || after.starts_with(' ')
-        || after.starts_with(';')
-        || after.starts_with('(')
-        || after.starts_with('.')
+    // After keyword must be empty or whitespace.
+    // RuboCop uses /^\s*keyword\s/ — only whitespace after the keyword counts.
+    // `.` after `end` means method chain (e.g., `end.to ...`), not keyword usage.
+    // `;` and `(` are handled transitively: `def x; end # comment` matches on `def`,
+    // and `def x(a, b) # comment` also matches `def` followed by space.
+    after.is_empty() || after.starts_with(' ')
 }
 
 /// Find the byte offset of the comment `#` in a line, skipping `#` inside strings.

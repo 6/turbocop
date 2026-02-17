@@ -33,3 +33,9 @@ end
 def x(y = "#value")
   y
 end
+
+# end used as method receiver (method chain) with comment
+end.to not_change(Conversation, :count) # No conversation created yet
+
+# end followed by dot and method call
+end.to eq(42) # some comment
