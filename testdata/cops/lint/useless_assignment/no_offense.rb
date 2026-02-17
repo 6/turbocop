@@ -7,3 +7,58 @@ def other_method
   _unused = 1
   do_something
 end
+
+# Compound assignment += reads the variable, so the initial assignment is used
+def compound_plus_equals
+  count = 0
+  3.times { count += 1 }
+end
+
+# Compound assignment in block
+def compound_in_block
+  rating = 1
+  items.each { |item| item.update!(rating: rating += 1) }
+end
+
+# Or-assignment ||= reads the variable first
+def or_assign
+  hash_config = nil
+  stub(:db_config, -> { hash_config ||= build_config }) { run }
+end
+
+# And-assignment &&= reads the variable first
+def and_assign
+  value = true
+  value &&= check_condition
+  do_something(value)
+end
+
+# Singleton method definition uses variable as receiver
+def singleton_method_on_local
+  conn = get_connection
+  def conn.requires_reloading?
+    true
+  end
+  pool.clear_reloadable_connections
+end
+
+# Another singleton method pattern
+def define_method_on_object
+  time = @twz.time
+  def time.foo; "bar"; end
+  @twz.foo
+end
+
+# Bare super implicitly forwards all method parameters
+def self.instantiate_instance_of(klass, attributes, column_types = {}, &block)
+  klass = superclass
+  super
+end
+
+# String concatenation compound assignment
+def compound_string_concat
+  lines = "HEY\n" * 12
+  assert_no_changes "lines" do
+    lines += "HEY ALSO\n"
+  end
+end

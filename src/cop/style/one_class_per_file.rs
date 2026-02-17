@@ -46,10 +46,13 @@ impl Cop for OneClassPerFile {
 struct ClassCollector<'src> {
     source: &'src SourceFile,
     classes: Vec<(usize, usize)>,
+    /// Nesting depth: 0 means file top-level. Modules, classes, blocks, defs,
+    /// and singleton classes all increment depth so that only truly top-level
+    /// class definitions are counted.
     depth: usize,
 }
 
-impl<'pr> Visit<'pr> for ClassCollector<'_, > {
+impl<'pr> Visit<'pr> for ClassCollector<'_> {
     fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
         if self.depth == 0 {
             let loc = node.class_keyword_loc();
@@ -62,10 +65,35 @@ impl<'pr> Visit<'pr> for ClassCollector<'_, > {
     }
 
     fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
-        // Classes inside modules still count as "top-level" in terms of the file,
-        // but nested classes within classes don't. For this cop, we track class nesting.
-        // Modules are transparent - a class inside a module at top level still counts.
+        // Modules increase nesting depth. Classes inside modules are not
+        // top-level class definitions and should not be counted.
+        self.depth += 1;
         ruby_prism::visit_module_node(self, node);
+        self.depth -= 1;
+    }
+
+    fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
+        self.depth += 1;
+        ruby_prism::visit_singleton_class_node(self, node);
+        self.depth -= 1;
+    }
+
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        self.depth += 1;
+        ruby_prism::visit_def_node(self, node);
+        self.depth -= 1;
+    }
+
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        self.depth += 1;
+        ruby_prism::visit_block_node(self, node);
+        self.depth -= 1;
+    }
+
+    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
+        self.depth += 1;
+        ruby_prism::visit_lambda_node(self, node);
+        self.depth -= 1;
     }
 }
 

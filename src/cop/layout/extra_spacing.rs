@@ -240,19 +240,26 @@ fn is_aligned_with_adjacent(
     comment_only_lines: &HashSet<usize>,
 ) -> bool {
     let base_indent = line_indentation(lines[line_idx]);
+    let token_char = lines[line_idx][col];
+
+    let current_line = lines[line_idx];
 
     // Pass 1: nearest non-blank, non-comment-only line
     if let Some(adj) =
         find_nearest_line(lines, line_idx, true, comment_only_lines, None)
     {
-        if check_alignment(lines[adj], col) {
+        if check_alignment(lines[adj], col, token_char)
+            || check_equals_alignment(current_line, lines[adj], col)
+        {
             return true;
         }
     }
     if let Some(adj) =
         find_nearest_line(lines, line_idx, false, comment_only_lines, None)
     {
-        if check_alignment(lines[adj], col) {
+        if check_alignment(lines[adj], col, token_char)
+            || check_equals_alignment(current_line, lines[adj], col)
+        {
             return true;
         }
     }
@@ -261,7 +268,9 @@ fn is_aligned_with_adjacent(
     if let Some(adj) =
         find_nearest_line(lines, line_idx, true, comment_only_lines, Some(base_indent))
     {
-        if check_alignment(lines[adj], col) {
+        if check_alignment(lines[adj], col, token_char)
+            || check_equals_alignment(current_line, lines[adj], col)
+        {
             return true;
         }
     }
@@ -272,7 +281,9 @@ fn is_aligned_with_adjacent(
         comment_only_lines,
         Some(base_indent),
     ) {
-        if check_alignment(lines[adj], col) {
+        if check_alignment(lines[adj], col, token_char)
+            || check_equals_alignment(current_line, lines[adj], col)
+        {
             return true;
         }
     }
@@ -281,6 +292,9 @@ fn is_aligned_with_adjacent(
 }
 
 /// Find the nearest non-blank, non-comment-only line in the given direction.
+/// When `required_indent` is None, returns the very first non-blank, non-comment line.
+/// When `required_indent` is Some, skips lines with different indentation (matching
+/// RuboCop's PrecedingFollowingAlignment behavior which walks through all lines).
 fn find_nearest_line(
     lines: &[&[u8]],
     start_idx: usize,
@@ -318,9 +332,6 @@ fn find_nearest_line(
         if let Some(indent) = required_indent {
             let this_indent = line_indentation(line);
             if this_indent != indent {
-                if this_indent < indent {
-                    return None;
-                }
                 continue;
             }
         }
@@ -329,13 +340,61 @@ fn find_nearest_line(
     }
 }
 
-fn check_alignment(line: &[u8], col: usize) -> bool {
-    if col < line.len() && line[col] != b' ' && line[col] != b'\t' {
+/// Check alignment: either space+non-space at the column, the same character
+/// at the column, or equals-sign alignment (e.g., '+=' aligns with '=').
+fn check_alignment(line: &[u8], col: usize, token_char: u8) -> bool {
+    if col >= line.len() {
+        return false;
+    }
+    // Mode 1: space + non-space at the same column
+    if line[col] != b' ' && line[col] != b'\t' {
         if col > 0 && (line[col - 1] == b' ' || line[col - 1] == b'\t') {
             return true;
         }
     }
+    // Mode 2: same character at the same column
+    if line[col] == token_char {
+        return true;
+    }
     false
+}
+
+/// Check if there's equals-sign alignment between the current line and
+/// the adjacent line. For compound assignment operators like +=, -=, ||=,
+/// &&=, the '=' sign should align with a '=' on the adjacent line.
+fn check_equals_alignment(
+    current_line: &[u8],
+    adj_line: &[u8],
+    col: usize,
+) -> bool {
+    // Find the '=' in or near the token starting at col on the current line
+    let eq_col = find_equals_col(current_line, col);
+    if let Some(eq_col) = eq_col {
+        // Check if the adjacent line has '=' at the same column
+        if eq_col < adj_line.len() && adj_line[eq_col] == b'=' {
+            return true;
+        }
+    }
+    false
+}
+
+/// Find the column of the '=' sign in an assignment operator starting at col.
+/// Handles: =, ==, ===, !=, <=, >=, +=, -=, *=, /=, %=, **=, ||=, &&=, <<=, >>=
+fn find_equals_col(line: &[u8], col: usize) -> Option<usize> {
+    for offset in 0..4 {
+        let c = col + offset;
+        if c >= line.len() {
+            break;
+        }
+        if line[c] == b'=' {
+            return Some(c);
+        }
+        // Stop if we hit a space (we've gone past the token)
+        if line[c] == b' ' || line[c] == b'\t' {
+            break;
+        }
+    }
+    None
 }
 
 fn line_indentation(line: &[u8]) -> usize {
