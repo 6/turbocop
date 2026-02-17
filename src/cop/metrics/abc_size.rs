@@ -6,6 +6,25 @@ use crate::parse::source::SourceFile;
 
 pub struct AbcSize;
 
+/// Known iterating method names that make blocks count toward conditions.
+/// Matches the list in CyclomaticComplexity/PerceivedComplexity.
+const KNOWN_ITERATING_METHODS: &[&[u8]] = &[
+    b"each", b"each_with_index", b"each_with_object", b"each_pair",
+    b"each_key", b"each_value", b"each_slice", b"each_cons",
+    b"each_line", b"each_byte", b"each_char", b"each_codepoint",
+    b"map", b"flat_map", b"collect", b"collect_concat",
+    b"select", b"filter", b"find_all", b"reject", b"filter_map",
+    b"detect", b"find", b"find_index", b"rindex",
+    b"reduce", b"inject", b"any?", b"all?", b"none?", b"one?",
+    b"count", b"sum", b"min", b"max", b"min_by", b"max_by",
+    b"minmax", b"minmax_by", b"sort_by", b"group_by",
+    b"partition", b"zip", b"take_while", b"drop_while",
+    b"chunk", b"chunk_while", b"slice_before", b"slice_after", b"slice_when",
+    b"times", b"upto", b"downto", b"step",
+    b"loop", b"tap", b"then", b"yield_self",
+    b"each_index", b"reverse_each",
+];
+
 struct AbcCounter {
     assignments: usize,
     branches: usize,
@@ -48,8 +67,14 @@ impl AbcCounter {
             | ruby_prism::Node::ClassVariableOperatorWriteNode { .. }
             | ruby_prism::Node::GlobalVariableOperatorWriteNode { .. }
             | ruby_prism::Node::ConstantOperatorWriteNode { .. }
-            | ruby_prism::Node::ConstantPathOperatorWriteNode { .. }
-            | ruby_prism::Node::LocalVariableAndWriteNode { .. }
+            | ruby_prism::Node::ConstantPathOperatorWriteNode { .. } => {
+                self.assignments += 1;
+            }
+
+            // ||= and &&= count as BOTH assignment AND condition in RuboCop.
+            // In the Parser gem, `x ||= v` has a nested lvasgn child that counts
+            // as an assignment. In Prism these are single nodes, so we count both here.
+            ruby_prism::Node::LocalVariableAndWriteNode { .. }
             | ruby_prism::Node::LocalVariableOrWriteNode { .. }
             | ruby_prism::Node::InstanceVariableAndWriteNode { .. }
             | ruby_prism::Node::InstanceVariableOrWriteNode { .. }
@@ -62,11 +87,86 @@ impl AbcCounter {
             | ruby_prism::Node::ConstantPathAndWriteNode { .. }
             | ruby_prism::Node::ConstantPathOrWriteNode { .. } => {
                 self.assignments += 1;
+                self.conditions += 1;
             }
 
-            // B (Branches) — send/csend/yield/super
+            // Index compound assignments: hash["key"] ||= v, hash["key"] &&= v, hash["key"] += v
+            // In the Parser gem these are (or_asgn (send :[] ...) v) — the send child counts as
+            // a branch, and compound_assignment counts a non-setter send child as an assignment.
+            // The ||=/&&= also counts as a condition (or_asgn/and_asgn in CONDITION_NODES).
+            ruby_prism::Node::IndexOrWriteNode { .. }
+            | ruby_prism::Node::IndexAndWriteNode { .. } => {
+                // A: assignment from the indexed write
+                // B: implicit [] call (receiver lookup)
+                // C: the ||=/&&= conditional
+                self.assignments += 1;
+                self.branches += 1;
+                self.conditions += 1;
+            }
+            ruby_prism::Node::IndexOperatorWriteNode { .. } => {
+                // A: assignment from the indexed write
+                // B: implicit [] call (receiver lookup)
+                // (no condition — op_asgn is not in CONDITION_NODES)
+                self.assignments += 1;
+                self.branches += 1;
+            }
+
+            // Method/block parameters count as assignments in RuboCop (argument_type? nodes).
+            // Only counted when the name doesn't start with underscore.
+            ruby_prism::Node::RequiredParameterNode { .. } => {
+                if let Some(param) = node.as_required_parameter_node() {
+                    if !param.name().as_slice().starts_with(b"_") {
+                        self.assignments += 1;
+                    }
+                }
+            }
+            ruby_prism::Node::OptionalParameterNode { .. } => {
+                if let Some(param) = node.as_optional_parameter_node() {
+                    if !param.name().as_slice().starts_with(b"_") {
+                        self.assignments += 1;
+                    }
+                }
+            }
+            ruby_prism::Node::RestParameterNode { .. } => {
+                if let Some(param) = node.as_rest_parameter_node() {
+                    if param.name().is_some_and(|n| !n.as_slice().starts_with(b"_")) {
+                        self.assignments += 1;
+                    }
+                }
+            }
+            ruby_prism::Node::RequiredKeywordParameterNode { .. } => {
+                if let Some(param) = node.as_required_keyword_parameter_node() {
+                    if !param.name().as_slice().starts_with(b"_") {
+                        self.assignments += 1;
+                    }
+                }
+            }
+            ruby_prism::Node::OptionalKeywordParameterNode { .. } => {
+                if let Some(param) = node.as_optional_keyword_parameter_node() {
+                    if !param.name().as_slice().starts_with(b"_") {
+                        self.assignments += 1;
+                    }
+                }
+            }
+            ruby_prism::Node::KeywordRestParameterNode { .. } => {
+                if let Some(param) = node.as_keyword_rest_parameter_node() {
+                    if param.name().is_some_and(|n| !n.as_slice().starts_with(b"_")) {
+                        self.assignments += 1;
+                    }
+                }
+            }
+            ruby_prism::Node::BlockParameterNode { .. } => {
+                if let Some(param) = node.as_block_parameter_node() {
+                    if param.name().is_some_and(|n| !n.as_slice().starts_with(b"_")) {
+                        self.assignments += 1;
+                    }
+                }
+            }
+
+            // B (Branches) — send/csend/yield
             // Comparison methods (==, !=, <, >, <=, >=, ===) count as conditions,
             // not branches, matching RuboCop's behavior.
+            // Setter methods (name ending in =) count as BOTH assignment AND branch.
             ruby_prism::Node::CallNode { .. } => {
                 if let Some(call) = node.as_call_node() {
                     let method_name = call.name().as_slice();
@@ -86,6 +186,10 @@ impl AbcCounter {
                                 }
                             }
                         }
+                        // Setter methods (self.foo = v, obj.bar = v) count as assignment too
+                        if is_setter_method(method_name) {
+                            self.assignments += 1;
+                        }
                         self.branches += 1;
                         // Safe navigation (&.) adds an extra condition, matching
                         // RuboCop where csend is both a branch and a condition.
@@ -95,6 +199,13 @@ impl AbcCounter {
                             })
                         {
                             self.conditions += 1;
+                        }
+                        // Iterating block: a call with a block to a known iterating method
+                        // counts as a condition (block is in RuboCop's CONDITION_NODES).
+                        if call.block().is_some_and(|b| b.as_block_node().is_some()) {
+                            if KNOWN_ITERATING_METHODS.contains(&method_name) {
+                                self.conditions += 1;
+                            }
                         }
                     }
                 }
@@ -124,9 +235,13 @@ impl AbcCounter {
                     }
                 }
             }
+            // ForNode counts as BOTH a condition and an assignment (for the loop variable)
+            ruby_prism::Node::ForNode { .. } => {
+                self.conditions += 1;
+                self.assignments += 1;
+            }
             ruby_prism::Node::WhileNode { .. }
             | ruby_prism::Node::UntilNode { .. }
-            | ruby_prism::Node::ForNode { .. }
             | ruby_prism::Node::WhenNode { .. }
             | ruby_prism::Node::RescueNode { .. }
             | ruby_prism::Node::AndNode { .. }
@@ -134,13 +249,6 @@ impl AbcCounter {
             | ruby_prism::Node::InNode { .. } => {
                 self.conditions += 1;
             }
-
-            // or_asgn (||=) and and_asgn (&&=) count as conditions in RuboCop.
-            // They are NOT counted as simple assignments by RuboCop's shorthand_asgn
-            // path (compound_assignment returns 0 for local or/and assigns).
-            // So we should NOT count them as assignments above (but we currently do).
-            // For now, also add them as conditions since they're in CONDITION_NODES.
-            // The assignment count will be slightly different but closer overall.
 
             _ => {}
         }
@@ -162,6 +270,27 @@ impl<'pr> Visit<'pr> for AbcCounter {
     fn visit_leaf_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
         self.count_node(&node);
     }
+
+    // The Prism visitor calls specific visit_*_node methods for certain child nodes,
+    // bypassing visit_branch_node_enter/visit_leaf_node_enter. We need to override
+    // these to ensure our counter sees all relevant nodes.
+
+    fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
+        // Count rescue as a condition
+        self.conditions += 1;
+        // Delegate to default implementation to recurse into children
+        ruby_prism::visit_rescue_node(self, node);
+    }
+
+    fn visit_else_node(&mut self, node: &ruby_prism::ElseNode<'pr>) {
+        // ElseNode itself doesn't directly add to counts — the parent IfNode/CaseNode
+        // handles else counting. Just delegate to visit children.
+        ruby_prism::visit_else_node(self, node);
+    }
+
+    fn visit_ensure_node(&mut self, node: &ruby_prism::EnsureNode<'pr>) {
+        ruby_prism::visit_ensure_node(self, node);
+    }
 }
 
 /// RuboCop comparison operators: ==, ===, !=, <=, >=, >, <
@@ -171,6 +300,71 @@ fn is_comparison_method(name: &[u8]) -> bool {
         name,
         b"==" | b"===" | b"!=" | b"<=" | b">=" | b">" | b"<"
     )
+}
+
+/// Setter methods end in '=' but are not operators (!=, ==, <=, >=, []=).
+/// Examples: foo=, bar=
+/// In RuboCop, setter method calls count as both a branch and an assignment.
+fn is_setter_method(name: &[u8]) -> bool {
+    name.len() >= 2
+        && name.ends_with(b"=")
+        && !matches!(name, b"==" | b"!=" | b"<=" | b">=" | b"===" | b"[]=")
+}
+
+/// Count method parameters as assignments. In RuboCop, method and block
+/// parameters (arg, optarg, restarg, kwarg, kwoptarg, kwrestarg, blockarg)
+/// all count as assignments if their name doesn't start with underscore.
+fn count_parameters(params: &ruby_prism::ParametersNode<'_>, counter: &mut AbcCounter) {
+    // Required params (positional)
+    for param in params.requireds().iter() {
+        if let Some(req) = param.as_required_parameter_node() {
+            if !req.name().as_slice().starts_with(b"_") {
+                counter.assignments += 1;
+            }
+        }
+    }
+    // Optional params
+    for param in params.optionals().iter() {
+        if let Some(opt) = param.as_optional_parameter_node() {
+            if !opt.name().as_slice().starts_with(b"_") {
+                counter.assignments += 1;
+            }
+        }
+    }
+    // Rest param (*args)
+    if let Some(rest) = params.rest() {
+        if let Some(rest_param) = rest.as_rest_parameter_node() {
+            if rest_param.name().is_some_and(|n| !n.as_slice().starts_with(b"_")) {
+                counter.assignments += 1;
+            }
+        }
+    }
+    // Keyword params
+    for param in params.keywords().iter() {
+        if let Some(kw) = param.as_required_keyword_parameter_node() {
+            if !kw.name().as_slice().starts_with(b"_") {
+                counter.assignments += 1;
+            }
+        } else if let Some(kw) = param.as_optional_keyword_parameter_node() {
+            if !kw.name().as_slice().starts_with(b"_") {
+                counter.assignments += 1;
+            }
+        }
+    }
+    // Keyword rest param (**kwargs)
+    if let Some(kw_rest) = params.keyword_rest() {
+        if let Some(kw_rest_param) = kw_rest.as_keyword_rest_parameter_node() {
+            if kw_rest_param.name().is_some_and(|n| !n.as_slice().starts_with(b"_")) {
+                counter.assignments += 1;
+            }
+        }
+    }
+    // Block param (&block)
+    if let Some(block) = params.block() {
+        if block.name().is_some_and(|n| !n.as_slice().starts_with(b"_")) {
+            counter.assignments += 1;
+        }
+    }
 }
 
 impl Cop for AbcSize {
@@ -209,15 +403,43 @@ impl Cop for AbcSize {
             }
         }
 
+        let mut counter = AbcCounter::new(count_repeated_attributes);
+
+        // Count method parameters as assignments (matching RuboCop's argument? check).
+        // Parameters whose name starts with _ are not counted.
+        if let Some(params) = def_node.parameters() {
+            count_parameters(&params, &mut counter);
+        }
+
+        // Visit body
         let body = match def_node.body() {
             Some(b) => b,
+            None if def_node.parameters().is_some() => {
+                // Method has params but no body — still need to score
+                let score = counter.score();
+                if score > max as f64 {
+                    let method_name =
+                        std::str::from_utf8(def_node.name().as_slice()).unwrap_or("unknown");
+                    let start_offset = def_node.def_keyword_loc().start_offset();
+                    let (line, column) = source.offset_to_line_col(start_offset);
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        format!(
+                            "Assignment Branch Condition size for {method_name} is too high. [{score:.2}/{max}]"
+                        ),
+                    )];
+                }
+                return Vec::new();
+            }
             None => return Vec::new(),
         };
-
-        let mut counter = AbcCounter::new(count_repeated_attributes);
         counter.visit(&body);
 
         let score = counter.score();
+        eprintln!("DEBUG ABC: {} -> A={} B={} C={} score={:.2} max={}",
+            method_name_str, counter.assignments, counter.branches, counter.conditions, score, max);
         if score > max as f64 {
             let method_name =
                 std::str::from_utf8(def_node.name().as_slice()).unwrap_or("unknown");

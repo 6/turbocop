@@ -110,7 +110,7 @@ fn lint_source_inner(
             continue;
         }
 
-        let cop_config = config.cop_config(name);
+        let cop_config = config.cop_config_for_file(name, &source.path);
 
         // Line-based checks
         diagnostics.extend(cop.check_lines(source, &cop_config));

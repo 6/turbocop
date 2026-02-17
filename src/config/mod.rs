@@ -208,6 +208,45 @@ fn discover_sub_config_dirs(root: &Path) -> Vec<PathBuf> {
     dirs
 }
 
+/// Load per-directory cop config overrides from nested `.rubocop.yml` files.
+///
+/// For each subdirectory containing a `.rubocop.yml`, parses the local cop
+/// settings (ignoring `inherit_from` since it typically points back to the root).
+/// Returns a list of (directory, cop_configs) pairs sorted deepest-first.
+fn load_dir_overrides(root: &Path) -> Vec<(PathBuf, HashMap<String, CopConfig>)> {
+    let sub_dirs = discover_sub_config_dirs(root);
+    let mut overrides = Vec::new();
+
+    for dir in sub_dirs {
+        let config_path = dir.join(".rubocop.yml");
+        let contents = match std::fs::read_to_string(&config_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let contents = contents.replace("!ruby/regexp ", "");
+        let raw: Value = match serde_yml::from_str(&contents) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!(
+                    "warning: failed to parse nested config {}: {e}",
+                    config_path.display()
+                );
+                continue;
+            }
+        };
+
+        // Parse only the local cop-level settings (keys containing '/').
+        // We skip inherit_from, AllCops, require, etc. — those are handled
+        // by the root config. We only want the cop-specific overrides.
+        let layer = parse_config_layer(&raw);
+        if !layer.cop_configs.is_empty() {
+            overrides.push((dir, layer.cop_configs));
+        }
+    }
+
+    overrides
+}
+
 /// Build a `GlobSet` from a list of pattern strings.
 /// Returns `None` if the list is empty.
 fn build_glob_set(patterns: &[&str]) -> Option<GlobSet> {
@@ -255,6 +294,10 @@ pub struct ResolvedConfig {
     /// When non-empty, core cops (Layout, Lint, Style, etc.) not in this set
     /// are treated as non-existent in the project's rubocop version.
     rubocop_known_cops: HashSet<String>,
+    /// Per-directory cop config overrides from nested `.rubocop.yml` files.
+    /// Keyed by directory path (sorted deepest-first for lookup).
+    /// Each value contains only the cop-specific options from that directory's config.
+    dir_overrides: Vec<(PathBuf, HashMap<String, CopConfig>)>,
 }
 
 impl ResolvedConfig {
@@ -270,6 +313,7 @@ impl ResolvedConfig {
             require_departments: HashSet::new(),
             target_ruby_version: None,
             rubocop_known_cops: HashSet::new(),
+            dir_overrides: Vec::new(),
         }
     }
 }
@@ -467,6 +511,11 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
         None
     });
 
+    // Discover and parse nested .rubocop.yml files for per-directory cop overrides.
+    // These provide cop-specific option overrides for files in subdirectories
+    // (e.g., db/migrate/.rubocop.yml setting CheckSymbols: false for Naming/VariableNumber).
+    let dir_overrides = load_dir_overrides(&config_dir);
+
     Ok(ResolvedConfig {
         cop_configs: base.cop_configs,
         department_configs: base.department_configs,
@@ -481,6 +530,7 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
         require_departments: base.require_departments,
         target_ruby_version,
         rubocop_known_cops,
+        dir_overrides,
     })
 }
 
@@ -1261,6 +1311,74 @@ impl ResolvedConfig {
             }
         }
         config
+    }
+
+    /// Get the resolved config for a cop, applying directory-specific overrides
+    /// based on the file path.
+    ///
+    /// Finds the nearest `.rubocop.yml` in a parent directory of `file_path`
+    /// (up to the project root) and merges its cop-specific settings on top of
+    /// the root config. This supports per-directory config overrides like
+    /// `db/migrate/.rubocop.yml` setting `CheckSymbols: false`.
+    pub fn cop_config_for_file(&self, name: &str, file_path: &Path) -> CopConfig {
+        let mut config = self.cop_config(name);
+
+        if let Some(override_config) = self.find_dir_override(name, file_path) {
+            // Merge the directory-specific cop config on top.
+            // Options: last writer wins per key (directory config overrides root).
+            for (key, value) in &override_config.options {
+                config.options.insert(key.clone(), value.clone());
+            }
+            // Enabled: override if explicitly set
+            if override_config.enabled != EnabledState::Unset {
+                config.enabled = override_config.enabled;
+            }
+            // Severity: override if set
+            if override_config.severity.is_some() {
+                config.severity = override_config.severity;
+            }
+            // Include/Exclude: override if non-empty
+            if !override_config.include.is_empty() {
+                config.include.clone_from(&override_config.include);
+            }
+            if !override_config.exclude.is_empty() {
+                config.exclude.clone_from(&override_config.exclude);
+            }
+        }
+
+        config
+    }
+
+    /// Find the nearest directory-specific override for a cop, if any.
+    /// Checks both the original file path and the path relativized to config_dir.
+    fn find_dir_override(&self, cop_name: &str, file_path: &Path) -> Option<CopConfig> {
+        if self.dir_overrides.is_empty() {
+            return None;
+        }
+
+        // Try direct path match first (both paths in same form).
+        // dir_overrides is sorted deepest-first, so first match is most specific.
+        for (dir, cop_overrides) in &self.dir_overrides {
+            if file_path.starts_with(dir) {
+                return cop_overrides.get(cop_name).cloned();
+            }
+        }
+
+        // Try matching with path relativized to config_dir
+        // (handles running from outside the project root, e.g. bench/repos/mastodon/...)
+        if let Some(ref config_dir) = self.config_dir {
+            if let Ok(rel_path) = file_path.strip_prefix(config_dir) {
+                for (dir, cop_overrides) in &self.dir_overrides {
+                    if let Ok(rel_dir) = dir.strip_prefix(config_dir) {
+                        if rel_path.starts_with(rel_dir) {
+                            return cop_overrides.get(cop_name).cloned();
+                        }
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Global exclude patterns from AllCops.Exclude.
