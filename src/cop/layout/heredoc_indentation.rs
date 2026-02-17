@@ -14,10 +14,10 @@ impl Cop for HeredocIndentation {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
         // Check StringNode and InterpolatedStringNode for heredoc openings
-        let (opening_loc, closing_loc, content_start, content_end) =
+        let (opening_loc, _closing_loc, content_start, content_end) =
             if let Some(s) = node.as_string_node() {
                 match (s.opening_loc(), s.closing_loc()) {
                     (Some(o), Some(c)) => {
@@ -68,16 +68,40 @@ impl Cop for HeredocIndentation {
             return Vec::new(); // Empty body
         }
 
-        // For <<~ heredocs, check that body is indented
+        let indentation_width = config.get_usize("IndentationWidth", 2);
+        let body_indent = body_indent_level(body);
+
+        // For <<~ heredocs, check that body indentation matches expected level
         if heredoc_type == '~' {
-            // Body indent is fine as long as it uses squiggly heredoc — that's the point
-            // This cop mainly flags <<- and << heredocs that should use <<~
-            return Vec::new();
+            // Expected: base indent (the line where <<~ appears) + IndentationWidth
+            let base_indent = base_indent_level(source, opening_loc.start_offset());
+            let expected = base_indent + indentation_width;
+            if expected == body_indent {
+                return Vec::new(); // Correctly indented
+            }
+
+            // Check if adjusting indentation would make lines too long
+            if line_too_long_after_adjust(body, expected, body_indent, config) {
+                return Vec::new();
+            }
+
+            let (line, col) = source.offset_to_line_col(content_start);
+            return vec![self.diagnostic(
+                source,
+                line,
+                col,
+                format!(
+                    "Use {} spaces for indentation in a heredoc.",
+                    indentation_width,
+                ),
+            )];
         }
 
-        // For <<- heredocs, the body should be indented (use <<~ instead)
-        // Check if body lines are at column 0 (not indented)
-        let body_indent = body_indent_level(body);
+        // For <<- heredocs:
+        // 1. If body is at column 0 → always flag
+        // 2. If the heredoc has .squish/.squish! called on it → flag
+        //    (matches RuboCop's heredoc_squish? when ActiveSupportExtensionsEnabled)
+        // 3. Otherwise (body is indented, no squish) → no offense
         if body_indent == 0 {
             let (line, col) = source.offset_to_line_col(content_start);
             return vec![self.diagnostic(
@@ -86,16 +110,70 @@ impl Cop for HeredocIndentation {
                 col,
                 format!(
                     "Use {} spaces for indentation in a heredoc by using `<<~` instead of `<<-`.",
-                    2
+                    indentation_width,
                 ),
             )];
         }
 
-        // Check if closing location line starts content
-        let _ = closing_loc;
+        // Check if the heredoc opening is followed by .squish or .squish!
+        // e.g., <<-SQL.squish or <<-SQL.squish!
+        if is_squish_heredoc(bytes, opening_loc.end_offset()) {
+            // Check if adjusting indentation would make lines too long
+            let base_indent = base_indent_level(source, opening_loc.start_offset());
+            let expected = base_indent + indentation_width;
+            if !line_too_long_after_adjust(body, expected, body_indent, config) {
+                let (line, col) = source.offset_to_line_col(content_start);
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    col,
+                    format!(
+                        "Use {} spaces for indentation in a heredoc by using `<<~` instead of `<<-`.",
+                        indentation_width,
+                    ),
+                )];
+            }
+        }
 
         Vec::new()
     }
+}
+
+/// Check if the bytes after the heredoc opening contain `.squish` or `.squish!`.
+fn is_squish_heredoc(bytes: &[u8], opening_end: usize) -> bool {
+    if opening_end >= bytes.len() {
+        return false;
+    }
+    let rest = &bytes[opening_end..];
+    rest.starts_with(b".squish!") || rest.starts_with(b".squish)")
+        || rest.starts_with(b".squish\n") || rest.starts_with(b".squish\r")
+        || rest.starts_with(b".squish ")
+        || (rest.len() >= 7 && &rest[..7] == b".squish" && (rest.len() == 7 || !rest[7].is_ascii_alphanumeric()))
+}
+
+/// Get the indentation level of the line where the heredoc opening appears.
+fn base_indent_level(source: &SourceFile, opening_offset: usize) -> usize {
+    let (line, _) = source.offset_to_line_col(opening_offset);
+    let lines: Vec<&[u8]> = source.lines().collect();
+    if line > 0 && line <= lines.len() {
+        lines[line - 1].iter().take_while(|&&b| b == b' ').count()
+    } else {
+        0
+    }
+}
+
+/// Check if adjusting the indentation would make the longest line exceed max line length.
+fn line_too_long_after_adjust(
+    body: &[u8],
+    expected_indent: usize,
+    actual_indent: usize,
+    config: &CopConfig,
+) -> bool {
+    // Check Layout/LineLength AllowHeredoc — if true (default), skip this check
+    // For simplicity, we default to not checking line length (matching RuboCop's
+    // default AllowHeredoc: true behavior).
+    let _ = (body, expected_indent, actual_indent, config);
+    false
 }
 
 /// Get the minimum indentation level of non-blank body lines.

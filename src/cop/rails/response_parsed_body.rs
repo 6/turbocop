@@ -1,5 +1,5 @@
 use crate::cop::util;
-use crate::cop::{Cop, CopConfig, EnabledState};
+use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
@@ -28,29 +28,14 @@ impl Cop for ResponseParsedBody {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        config: &CopConfig,
+        _config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // This cop is pending/unsafe in RuboCop (Enabled: pending, Safe: false).
-        // Only fire when explicitly enabled in the project config.
-        if config.enabled != EnabledState::True {
-            return Vec::new();
-        }
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
         };
 
         if call.name().as_slice() != b"parse" {
-            return Vec::new();
-        }
-
-        // Receiver must be constant `JSON`
-        let recv = match call.receiver() {
-            Some(r) => r,
-            None => return Vec::new(),
-        };
-        // Handle both ConstantReadNode (JSON) and ConstantPathNode (::JSON)
-        if util::constant_name(&recv) != Some(b"JSON") {
             return Vec::new();
         }
 
@@ -85,14 +70,47 @@ impl Cop for ResponseParsedBody {
             return Vec::new();
         }
 
-        let loc = node.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
-            source,
-            line,
-            column,
-            "Use `response.parsed_body` instead of `JSON.parse(response.body)`.".to_string(),
-        )]
+        // Receiver must be constant `JSON` or `Nokogiri::HTML`/`Nokogiri::HTML5`
+        let recv = match call.receiver() {
+            Some(r) => r,
+            None => return Vec::new(),
+        };
+
+        // Check for JSON.parse(response.body)
+        if util::constant_name(&recv) == Some(b"JSON") {
+            let loc = node.location();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            return vec![self.diagnostic(
+                source,
+                line,
+                column,
+                "Prefer `response.parsed_body` to `JSON.parse(response.body)`.".to_string(),
+            )];
+        }
+
+        // Check for Nokogiri::HTML.parse(response.body) / Nokogiri::HTML5.parse(response.body)
+        if let Some(cp) = recv.as_constant_path_node() {
+            if let Some(name) = cp.name() {
+                let name_bytes = name.as_slice();
+                if name_bytes == b"HTML" || name_bytes == b"HTML5" {
+                    if let Some(parent) = cp.parent() {
+                        if util::constant_name(&parent) == Some(b"Nokogiri") {
+                            let const_name = std::str::from_utf8(name_bytes).unwrap_or("HTML");
+                            let loc = node.location();
+                            let (line, column) = source.offset_to_line_col(loc.start_offset());
+                            return vec![self.diagnostic(
+                                source,
+                                line,
+                                column,
+                                format!("Prefer `response.parsed_body` to `Nokogiri::{const_name}.parse(response.body)`."),
+                            )];
+                        }
+                    }
+                }
+            }
+        }
+
+        Vec::new()
     }
 }
 
@@ -100,28 +118,5 @@ impl Cop for ResponseParsedBody {
 mod tests {
     use super::*;
 
-    fn enabled_config() -> CopConfig {
-        CopConfig {
-            enabled: EnabledState::True,
-            ..CopConfig::default()
-        }
-    }
-
-    #[test]
-    fn offense_fixture() {
-        crate::testutil::assert_cop_offenses_full_with_config(
-            &ResponseParsedBody,
-            include_bytes!("../../../testdata/cops/rails/response_parsed_body/offense.rb"),
-            enabled_config(),
-        );
-    }
-
-    #[test]
-    fn no_offense_fixture() {
-        crate::testutil::assert_cop_no_offenses_full_with_config(
-            &ResponseParsedBody,
-            include_bytes!("../../../testdata/cops/rails/response_parsed_body/no_offense.rb"),
-            enabled_config(),
-        );
-    }
+    crate::cop_fixture_tests!(ResponseParsedBody, "cops/rails/response_parsed_body");
 }

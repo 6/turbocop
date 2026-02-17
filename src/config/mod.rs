@@ -251,6 +251,10 @@ pub struct ResolvedConfig {
     /// Target Ruby version from AllCops.TargetRubyVersion (e.g. 3.1, 3.2).
     /// None means not specified (cops should default to 2.7 per RuboCop convention).
     target_ruby_version: Option<f64>,
+    /// All cop names found in the installed rubocop gem's config/default.yml.
+    /// When non-empty, core cops (Layout, Lint, Style, etc.) not in this set
+    /// are treated as non-existent in the project's rubocop version.
+    rubocop_known_cops: HashSet<String>,
 }
 
 impl ResolvedConfig {
@@ -265,6 +269,7 @@ impl ResolvedConfig {
             require_known_cops: HashSet::new(),
             require_departments: HashSet::new(),
             target_ruby_version: None,
+            rubocop_known_cops: HashSet::new(),
         }
     }
 }
@@ -389,7 +394,8 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
 
     // Load rubocop's own config/default.yml as the lowest-priority base layer.
     // This provides correct default Enabled states, EnforcedStyle values, etc.
-    let mut base = try_load_rubocop_defaults(&config_dir);
+    // Also collect the set of known cops for version awareness.
+    let (mut base, rubocop_known_cops) = try_load_rubocop_defaults(&config_dir);
 
     let mut visited = HashSet::new();
     let project_layer = load_config_recursive(&config_path, &config_dir, &mut visited)?;
@@ -474,6 +480,7 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
         require_known_cops: base.require_known_cops,
         require_departments: base.require_departments,
         target_ruby_version,
+        rubocop_known_cops,
     })
 }
 
@@ -482,20 +489,23 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
 /// This provides correct default Enabled states (52 cops disabled by default),
 /// EnforcedStyle values, and other option defaults for all cops. Returns an
 /// empty layer if the rubocop gem is not installed or the file can't be parsed.
-fn try_load_rubocop_defaults(working_dir: &Path) -> ConfigLayer {
+///
+/// Also returns the set of all cop names found in the installed gem's config,
+/// used for core cop version awareness (cops not in the installed gem don't exist).
+fn try_load_rubocop_defaults(working_dir: &Path) -> (ConfigLayer, HashSet<String>) {
     let gem_root = match gem_path::resolve_gem_path("rubocop", working_dir) {
         Ok(p) => p,
-        Err(_) => return ConfigLayer::empty(),
+        Err(_) => return (ConfigLayer::empty(), HashSet::new()),
     };
 
     let default_config = gem_root.join("config").join("default.yml");
     if !default_config.exists() {
-        return ConfigLayer::empty();
+        return (ConfigLayer::empty(), HashSet::new());
     }
 
     let contents = match std::fs::read_to_string(&default_config) {
         Ok(c) => c,
-        Err(_) => return ConfigLayer::empty(),
+        Err(_) => return (ConfigLayer::empty(), HashSet::new()),
     };
 
     // Strip Ruby-specific YAML tags (e.g., !ruby/regexp) that serde_yml can't handle
@@ -508,11 +518,22 @@ fn try_load_rubocop_defaults(working_dir: &Path) -> ConfigLayer {
                 "warning: failed to parse rubocop default config {}: {e}",
                 default_config.display()
             );
-            return ConfigLayer::empty();
+            return (ConfigLayer::empty(), HashSet::new());
         }
     };
 
-    parse_config_layer(&raw)
+    // Collect all cop names (keys containing '/') from the config.
+    let known_cops: HashSet<String> = if let Value::Mapping(ref map) = raw {
+        map.keys()
+            .filter_map(|k| k.as_str())
+            .filter(|k| k.contains('/'))
+            .map(|k| k.to_string())
+            .collect()
+    } else {
+        HashSet::new()
+    };
+
+    (parse_config_layer(&raw), known_cops)
 }
 
 /// Recursively load a config file and all its inherited configs.
@@ -1150,6 +1171,16 @@ impl ResolvedConfig {
             return false;
         }
 
+        // Core cop version awareness: if the installed rubocop gem's config was
+        // loaded and this core cop isn't mentioned, it doesn't exist in that version.
+        if !self.rubocop_known_cops.is_empty()
+            && !is_plugin_department(dept)
+            && !self.rubocop_known_cops.contains(name)
+            && config.is_none_or(|c| c.enabled == EnabledState::Unset)
+        {
+            return false;
+        }
+
         // 2. Global excludes
         for pattern in &self.global_excludes {
             if glob_matches(pattern, path) {
@@ -1305,6 +1336,20 @@ impl ResolvedConfig {
                     && dept_has_known_cops
                     && self.require_departments.contains(dept)
                     && !self.require_known_cops.contains(name)
+                    && config.is_none_or(|c| c.enabled == EnabledState::Unset)
+                {
+                    enabled = false;
+                }
+
+                // Core cop version awareness: if the installed rubocop gem's
+                // config/default.yml was loaded (rubocop_known_cops is non-empty)
+                // and this cop is from a core department but NOT mentioned in that
+                // config, the cop doesn't exist in the project's rubocop version.
+                // Disable it unless the user explicitly configured it.
+                if enabled
+                    && !self.rubocop_known_cops.is_empty()
+                    && !is_plugin_department(dept)
+                    && !self.rubocop_known_cops.contains(name)
                     && config.is_none_or(|c| c.enabled == EnabledState::Unset)
                 {
                     enabled = false;

@@ -6,10 +6,9 @@ use crate::parse::source::SourceFile;
 pub struct ExampleWording;
 
 /// Example methods that take a description string.
+/// RuboCop's ExampleWording only matches `it` blocks (and focused/pending variants).
 const EXAMPLE_METHODS: &[&[u8]] = &[
-    b"it", b"specify", b"example",
-    b"fit", b"fspecify", b"fexample",
-    b"xit", b"xspecify", b"xexample",
+    b"it", b"fit", b"xit",
 ];
 
 impl Cop for ExampleWording {
@@ -113,7 +112,8 @@ impl Cop for ExampleWording {
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
                     // CustomTransform: suggest replacement for the word after "should"
                     let msg = if !custom_transform.is_empty() {
-                        let after_should = desc_str.get(6..).unwrap_or("").trim_start();
+                        let prefix_len = should_prefix_len(&desc);
+                        let after_should = desc_str.get(prefix_len..).unwrap_or("").trim_start();
                         let next_word = after_should.split_whitespace().next().unwrap_or("");
                         if let Some(replacement) = custom_transform.get(next_word) {
                             let rest = after_should.get(next_word.len()..).unwrap_or("").trim_start();
@@ -135,6 +135,28 @@ impl Cop for ExampleWording {
                         msg,
                     )];
                 }
+
+                // Check for "will"/"won't" prefix
+                if starts_with_will(&desc) {
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Do not use the future tense when describing your tests.".to_string(),
+                    )];
+                }
+
+                // Check for "it " prefix (repeating "it" inside it blocks)
+                if starts_with_it_prefix(&desc) {
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    return vec![self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Do not repeat 'it' when describing your tests.".to_string(),
+                    )];
+                }
             }
             break;
         }
@@ -152,8 +174,49 @@ fn starts_with_should(desc: &[u8]) -> bool {
     if lower != b"should" {
         return false;
     }
-    // "should" alone or followed by space, "'", "n't"
+    // "should" alone or followed by space/word-boundary or "n't"/"n\xe2\x80\x99t"
     desc.len() == 6 || desc[6] == b' ' || desc[6] == b'\'' || desc[6] == b'n'
+}
+
+/// Return the length of the "should" prefix (6 for "should", 9 for "shouldn't", etc.)
+fn should_prefix_len(desc: &[u8]) -> usize {
+    if desc.len() >= 6 {
+        let lower6: Vec<u8> = desc[..6].iter().map(|b| b.to_ascii_lowercase()).collect();
+        if lower6 == b"should" {
+            // Check for "shouldn't" or "shouldn\xe2\x80\x99t"
+            if desc.len() >= 9 && desc[6] == b'n' && (desc[7] == b'\'' || desc[7] == b'\xe2') {
+                return 9; // shouldn't
+            }
+            return 6;
+        }
+    }
+    0
+}
+
+/// Check if a byte slice starts with "will"/"won't" (case-insensitive).
+fn starts_with_will(desc: &[u8]) -> bool {
+    if desc.len() >= 4 {
+        let lower: Vec<u8> = desc[..4].iter().map(|b| b.to_ascii_lowercase()).collect();
+        if lower == b"will" {
+            return desc.len() == 4 || desc[4] == b' ';
+        }
+    }
+    if desc.len() >= 5 {
+        let lower: Vec<u8> = desc[..5].iter().map(|b| b.to_ascii_lowercase()).collect();
+        if lower == b"won't" || lower == b"won\xe2\x80" {
+            return true;
+        }
+    }
+    false
+}
+
+/// Check if a byte slice starts with "it " (case-insensitive).
+fn starts_with_it_prefix(desc: &[u8]) -> bool {
+    if desc.len() < 3 {
+        return false;
+    }
+    let lower: Vec<u8> = desc[..2].iter().map(|b| b.to_ascii_lowercase()).collect();
+    lower == b"it" && desc[2] == b' '
 }
 
 #[cfg(test)]

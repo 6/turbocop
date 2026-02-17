@@ -46,6 +46,16 @@ impl Cop for RedundantPresenceValidationOnBelongsTo {
             return Vec::new();
         }
 
+        // Build both direct name and foreign key name matches
+        // belongs_to :problem -> matches :problem and :problem_id
+        let mut match_names: Vec<Vec<u8>> = Vec::new();
+        for name in &belongs_to_names {
+            match_names.push(name.clone());
+            let mut fk = name.clone();
+            fk.extend_from_slice(b"_id");
+            match_names.push(fk);
+        }
+
         // Check validates calls for presence on belongs_to associations
         let mut diagnostics = Vec::new();
         for call in &calls {
@@ -57,9 +67,9 @@ impl Cop for RedundantPresenceValidationOnBelongsTo {
                 continue;
             }
 
-            // Get the first symbol arg (the validated attribute name)
-            if let Some(name) = extract_first_symbol_arg(call) {
-                if belongs_to_names.contains(&name) {
+            // Check ALL symbol args (not just the first)
+            for name in extract_all_symbol_args(call) {
+                if match_names.contains(&name) {
                     let loc = call.message_loc().unwrap_or(call.location());
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
                     let name_str = String::from_utf8_lossy(&name);
@@ -133,6 +143,18 @@ fn extract_first_symbol_arg(call: &ruby_prism::CallNode<'_>) -> Option<Vec<u8>> 
     let first_arg = args.arguments().iter().next()?;
     let sym = first_arg.as_symbol_node()?;
     Some(sym.unescaped().to_vec())
+}
+
+fn extract_all_symbol_args(call: &ruby_prism::CallNode<'_>) -> Vec<Vec<u8>> {
+    let mut names = Vec::new();
+    if let Some(args) = call.arguments() {
+        for arg in args.arguments().iter() {
+            if let Some(sym) = arg.as_symbol_node() {
+                names.push(sym.unescaped().to_vec());
+            }
+        }
+    }
+    names
 }
 
 #[cfg(test)]

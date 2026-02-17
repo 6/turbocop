@@ -15,3 +15,11 @@ class Baz
   protected
   ^^^^^^^^^ Lint/UselessAccessModifier: Useless `protected` access modifier.
 end
+
+module Qux
+  private
+  ^^^^^^^ Lint/UselessAccessModifier: Useless `private` access modifier.
+
+  def self.singleton_method
+  end
+end

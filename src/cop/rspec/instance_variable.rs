@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::cop::util::{is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -26,8 +28,27 @@ impl Cop for InstanceVariable {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // Config: AssignmentOnly — only flag assignments, not reads
+        // Config: AssignmentOnly — when true, only flag reads of ivars that are
+        // also assigned within the same top-level example group. When false (default),
+        // flag ALL ivar reads. Writes/assignments are never flagged (matching RuboCop).
         let assignment_only = config.get_bool("AssignmentOnly", false);
+
+        // When AssignmentOnly is true, first pass: collect all assigned ivar names
+        // within example groups (excluding defs, dynamic classes, custom matchers).
+        let assigned_names = if assignment_only {
+            let mut collector = IvarAssignmentCollector {
+                in_example_group: false,
+                in_def: false,
+                in_dynamic_class: false,
+                in_custom_matcher: false,
+                assigned_names: HashSet::new(),
+            };
+            collector.visit(&parse_result.node());
+            collector.assigned_names
+        } else {
+            HashSet::new()
+        };
+
         let mut visitor = IvarChecker {
             source,
             cop: self,
@@ -36,10 +57,104 @@ impl Cop for InstanceVariable {
             in_dynamic_class: false,
             in_custom_matcher: false,
             assignment_only,
+            assigned_names,
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
         visitor.diagnostics
+    }
+}
+
+/// First-pass visitor: collect all ivar names that are assigned within example groups.
+struct IvarAssignmentCollector {
+    in_example_group: bool,
+    in_def: bool,
+    in_dynamic_class: bool,
+    in_custom_matcher: bool,
+    assigned_names: HashSet<Vec<u8>>,
+}
+
+impl IvarAssignmentCollector {
+    fn in_flaggable_scope(&self) -> bool {
+        self.in_example_group && !self.in_def && !self.in_dynamic_class && !self.in_custom_matcher
+    }
+
+    fn record_assignment(&mut self, name: &[u8]) {
+        if self.in_flaggable_scope() {
+            self.assigned_names.insert(name.to_vec());
+        }
+    }
+}
+
+impl<'pr> Visit<'pr> for IvarAssignmentCollector {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        let name = node.name().as_slice();
+        let has_block = node.block().is_some();
+        let is_eg = has_block && node.receiver().is_none() && is_rspec_example_group(name);
+        let is_rspec_describe = has_block
+            && node.receiver().is_some_and(|r| {
+                r.as_constant_read_node()
+                    .is_some_and(|c| c.name().as_slice() == b"RSpec")
+            })
+            && name == b"describe";
+        let enters_example_group = is_eg || is_rspec_describe;
+        let enters_dynamic_class = has_block && is_dynamic_class_call(node);
+        let enters_custom_matcher = has_block && is_custom_matcher_call(node);
+
+        let was_eg = self.in_example_group;
+        let was_dc = self.in_dynamic_class;
+        let was_cm = self.in_custom_matcher;
+        if enters_example_group {
+            self.in_example_group = true;
+        }
+        if enters_dynamic_class {
+            self.in_dynamic_class = true;
+        }
+        if enters_custom_matcher {
+            self.in_custom_matcher = true;
+        }
+        ruby_prism::visit_call_node(self, node);
+        self.in_example_group = was_eg;
+        self.in_dynamic_class = was_dc;
+        self.in_custom_matcher = was_cm;
+    }
+
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        let was = self.in_def;
+        self.in_def = true;
+        ruby_prism::visit_def_node(self, node);
+        self.in_def = was;
+    }
+
+    fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
+    fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
+
+    fn visit_instance_variable_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableWriteNode<'pr>,
+    ) {
+        self.record_assignment(node.name().as_slice());
+    }
+
+    fn visit_instance_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableOperatorWriteNode<'pr>,
+    ) {
+        self.record_assignment(node.name().as_slice());
+    }
+
+    fn visit_instance_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableOrWriteNode<'pr>,
+    ) {
+        self.record_assignment(node.name().as_slice());
+    }
+
+    fn visit_instance_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableAndWriteNode<'pr>,
+    ) {
+        self.record_assignment(node.name().as_slice());
     }
 }
 
@@ -51,6 +166,7 @@ struct IvarChecker<'a> {
     in_dynamic_class: bool,
     in_custom_matcher: bool,
     assignment_only: bool,
+    assigned_names: HashSet<Vec<u8>>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -59,17 +175,23 @@ impl IvarChecker<'_> {
         self.in_example_group && !self.in_def && !self.in_dynamic_class && !self.in_custom_matcher
     }
 
-    fn flag_ivar(&mut self, loc: &ruby_prism::Location<'_>) {
-        if self.should_flag() {
-            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-            self.diagnostics.push(self.cop.diagnostic(
-                self.source,
-                line,
-                column,
-                "Avoid instance variables - use let, a method call, or a local variable (if possible)."
-                    .to_string(),
-            ));
+    fn flag_ivar_read(&mut self, name: &[u8], loc: &ruby_prism::Location<'_>) {
+        if !self.should_flag() {
+            return;
         }
+        // In AssignmentOnly mode, only flag reads where the same ivar is also
+        // assigned somewhere in the example group.
+        if self.assignment_only && !self.assigned_names.contains(name) {
+            return;
+        }
+        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+        self.diagnostics.push(self.cop.diagnostic(
+            self.source,
+            line,
+            column,
+            "Avoid instance variables - use let, a method call, or a local variable (if possible)."
+                .to_string(),
+        ));
     }
 }
 
@@ -177,43 +299,13 @@ impl<'pr> Visit<'pr> for IvarChecker<'_> {
         &mut self,
         node: &ruby_prism::InstanceVariableReadNode<'pr>,
     ) {
-        if !self.assignment_only {
-            self.flag_ivar(&node.location());
-        }
+        self.flag_ivar_read(node.name().as_slice(), &node.location());
         ruby_prism::visit_instance_variable_read_node(self, node);
     }
 
-    fn visit_instance_variable_write_node(
-        &mut self,
-        node: &ruby_prism::InstanceVariableWriteNode<'pr>,
-    ) {
-        self.flag_ivar(&node.location());
-        ruby_prism::visit_instance_variable_write_node(self, node);
-    }
-
-    fn visit_instance_variable_operator_write_node(
-        &mut self,
-        node: &ruby_prism::InstanceVariableOperatorWriteNode<'pr>,
-    ) {
-        self.flag_ivar(&node.location());
-        ruby_prism::visit_instance_variable_operator_write_node(self, node);
-    }
-
-    fn visit_instance_variable_or_write_node(
-        &mut self,
-        node: &ruby_prism::InstanceVariableOrWriteNode<'pr>,
-    ) {
-        self.flag_ivar(&node.location());
-        ruby_prism::visit_instance_variable_or_write_node(self, node);
-    }
-
-    fn visit_instance_variable_and_write_node(
-        &mut self,
-        node: &ruby_prism::InstanceVariableAndWriteNode<'pr>,
-    ) {
-        self.flag_ivar(&node.location());
-        ruby_prism::visit_instance_variable_and_write_node(self, node);
-    }
+    // Instance variable writes/assignments are never flagged by this cop.
+    // RuboCop's RSpec/InstanceVariable only flags reads (ivar nodes),
+    // not assignments (ivasgn nodes).
 }
 
 #[cfg(test)]
@@ -222,7 +314,7 @@ mod tests {
     crate::cop_fixture_tests!(InstanceVariable, "cops/rspec/instance_variable");
 
     #[test]
-    fn assignment_only_skips_reads() {
+    fn assignment_only_skips_reads_without_assignment() {
         use crate::cop::CopConfig;
         use std::collections::HashMap;
 
@@ -233,13 +325,17 @@ mod tests {
             )]),
             ..CopConfig::default()
         };
+        // @bar is read but never assigned — should not be flagged in AssignmentOnly mode
         let source = b"describe Foo do\n  it 'reads' do\n    @bar\n  end\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&InstanceVariable, source, config);
-        assert!(diags.is_empty(), "AssignmentOnly should skip reads");
+        assert!(
+            diags.is_empty(),
+            "AssignmentOnly should skip reads when ivar is not assigned"
+        );
     }
 
     #[test]
-    fn assignment_only_still_flags_writes() {
+    fn assignment_only_flags_reads_with_assignment() {
         use crate::cop::CopConfig;
         use std::collections::HashMap;
 
@@ -250,8 +346,25 @@ mod tests {
             )]),
             ..CopConfig::default()
         };
-        let source = b"describe Foo do\n  before { @bar = 1 }\nend\n";
+        // @foo is assigned in before and read in it — should be flagged
+        let source =
+            b"describe Foo do\n  before { @foo = [] }\n  it { expect(@foo).to be_empty }\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&InstanceVariable, source, config);
-        assert_eq!(diags.len(), 1);
+        assert_eq!(
+            diags.len(),
+            1,
+            "AssignmentOnly should flag reads when ivar is also assigned"
+        );
+    }
+
+    #[test]
+    fn writes_are_never_flagged() {
+        // Instance variable writes (assignments) should never be flagged
+        let source = b"describe Foo do\n  before { @bar = 1 }\nend\n";
+        let diags = crate::testutil::run_cop(&InstanceVariable, source);
+        assert!(
+            diags.is_empty(),
+            "Writes/assignments should never be flagged"
+        );
     }
 }

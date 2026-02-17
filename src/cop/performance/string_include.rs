@@ -21,6 +21,21 @@ fn is_literal_regex(content: &[u8]) -> bool {
     true
 }
 
+/// Check if a node is a regex literal with no flags and a literal-only pattern.
+fn is_simple_regex_node(node: &ruby_prism::Node<'_>) -> bool {
+    let regex_node = match node.as_regular_expression_node() {
+        Some(r) => r,
+        None => return false,
+    };
+    // Skip if regex has flags (e.g., /pattern/i)
+    let closing = regex_node.closing_loc().as_slice();
+    if closing.len() > 1 {
+        return false;
+    }
+    let content = regex_node.content_loc().as_slice();
+    is_literal_regex(content)
+}
+
 impl Cop for StringInclude {
     fn name(&self) -> &'static str {
         "Performance/StringInclude"
@@ -42,39 +57,58 @@ impl Cop for StringInclude {
             None => return Vec::new(),
         };
 
-        if call.name().as_slice() != b"match?" {
-            return Vec::new();
-        }
+        let name = call.name().as_slice();
 
-        // Must have a receiver
-        if call.receiver().is_none() {
-            return Vec::new();
-        }
+        let is_match = match name {
+            // str.match?(/regex/) or /regex/.match?(str) or str.match(/regex/) or /regex/.match(str)
+            b"match?" | b"match" => {
+                if call.receiver().is_none() {
+                    return Vec::new();
+                }
+                let arguments = match call.arguments() {
+                    Some(a) => a,
+                    None => return Vec::new(),
+                };
+                let first_arg = match arguments.arguments().iter().next() {
+                    Some(a) => a,
+                    None => return Vec::new(),
+                };
+                let recv = call.receiver().unwrap();
 
-        let arguments = match call.arguments() {
-            Some(a) => a,
-            None => return Vec::new(),
+                // Either the argument or the receiver must be a simple regex
+                is_simple_regex_node(&first_arg) || is_simple_regex_node(&recv)
+            }
+
+            // /regex/ === str
+            b"===" => {
+                let recv = match call.receiver() {
+                    Some(r) => r,
+                    None => return Vec::new(),
+                };
+                is_simple_regex_node(&recv)
+            }
+
+            // str =~ /regex/ or /regex/ =~ str or !~
+            b"=~" | b"!~" => {
+                let recv = match call.receiver() {
+                    Some(r) => r,
+                    None => return Vec::new(),
+                };
+                let arguments = match call.arguments() {
+                    Some(a) => a,
+                    None => return Vec::new(),
+                };
+                let first_arg = match arguments.arguments().iter().next() {
+                    Some(a) => a,
+                    None => return Vec::new(),
+                };
+                is_simple_regex_node(&recv) || is_simple_regex_node(&first_arg)
+            }
+
+            _ => return Vec::new(),
         };
 
-        let args = arguments.arguments();
-        let first_arg = match args.iter().next() {
-            Some(a) => a,
-            None => return Vec::new(),
-        };
-
-        let regex_node = match first_arg.as_regular_expression_node() {
-            Some(r) => r,
-            None => return Vec::new(),
-        };
-
-        // Skip if regex has flags (e.g., /pattern/i) — include? can't replicate flags
-        let closing = regex_node.closing_loc().as_slice();
-        if closing.len() > 1 {
-            return Vec::new();
-        }
-
-        let content = regex_node.content_loc().as_slice();
-        if !is_literal_regex(content) {
+        if !is_match {
             return Vec::new();
         }
 

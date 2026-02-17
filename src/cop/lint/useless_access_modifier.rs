@@ -64,8 +64,13 @@ fn get_access_modifier(call: &ruby_prism::CallNode<'_>) -> Option<AccessKind> {
 }
 
 fn is_method_definition(node: &ruby_prism::Node<'_>) -> bool {
-    if node.as_def_node().is_some() {
-        return true;
+    if let Some(def_node) = node.as_def_node() {
+        // Singleton methods (def self.foo) are NOT affected by access modifiers,
+        // so they don't count as method definitions for our purposes.
+        if def_node.receiver().is_none() {
+            return true;
+        }
+        return false;
     }
     // attr_reader/writer/accessor
     if let Some(call) = node.as_call_node() {

@@ -11,6 +11,24 @@ struct CyclomaticCounter {
     complexity: usize,
 }
 
+/// Known iterating method names that make blocks count toward complexity.
+const KNOWN_ITERATING_METHODS: &[&[u8]] = &[
+    b"each", b"each_with_index", b"each_with_object", b"each_pair",
+    b"each_key", b"each_value", b"each_slice", b"each_cons",
+    b"each_line", b"each_byte", b"each_char", b"each_codepoint",
+    b"map", b"flat_map", b"collect", b"collect_concat",
+    b"select", b"filter", b"find_all", b"reject", b"filter_map",
+    b"detect", b"find", b"find_index", b"rindex",
+    b"reduce", b"inject", b"any?", b"all?", b"none?", b"one?",
+    b"count", b"sum", b"min", b"max", b"min_by", b"max_by",
+    b"minmax", b"minmax_by", b"sort_by", b"group_by",
+    b"partition", b"zip", b"take_while", b"drop_while",
+    b"chunk", b"chunk_while", b"slice_before", b"slice_after", b"slice_when",
+    b"times", b"upto", b"downto", b"step",
+    b"loop", b"tap", b"then", b"yield_self",
+    b"each_index", b"reverse_each",
+];
+
 impl CyclomaticCounter {
     fn count_node(&mut self, node: &ruby_prism::Node<'_>) {
         match node {
@@ -21,9 +39,44 @@ impl CyclomaticCounter {
             | ruby_prism::Node::WhenNode { .. }
             | ruby_prism::Node::RescueNode { .. }
             | ruby_prism::Node::AndNode { .. }
-            | ruby_prism::Node::OrNode { .. } => {
+            | ruby_prism::Node::OrNode { .. }
+            | ruby_prism::Node::InNode { .. } => {
                 self.complexity += 1;
             }
+
+            // or_asgn (||=) and and_asgn (&&=) count as conditions
+            ruby_prism::Node::LocalVariableOrWriteNode { .. }
+            | ruby_prism::Node::InstanceVariableOrWriteNode { .. }
+            | ruby_prism::Node::ClassVariableOrWriteNode { .. }
+            | ruby_prism::Node::GlobalVariableOrWriteNode { .. }
+            | ruby_prism::Node::ConstantOrWriteNode { .. }
+            | ruby_prism::Node::ConstantPathOrWriteNode { .. }
+            | ruby_prism::Node::LocalVariableAndWriteNode { .. }
+            | ruby_prism::Node::InstanceVariableAndWriteNode { .. }
+            | ruby_prism::Node::ClassVariableAndWriteNode { .. }
+            | ruby_prism::Node::GlobalVariableAndWriteNode { .. }
+            | ruby_prism::Node::ConstantAndWriteNode { .. }
+            | ruby_prism::Node::ConstantPathAndWriteNode { .. } => {
+                self.complexity += 1;
+            }
+
+            // CallNode: count &. (safe navigation) and iterating blocks
+            ruby_prism::Node::CallNode { .. } => {
+                if let Some(call) = node.as_call_node() {
+                    // Safe navigation (&.) counts
+                    if call.call_operator_loc().is_some_and(|loc| loc.as_slice() == b"&.") {
+                        self.complexity += 1;
+                    }
+                    // Iterating block counts
+                    if call.block().is_some_and(|b| b.as_block_node().is_some()) {
+                        let method_name = call.name().as_slice();
+                        if KNOWN_ITERATING_METHODS.contains(&method_name) {
+                            self.complexity += 1;
+                        }
+                    }
+                }
+            }
+
             _ => {}
         }
     }

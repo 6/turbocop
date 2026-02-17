@@ -26,13 +26,14 @@ impl Cop for TimesMap {
             None => return Vec::new(),
         };
 
-        if chain.inner_method != b"times" || chain.outer_method != b"map" {
+        if chain.inner_method != b"times" || (chain.outer_method != b"map" && chain.outer_method != b"collect") {
             return Vec::new();
         }
 
+        let outer_name = std::str::from_utf8(chain.outer_method).unwrap_or("map");
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, "Use `Array.new` with a block instead of `times.map`.".to_string())]
+        vec![self.diagnostic(source, line, column, format!("Use `Array.new` with a block instead of `times.{outer_name}`."))]
     }
 }
 

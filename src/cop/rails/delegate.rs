@@ -100,14 +100,31 @@ impl Cop for Delegate {
         // - Instance variable (@foo.bar → delegate :bar, to: :foo)
         // - Simple method/local variable (foo.bar → delegate :bar, to: :foo)
         // - Constant (Setting.bar → delegate :bar, to: :Setting)
-        // NOT: literals, chained calls, self, etc.
+        // - self (self.bar → delegate :bar, to: :self)
+        // - self.class (self.class.bar → delegate :bar, to: :class)
+        // - Class/global variable (@@var.bar, $var.bar)
+        // NOT: literals, arbitrary chained calls, etc.
         let is_delegatable_receiver = if receiver.as_instance_variable_read_node().is_some() {
             true
+        } else if receiver.as_self_node().is_some() {
+            true
+        } else if receiver.as_class_variable_read_node().is_some() {
+            true
+        } else if receiver.as_global_variable_read_node().is_some() {
+            true
         } else if let Some(recv_call) = receiver.as_call_node() {
-            // Simple receiverless method call (acts as a local variable)
-            recv_call.receiver().is_none()
+            // self.class → delegate to :class
+            if recv_call.name().as_slice() == b"class"
+                && recv_call.receiver().is_some_and(|r| r.as_self_node().is_some())
                 && recv_call.arguments().is_none()
-                && recv_call.block().is_none()
+            {
+                true
+            } else {
+                // Simple receiverless method call (acts as a local variable)
+                recv_call.receiver().is_none()
+                    && recv_call.arguments().is_none()
+                    && recv_call.block().is_none()
+            }
         } else if receiver.as_local_variable_read_node().is_some() {
             true
         } else if receiver.as_constant_read_node().is_some()

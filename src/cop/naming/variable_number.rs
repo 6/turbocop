@@ -22,21 +22,126 @@ impl Cop for VariableNumber {
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let enforced_style = config.get_str("EnforcedStyle", "normalcase");
-        let _check_method_names = config.get_bool("CheckMethodNames", true);
-        let _check_symbols = config.get_bool("CheckSymbols", true);
+        let check_method_names = config.get_bool("CheckMethodNames", true);
+        let check_symbols = config.get_bool("CheckSymbols", true);
         let allowed = config.get_string_array("AllowedIdentifiers");
-        let _allowed_patterns = config.get_string_array("AllowedPatterns");
+        let allowed_patterns = config.get_string_array("AllowedPatterns");
 
         let allowed_ids: Vec<String> = allowed.unwrap_or_else(|| {
             DEFAULT_ALLOWED.iter().map(|s| s.to_string()).collect()
         });
 
+        let allowed_pats: Vec<String> = allowed_patterns.unwrap_or_default();
+
         // Check local variable writes
         if let Some(lvar) = node.as_local_variable_write_node() {
             let name = lvar.name().as_slice();
             let name_str = std::str::from_utf8(name).unwrap_or("");
-            if !allowed_ids.iter().any(|a| a == name_str) {
-                if let Some(diag) = check_number_style(self, source, name_str, &lvar.name_loc(), enforced_style) {
+            if !is_allowed(name_str, &allowed_ids, &allowed_pats) {
+                if let Some(diag) = check_number_style(self, source, name_str, &lvar.name_loc(), enforced_style, "variable") {
+                    return vec![diag];
+                }
+            }
+        }
+
+        // Check instance variable writes
+        if let Some(ivar) = node.as_instance_variable_write_node() {
+            let name = ivar.name().as_slice();
+            let name_str = std::str::from_utf8(name).unwrap_or("");
+            // Strip leading @
+            let bare = name_str.trim_start_matches('@');
+            if !is_allowed(bare, &allowed_ids, &allowed_pats) {
+                if let Some(diag) = check_number_style(self, source, bare, &ivar.name_loc(), enforced_style, "variable") {
+                    return vec![diag];
+                }
+            }
+        }
+
+        // Check class variable writes
+        if let Some(cvar) = node.as_class_variable_write_node() {
+            let name = cvar.name().as_slice();
+            let name_str = std::str::from_utf8(name).unwrap_or("");
+            let bare = name_str.trim_start_matches('@');
+            if !is_allowed(bare, &allowed_ids, &allowed_pats) {
+                if let Some(diag) = check_number_style(self, source, bare, &cvar.name_loc(), enforced_style, "variable") {
+                    return vec![diag];
+                }
+            }
+        }
+
+        // Check global variable writes
+        if let Some(gvar) = node.as_global_variable_write_node() {
+            let name = gvar.name().as_slice();
+            let name_str = std::str::from_utf8(name).unwrap_or("");
+            let bare = name_str.trim_start_matches('$');
+            if !is_allowed(bare, &allowed_ids, &allowed_pats) {
+                if let Some(diag) = check_number_style(self, source, bare, &gvar.name_loc(), enforced_style, "variable") {
+                    return vec![diag];
+                }
+            }
+        }
+
+        // Check method names (def)
+        if check_method_names {
+            if let Some(def_node) = node.as_def_node() {
+                let name = def_node.name().as_slice();
+                let name_str = std::str::from_utf8(name).unwrap_or("");
+                if !is_allowed(name_str, &allowed_ids, &allowed_pats) {
+                    if let Some(diag) = check_number_style(self, source, name_str, &def_node.name_loc(), enforced_style, "method name") {
+                        return vec![diag];
+                    }
+                }
+            }
+        }
+
+        // Check symbols
+        if check_symbols {
+            if let Some(sym) = node.as_symbol_node() {
+                let name = sym.unescaped();
+                let name_str = std::str::from_utf8(&name).unwrap_or("");
+                if !is_allowed(name_str, &allowed_ids, &allowed_pats) {
+                    if let Some(diag) = check_number_style(self, source, name_str, &sym.value_loc().unwrap_or(sym.location()), enforced_style, "symbol") {
+                        return vec![diag];
+                    }
+                }
+            }
+        }
+
+        // Check method parameters
+        if let Some(param) = node.as_required_parameter_node() {
+            let name = param.name().as_slice();
+            let name_str = std::str::from_utf8(name).unwrap_or("");
+            if !is_allowed(name_str, &allowed_ids, &allowed_pats) {
+                if let Some(diag) = check_number_style(self, source, name_str, &param.location(), enforced_style, "variable") {
+                    return vec![diag];
+                }
+            }
+        }
+        if let Some(param) = node.as_optional_parameter_node() {
+            let name = param.name().as_slice();
+            let name_str = std::str::from_utf8(name).unwrap_or("");
+            if !is_allowed(name_str, &allowed_ids, &allowed_pats) {
+                if let Some(diag) = check_number_style(self, source, name_str, &param.name_loc(), enforced_style, "variable") {
+                    return vec![diag];
+                }
+            }
+        }
+        if let Some(param) = node.as_required_keyword_parameter_node() {
+            let name = param.name().as_slice();
+            let name_str = std::str::from_utf8(name).unwrap_or("");
+            let bare = name_str.trim_end_matches(':');
+            if !is_allowed(bare, &allowed_ids, &allowed_pats) {
+                if let Some(diag) = check_number_style(self, source, bare, &param.name_loc(), enforced_style, "variable") {
+                    return vec![diag];
+                }
+            }
+        }
+        if let Some(param) = node.as_optional_keyword_parameter_node() {
+            let name = param.name().as_slice();
+            let name_str = std::str::from_utf8(name).unwrap_or("");
+            let bare = name_str.trim_end_matches(':');
+            if !is_allowed(bare, &allowed_ids, &allowed_pats) {
+                if let Some(diag) = check_number_style(self, source, bare, &param.name_loc(), enforced_style, "variable") {
                     return vec![diag];
                 }
             }
@@ -46,16 +151,36 @@ impl Cop for VariableNumber {
     }
 }
 
+fn is_allowed(name: &str, allowed_ids: &[String], allowed_pats: &[String]) -> bool {
+    if allowed_ids.iter().any(|a| a == name) {
+        return true;
+    }
+    for pattern in allowed_pats {
+        if let Ok(re) = regex::Regex::new(pattern) {
+            if re.is_match(name) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 fn check_number_style(
     cop: &VariableNumber,
     source: &SourceFile,
     name: &str,
     loc: &ruby_prism::Location<'_>,
     enforced_style: &str,
+    identifier_type: &str,
 ) -> Option<Diagnostic> {
     // Find if name contains digits
     let has_digit = name.bytes().any(|b| b.is_ascii_digit());
     if !has_digit {
+        return None;
+    }
+
+    // Implicit params like _1, _2 are always allowed
+    if name.starts_with('_') && name[1..].bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
 
@@ -83,7 +208,7 @@ fn check_number_style(
             source,
             line,
             column,
-            format!("Use {enforced_style} for variable numbers."),
+            format!("Use {enforced_style} for {identifier_type} numbers."),
         ));
     }
 

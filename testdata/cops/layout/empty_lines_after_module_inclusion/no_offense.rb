@@ -17,9 +17,15 @@ class Simple
   include Comparable
 end
 
-# include inside a block (e.g., RSpec) should not be flagged
+# include inside a block as sole statement is not flagged
 RSpec.describe User do
   include ActiveJob::TestHelper
+end
+
+# include inside a block with empty line after is fine
+RSpec.describe User do
+  include ActiveJob::TestHelper
+
   let(:user) { create(:user) }
 end
 

@@ -1,5 +1,6 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
 pub struct LineContinuationLeadingSpace;
@@ -9,11 +10,29 @@ impl Cop for LineContinuationLeadingSpace {
         "Layout/LineContinuationLeadingSpace"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        code_map: &CodeMap,
+        config: &CopConfig,
+    ) -> Vec<Diagnostic> {
         let enforced_style = config.get_str("EnforcedStyle", "trailing");
 
+        let content = source.as_bytes();
         let lines: Vec<&[u8]> = source.lines().collect();
         let mut diagnostics = Vec::new();
+
+        // Precompute byte offset of each line start
+        let mut line_starts: Vec<usize> = Vec::with_capacity(lines.len());
+        let mut offset = 0usize;
+        for (i, line) in lines.iter().enumerate() {
+            line_starts.push(offset);
+            offset += line.len();
+            if i < lines.len() - 1 || (offset < content.len() && content[offset] == b'\n') {
+                offset += 1;
+            }
+        }
 
         for i in 0..lines.len().saturating_sub(1) {
             let line = lines[i];
@@ -25,6 +44,14 @@ impl Cop for LineContinuationLeadingSpace {
                 .map(|p| &line[..=p])
                 .unwrap_or(line);
             if !trimmed_end.ends_with(b"\\") {
+                continue;
+            }
+
+            // Skip backslashes inside heredocs (but not regular string continuations,
+            // which are the exact cases this cop inspects)
+            let backslash_pos = trimmed_end.len() - 1;
+            let backslash_offset = line_starts[i] + backslash_pos;
+            if code_map.is_heredoc(backslash_offset) {
                 continue;
             }
 

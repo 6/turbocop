@@ -34,3 +34,19 @@ describe Baz do
 
   it { expect(one).to be(1) }
 end
+
+# Nested context inherits parent lets: 4 + 2 = 6
+describe Qux do
+  let(:a) { 1 }
+  let(:b) { 2 }
+  let(:c) { 3 }
+  let(:d) { 4 }
+
+  context 'nested' do
+  ^^^^^^^^^^^^^^^^^^^ RSpec/MultipleMemoizedHelpers: Example group has too many memoized helpers [6/5]
+    let(:e) { 5 }
+    let(:f) { 6 }
+
+    it { expect(true).to be true }
+  end
+end

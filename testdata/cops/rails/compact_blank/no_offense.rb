@@ -6,9 +6,9 @@ collection.compact_blank!
 collection.select { |e| e.blank? }
 collection.reject! { |e| e.blank? }
 
-# Block parameter doesn't match receiver — not a compact_blank candidate
+# Block parameter doesn't match receiver
 arr.reject { |x| y.blank? }
 arr.select { |item| other.present? }
 
-# Multi-parameter blocks — not a compact_blank candidate
+# Mismatched hash args: first arg used, not second
 arr.reject { |a, b| a.blank? }

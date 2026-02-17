@@ -53,7 +53,9 @@ impl Cop for ClassStructure {
         let mut last_category = ElementCategory::ModuleInclusion; // start at earliest
         let mut first = true;
 
-        for stmt in stmts.body().iter() {
+        let all_stmts: Vec<_> = stmts.body().iter().collect();
+
+        for (idx, stmt) in all_stmts.iter().enumerate() {
             // Track visibility changes
             if let Some(call) = stmt.as_call_node() {
                 if call.receiver().is_none() {
@@ -82,9 +84,16 @@ impl Cop for ClassStructure {
                 }
             }
 
-            let category = categorize_statement(&stmt, current_visibility);
+            let category = categorize_statement(stmt, current_visibility);
             if category == ElementCategory::Unknown {
                 continue;
+            }
+
+            // Skip private constants (constants followed by private_constant :NAME)
+            if category == ElementCategory::Constants {
+                if is_private_constant(stmt, &all_stmts, idx) {
+                    continue;
+                }
             }
 
             if first {
@@ -129,27 +138,65 @@ fn categorize_statement(
         }
     }
 
-    // Constants
+    // Constants (only simple literal assignments, not dynamic)
     if stmt.as_constant_write_node().is_some() || stmt.as_constant_path_write_node().is_some() {
         return ElementCategory::Constants;
     }
 
-    // Method definitions
+    // Method definitions: check receiver first for class methods
     if let Some(def) = stmt.as_def_node() {
+        if def.receiver().is_some() {
+            return ElementCategory::PublicClassMethods;
+        }
         if def.name().as_slice() == b"initialize" {
             return ElementCategory::Initializer;
         }
         return current_visibility;
     }
 
-    // Singleton method definitions (class methods: `def self.foo`)
-    if let Some(def_node) = stmt.as_def_node() {
-        if def_node.receiver().is_some() {
-            return ElementCategory::PublicClassMethods;
+    ElementCategory::Unknown
+}
+
+/// Check if a constant assignment has a `private_constant :NAME` call among its siblings.
+fn is_private_constant(
+    stmt: &ruby_prism::Node<'_>,
+    all_stmts: &[ruby_prism::Node<'_>],
+    idx: usize,
+) -> bool {
+    // Get the constant name
+    let const_name = if let Some(cw) = stmt.as_constant_write_node() {
+        cw.name().as_slice().to_vec()
+    } else if let Some(cpw) = stmt.as_constant_path_write_node() {
+        // For constant path writes, get the last component
+        let target = cpw.target();
+        let bytes = target.location().as_slice();
+        // Extract just the last name after ::
+        if let Some(pos) = bytes.windows(2).rposition(|w| w == b"::") {
+            bytes[pos + 2..].to_vec()
+        } else {
+            bytes.to_vec()
+        }
+    } else {
+        return false;
+    };
+
+    // Check subsequent siblings for `private_constant :NAME`
+    for sibling in &all_stmts[idx + 1..] {
+        if let Some(call) = sibling.as_call_node() {
+            if call.receiver().is_none() && call.name().as_slice() == b"private_constant" {
+                if let Some(args) = call.arguments() {
+                    for arg in args.arguments().iter() {
+                        if let Some(sym) = arg.as_symbol_node() {
+                            if sym.unescaped() == const_name.as_slice() {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
-
-    ElementCategory::Unknown
+    false
 }
 
 #[cfg(test)]

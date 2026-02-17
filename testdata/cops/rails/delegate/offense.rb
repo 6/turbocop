@@ -32,3 +32,8 @@ def fetch(arg)
 ^^^ Rails/Delegate: Use `delegate` to define delegations.
   client.fetch(arg)
 end
+
+def label
+^^^ Rails/Delegate: Use `delegate` to define delegations.
+  self.class.label
+end

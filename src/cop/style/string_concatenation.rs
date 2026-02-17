@@ -6,7 +6,10 @@ pub struct StringConcatenation;
 
 impl StringConcatenation {
     fn is_string_literal(node: &ruby_prism::Node<'_>) -> bool {
-        node.as_string_node().is_some() || node.as_interpolated_string_node().is_some()
+        // Only match plain StringNode (str_type? in RuboCop), NOT InterpolatedStringNode (dstr).
+        // RuboCop's node matcher uses str_type? which excludes dstr, so `foo + "#{bar}"`
+        // is not flagged when neither side is a plain string literal.
+        node.as_string_node().is_some()
     }
 
     /// Check if the + call spans multiple lines (line-end concatenation)

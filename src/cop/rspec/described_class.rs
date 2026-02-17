@@ -2,6 +2,8 @@ use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
+
 /// RSpec/DescribedClass: Use `described_class` instead of referencing the class directly.
 pub struct DescribedClass;
 
@@ -18,331 +20,281 @@ impl Cop for DescribedClass {
         RSPEC_DEFAULT_INCLUDE
     }
 
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // Config: SkipBlocks — skip blocks that change scope
         let skip_blocks = config.get_bool("SkipBlocks", false);
-        // Config: EnforcedStyle — "described_class" or "explicit"
         let enforced_style = config.get_str("EnforcedStyle", "described_class");
-        // Config: OnlyStaticConstants — only flag static constant references
-        let only_static = config.get_bool("OnlyStaticConstants", true);
-
-        // "explicit" style: flag usage of `described_class`, not the constant
-        // "described_class" style (default): flag usage of the constant, prefer described_class
-
-        let program = match node.as_program_node() {
-            Some(p) => p,
-            None => return Vec::new(),
-        };
-
-        // OnlyStaticConstants: when true (default), only flag static constant references.
-        // Current implementation already handles this correctly — it only checks
-        // ConstantReadNode and ConstantPathNode. When false, would also check dynamic
-        // contexts (string interpolation, etc.) which is not yet implemented.
-        let _ = only_static;
+        let _only_static = config.get_bool("OnlyStaticConstants", true);
 
         let mut visitor = DescribedClassVisitor {
+            cop: self,
             source,
             diagnostics: Vec::new(),
             described_class_name: None,
+            described_class_short: None,
             enforced_style: enforced_style.to_string(),
             skip_blocks,
+            in_scope_change: false,
         };
-
-        for stmt in program.statements().body().iter() {
-            visitor.check_statement(&stmt);
-        }
-
+        visitor.visit(&parse_result.node());
         visitor.diagnostics
     }
 }
 
 struct DescribedClassVisitor<'a> {
+    cop: &'a DescribedClass,
     source: &'a SourceFile,
     diagnostics: Vec<Diagnostic>,
+    /// Full described class name (e.g., b"Foo::Bar")
     described_class_name: Option<Vec<u8>>,
+    /// Short (last segment) of described class name (e.g., b"Bar" for Foo::Bar)
+    described_class_short: Option<Vec<u8>>,
     enforced_style: String,
     skip_blocks: bool,
+    in_scope_change: bool,
 }
 
-impl<'a> DescribedClassVisitor<'a> {
-    fn check_statement(&mut self, node: &ruby_prism::Node<'_>) {
-        let call = match node.as_call_node() {
-            Some(c) => c,
-            None => return,
+impl DescribedClassVisitor<'_> {
+    fn set_described_class(&mut self, name: Vec<u8>) {
+        // Extract the short name (last segment after ::)
+        let short = if let Some(pos) = name.windows(2).rposition(|w| w == b"::") {
+            name[pos + 2..].to_vec()
+        } else {
+            name.clone()
         };
+        self.described_class_short = Some(short);
+        self.described_class_name = Some(name);
+    }
 
+    /// Check if this call is a top-level describe (receiver-less or RSpec.describe)
+    fn is_top_level_describe(&self, call: &ruby_prism::CallNode<'_>) -> bool {
         let name = call.name().as_slice();
         if name != b"describe" {
-            return;
+            return false;
         }
-
-        // Must be receiverless or RSpec.describe
         if let Some(recv) = call.receiver() {
-            let is_rspec = if let Some(cr) = recv.as_constant_read_node() {
-                cr.name().as_slice() == b"RSpec"
-            } else if let Some(cp) = recv.as_constant_path_node() {
-                cp.name().map_or(false, |n| n.as_slice() == b"RSpec") && cp.parent().is_none()
-            } else {
-                false
-            };
-            if !is_rspec {
-                return;
+            if let Some(cr) = recv.as_constant_read_node() {
+                return cr.name().as_slice() == b"RSpec";
             }
-        }
-
-        // Extract the described class from the first argument
-        let args = match call.arguments() {
-            Some(a) => a,
-            None => return,
-        };
-
-        let arg_list: Vec<_> = args.arguments().iter().collect();
-        if arg_list.is_empty() {
-            return;
-        }
-
-        let first_arg = &arg_list[0];
-        let class_name = extract_constant_source(self.source, first_arg);
-
-        if class_name.is_none() {
-            return; // Not a constant reference
-        }
-
-        let old = self.described_class_name.take();
-        self.described_class_name = class_name;
-
-        // Walk the block body looking for references to the described class
-        if let Some(block) = call.block() {
-            if let Some(block_node) = block.as_block_node() {
-                if let Some(body) = block_node.body() {
-                    self.walk_block_body(&body);
-                }
+            if let Some(cp) = recv.as_constant_path_node() {
+                return cp.name().map_or(false, |n| n.as_slice() == b"RSpec")
+                    && cp.parent().is_none();
             }
-        }
-
-        self.described_class_name = old;
-    }
-
-    fn walk_block_body(&mut self, node: &ruby_prism::Node<'_>) {
-        if let Some(stmts) = node.as_statements_node() {
-            for stmt in stmts.body().iter() {
-                self.check_for_class_reference(&stmt);
-            }
+            false
+        } else {
+            // Must be at top-level (no described_class set yet)
+            self.described_class_name.is_none()
         }
     }
 
-    fn check_for_class_reference(&mut self, node: &ruby_prism::Node<'_>) {
-        let class_name = match &self.described_class_name {
-            Some(n) => n.clone(),
-            None => return,
-        };
-
-        // "explicit" style: flag `described_class` usage
-        if self.enforced_style == "explicit" {
-            if let Some(call) = node.as_call_node() {
-                if call.name().as_slice() == b"described_class"
-                    && call.receiver().is_none()
-                    && call.arguments().is_none()
+    fn is_scope_change(call: &ruby_prism::CallNode<'_>) -> bool {
+        let name = call.name().as_slice();
+        if let Some(recv) = call.receiver() {
+            if let Some(cr) = recv.as_constant_read_node() {
+                let class_name = cr.name().as_slice();
+                if (class_name == b"Class"
+                    || class_name == b"Module"
+                    || class_name == b"Struct"
+                    || class_name == b"Data")
+                    && (name == b"new" || name == b"define")
                 {
-                    let loc = call.location();
-                    let (line, col) = self.source.offset_to_line_col(loc.start_offset());
-                    let class_str =
-                        std::str::from_utf8(&class_name).unwrap_or("?");
-                    self.diagnostics.push(Diagnostic {
-                        path: self.source.path_str().to_string(),
-                        location: crate::diagnostic::Location { line, column: col },
-                        severity: Severity::Convention,
-                        cop_name: "RSpec/DescribedClass".to_string(),
-                        message: format!(
-                            "Use `{class_str}` instead of `described_class`."
-                        ),
-                    });
+                    return true;
                 }
             }
         }
-
-        // Check if this is a nested describe with a class arg - recurse
-        if let Some(call) = node.as_call_node() {
-            let name = call.name().as_slice();
-            if name == b"describe" || name == b"context" {
-                if let Some(args) = call.arguments() {
-                    let arg_list: Vec<_> = args.arguments().iter().collect();
-                    if !arg_list.is_empty() {
-                        if let Some(nested_class) = extract_constant_source(self.source, &arg_list[0]) {
-                            // Nested describe with class - use that class name
-                            let old = self.described_class_name.take();
-                            self.described_class_name = Some(nested_class);
-                            if let Some(block) = call.block() {
-                                if let Some(block_node) = block.as_block_node() {
-                                    if let Some(body) = block_node.body() {
-                                        self.walk_block_body(&body);
-                                    }
-                                }
-                            }
-                            self.described_class_name = old;
-                            return;
-                        }
-                    }
-                }
-                // describe/context without class - walk body
-                if let Some(block) = call.block() {
-                    if let Some(block_node) = block.as_block_node() {
-                        if let Some(body) = block_node.body() {
-                            self.walk_block_body(&body);
-                        }
-                    }
-                }
-                return;
-            }
-
-            // Skip scope-changing methods (Class.new, Module.new, etc.)
-            if is_scope_change(&call) {
-                return;
-            }
-
-            // Skip include/extend/prepend — class references in these are intentional
-            // module inclusions, not candidates for described_class replacement
-            if (name == b"include" || name == b"extend" || name == b"prepend")
-                && call.receiver().is_none()
-            {
-                return;
-            }
-
-            // SkipBlocks: when true, don't recurse into arbitrary blocks
-            if self.skip_blocks {
-                if call.block().is_some()
-                    && name != b"it"
-                    && name != b"specify"
-                    && name != b"before"
-                    && name != b"after"
-                    && name != b"around"
-                    && name != b"let"
-                    && name != b"let!"
-                    && name != b"subject"
-                {
-                    return;
-                }
-            }
-
-            // For other calls with blocks, recurse into the block
-            if let Some(block) = call.block() {
-                if let Some(block_node) = block.as_block_node() {
-                    if let Some(body) = block_node.body() {
-                        self.walk_block_body(&body);
-                    }
-                }
-            }
-
-            // Check arguments and receiver
-            if self.enforced_style == "explicit" {
-                // In explicit mode, check if receiver is `described_class`
-                if let Some(recv) = call.receiver() {
-                    self.check_for_class_reference(&recv);
-                }
-                if let Some(args) = call.arguments() {
-                    for arg in args.arguments().iter() {
-                        self.check_for_class_reference(&arg);
-                    }
-                }
-            } else {
-                if let Some(recv) = call.receiver() {
-                    self.check_constant_ref(&recv, &class_name);
-                }
-                if let Some(args) = call.arguments() {
-                    for arg in args.arguments().iter() {
-                        self.check_constant_ref(&arg, &class_name);
-                    }
-                }
-            }
-            return;
+        if name.ends_with(b"_eval") || name.ends_with(b"_exec") {
+            return true;
         }
-
-        // Skip class/module definitions
-        if node.as_class_node().is_some() || node.as_module_node().is_some() {
-            return;
-        }
-
-        // For default (described_class) style, check constant references
-        if self.enforced_style != "explicit" {
-            self.check_constant_ref(node, &class_name);
-        }
+        false
     }
 
-    fn check_constant_ref(&mut self, node: &ruby_prism::Node<'_>, class_name: &[u8]) {
-        if let Some(cr) = node.as_constant_read_node() {
-            if cr.name().as_slice() == class_name {
-                let loc = cr.location();
-                let (line, col) = self.source.offset_to_line_col(loc.start_offset());
-                self.diagnostics.push(Diagnostic {
-                    path: self.source.path_str().to_string(),
-                    location: crate::diagnostic::Location { line, column: col },
-                    severity: Severity::Convention,
-                    cop_name: "RSpec/DescribedClass".to_string(),
-                    message: format!(
-                        "Use `described_class` instead of `{}`.",
-                        std::str::from_utf8(class_name).unwrap_or("?")
-                    ),
-                });
-            }
-        } else if let Some(cp) = node.as_constant_path_node() {
-            let full = extract_constant_source(self.source, node);
-            if let Some(full_name) = full {
-                if full_name == class_name {
-                    let loc = cp.location();
-                    let (line, col) = self.source.offset_to_line_col(loc.start_offset());
-                    self.diagnostics.push(Diagnostic {
-                        path: self.source.path_str().to_string(),
-                        location: crate::diagnostic::Location { line, column: col },
-                        severity: Severity::Convention,
-                        cop_name: "RSpec/DescribedClass".to_string(),
-                        message: format!(
-                            "Use `described_class` instead of `{}`.",
-                            std::str::from_utf8(class_name).unwrap_or("?")
-                        ),
-                    });
-                }
-            }
-        }
+    fn is_include_extend(call: &ruby_prism::CallNode<'_>) -> bool {
+        let name = call.name().as_slice();
+        (name == b"include" || name == b"extend" || name == b"prepend")
+            && call.receiver().is_none()
     }
 }
 
-fn extract_constant_source<'a>(source: &'a SourceFile, node: &ruby_prism::Node<'_>) -> Option<Vec<u8>> {
+impl<'pr> Visit<'pr> for DescribedClassVisitor<'_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        let name = node.name().as_slice();
+
+        // Skip include/extend/prepend — class references in these are intentional
+        if Self::is_include_extend(node) {
+            return;
+        }
+
+        // Handle top-level describe with a class argument
+        if self.is_top_level_describe(node) {
+            if let Some(args) = node.arguments() {
+                let arg_list: Vec<_> = args.arguments().iter().collect();
+                if !arg_list.is_empty() {
+                    if let Some(class_name) = extract_constant_source(self.source, &arg_list[0]) {
+                        let old_name = self.described_class_name.take();
+                        let old_short = self.described_class_short.take();
+                        self.set_described_class(class_name);
+                        if let Some(block) = node.block() {
+                            if let Some(bn) = block.as_block_node() {
+                                // Visit only the block body, not the arguments/receiver
+                                // (the class name in describe argument is not an offense)
+                                if let Some(body) = bn.body() {
+                                    self.visit(&body);
+                                }
+                            }
+                        }
+                        self.described_class_name = old_name;
+                        self.described_class_short = old_short;
+                        return;
+                    }
+                }
+            }
+            // No class arg — just visit normally
+            ruby_prism::visit_call_node(self, node);
+            return;
+        }
+
+        // Handle nested describe/context with class arg — change described_class
+        if (name == b"describe" || name == b"context") && self.described_class_name.is_some() {
+            if let Some(args) = node.arguments() {
+                let arg_list: Vec<_> = args.arguments().iter().collect();
+                if !arg_list.is_empty() {
+                    if let Some(nested_class) = extract_constant_source(self.source, &arg_list[0]) {
+                        let old_name = self.described_class_name.take();
+                        let old_short = self.described_class_short.take();
+                        self.set_described_class(nested_class);
+                        if let Some(block) = node.block() {
+                            if let Some(bn) = block.as_block_node() {
+                                if let Some(body) = bn.body() {
+                                    self.visit(&body);
+                                }
+                            }
+                        }
+                        self.described_class_name = old_name;
+                        self.described_class_short = old_short;
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Scope changes: don't recurse into Class.new, class_eval, etc.
+        if Self::is_scope_change(node) {
+            let was = self.in_scope_change;
+            self.in_scope_change = true;
+            ruby_prism::visit_call_node(self, node);
+            self.in_scope_change = was;
+            return;
+        }
+
+        // SkipBlocks: when true, don't recurse into arbitrary blocks
+        if self.skip_blocks && node.block().is_some() && self.described_class_name.is_some() {
+            let skip = name != b"it"
+                && name != b"specify"
+                && name != b"before"
+                && name != b"after"
+                && name != b"around"
+                && name != b"let"
+                && name != b"let!"
+                && name != b"subject"
+                && name != b"describe"
+                && name != b"context";
+            if skip {
+                return;
+            }
+        }
+
+        // "explicit" style: check for `described_class` calls
+        if self.enforced_style == "explicit"
+            && name == b"described_class"
+            && node.receiver().is_none()
+            && node.arguments().is_none()
+        {
+            if let Some(class_name) = &self.described_class_name {
+                let loc = node.location();
+                let (line, col) = self.source.offset_to_line_col(loc.start_offset());
+                let class_str = std::str::from_utf8(class_name).unwrap_or("?");
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
+                    line,
+                    col,
+                    format!("Use `{class_str}` instead of `described_class`."),
+                ));
+            }
+        }
+
+        // Default traversal — visits receiver, arguments, and block naturally.
+        // visit_constant_read_node/visit_constant_path_node will flag matching constants.
+        ruby_prism::visit_call_node(self, node);
+    }
+
+    fn visit_constant_read_node(&mut self, node: &ruby_prism::ConstantReadNode<'pr>) {
+        if self.in_scope_change || self.described_class_name.is_none() {
+            return;
+        }
+        let class_name = self.described_class_name.as_ref().unwrap().clone();
+
+        if self.enforced_style == "described_class" {
+            let name = node.name().as_slice();
+            if name == class_name.as_slice()
+                || self
+                    .described_class_short
+                    .as_ref()
+                    .is_some_and(|s| name == s.as_slice() && s != &class_name)
+            {
+                let loc = node.location();
+                let (line, col) = self.source.offset_to_line_col(loc.start_offset());
+                let class_str = std::str::from_utf8(&class_name).unwrap_or("?");
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
+                    line,
+                    col,
+                    format!("Use `described_class` instead of `{class_str}`."),
+                ));
+            }
+        }
+    }
+
+    fn visit_constant_path_node(&mut self, node: &ruby_prism::ConstantPathNode<'pr>) {
+        if self.in_scope_change || self.described_class_name.is_none() {
+            return;
+        }
+        let class_name = self.described_class_name.as_ref().unwrap().clone();
+
+        if self.enforced_style == "described_class" {
+            let loc = node.location();
+            let bytes = &self.source.as_bytes()[loc.start_offset()..loc.end_offset()];
+            if bytes == class_name.as_slice() {
+                let (line, col) = self.source.offset_to_line_col(loc.start_offset());
+                let class_str = std::str::from_utf8(&class_name).unwrap_or("?");
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
+                    line,
+                    col,
+                    format!("Use `described_class` instead of `{class_str}`."),
+                ));
+            }
+        }
+        // Don't recurse into children — the constant path is handled as a whole
+    }
+
+    // Don't descend into class/module definitions
+    fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
+    fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
+}
+
+fn extract_constant_source(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<Vec<u8>> {
     if node.as_constant_read_node().is_some() || node.as_constant_path_node().is_some() {
         let loc = node.location();
         let bytes = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
-        // Skip if starts with :: (absolute path)
         Some(bytes.to_vec())
     } else {
         None
     }
-}
-
-fn is_scope_change(call: &ruby_prism::CallNode<'_>) -> bool {
-    let name = call.name().as_slice();
-    if let Some(recv) = call.receiver() {
-        if let Some(cr) = recv.as_constant_read_node() {
-            let class_name = cr.name().as_slice();
-            if (class_name == b"Class"
-                || class_name == b"Module"
-                || class_name == b"Struct"
-                || class_name == b"Data")
-                && (name == b"new" || name == b"define")
-            {
-                return true;
-            }
-        }
-    }
-    // Also skip *_eval, *_exec methods
-    if name.ends_with(b"_eval") || name.ends_with(b"_exec") {
-        return true;
-    }
-    false
 }
 
 #[cfg(test)]
@@ -374,8 +326,6 @@ mod tests {
         use crate::cop::CopConfig;
         use std::collections::HashMap;
 
-        // OnlyStaticConstants: true (default) — flags static constant references
-        // including when used as receivers (MyClass.new is still a static ref)
         let config = CopConfig {
             options: HashMap::from([(
                 "OnlyStaticConstants".into(),
@@ -385,7 +335,11 @@ mod tests {
         };
         let source = b"describe MyClass do\n  it { MyClass.new }\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&DescribedClass, source, config);
-        assert_eq!(diags.len(), 1, "OnlyStaticConstants: true should flag static constant refs");
+        assert_eq!(
+            diags.len(),
+            1,
+            "OnlyStaticConstants: true should flag static constant refs"
+        );
     }
 
     #[test]
@@ -400,8 +354,31 @@ mod tests {
             )]),
             ..CopConfig::default()
         };
-        let source = b"describe MyClass do\n  shared_examples 'x' do\n    MyClass.new\n  end\nend\n";
+        let source =
+            b"describe MyClass do\n  shared_examples 'x' do\n    MyClass.new\n  end\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&DescribedClass, source, config);
         assert!(diags.is_empty(), "SkipBlocks should skip arbitrary blocks");
+    }
+
+    #[test]
+    fn deeply_nested_class_reference() {
+        let source = b"RSpec.describe ProblemMerge do\n  describe '#initialize' do\n    it 'creates' do\n      ProblemMerge.new(problem)\n    end\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&DescribedClass, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag ProblemMerge reference in deeply nested it block"
+        );
+    }
+
+    #[test]
+    fn class_reference_in_let_block() {
+        let source = b"RSpec.describe OutdatedProblemClearer do\n  let(:clearer) do\n    OutdatedProblemClearer.new\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&DescribedClass, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag class reference inside let block"
+        );
     }
 }

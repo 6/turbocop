@@ -46,3 +46,29 @@ RSpec::Matchers.define :have_attr do
     @stored.present?
   end
 end
+
+# Instance variable WRITES in before blocks are not flagged (only reads are)
+describe WritesInBefore do
+  before do
+    @user = create(:user)
+    @problem = create(:problem)
+  end
+
+  # These writes are fine — the cop only flags reads
+end
+
+# Instance variable writes in before(:all) / before(:context)
+describe SharedSetup do
+  before(:all) do
+    @app = create(:app)
+    @err = create(:err)
+  end
+end
+
+# Instance variable writes directly in example group are not flagged
+describe DirectWrites do
+  before { @foo = [] }
+  before { @bar ||= compute }
+  before { @count += 1 }
+  before { @flag &&= false }
+end

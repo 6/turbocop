@@ -1,5 +1,6 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
 pub struct LineContinuationSpacing;
@@ -9,11 +10,29 @@ impl Cop for LineContinuationSpacing {
         "Layout/LineContinuationSpacing"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        code_map: &CodeMap,
+        config: &CopConfig,
+    ) -> Vec<Diagnostic> {
         let style = config.get_str("EnforcedStyle", "space");
 
+        let content = source.as_bytes();
         let lines: Vec<&[u8]> = source.lines().collect();
         let mut diagnostics = Vec::new();
+
+        // Precompute byte offset of each line start
+        let mut line_starts: Vec<usize> = Vec::with_capacity(lines.len());
+        let mut offset = 0usize;
+        for (i, line) in lines.iter().enumerate() {
+            line_starts.push(offset);
+            offset += line.len();
+            if i < lines.len() - 1 || (offset < content.len() && content[offset] == b'\n') {
+                offset += 1;
+            }
+        }
 
         for (i, &line) in lines.iter().enumerate() {
             // Strip trailing \r
@@ -28,6 +47,12 @@ impl Cop for LineContinuationSpacing {
             }
 
             let backslash_pos = trimmed_end.len() - 1;
+
+            // Skip backslashes inside heredocs/strings
+            let backslash_offset = line_starts[i] + backslash_pos;
+            if !code_map.is_code(backslash_offset) {
+                continue;
+            }
 
             match style {
                 "space" => {

@@ -15,3 +15,9 @@ class Order < ApplicationRecord
   validates :customer, presence: true
   ^^^^^^^^^ Rails/RedundantPresenceValidationOnBelongsTo: Remove explicit `presence` validation for `customer` `belongs_to` association (validated by default since Rails 5).
 end
+
+class Err
+  belongs_to :problem
+  validates :problem_id, :fingerprint, presence: true
+  ^^^^^^^^^ Rails/RedundantPresenceValidationOnBelongsTo: Remove explicit `presence` validation for `problem_id` `belongs_to` association (validated by default since Rails 5).
+end

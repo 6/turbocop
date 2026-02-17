@@ -4,3 +4,5 @@
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/TimesMap: Use `Array.new` with a block instead of `times.map`.
 n.times.map { |i| create(i) }
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/TimesMap: Use `Array.new` with a block instead of `times.map`.
+3.times.collect { |i| i + 1 }
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/TimesMap: Use `Array.new` with a block instead of `times.collect`.

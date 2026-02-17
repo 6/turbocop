@@ -166,9 +166,23 @@ impl<'pr> Visit<'pr> for InclusionVisitor<'_> {
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
         let was = self.in_block_or_send;
-        self.in_block_or_send = true;
-        // Visit all children within the block
+        // In RuboCop, `return if node.parent&.type?(:send, :any_block, :array)`.
+        // This only skips when the include's *direct parent* is a block.
+        // In Prism, when a block body has multiple statements, they are children
+        // of a StatementsNode, so the include's parent is NOT the block.
+        // Only set in_block_or_send for single-statement block bodies.
+        // For multi-statement bodies, RESET to false so nested includes are checked.
         if let Some(body) = node.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                if stmts.body().len() <= 1 {
+                    // Single statement: include's parent would be the block in RuboCop
+                    self.in_block_or_send = true;
+                } else {
+                    // Multiple statements: include's parent is begin/StatementsNode
+                    // Reset flag so nested includes at this level are checked
+                    self.in_block_or_send = false;
+                }
+            }
             self.visit(&body);
         }
         if let Some(params) = node.parameters() {
@@ -179,8 +193,15 @@ impl<'pr> Visit<'pr> for InclusionVisitor<'_> {
 
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
         let was = self.in_block_or_send;
-        self.in_block_or_send = true;
+        // Same logic as block_node: only set in_block_or_send for single-statement bodies
         if let Some(body) = node.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                if stmts.body().len() <= 1 {
+                    self.in_block_or_send = true;
+                } else {
+                    self.in_block_or_send = false;
+                }
+            }
             self.visit(&body);
         }
         if let Some(params) = node.parameters() {

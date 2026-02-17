@@ -9,6 +9,39 @@ const FILE_METHODS: &[&[u8]] = &[
     b"read", b"write", b"binread", b"binwrite", b"readlines",
     b"exist?", b"exists?", b"directory?", b"file?",
     b"empty?", b"size", b"delete", b"unlink",
+    b"open", b"expand_path", b"realpath", b"realdirpath",
+    b"basename", b"dirname", b"extname", b"join",
+    b"stat", b"lstat", b"ftype", b"atime", b"ctime", b"mtime",
+    b"readable?", b"writable?", b"executable?",
+    b"symlink?", b"pipe?", b"socket?",
+    b"zero?", b"size?", b"owned?", b"grpowned?",
+    b"chmod", b"chown", b"truncate", b"rename", b"split",
+    b"fnmatch", b"fnmatch?",
+    b"blockdev?", b"chardev?", b"setuid?", b"setgid?", b"sticky?",
+    b"readable_real?", b"writable_real?", b"executable_real?",
+    b"world_readable?", b"world_writable?",
+    b"readlink", b"sysopen", b"birthtime",
+    b"lchmod", b"lchown", b"utime",
+];
+
+const DIR_METHODS: &[&[u8]] = &[
+    b"glob", b"[]", b"exist?", b"exists?", b"mkdir", b"rmdir",
+    b"children", b"each_child", b"entries", b"empty?",
+    b"open", b"delete", b"unlink",
+];
+
+const FILE_TEST_METHODS: &[&[u8]] = &[
+    b"blockdev?", b"chardev?", b"directory?", b"empty?",
+    b"executable?", b"executable_real?", b"exist?", b"file?",
+    b"grpowned?", b"owned?", b"pipe?", b"readable?",
+    b"readable_real?", b"setgid?", b"setuid?", b"size", b"size?",
+    b"socket?", b"sticky?", b"symlink?",
+    b"world_readable?", b"world_writable?",
+    b"writable?", b"writable_real?", b"zero?",
+];
+
+const FILE_UTILS_METHODS: &[&[u8]] = &[
+    b"chmod", b"chown", b"mkdir", b"mkpath", b"rmdir", b"rmtree",
 ];
 
 impl Cop for RootPathnameMethods {
@@ -33,51 +66,69 @@ impl Cop for RootPathnameMethods {
         };
 
         let method_name = call.name().as_slice();
-        if !FILE_METHODS.contains(&method_name) {
-            return Vec::new();
-        }
 
-        // Receiver must be constant `File`
+        // Receiver must be a known constant (File, Dir, FileTest, FileUtils, IO)
         let recv = match call.receiver() {
             Some(r) => r,
             None => return Vec::new(),
         };
-        // Handle both ConstantReadNode (File) and ConstantPathNode (::File)
-        if util::constant_name(&recv) != Some(b"File") {
+
+        let recv_name = util::constant_name(&recv);
+        let is_relevant = match recv_name {
+            Some(b"File") | Some(b"IO") => FILE_METHODS.contains(&method_name),
+            Some(b"Dir") => DIR_METHODS.contains(&method_name),
+            Some(b"FileTest") => FILE_TEST_METHODS.contains(&method_name),
+            Some(b"FileUtils") => FILE_UTILS_METHODS.contains(&method_name),
+            _ => false,
+        };
+
+        if !is_relevant {
             return Vec::new();
         }
 
-        // First argument should contain a .join call (Rails.root.join(...))
+        // First argument should be a Rails.root pathname:
+        // Either `Rails.root.join(...)` or `Rails.root` directly
         let args = match call.arguments() {
             Some(a) => a,
             None => return Vec::new(),
         };
-        let first_arg: Vec<_> = args.arguments().iter().collect();
-        if first_arg.is_empty() {
+        let arg_list: Vec<_> = args.arguments().iter().collect();
+        if arg_list.is_empty() {
             return Vec::new();
         }
 
-        let arg_call = match first_arg[0].as_call_node() {
-            Some(c) => c,
-            None => return Vec::new(),
-        };
-        if arg_call.name().as_slice() != b"join" {
-            return Vec::new();
+        let first_arg = &arg_list[0];
+
+        // Check if first arg is Rails.root directly
+        if is_rails_root_node(first_arg) {
+            let method_str = std::str::from_utf8(method_name).unwrap_or("method");
+            let recv_str = std::str::from_utf8(recv_name.unwrap_or(b"File")).unwrap_or("File");
+            let loc = node.location();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            return vec![self.diagnostic(
+                source,
+                line,
+                column,
+                format!("`Rails.root` is a `Pathname`, so you can use `Rails.root.{method_str}` instead of `{recv_str}.{method_str}(Rails.root, ...)`.",),
+            )];
         }
 
-        // The receiver of .join must be Rails.root (not File.join or anything else)
-        if !is_rails_root(arg_call.receiver()) {
-            return Vec::new();
+        // Check if first arg is Rails.root.join(...)
+        if let Some(arg_call) = first_arg.as_call_node() {
+            if arg_call.name().as_slice() == b"join" && is_rails_root(arg_call.receiver()) {
+                let method_str = std::str::from_utf8(method_name).unwrap_or("method");
+                let loc = node.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    format!("`Rails.root` is a `Pathname`, so you can use `Rails.root.join(...).{method_str}` instead.",),
+                )];
+            }
         }
 
-        let loc = node.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
-            source,
-            line,
-            column,
-            "Use `Rails.root.join(...).read` instead of `File.read(Rails.root.join(...))`.".to_string(),
-        )]
+        Vec::new()
     }
 }
 
@@ -87,6 +138,10 @@ fn is_rails_root(node: Option<ruby_prism::Node<'_>>) -> bool {
         Some(n) => n,
         None => return false,
     };
+    is_rails_root_node(&node)
+}
+
+fn is_rails_root_node(node: &ruby_prism::Node<'_>) -> bool {
     let call = match node.as_call_node() {
         Some(c) => c,
         None => return false,

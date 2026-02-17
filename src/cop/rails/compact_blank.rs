@@ -4,6 +4,19 @@ use crate::parse::source::SourceFile;
 
 pub struct CompactBlank;
 
+/// Destructive methods map to `compact_blank!`, non-destructive to `compact_blank`.
+fn is_destructive(method_name: &[u8]) -> bool {
+    method_name == b"delete_if" || method_name == b"keep_if"
+}
+
+fn preferred_method(method_name: &[u8]) -> &'static str {
+    if is_destructive(method_name) {
+        "compact_blank!"
+    } else {
+        "compact_blank"
+    }
+}
+
 impl Cop for CompactBlank {
     fn name(&self) -> &'static str {
         "Rails/CompactBlank"
@@ -27,26 +40,52 @@ impl Cop for CompactBlank {
 
         let method_name = call.name().as_slice();
 
-        // Must be .reject or .select with a block
-        let (expected_predicate, msg_fragment) = if method_name == b"reject" {
-            (b"blank?" as &[u8], "reject { |e| e.blank? }")
-        } else if method_name == b"select" {
-            (b"present?" as &[u8], "select { |e| e.present? }")
-        } else {
-            return Vec::new();
+        // Expected predicate for each method family:
+        // reject/delete_if → blank?
+        // select/filter/keep_if → present?
+        let expected_predicate: &[u8] = match method_name {
+            b"reject" | b"delete_if" => b"blank?",
+            b"select" | b"filter" | b"keep_if" => b"present?",
+            _ => return Vec::new(),
         };
 
-        // Must have a block
+        // Must have a receiver
+        if call.receiver().is_none() {
+            return Vec::new();
+        }
+
+        // Must have a block (either block-pass &:blank? or { |e| e.blank? })
         let block = match call.block() {
             Some(b) => b,
             None => return Vec::new(),
         };
+
+        // Check for block-pass form: reject(&:blank?), select(&:present?)
+        if let Some(block_arg) = block.as_block_argument_node() {
+            if let Some(expr) = block_arg.expression() {
+                if let Some(sym) = expr.as_symbol_node() {
+                    let unescaped = sym.unescaped();
+                    if &*unescaped == expected_predicate {
+                        let loc = node.location();
+                        let (line, column) = source.offset_to_line_col(loc.start_offset());
+                        return vec![self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            format!("Use `{}` instead.", preferred_method(method_name)),
+                        )];
+                    }
+                }
+            }
+            return Vec::new();
+        }
+
+        // Check for block form: reject { |e| e.blank? } or reject { |_k, v| v.blank? }
         let block_node = match block.as_block_node() {
             Some(b) => b,
             None => return Vec::new(),
         };
 
-        // Block should have exactly one simple (non-destructured) parameter
         let params = match block_node.parameters() {
             Some(p) => p,
             None => return Vec::new(),
@@ -60,14 +99,25 @@ impl Cop for CompactBlank {
             None => return Vec::new(),
         };
         let requireds: Vec<_> = param_list.requireds().iter().collect();
-        if requireds.len() != 1 {
-            return Vec::new();
-        }
-        let param_node = match requireds[0].as_required_parameter_node() {
-            Some(p) => p,
-            None => return Vec::new(), // Destructured params won't match
+
+        // Single arg: reject { |e| e.blank? }
+        // Two args (hash form): reject { |_k, v| v.blank? }
+        let check_param_name = match requireds.len() {
+            1 => {
+                match requireds[0].as_required_parameter_node() {
+                    Some(p) => p.name().as_slice().to_vec(),
+                    None => return Vec::new(),
+                }
+            }
+            2 => {
+                // Hash form: the SECOND argument is the value
+                match requireds[1].as_required_parameter_node() {
+                    Some(p) => p.name().as_slice().to_vec(),
+                    None => return Vec::new(),
+                }
+            }
+            _ => return Vec::new(),
         };
-        let param_name = param_node.name().as_slice();
 
         // Block body should be a single call to .blank? or .present?
         let body = match block_node.body() {
@@ -94,7 +144,7 @@ impl Cop for CompactBlank {
             return Vec::new();
         }
 
-        // The receiver of .blank?/.present? must be the block parameter
+        // The receiver of .blank?/.present? must be the relevant block parameter
         let recv = match body_call.receiver() {
             Some(r) => r,
             None => return Vec::new(),
@@ -103,7 +153,7 @@ impl Cop for CompactBlank {
             Some(lv) => lv,
             None => return Vec::new(),
         };
-        if recv_lvar.name().as_slice() != param_name {
+        if recv_lvar.name().as_slice() != check_param_name.as_slice() {
             return Vec::new();
         }
 
@@ -113,7 +163,7 @@ impl Cop for CompactBlank {
             source,
             line,
             column,
-            format!("Use `compact_blank` instead of `{msg_fragment}`."),
+            format!("Use `{}` instead.", preferred_method(method_name)),
         )]
     }
 }

@@ -1,5 +1,6 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
 pub struct LineEndStringConcatenationIndentation;
@@ -9,12 +10,29 @@ impl Cop for LineEndStringConcatenationIndentation {
         "Layout/LineEndStringConcatenationIndentation"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        code_map: &CodeMap,
+        config: &CopConfig,
+    ) -> Vec<Diagnostic> {
         let style = config.get_str("EnforcedStyle", "aligned");
-        let _indent_width = config.get_usize("IndentationWidth", 2);
 
+        let content = source.as_bytes();
         let lines: Vec<&[u8]> = source.lines().collect();
         let mut diagnostics = Vec::new();
+
+        // Precompute byte offset of each line start
+        let mut line_starts: Vec<usize> = Vec::with_capacity(lines.len());
+        let mut offset = 0usize;
+        for (i, line) in lines.iter().enumerate() {
+            line_starts.push(offset);
+            offset += line.len();
+            if i < lines.len() - 1 || (offset < content.len() && content[offset] == b'\n') {
+                offset += 1;
+            }
+        }
 
         for i in 0..lines.len().saturating_sub(1) {
             let line = lines[i];
@@ -30,8 +48,18 @@ impl Cop for LineEndStringConcatenationIndentation {
                 continue;
             }
 
+            // Skip if the backslash is inside a heredoc body.
+            // We use is_heredoc rather than !is_code because Prism treats
+            // implicit string concatenation ('hello' \ 'world') as a single
+            // string node, so is_code would incorrectly skip real offenses.
+            let backslash_offset = line_starts[i] + trimmed_end.len() - 1;
+            if code_map.is_heredoc(backslash_offset) {
+                continue;
+            }
+
             let before_backslash = &trimmed_end[..trimmed_end.len() - 1];
-            let before_trimmed = before_backslash.iter()
+            let before_trimmed = before_backslash
+                .iter()
                 .rposition(|&b| b != b' ' && b != b'\t')
                 .map(|p| &before_backslash[..=p])
                 .unwrap_or(before_backslash);

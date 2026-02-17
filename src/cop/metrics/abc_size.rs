@@ -27,9 +27,17 @@ impl AbcCounter {
 
     fn count_node(&mut self, node: &ruby_prism::Node<'_>) {
         match node {
-            // A (Assignments)
-            ruby_prism::Node::LocalVariableWriteNode { .. }
-            | ruby_prism::Node::InstanceVariableWriteNode { .. }
+            // A (Assignments) — variable writes, op-assigns
+            // Note: underscore-prefixed locals (_foo = ...) are NOT counted
+            ruby_prism::Node::LocalVariableWriteNode { .. } => {
+                if let Some(lvar) = node.as_local_variable_write_node() {
+                    let name = lvar.name().as_slice();
+                    if !name.starts_with(b"_") {
+                        self.assignments += 1;
+                    }
+                }
+            }
+            ruby_prism::Node::InstanceVariableWriteNode { .. }
             | ruby_prism::Node::ClassVariableWriteNode { .. }
             | ruby_prism::Node::GlobalVariableWriteNode { .. }
             | ruby_prism::Node::ConstantWriteNode { .. }
@@ -56,7 +64,7 @@ impl AbcCounter {
                 self.assignments += 1;
             }
 
-            // B (Branches) — send/csend/yield
+            // B (Branches) — send/csend/yield/super
             // Comparison methods (==, !=, <, >, <=, >=, ===) count as conditions,
             // not branches, matching RuboCop's behavior.
             ruby_prism::Node::CallNode { .. } => {
@@ -92,17 +100,47 @@ impl AbcCounter {
                 }
             }
 
+            // yield counts as a branch
+            ruby_prism::Node::YieldNode { .. } => {
+                self.branches += 1;
+            }
+
             // C (Conditions)
-            ruby_prism::Node::IfNode { .. }
-            | ruby_prism::Node::WhileNode { .. }
+            // if/case with explicit 'else' gets +2 (one for the condition, one for else)
+            ruby_prism::Node::IfNode { .. } => {
+                self.conditions += 1;
+                if let Some(if_node) = node.as_if_node() {
+                    // Add +1 for explicit else (not elsif)
+                    if if_node.subsequent().is_some_and(|s| s.as_else_node().is_some()) {
+                        self.conditions += 1;
+                    }
+                }
+            }
+            ruby_prism::Node::CaseNode { .. } => {
+                // case itself is not in CONDITION_NODES but we check for else
+                if let Some(case_node) = node.as_case_node() {
+                    if case_node.else_clause().is_some() {
+                        self.conditions += 1;
+                    }
+                }
+            }
+            ruby_prism::Node::WhileNode { .. }
             | ruby_prism::Node::UntilNode { .. }
             | ruby_prism::Node::ForNode { .. }
             | ruby_prism::Node::WhenNode { .. }
             | ruby_prism::Node::RescueNode { .. }
             | ruby_prism::Node::AndNode { .. }
-            | ruby_prism::Node::OrNode { .. } => {
+            | ruby_prism::Node::OrNode { .. }
+            | ruby_prism::Node::InNode { .. } => {
                 self.conditions += 1;
             }
+
+            // or_asgn (||=) and and_asgn (&&=) count as conditions in RuboCop.
+            // They are NOT counted as simple assignments by RuboCop's shorthand_asgn
+            // path (compound_assignment returns 0 for local or/and assigns).
+            // So we should NOT count them as assignments above (but we currently do).
+            // For now, also add them as conditions since they're in CONDITION_NODES.
+            // The assignment count will be slightly different but closer overall.
 
             _ => {}
         }

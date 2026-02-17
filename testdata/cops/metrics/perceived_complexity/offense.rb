@@ -50,26 +50,30 @@ def looping_method(x)
   end
 end
 
-def case_method(x)
-^^^ Metrics/PerceivedComplexity: Perceived complexity for case_method is too high. [10/8]
-  case x
-  when 1
-    :one
-  when 2
-    :two
-  when 3
-    :three
-  when 4
-    :four
-  when 5
-    :five
-  when 6
-    :six
-  when 7
-    :seven
-  when 8
-    :eight
-  when 9
-    :nine
+def many_ifs_method(x)
+^^^ Metrics/PerceivedComplexity: Perceived complexity for many_ifs_method is too high. [9/8]
+  if x == 1
+    1
+  end
+  if x == 2
+    2
+  end
+  if x == 3
+    3
+  end
+  if x == 4
+    4
+  end
+  if x == 5
+    5
+  end
+  if x == 6
+    6
+  end
+  if x == 7
+    7
+  end
+  if x == 8
+    8
   end
 end

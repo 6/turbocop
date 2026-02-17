@@ -11,6 +11,9 @@ pub struct CodeMap {
     /// regions ONLY (excludes comments). Used by cops that inspect comments but
     /// need to skip string content (e.g. Layout/EmptyComment, Lint/TripleQuotes).
     string_ranges: Vec<(usize, usize)>,
+    /// Sorted, non-overlapping (start, end) byte ranges of heredoc content only.
+    /// Used by cops that need to distinguish heredoc content from regular strings.
+    heredoc_ranges: Vec<(usize, usize)>,
 }
 
 impl CodeMap {
@@ -21,16 +24,22 @@ impl CodeMap {
         parse_result: &ruby_prism::ParseResult<'_>,
     ) -> Self {
         let mut string_ranges = Vec::new();
+        let mut heredoc_ranges = Vec::new();
 
         // Walk AST to collect string/regex/symbol ranges
         let mut collector = NonCodeCollector {
             ranges: &mut string_ranges,
+            heredoc_ranges: &mut heredoc_ranges,
         };
         collector.visit(&parse_result.node());
 
         // Sort and merge string ranges
         string_ranges.sort_unstable();
         let string_ranges = merge_ranges(string_ranges);
+
+        // Sort and merge heredoc ranges
+        heredoc_ranges.sort_unstable();
+        let heredoc_ranges = merge_ranges(heredoc_ranges);
 
         // Full non-code ranges include comments + strings
         let mut ranges = string_ranges.clone();
@@ -44,6 +53,7 @@ impl CodeMap {
         CodeMap {
             ranges,
             string_ranges,
+            heredoc_ranges,
         }
     }
 
@@ -58,6 +68,11 @@ impl CodeMap {
     /// that inspect comment content but need to skip string/heredoc regions.
     pub fn is_not_string(&self, offset: usize) -> bool {
         !Self::in_ranges(&self.string_ranges, offset)
+    }
+
+    /// Returns true if the given byte offset is inside a heredoc body.
+    pub fn is_heredoc(&self, offset: usize) -> bool {
+        Self::in_ranges(&self.heredoc_ranges, offset)
     }
 
     fn in_ranges(ranges: &[(usize, usize)], offset: usize) -> bool {
@@ -77,6 +92,7 @@ impl CodeMap {
 
 struct NonCodeCollector<'a> {
     ranges: &'a mut Vec<(usize, usize)>,
+    heredoc_ranges: &'a mut Vec<(usize, usize)>,
 }
 
 impl<'pr> Visit<'pr> for NonCodeCollector<'_> {
@@ -104,9 +120,13 @@ impl NonCodeCollector<'_> {
                     if open.as_slice().starts_with(b"<<") {
                         let content_loc = sn.content_loc();
                         if let Some(close) = sn.closing_loc() {
-                            self.ranges.push((content_loc.start_offset(), close.end_offset()));
+                            let range = (content_loc.start_offset(), close.end_offset());
+                            self.ranges.push(range);
+                            self.heredoc_ranges.push(range);
                         } else {
-                            self.ranges.push((content_loc.start_offset(), content_loc.end_offset()));
+                            let range = (content_loc.start_offset(), content_loc.end_offset());
+                            self.ranges.push(range);
+                            self.heredoc_ranges.push(range);
                         }
                     }
                 }
@@ -122,10 +142,14 @@ impl NonCodeCollector<'_> {
                         if !parts.is_empty() {
                             let first_start = parts.iter().next().unwrap().location().start_offset();
                             if let Some(close) = isn.closing_loc() {
-                                self.ranges.push((first_start, close.end_offset()));
+                                let range = (first_start, close.end_offset());
+                                self.ranges.push(range);
+                                self.heredoc_ranges.push(range);
                             } else {
                                 let last = parts.iter().last().unwrap();
-                                self.ranges.push((first_start, last.location().end_offset()));
+                                let range = (first_start, last.location().end_offset());
+                                self.ranges.push(range);
+                                self.heredoc_ranges.push(range);
                             }
                         }
                     }

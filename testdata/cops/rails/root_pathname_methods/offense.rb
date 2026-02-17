@@ -1,11 +1,14 @@
 File.read(Rails.root.join("config", "database.yml"))
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RootPathnameMethods: Use `Rails.root.join(...).read` instead of `File.read(Rails.root.join(...))`.
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RootPathnameMethods: `Rails.root` is a `Pathname`, so you can use `Rails.root.join(...).read` instead.
 
 File.exist?(Rails.root.join("tmp", "restart.txt"))
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RootPathnameMethods: Use `Rails.root.join(...).read` instead of `File.read(Rails.root.join(...))`.
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RootPathnameMethods: `Rails.root` is a `Pathname`, so you can use `Rails.root.join(...).exist?` instead.
 
 File.delete(Rails.root.join("tmp", "pids", "server.pid"))
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RootPathnameMethods: Use `Rails.root.join(...).read` instead of `File.read(Rails.root.join(...))`.
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RootPathnameMethods: `Rails.root` is a `Pathname`, so you can use `Rails.root.join(...).delete` instead.
 
-::File.read(Rails.root.join("config", "routes.rb"))
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RootPathnameMethods: Use `Rails.root.join(...).read` instead of `File.read(Rails.root.join(...))`.
+File.join(Rails.root, "config", "initializers", "action_mailer.rb")
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RootPathnameMethods: `Rails.root` is a `Pathname`, so you can use `Rails.root.join` instead of `File.join(Rails.root, ...)`.
+
+Dir.glob(Rails.root.join("db", "**", "*.rb"))
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RootPathnameMethods: `Rails.root` is a `Pathname`, so you can use `Rails.root.join(...).glob` instead.

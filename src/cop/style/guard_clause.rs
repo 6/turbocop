@@ -19,11 +19,13 @@ impl Cop for GuardClause {
     ) -> Vec<Diagnostic> {
         let min_body_length = config.get_usize("MinBodyLength", 1);
         let _allow_consecutive = config.get_bool("AllowConsecutiveConditionals", false);
+        let max_line_length = config.get_usize("MaxLineLength", 120);
         let mut visitor = GuardClauseVisitor {
             cop: self,
             source,
             diagnostics: Vec::new(),
             min_body_length,
+            max_line_length,
         };
         visitor.visit(&parse_result.node());
         visitor.diagnostics
@@ -35,6 +37,7 @@ struct GuardClauseVisitor<'a, 'src> {
     source: &'src SourceFile,
     diagnostics: Vec<Diagnostic>,
     min_body_length: usize,
+    max_line_length: usize,
 }
 
 impl GuardClauseVisitor<'_, '_> {
@@ -79,6 +82,21 @@ impl GuardClauseVisitor<'_, '_> {
             return;
         }
 
+        // Skip if condition spans multiple lines
+        let predicate = node.predicate();
+        if self.is_multiline(&predicate) {
+            return;
+        }
+
+        // Skip if condition assigns a local variable used in the if body
+        if let Some(body_stmts) = node.statements() {
+            for stmt in body_stmts.body().iter() {
+                if self.assigned_lvar_used_in_branch(&predicate, &stmt) {
+                    return;
+                }
+            }
+        }
+
         // Check min body length
         let end_offset = node
             .end_keyword_loc()
@@ -88,9 +106,20 @@ impl GuardClauseVisitor<'_, '_> {
             return;
         }
 
-        let condition_src = self.node_source(&node.predicate());
+        let condition_src = self.node_source(&predicate);
         let example = format!("return unless {}", condition_src);
         let (line, column) = self.source.offset_to_line_col(if_keyword_loc.start_offset());
+
+        // Skip if guard clause would be too long and body is trivial
+        if self.too_long_and_trivial(
+            column,
+            &example,
+            node.statements(),
+            node.subsequent().is_some(),
+        ) {
+            return;
+        }
+
         self.diagnostics.push(self.cop.diagnostic(
             self.source,
             line,
@@ -116,6 +145,21 @@ impl GuardClauseVisitor<'_, '_> {
             return;
         }
 
+        // Skip if condition spans multiple lines
+        let predicate = node.predicate();
+        if self.is_multiline(&predicate) {
+            return;
+        }
+
+        // Skip if condition assigns a local variable used in the body
+        if let Some(body_stmts) = node.statements() {
+            for stmt in body_stmts.body().iter() {
+                if self.assigned_lvar_used_in_branch(&predicate, &stmt) {
+                    return;
+                }
+            }
+        }
+
         // Check min body length
         let end_offset = node
             .end_keyword_loc()
@@ -125,9 +169,20 @@ impl GuardClauseVisitor<'_, '_> {
             return;
         }
 
-        let condition_src = self.node_source(&node.predicate());
+        let condition_src = self.node_source(&predicate);
         let example = format!("return if {}", condition_src);
         let (line, column) = self.source.offset_to_line_col(keyword_loc.start_offset());
+
+        // Skip if guard clause would be too long and body is trivial
+        if self.too_long_and_trivial(
+            column,
+            &example,
+            node.statements(),
+            node.else_clause().is_some(),
+        ) {
+            return;
+        }
+
         self.diagnostics.push(self.cop.diagnostic(
             self.source,
             line,
@@ -137,6 +192,67 @@ impl GuardClauseVisitor<'_, '_> {
                 example
             ),
         ));
+    }
+
+    /// Check if a node spans multiple lines.
+    fn is_multiline(&self, node: &ruby_prism::Node<'_>) -> bool {
+        let loc = node.location();
+        let (start_line, _) = self.source.offset_to_line_col(loc.start_offset());
+        let (end_line, _) = self.source.offset_to_line_col(loc.end_offset());
+        end_line > start_line
+    }
+
+    /// Check if the condition contains local variable assignments that are used
+    /// in the if body. RuboCop skips guard clause suggestions in this case because
+    /// the assignment is meaningful -- the assigned value is used in the body.
+    fn assigned_lvar_used_in_branch(
+        &self,
+        condition: &ruby_prism::Node<'_>,
+        body: &ruby_prism::Node<'_>,
+    ) -> bool {
+        let assigned_names = collect_lvar_write_names(condition);
+        if assigned_names.is_empty() {
+            return false;
+        }
+        let used_names = collect_lvar_read_names(body);
+        assigned_names.iter().any(|name| used_names.contains(name))
+    }
+
+    /// Check if the guard clause would exceed max line length AND the body is trivial.
+    /// "Trivial" means a single-branch if/unless with a body that is not itself an
+    /// if/unless or begin block. In this case, RuboCop skips the offense.
+    fn too_long_and_trivial(
+        &self,
+        column: usize,
+        example: &str,
+        statements: Option<ruby_prism::StatementsNode<'_>>,
+        has_else: bool,
+    ) -> bool {
+        let total_len = column + example.len();
+        if total_len <= self.max_line_length {
+            return false;
+        }
+        // Too long -- check if body is trivial
+        if has_else {
+            return false;
+        }
+        let stmts = match statements {
+            Some(s) => s,
+            None => return true, // empty body is trivial
+        };
+        let body_nodes: Vec<_> = stmts.body().iter().collect();
+        if body_nodes.len() != 1 {
+            return false;
+        }
+        let single = &body_nodes[0];
+        // Not trivial if the body is itself an if/unless or begin
+        if single.as_if_node().is_some()
+            || single.as_unless_node().is_some()
+            || single.as_begin_node().is_some()
+        {
+            return false;
+        }
+        true
     }
 
     fn meets_min_body_length(&self, start_offset: usize, end_offset: usize) -> bool {
@@ -157,6 +273,49 @@ impl GuardClauseVisitor<'_, '_> {
         let bytes = &self.source.as_bytes()[loc.start_offset()..loc.end_offset()];
         String::from_utf8_lossy(bytes).to_string()
     }
+}
+
+/// Visitor to collect local variable write names from a node tree.
+struct LvarWriteCollector {
+    names: Vec<Vec<u8>>,
+}
+
+impl<'pr> Visit<'pr> for LvarWriteCollector {
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
+        self.names.push(node.name().as_slice().to_vec());
+        ruby_prism::visit_local_variable_write_node(self, node);
+    }
+
+    fn visit_local_variable_target_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableTargetNode<'pr>,
+    ) {
+        // Multi-assignment targets: (var, obj = ...)
+        self.names.push(node.name().as_slice().to_vec());
+    }
+}
+
+/// Visitor to collect local variable read names from a node tree.
+struct LvarReadCollector {
+    names: Vec<Vec<u8>>,
+}
+
+impl<'pr> Visit<'pr> for LvarReadCollector {
+    fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
+        self.names.push(node.name().as_slice().to_vec());
+    }
+}
+
+fn collect_lvar_write_names(node: &ruby_prism::Node<'_>) -> Vec<Vec<u8>> {
+    let mut collector = LvarWriteCollector { names: Vec::new() };
+    collector.visit(node);
+    collector.names
+}
+
+fn collect_lvar_read_names(node: &ruby_prism::Node<'_>) -> Vec<Vec<u8>> {
+    let mut collector = LvarReadCollector { names: Vec::new() };
+    collector.visit(node);
+    collector.names
 }
 
 impl<'pr> Visit<'pr> for GuardClauseVisitor<'_, '_> {

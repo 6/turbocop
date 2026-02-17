@@ -73,7 +73,23 @@ impl Cop for UselessSetterCall {
             None => return Vec::new(),
         };
 
-        let var_name = std::str::from_utf8(lv.name().as_slice()).unwrap_or("var");
+        let var_name_bytes = lv.name().as_slice();
+        let var_name = std::str::from_utf8(var_name_bytes).unwrap_or("var");
+
+        // Don't flag setter calls on method parameters — the object
+        // persists after the method returns, so the setter has real effect.
+        if let Some(params) = def_node.parameters() {
+            let is_param = params.requireds().iter().any(|p| {
+                p.as_required_parameter_node()
+                    .is_some_and(|rp| rp.name().as_slice() == var_name_bytes)
+            }) || params.optionals().iter().any(|p| {
+                p.as_optional_parameter_node()
+                    .is_some_and(|op| op.name().as_slice() == var_name_bytes)
+            });
+            if is_param {
+                return Vec::new();
+            }
+        }
 
         let loc = last_expr.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());

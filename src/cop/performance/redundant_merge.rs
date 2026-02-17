@@ -83,6 +83,32 @@ impl Cop for RedundantMerge {
         // Don't flag if the return value of merge! appears to be used.
         // merge! returns the hash, while []= returns the assigned value —
         // they're not interchangeable when the result is used.
+        //
+        // Check if the merge! call is the RHS of an assignment.
+        // The linter visits each node; we check if the call's source starts
+        // after an `=` on the same line (indicating it's an assignment RHS).
+        let call_start = call.location().start_offset();
+        let call_line_start = {
+            let mut pos = call_start;
+            while pos > 0 && source.as_bytes()[pos - 1] != b'\n' {
+                pos -= 1;
+            }
+            pos
+        };
+        let before_call = &source.as_bytes()[call_line_start..call_start];
+        // Check for assignment operator before the merge! call.
+        // Match `x = merge!` but not `==`, `!=`, `>=`, `<=`.
+        for i in 0..before_call.len() {
+            if before_call[i] == b'=' {
+                // Make sure it's not ==, !=, >=, <=
+                let prev = if i > 0 { before_call[i - 1] } else { 0 };
+                let next = if i + 1 < before_call.len() { before_call[i + 1] } else { 0 };
+                if prev != b'=' && prev != b'!' && prev != b'>' && prev != b'<' && next != b'=' {
+                    return Vec::new();
+                }
+            }
+        }
+
         let call_end = call.location().end_offset();
         let bytes = source.as_bytes();
         let mut pos = call_end;

@@ -5,6 +5,23 @@ use crate::parse::source::SourceFile;
 
 pub struct FilePath;
 
+/// Check if a node is `Rails.root` or `::Rails.root`.
+fn is_rails_root(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(call) = node.as_call_node() {
+        if call.name().as_slice() == b"root" {
+            if let Some(recv) = call.receiver() {
+                return util::constant_name(&recv) == Some(b"Rails");
+            }
+        }
+    }
+    false
+}
+
+/// Check if a node is or contains Rails.root (shallow check for common patterns).
+fn contains_rails_root(node: &ruby_prism::Node<'_>) -> bool {
+    is_rails_root(node)
+}
+
 impl Cop for FilePath {
     fn name(&self) -> &'static str {
         "Rails/FilePath"
@@ -23,6 +40,36 @@ impl Cop for FilePath {
     ) -> Vec<Diagnostic> {
         let style = config.get_str("EnforcedStyle", "slashes");
 
+        // Check string interpolation: "#{Rails.root}/path/to"
+        if let Some(istr) = node.as_interpolated_string_node() {
+            let parts: Vec<_> = istr.parts().iter().collect();
+            for (i, part) in parts.iter().enumerate() {
+                if let Some(embedded) = part.as_embedded_statements_node() {
+                    if let Some(stmts) = embedded.statements() {
+                        let body: Vec<_> = stmts.body().iter().collect();
+                        if body.len() == 1 && contains_rails_root(&body[0]) {
+                            // Check if the next part starts with /
+                            if i + 1 < parts.len() {
+                                if let Some(str_part) = parts[i + 1].as_string_node() {
+                                    if str_part.unescaped().starts_with(b"/") {
+                                        let loc = node.location();
+                                        let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                        let msg = if style == "arguments" {
+                                            "Prefer `Rails.root.join('path', 'to').to_s`."
+                                        } else {
+                                            "Prefer `Rails.root.join('path/to').to_s`."
+                                        };
+                                        return vec![self.diagnostic(source, line, column, msg.to_string())];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return Vec::new();
+        }
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -32,11 +79,48 @@ impl Cop for FilePath {
             return Vec::new();
         }
 
-        // Receiver should be a call to `root` on `Rails`
+        // Pattern 1: File.join(Rails.root, ...) — receiver is File constant
         let recv = match call.receiver() {
             Some(r) => r,
             None => return Vec::new(),
         };
+
+        if util::constant_name(&recv) == Some(b"File") {
+            // File.join(Rails.root, ...) pattern
+            let args = match call.arguments() {
+                Some(a) => a,
+                None => return Vec::new(),
+            };
+            let arg_list: Vec<_> = args.arguments().iter().collect();
+
+            // Check if any argument contains Rails.root
+            let has_rails_root = arg_list.iter().any(|a| contains_rails_root(a));
+            if !has_rails_root {
+                return Vec::new();
+            }
+
+            // Check that no arguments are plain variables or constants
+            // (Rails.root itself is a send node, so it's fine)
+            let has_invalid_arg = arg_list.iter().any(|a| {
+                a.as_local_variable_read_node().is_some()
+                    || ((a.as_constant_read_node().is_some() || a.as_constant_path_node().is_some())
+                        && util::constant_name(a) != Some(b"Rails"))
+            });
+            if has_invalid_arg {
+                return Vec::new();
+            }
+
+            let loc = node.location();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            let msg = if style == "arguments" {
+                "Prefer `Rails.root.join('path', 'to').to_s`."
+            } else {
+                "Prefer `Rails.root.join('path/to').to_s`."
+            };
+            return vec![self.diagnostic(source, line, column, msg.to_string())];
+        }
+
+        // Pattern 2: Rails.root.join('path', 'to') — receiver is Rails.root
         let root_call = match recv.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -48,7 +132,6 @@ impl Cop for FilePath {
             Some(r) => r,
             None => return Vec::new(),
         };
-        // Handle both ConstantReadNode (Rails) and ConstantPathNode (::Rails)
         if util::constant_name(&rails_recv) != Some(b"Rails") {
             return Vec::new();
         }
@@ -79,7 +162,7 @@ impl Cop for FilePath {
                                 source,
                                 line,
                                 column,
-                                "Use `Rails.root.join('path', 'to')` with separate arguments.".to_string(),
+                                "Prefer `Rails.root.join('path', 'to').to_s`.".to_string(),
                             )];
                         }
                     }
@@ -91,11 +174,23 @@ impl Cop for FilePath {
                 if arg_list.len() < 2 {
                     return Vec::new();
                 }
+                // Skip if any arg contains multiple slashes
+                let has_multi_slash = arg_list.iter().any(|a| {
+                    if let Some(s) = a.as_string_node() {
+                        let val = s.unescaped();
+                        val.windows(2).any(|w| w == b"//")
+                    } else {
+                        false
+                    }
+                });
+                if has_multi_slash {
+                    return Vec::new();
+                }
                 vec![self.diagnostic(
                     source,
                     line,
                     column,
-                    "Use `Rails.root.join('app/models')` with a single path string.".to_string(),
+                    "Prefer `Rails.root.join('path/to')`.".to_string(),
                 )]
             }
         }
