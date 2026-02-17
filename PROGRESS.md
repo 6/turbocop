@@ -703,7 +703,7 @@ Added 55 new cops across Lint (25), Style (20), and Layout (10) departments. Foc
 - [x] 1,862 tests passing (1,770 lib + 42 integration + 50 codegen)
 - [x] All quality checks pass (config_audit, prism_pitfalls, minimum_test_coverage)
 
-## In Progress: M13b — Layout 100% + Core Expansion (597 cops)
+## Completed: M13b — Layout 100% + Core Expansion (596 cops)
 
 Completed Layout department to 100% (100/100), added Lint/MissingSuper and Rails/UniqueValidationWithoutIndex. Fixed EmptyLinesAfterModuleInclusion massive FP regression (700+ FPs across bench repos).
 
@@ -747,12 +747,26 @@ Completed Layout department to 100% (100/100), added Lint/MissingSuper and Rails
 ### M13b FP Fixes
 
 - EmptyLinesAfterModuleInclusion: Rewrote with visitor pattern to track parent context (in_block_or_send), fixing 700+ FPs across bench repos where `include` in blocks/methods/arrays was incorrectly flagged
+- RedundantLineBreak: Rewrite to respect MaxLineLength config (inherits from Layout/LineLength), -888 FP on rubocop
+- ExtraSpacing: Improve alignment detection (skip blank/comment lines, check equals-sign alignment)
+- ClosingHeredocIndentation: Rewrite with visitor pattern to track call-site indentation for heredoc arguments
+- EmptyLinesAroundArguments: Improve detection with source-level analysis
+- Style/OneClassPerFile: Modules/blocks/defs increment depth, only truly top-level defs flagged (-16 FP mastodon)
+- Lint/UnreachableLoop: Recursive search inside if/unless/case/begin-rescue for next/redo (-5 FP mastodon)
+- Lint/UselessAssignment: Handle compound assignments (+=, ||=), singleton method receivers, bare super (-10 FP rails)
+- Style/SafeNavigation: Fix FP on safe method chains
+- Lint/DeprecatedOpenSSLConstant: Add no_offense cases
+- Rails/UniqueValidationWithoutIndex: Disabled (requires schema analysis), -66 FP
 
 ### M13b Summary
 
-- [x] 597 cops registered (was 569)
+- [x] 596 cops registered (was 569, +28 new, -1 disabled)
 - [x] Layout department: **100/100 = 100%**
 - [x] 7 departments at 100%: Layout, Metrics, Naming, Security, Bundler, Gemspec, Migration
+- [x] Discourse: **100% conformance**
+- [x] Rails: **100% conformance**
+- [x] Mastodon: **86.6% match rate** (12 FP, 23 FN)
+- [x] errbit: **81.8% match rate** (53 FP, 233 FN)
 
 ## Milestones
 
@@ -773,4 +787,4 @@ Completed Layout department to 100% (100/100), added Lint/MissingSuper and Rails
 | **M12**: Core Cop Expansion + 100% Conformance | 514 | **Done** |
 | **M12c**: Chatwoot FP/FN Elimination | 514 | **Done** |
 | **M13**: Core Cop Expansion Batch 2 | 569 | **Done** |
-| **M13b**: Layout 100% + Core Expansion | 597 | In Progress |
+| **M13b**: Layout 100% + Core Expansion | 596 | **Done** |
