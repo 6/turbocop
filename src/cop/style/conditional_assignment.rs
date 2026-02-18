@@ -30,6 +30,13 @@ impl Cop for ConditionalAssignment {
             None => return Vec::new(),
         };
 
+        // Must be a top-level `if`, not an `elsif` branch
+        if let Some(kw_loc) = if_node.if_keyword_loc() {
+            if kw_loc.as_slice() == b"elsif" {
+                return Vec::new();
+            }
+        }
+
         // Must have an else clause
         let else_clause = match if_node.subsequent() {
             Some(s) => s,

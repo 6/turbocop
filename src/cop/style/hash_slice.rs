@@ -83,58 +83,98 @@ impl Cop for HashSlice {
             return Vec::new();
         }
 
-        // Check for k == :sym pattern (select -> slice)
         if let Some(cmp_call) = body_nodes[0].as_call_node() {
-            if cmp_call.name().as_slice() != b"==" {
-                return Vec::new();
-            }
+            let cmp_method = cmp_call.name().as_slice();
 
-            let cmp_recv = match cmp_call.receiver() {
-                Some(r) => r,
-                None => return Vec::new(),
-            };
+            // Check for k == :sym pattern (select -> slice)
+            if cmp_method == b"==" {
+                let cmp_recv = match cmp_call.receiver() {
+                    Some(r) => r,
+                    None => return Vec::new(),
+                };
 
-            let cmp_args = match cmp_call.arguments() {
-                Some(a) => a,
-                None => return Vec::new(),
-            };
+                let cmp_args = match cmp_call.arguments() {
+                    Some(a) => a,
+                    None => return Vec::new(),
+                };
 
-            let cmp_arg_list: Vec<_> = cmp_args.arguments().iter().collect();
-            if cmp_arg_list.len() != 1 {
-                return Vec::new();
-            }
-
-            let value_node = if let Some(lvar) = cmp_recv.as_local_variable_read_node() {
-                if lvar.name().as_slice() == key_name {
-                    &cmp_arg_list[0]
-                } else {
+                let cmp_arg_list: Vec<_> = cmp_args.arguments().iter().collect();
+                if cmp_arg_list.len() != 1 {
                     return Vec::new();
                 }
-            } else if let Some(lvar) = cmp_arg_list[0].as_local_variable_read_node() {
-                if lvar.name().as_slice() == key_name {
-                    &cmp_recv
+
+                let value_node = if let Some(lvar) = cmp_recv.as_local_variable_read_node() {
+                    if lvar.name().as_slice() == key_name {
+                        &cmp_arg_list[0]
+                    } else {
+                        return Vec::new();
+                    }
+                } else if let Some(lvar) = cmp_arg_list[0].as_local_variable_read_node() {
+                    if lvar.name().as_slice() == key_name {
+                        &cmp_recv
+                    } else {
+                        return Vec::new();
+                    }
                 } else {
                     return Vec::new();
-                }
-            } else {
-                return Vec::new();
-            };
+                };
 
-            if value_node.as_symbol_node().is_none() && value_node.as_string_node().is_none() {
-                return Vec::new();
+                if value_node.as_symbol_node().is_none() && value_node.as_string_node().is_none() {
+                    return Vec::new();
+                }
+
+                let value_src = &source.as_bytes()[value_node.location().start_offset()..value_node.location().end_offset()];
+                let value_str = String::from_utf8_lossy(value_src);
+
+                let loc = call.message_loc().unwrap_or_else(|| call.location());
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    format!("Use `slice({})` instead.", value_str),
+                )];
             }
 
-            let value_src = &source.as_bytes()[value_node.location().start_offset()..value_node.location().end_offset()];
-            let value_str = String::from_utf8_lossy(value_src);
+            // Check for array.include?(k) pattern (select -> slice(*array))
+            if cmp_method == b"include?" {
+                let include_recv = match cmp_call.receiver() {
+                    Some(r) => r,
+                    None => return Vec::new(),
+                };
 
-            let loc = call.message_loc().unwrap_or_else(|| call.location());
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
-                source,
-                line,
-                column,
-                format!("Use `slice({})` instead.", value_str),
-            )];
+                let include_args = match cmp_call.arguments() {
+                    Some(a) => a,
+                    None => return Vec::new(),
+                };
+
+                let include_arg_list: Vec<_> = include_args.arguments().iter().collect();
+                if include_arg_list.len() != 1 {
+                    return Vec::new();
+                }
+
+                // The argument to include? must be the key param
+                let is_key_arg = include_arg_list[0]
+                    .as_local_variable_read_node()
+                    .map(|lv| lv.name().as_slice() == key_name)
+                    .unwrap_or(false);
+
+                if !is_key_arg {
+                    return Vec::new();
+                }
+
+                let recv_src = &source.as_bytes()[include_recv.location().start_offset()..include_recv.location().end_offset()];
+                let recv_str = String::from_utf8_lossy(recv_src);
+
+                let loc = call.message_loc().unwrap_or_else(|| call.location());
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    format!("Use `slice(*{})` instead.", recv_str),
+                )];
+            }
         }
 
         Vec::new()

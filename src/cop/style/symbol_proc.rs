@@ -85,6 +85,13 @@ impl Cop for SymbolProc {
             None => return Vec::new(),
         };
 
+        // Must not use safe navigation (&.) - can't convert to &:method
+        if let Some(op) = call.call_operator_loc() {
+            if op.as_slice() == b"&." {
+                return Vec::new();
+            }
+        }
+
         // The receiver must be the block parameter
         let receiver = match call.receiver() {
             Some(r) => r,

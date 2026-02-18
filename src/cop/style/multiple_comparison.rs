@@ -8,6 +8,8 @@ impl MultipleComparison {
     /// Recursively collect == comparisons joined by ||, returning the variable
     /// being compared if consistent, along with the comparison count.
     /// Handles OrNode (||) and CallNode (==).
+    /// When AllowMethodComparison is true, comparisons where the value is a
+    /// method call are skipped (returning count 0) but don't break the chain.
     fn collect_comparisons<'a>(
         node: &'a ruby_prism::Node<'a>,
         allow_method: bool,
@@ -17,13 +19,30 @@ impl MultipleComparison {
             let lhs = or_node.left();
             let rhs = or_node.right();
 
-            let (lhs_var, lhs_count) = Self::collect_comparisons(&lhs, allow_method)?;
-            let (rhs_var, rhs_count) = Self::collect_comparisons(&rhs, allow_method)?;
+            let lhs_result = Self::collect_comparisons(&lhs, allow_method);
+            let rhs_result = Self::collect_comparisons(&rhs, allow_method);
 
-            if lhs_var == rhs_var {
-                return Some((lhs_var, lhs_count + rhs_count));
+            match (lhs_result, rhs_result) {
+                (Some((lhs_var, lhs_count)), Some((rhs_var, rhs_count))) => {
+                    if lhs_var == rhs_var {
+                        return Some((lhs_var, lhs_count + rhs_count));
+                    }
+                    // Different variables but might share if one is empty (skipped method comparison)
+                    if lhs_count == 0 {
+                        return Some((rhs_var, rhs_count));
+                    }
+                    if rhs_count == 0 {
+                        return Some((lhs_var, lhs_count));
+                    }
+                    return None;
+                }
+                (Some(result), None) | (None, Some(result)) => {
+                    // One side might be a non-comparison node; that's still OK
+                    // only if the other side is all comparisons
+                    return None;
+                }
+                (None, None) => return None,
             }
-            return None;
         }
 
         // Handle CallNode with ==
@@ -40,26 +59,28 @@ impl MultipleComparison {
                 let lhs_src = lhs.location().as_slice();
                 let rhs_src = rhs.location().as_slice();
 
-                // Try lhs as the variable, rhs as the value
-                if lhs.as_local_variable_read_node().is_some()
-                    || (!allow_method && lhs.as_call_node().is_some())
-                {
-                    // When AllowMethodComparison is true, skip if the value
-                    // (other side) is a method call
-                    if allow_method && rhs.as_call_node().is_some() {
+                // Determine which side is the variable (lvar or call) and which is the value
+                let (var_src, value_is_call) =
+                    if lhs.as_local_variable_read_node().is_some() {
+                        (lhs_src, rhs.as_call_node().is_some())
+                    } else if rhs.as_local_variable_read_node().is_some() {
+                        (rhs_src, lhs.as_call_node().is_some())
+                    } else if !allow_method && lhs.as_call_node().is_some() {
+                        (lhs_src, rhs.as_call_node().is_some())
+                    } else if !allow_method && rhs.as_call_node().is_some() {
+                        (rhs_src, lhs.as_call_node().is_some())
+                    } else {
                         return None;
-                    }
-                    return Some((lhs_src.to_vec(), 1));
+                    };
+
+                // When AllowMethodComparison is true and the value is a method call,
+                // skip this comparison (count = 0) but still return the variable
+                // so the chain continues.
+                if allow_method && value_is_call {
+                    return Some((var_src.to_vec(), 0));
                 }
-                // Try rhs as the variable, lhs as the value
-                if rhs.as_local_variable_read_node().is_some()
-                    || (!allow_method && rhs.as_call_node().is_some())
-                {
-                    if allow_method && lhs.as_call_node().is_some() {
-                        return None;
-                    }
-                    return Some((rhs_src.to_vec(), 1));
-                }
+
+                return Some((var_src.to_vec(), 1));
             }
         }
         None

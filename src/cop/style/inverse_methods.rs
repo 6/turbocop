@@ -92,9 +92,28 @@ impl Cop for InverseMethods {
             None => return Vec::new(),
         };
 
-        let inner_call = match receiver.as_call_node() {
-            Some(c) => c,
-            None => return Vec::new(),
+        // Try to get the inner call - either directly from receiver or by unwrapping parens
+        let inner_call = if let Some(c) = receiver.as_call_node() {
+            c
+        } else if let Some(parens) = receiver.as_parentheses_node() {
+            let body = match parens.body() {
+                Some(b) => b,
+                None => return Vec::new(),
+            };
+            let stmts = match body.as_statements_node() {
+                Some(s) => s,
+                None => return Vec::new(),
+            };
+            let stmts_list: Vec<_> = stmts.body().iter().collect();
+            if stmts_list.len() != 1 {
+                return Vec::new();
+            }
+            match stmts_list[0].as_call_node() {
+                Some(c) => c,
+                None => return Vec::new(),
+            }
+        } else {
+            return Vec::new();
         };
 
         let inner_method = inner_call.name().as_slice();

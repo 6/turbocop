@@ -8,6 +8,7 @@ pub struct FormatStringToken;
 
 impl FormatStringToken {
     /// Check for annotated tokens like %<name>s
+    /// Requires a complete %<word_chars>type pattern matching RuboCop's NAME regex.
     fn has_annotated_token(s: &str) -> bool {
         let bytes = s.as_bytes();
         let mut i = 0;
@@ -18,7 +19,16 @@ impl FormatStringToken {
                     continue;
                 }
                 if i + 1 < bytes.len() && bytes[i + 1] == b'<' {
-                    return true;
+                    // Must have at least one word character followed by closing >
+                    let mut j = i + 2;
+                    let mut has_word_char = false;
+                    while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
+                        has_word_char = true;
+                        j += 1;
+                    }
+                    if has_word_char && j < bytes.len() && bytes[j] == b'>' {
+                        return true;
+                    }
                 }
             }
             i += 1;
@@ -27,6 +37,7 @@ impl FormatStringToken {
     }
 
     /// Check for template tokens like %{name}
+    /// Requires a complete %{word_chars} pattern matching RuboCop's TEMPLATE_NAME regex.
     fn has_template_token(s: &str) -> bool {
         let bytes = s.as_bytes();
         let mut i = 0;
@@ -37,7 +48,16 @@ impl FormatStringToken {
                     continue;
                 }
                 if i + 1 < bytes.len() && bytes[i + 1] == b'{' {
-                    return true;
+                    // Must have at least one word character followed by closing }
+                    let mut j = i + 2;
+                    let mut has_word_char = false;
+                    while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
+                        has_word_char = true;
+                        j += 1;
+                    }
+                    if has_word_char && j < bytes.len() && bytes[j] == b'}' {
+                        return true;
+                    }
                 }
             }
             i += 1;

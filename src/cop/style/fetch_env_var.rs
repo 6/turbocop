@@ -57,6 +57,48 @@ impl FetchEnvVar {
         let mut collector = Collector { offsets };
         collector.visit(node);
     }
+
+    /// Extract the byte ranges of ENV key arguments from ENV['X'] calls in a subtree.
+    /// Returns a set of (start_offset, end_offset) tuples for the key arguments.
+    fn collect_env_key_ranges(
+        node: &ruby_prism::Node<'_>,
+    ) -> HashSet<(usize, usize)> {
+        struct KeyCollector {
+            key_ranges: HashSet<(usize, usize)>,
+        }
+        impl<'pr> Visit<'pr> for KeyCollector {
+            fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+                if node.name().as_slice() == b"[]" {
+                    if let Some(receiver) = node.receiver() {
+                        if FetchEnvVar::is_env_receiver(&receiver) {
+                            if let Some(args) = node.arguments() {
+                                let arg_list: Vec<_> = args.arguments().iter().collect();
+                                if arg_list.len() == 1 {
+                                    let loc = arg_list[0].location();
+                                    self.key_ranges
+                                        .insert((loc.start_offset(), loc.end_offset()));
+                                }
+                            }
+                        }
+                    }
+                }
+                ruby_prism::visit_call_node(self, node);
+            }
+        }
+        let mut collector = KeyCollector {
+            key_ranges: HashSet::new(),
+        };
+        collector.visit(node);
+        collector.key_ranges
+    }
+
+    /// Check if a method name is a comparison method (==, !=, <, >, <=, >=, <=>).
+    fn is_comparison_method(name: &[u8]) -> bool {
+        matches!(
+            name,
+            b"==" | b"!=" | b"<" | b">" | b"<=" | b">=" | b"<=>"
+        )
+    }
 }
 
 impl Cop for FetchEnvVar {
@@ -81,6 +123,7 @@ impl Cop for FetchEnvVar {
             allowed_vars,
             default_to_nil,
             suppressed_offsets: HashSet::new(),
+            condition_key_ranges: Vec::new(),
         };
         visitor.visit(&parse_result.node());
         visitor.diagnostics
@@ -96,29 +139,53 @@ struct FetchEnvVarVisitor<'a> {
     /// Start offsets of ENV['X'] nodes that should NOT be reported
     /// (used as flag in if/unless condition, or LHS of `||`).
     suppressed_offsets: HashSet<usize>,
+    /// ENV key byte ranges from conditions — ENV['X'] in bodies with matching
+    /// keys are also suppressed (RuboCop's `used_if_condition_in_body?`).
+    condition_key_ranges: Vec<(usize, usize)>,
 }
 
 impl FetchEnvVarVisitor<'_> {
-    /// Suppress all ENV['X'] nodes that appear inside an if/unless condition.
-    /// RuboCop's `used_as_flag?` checks if the ENV['X'] is used in the condition
-    /// of an ancestor if/unless. We implement this by suppressing ENV['X'] nodes
-    /// that appear anywhere in if/unless/ternary predicate expressions.
+    /// Suppress all ENV['X'] nodes that appear inside an if/unless condition,
+    /// AND collect ENV key ranges so that body ENV['same_key'] can be suppressed.
     fn suppress_env_in_condition(&mut self, condition: &ruby_prism::Node<'_>) {
         FetchEnvVar::collect_env_bracket_offsets(condition, &mut self.suppressed_offsets);
+        let key_ranges = FetchEnvVar::collect_env_key_ranges(condition);
+        for range in key_ranges {
+            self.condition_key_ranges.push(range);
+        }
+    }
+
+    /// Check if an ENV key (given by its byte range) matches any key from
+    /// an ancestor if/unless condition.
+    fn key_matches_condition(&self, key_start: usize, key_end: usize) -> bool {
+        let key_bytes = &self.source.as_bytes()[key_start..key_end];
+        for &(cond_start, cond_end) in &self.condition_key_ranges {
+            let cond_bytes = &self.source.as_bytes()[cond_start..cond_end];
+            if key_bytes == cond_bytes {
+                return true;
+            }
+        }
+        false
     }
 }
 
 impl<'pr> Visit<'pr> for FetchEnvVarVisitor<'_> {
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
-        // Suppress ENV['X'] used in the condition of if/elsif/ternary
+        // Suppress ENV['X'] used in the condition of if/elsif/ternary,
+        // AND suppress ENV['same_key'] in the body (used_if_condition_in_body).
+        let prev_len = self.condition_key_ranges.len();
         self.suppress_env_in_condition(&node.predicate());
         ruby_prism::visit_if_node(self, node);
+        self.condition_key_ranges.truncate(prev_len);
     }
 
     fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
-        // Suppress ENV['X'] used in the condition of unless
+        // Suppress ENV['X'] used in the condition of unless,
+        // AND suppress ENV['same_key'] in the body.
+        let prev_len = self.condition_key_ranges.len();
         self.suppress_env_in_condition(&node.predicate());
         ruby_prism::visit_unless_node(self, node);
+        self.condition_key_ranges.truncate(prev_len);
     }
 
     fn visit_or_node(&mut self, node: &ruby_prism::OrNode<'pr>) {
@@ -132,6 +199,21 @@ impl<'pr> Visit<'pr> for FetchEnvVarVisitor<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         let name = node.name();
         let method_bytes = name.as_slice();
+
+        // For comparison methods (==, !=, etc.), suppress any ENV[] in arguments.
+        // RuboCop's `used_as_flag?` suppresses ENV['X'] when parent is a
+        // comparison_method? call — this covers both receiver and argument positions.
+        if FetchEnvVar::is_comparison_method(method_bytes) {
+            if let Some(args) = node.arguments() {
+                for arg in args.arguments().iter() {
+                    FetchEnvVar::collect_env_bracket_offsets(&arg, &mut self.suppressed_offsets);
+                }
+            }
+            // Also suppress ENV[] in receiver position of comparison
+            if let Some(receiver) = node.receiver() {
+                FetchEnvVar::collect_env_bracket_offsets(&receiver, &mut self.suppressed_offsets);
+            }
+        }
 
         if method_bytes == b"[]" {
             let receiver = match node.receiver() {
@@ -167,6 +249,12 @@ impl<'pr> Visit<'pr> for FetchEnvVarVisitor<'_> {
             }
 
             let arg_loc = arg_list[0].location();
+
+            // Check if this ENV key matches a condition key (body-in-condition suppression)
+            if self.key_matches_condition(arg_loc.start_offset(), arg_loc.end_offset()) {
+                return;
+            }
+
             let arg_src = &self.source.as_bytes()[arg_loc.start_offset()..arg_loc.end_offset()];
             let arg_str = String::from_utf8_lossy(arg_src);
 

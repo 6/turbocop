@@ -4,3 +4,5 @@
 "plain string"
 'single quoted'
 x = "#{42}"
+# Double-quoted strings with embedded single quotes need double quotes
+"'#{elements.join("', '")}'"

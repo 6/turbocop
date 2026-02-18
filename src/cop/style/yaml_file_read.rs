@@ -84,6 +84,19 @@ impl Cop for YAMLFileRead {
             return Vec::new();
         }
 
+        // YAML.safe_load_file was introduced in Ruby 3.0;
+        // skip this offense for safe_load when target Ruby version <= 2.7
+        if name == b"safe_load" {
+            let target_ruby = _config
+                .options
+                .get("TargetRubyVersion")
+                .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
+                .unwrap_or(3.4);
+            if target_ruby <= 2.7 {
+                return Vec::new();
+            }
+        }
+
         let name_str = String::from_utf8_lossy(name);
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());

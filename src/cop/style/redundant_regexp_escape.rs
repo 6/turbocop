@@ -4,11 +4,29 @@ use crate::parse::source::SourceFile;
 
 pub struct RedundantRegexpEscape;
 
-/// Characters that need escaping in regexp
+/// Characters that need escaping OUTSIDE a character class in regexp
 const MEANINGFUL_ESCAPES: &[u8] = &[
     b'.', b'|', b'(', b')', b'[', b']', b'{', b'}', b'*', b'+', b'?', b'\\',
     b'^', b'$', b'-', b'#',
     // Escape sequences
+    b'n', b't', b'r', b'f', b'a', b'e', b'v', b'b', b'B',
+    b's', b'S', b'd', b'D', b'w', b'W', b'h', b'H',
+    b'A', b'z', b'Z', b'G', b'p', b'P', b'R', b'X',
+    b'k', b'g',
+    // Numeric escapes
+    b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9',
+    b'x', b'u', b'c', b'C', b'M',
+];
+
+/// Characters that need escaping INSIDE a character class `[...]`.
+/// Inside a class, metacharacters like `.`, `(`, `)`, `*`, `+`, `?`, `|`, `{`, `}`
+/// are literal and don't need escaping. Only `]`, `\`, `^`, `-` are special.
+/// Note: `#` is always allowed to be escaped (to prevent interpolation ambiguity).
+/// Note: `\-` is only meaningful if NOT at the start/end of the class; this is
+/// handled separately in the check logic below.
+const MEANINGFUL_ESCAPES_IN_CHAR_CLASS: &[u8] = &[
+    b'\\', b']', b'^', b'[', b'#',
+    // Escape sequences are still meaningful inside character classes
     b'n', b't', b'r', b'f', b'a', b'e', b'v', b'b', b'B',
     b's', b'S', b'd', b'D', b'w', b'W', b'h', b'H',
     b'A', b'z', b'Z', b'G', b'p', b'P', b'R', b'X',
@@ -43,11 +61,17 @@ impl Cop for RedundantRegexpEscape {
         let mut diagnostics = Vec::new();
         let mut i = 0;
         let mut in_char_class = false;
+        let mut char_class_start: usize = 0;
 
         while i < content.len() {
             if content[i] == b'[' && (i == 0 || content[i - 1] != b'\\') {
                 in_char_class = true;
+                char_class_start = i;
                 i += 1;
+                // Skip ^ for negated char classes
+                if i < content.len() && content[i] == b'^' {
+                    i += 1;
+                }
                 continue;
             }
             if content[i] == b']' && in_char_class {
@@ -58,10 +82,29 @@ impl Cop for RedundantRegexpEscape {
 
             if content[i] == b'\\' && i + 1 < content.len() {
                 let escaped = content[i + 1];
-                if !MEANINGFUL_ESCAPES.contains(&escaped)
-                    && !escaped.is_ascii_alphabetic()
-                    && escaped != b' '
-                {
+
+                let is_meaningful = if in_char_class {
+                    if escaped == b'-' {
+                        // \- is meaningful inside char class UNLESS at start or end.
+                        // Check if at start: right after [ or [^
+                        let at_start = i == char_class_start + 1
+                            || (i == char_class_start + 2
+                                && content[char_class_start + 1] == b'^');
+                        // Check if at end: \-] pattern
+                        let at_end = i + 2 < content.len() && content[i + 2] == b']';
+                        !(at_start || at_end) // meaningful only when NOT at start/end
+                    } else {
+                        MEANINGFUL_ESCAPES_IN_CHAR_CLASS.contains(&escaped)
+                            || escaped.is_ascii_alphabetic()
+                            || escaped == b' '
+                    }
+                } else {
+                    MEANINGFUL_ESCAPES.contains(&escaped)
+                        || escaped.is_ascii_alphabetic()
+                        || escaped == b' '
+                };
+
+                if !is_meaningful {
                     // Also allow escaping / in slash-delimited regexp
                     if escaped == b'/' {
                         i += 2;

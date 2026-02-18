@@ -73,10 +73,21 @@ impl Cop for RegexpLiteral {
             end_line > start_line
         };
 
+        // %r with content starting with space or = may be used to avoid syntax errors
+        // when the regexp is a method argument without parentheses:
+        //   do_something %r{ regexp}  # valid
+        //   do_something / regexp/    # syntax error
+        // Allow %r in these cases (matching RuboCop's behavior).
+        let content_starts_with_space_or_eq = !content_bytes.is_empty()
+            && (content_bytes[0] == b' ' || content_bytes[0] == b'=');
+
         match enforced_style {
             "slashes" => {
                 if is_percent_r {
                     if has_slash && !allow_inner_slashes {
+                        return Vec::new();
+                    }
+                    if content_starts_with_space_or_eq {
                         return Vec::new();
                     }
                     let (line, column) = source.offset_to_line_col(node_start);
@@ -112,6 +123,9 @@ impl Cop for RegexpLiteral {
                     }
                 } else if is_percent_r {
                     if has_slash && !allow_inner_slashes {
+                        return Vec::new();
+                    }
+                    if content_starts_with_space_or_eq {
                         return Vec::new();
                     }
                     let (line, column) = source.offset_to_line_col(node_start);

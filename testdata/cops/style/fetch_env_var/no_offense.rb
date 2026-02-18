@@ -23,3 +23,15 @@ do_something if ENV['X']
 do_something unless ENV['X']
 value = ENV['X'] ? 'a' : 'b'
 ENV['X'] || ENV.fetch('Y', nil)
+# Comparison method as argument: 1 == ENV['X']
+1 == ENV['X']
+1 != ENV['X']
+# Body-in-condition: ENV['X'] in body when same key in condition
+if ENV['X']
+  puts ENV['X']
+end
+if ENV['X'].present?
+  config = ENV['X']
+end
+do_something(ENV['X']) if ENV['X'].present?
+ENV['X'].empty? ? "" : YAML.parse(ENV['X']).to_ruby

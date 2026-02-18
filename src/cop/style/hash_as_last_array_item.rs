@@ -40,9 +40,10 @@ impl Cop for HashAsLastArrayItem {
             "braces" => {
                 // Flag keyword hash (no braces) as last array item
                 if last.as_keyword_hash_node().is_some() {
-                    // Don't flag if ALL elements are keyword hashes (matching current style)
-                    let all_keyword_hashes = elements.iter().all(|e| e.as_keyword_hash_node().is_some());
-                    if all_keyword_hashes {
+                    // RuboCop skips when ALL elements are hashes in the expected style.
+                    // In "braces" mode, that means all elements must be HashNode (with braces).
+                    let all_expected = elements.iter().all(|e| e.as_hash_node().is_some());
+                    if all_expected {
                         return Vec::new();
                     }
                     // Don't flag if second-to-last element is also a hash
@@ -69,9 +70,10 @@ impl Cop for HashAsLastArrayItem {
                     if hash.elements().iter().next().is_none() {
                         return Vec::new();
                     }
-                    // Don't flag if all elements are hashes
-                    let all_hashes = elements.iter().all(|e| e.as_hash_node().is_some());
-                    if all_hashes {
+                    // RuboCop skips when ALL elements are hashes in the expected style.
+                    // In "no_braces" mode, that means all elements must be KeywordHashNode (without braces).
+                    let all_expected = elements.iter().all(|e| e.as_keyword_hash_node().is_some());
+                    if all_expected {
                         return Vec::new();
                     }
                     let loc = hash.location();

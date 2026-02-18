@@ -30,3 +30,12 @@ if foo?
 elsif bar?
 elsif baz?
 end
+
+# Mixed-case constants are not literals (class references, not const references)
+# RuboCop only treats ALL_UPPERCASE constants as literals
+if cop == Foo::Bar
+elsif cop == Baz::Qux
+elsif cop == Something
+else
+  default_action
+end

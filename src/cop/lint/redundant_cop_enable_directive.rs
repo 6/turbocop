@@ -47,66 +47,60 @@ impl Cop for RedundantCopEnableDirective {
                 }
             }
 
-            let Some((action, cops, _col)) = parse_directive(line_str) else {
+            let directives = parse_all_directives(line_str);
+            if directives.is_empty() {
                 byte_offset += line.len() + 1;
                 continue;
-            };
+            }
 
-            match action {
-                "disable" | "todo" => {
-                    for cop in &cops {
-                        disabled.insert(cop.to_string());
+            for (action, cops, _col) in directives {
+                match action {
+                    "disable" | "todo" => {
+                        for cop in &cops {
+                            disabled.insert(cop.to_string());
+                        }
                     }
-                }
-                "enable" => {
-                    for cop in &cops {
-                        if cop == "all" {
-                            // `enable all` is redundant only if nothing was disabled
-                            if disabled.is_empty() {
+                    "enable" => {
+                        for cop in &cops {
+                            if cop == "all" {
+                                // `enable all` is redundant only if nothing was disabled
+                                if disabled.is_empty() {
+                                    let col = find_cop_column(line_str, cop);
+                                    diagnostics.push(self.diagnostic(
+                                        source,
+                                        i + 1,
+                                        col,
+                                        "Unnecessary enabling of all cops.".to_string(),
+                                    ));
+                                } else {
+                                    disabled.clear();
+                                }
+                                continue;
+                            }
+
+                            let was_disabled = disabled.remove(cop.as_str());
+
+                            // Also check if a department enable covers this cop
+                            let dept = cop.split('/').next().unwrap_or(cop);
+                            let dept_was_disabled = if dept != cop.as_str() {
+                                disabled.contains(dept)
+                            } else {
+                                false
+                            };
+
+                            if !was_disabled && !dept_was_disabled {
                                 let col = find_cop_column(line_str, cop);
                                 diagnostics.push(self.diagnostic(
                                     source,
                                     i + 1,
                                     col,
-                                    "Unnecessary enabling of all cops.".to_string(),
-                                ));
-                            } else {
-                                disabled.clear();
-                            }
-                            continue;
-                        }
-
-                        let was_disabled = disabled.remove(cop.as_str());
-
-                        // Also check if a department enable covers this cop
-                        let dept = cop.split('/').next().unwrap_or(cop);
-                        let dept_was_disabled = if dept != cop.as_str() {
-                            disabled.contains(dept)
-                        } else {
-                            false
-                        };
-
-                        if !was_disabled && !dept_was_disabled {
-                            let col = find_cop_column(line_str, cop);
-                            if cop.contains('/') {
-                                diagnostics.push(self.diagnostic(
-                                    source,
-                                    i + 1,
-                                    col,
-                                    format!("Unnecessary enabling of {}.", cop),
-                                ));
-                            } else {
-                                diagnostics.push(self.diagnostic(
-                                    source,
-                                    i + 1,
-                                    col,
                                     format!("Unnecessary enabling of {}.", cop),
                                 ));
                             }
                         }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
 
             byte_offset += line.len() + 1;
@@ -127,45 +121,75 @@ fn find_cop_column(line: &str, cop: &str) -> usize {
     0
 }
 
-fn parse_directive(line: &str) -> Option<(&str, Vec<String>, usize)> {
-    let hash_pos = line.find('#')?;
-    let after_hash = &line[hash_pos + 1..].trim_start();
+/// Parse all rubocop directives in a line. A line may contain multiple
+/// directives (e.g., in doc comments with embedded examples).
+/// Returns a list of (action, cops, col) tuples.
+fn parse_all_directives(line: &str) -> Vec<(&str, Vec<String>, usize)> {
+    let mut results = Vec::new();
+    let mut search_from = 0;
 
-    if !after_hash.starts_with("rubocop:") {
-        return None;
+    while search_from < line.len() {
+        let remaining = &line[search_from..];
+        let Some(rubocop_pos) = remaining.find("rubocop:") else {
+            break;
+        };
+
+        let abs_pos = search_from + rubocop_pos;
+
+        // Verify there's a # before this rubocop: directive
+        let before = &line[..abs_pos];
+        if !before.contains('#') {
+            search_from = abs_pos + "rubocop:".len();
+            continue;
+        }
+
+        let after_prefix = &remaining[rubocop_pos + "rubocop:".len()..];
+
+        let action_end = after_prefix
+            .find(|c: char| c.is_ascii_whitespace())
+            .unwrap_or(after_prefix.len());
+        let action = &after_prefix[..action_end];
+
+        if !matches!(action, "disable" | "enable" | "todo") {
+            search_from = abs_pos + "rubocop:".len();
+            continue;
+        }
+
+        let cops_str = after_prefix[action_end..].trim();
+        // Stop at next # rubocop: directive or end of string
+        let cops_str = match cops_str.find(" -- ") {
+            Some(idx) => &cops_str[..idx],
+            None => cops_str,
+        };
+        // Also stop at next # rubocop: sequence
+        let cops_str = match cops_str.find("# rubocop:") {
+            Some(idx) => &cops_str[..idx],
+            None => cops_str,
+        };
+
+        let cops: Vec<String> = cops_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        let action_str = match action {
+            "disable" => "disable",
+            "enable" => "enable",
+            "todo" => "todo",
+            _ => {
+                search_from = abs_pos + "rubocop:".len();
+                continue;
+            }
+        };
+
+        results.push((action_str, cops, abs_pos));
+
+        // Move past this directive
+        search_from = abs_pos + "rubocop:".len() + action_end + cops_str.len();
     }
 
-    let after_prefix = &after_hash["rubocop:".len()..];
-
-    let action_end = after_prefix
-        .find(|c: char| c.is_ascii_whitespace())
-        .unwrap_or(after_prefix.len());
-    let action = &after_prefix[..action_end];
-
-    if !matches!(action, "disable" | "enable" | "todo") {
-        return None;
-    }
-
-    let cops_str = after_prefix[action_end..].trim();
-    let cops_str = match cops_str.find(" -- ") {
-        Some(idx) => &cops_str[..idx],
-        None => cops_str,
-    };
-
-    let cops: Vec<String> = cops_str
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    let action_str = match action {
-        "disable" => "disable",
-        "enable" => "enable",
-        "todo" => "todo",
-        _ => return None,
-    };
-
-    Some((action_str, cops, hash_pos))
+    results
 }
 
 #[cfg(test)]

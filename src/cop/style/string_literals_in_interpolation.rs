@@ -98,6 +98,10 @@ impl<'pr> Visit<'pr> for InterpStringVisitor<'_> {
 fn needs_double_quotes(content: &[u8]) -> bool {
     let mut i = 0;
     while i < content.len() {
+        // If the content contains a single quote, it can't use single-quoted style
+        if content[i] == b'\'' {
+            return true;
+        }
         if content[i] == b'\\' && i + 1 < content.len() {
             match content[i + 1] {
                 b'n' | b't' | b'r' | b'\\' | b'"' | b'0' | b'a' | b'b' | b'e' | b'f' | b's' | b'v' => return true,

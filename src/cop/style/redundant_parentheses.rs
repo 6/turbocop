@@ -106,11 +106,10 @@ impl RedundantParensVisitor<'_> {
             }
         }
 
-        // allowed_ternary?
-        if let Some(p) = parent {
-            if matches!(p.kind, ParentKind::Ternary) {
-                return;
-            }
+        // allowed_ternary? — look through wrapper nodes (StatementsNode, ElseNode)
+        // because Prism wraps ternary branches in intermediate nodes
+        if self.has_ternary_ancestor() {
+            return;
         }
 
         // range parent
@@ -150,6 +149,23 @@ impl RedundantParensVisitor<'_> {
             column,
             format!("Don't use parentheses around {}.", msg),
         ));
+    }
+
+    /// Check if a nearby ancestor is a ternary, looking through intermediate
+    /// wrapper nodes (StatementsNode, ElseNode) that Prism inserts.
+    fn has_ternary_ancestor(&self) -> bool {
+        if self.parent_stack.len() < 2 {
+            return false;
+        }
+        // Start at len-2 (skip the ParenthesesNode's own entry)
+        for i in (0..self.parent_stack.len() - 1).rev() {
+            match self.parent_stack[i].kind {
+                ParentKind::Ternary => return true,
+                ParentKind::Other => continue,
+                _ => return false,
+            }
+        }
+        false
     }
 
     fn push_parent(&mut self, kind: ParentKind) {

@@ -17,3 +17,9 @@ code = <<~RUBY
   bar = 2
 RUBY
 puts code
+
+# Doc comment containing embedded rubocop:disable counts as a real disable
+# so the subsequent enable is valid (not redundant)
+#   def f # rubocop:disable Style/For
+#   end
+# rubocop:enable Style/For

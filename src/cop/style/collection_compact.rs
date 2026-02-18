@@ -60,25 +60,48 @@ impl Cop for CollectionCompact {
                 }
             }
 
-            // Check for block { |e| e.nil? }
+            // Check for block { |e| e.nil? } or { |k, v| v.nil? }
             if let Some(block) = call.block() {
                 if let Some(block_node) = block.as_block_node() {
-                    if let Some(body) = block_node.body() {
-                        if let Some(stmts) = body.as_statements_node() {
-                            let stmts_list: Vec<_> = stmts.body().iter().collect();
-                            if stmts_list.len() == 1 {
-                                if let Some(inner_call) = stmts_list[0].as_call_node() {
-                                    let inner_method = std::str::from_utf8(inner_call.name().as_slice()).unwrap_or("");
-                                    if inner_method == "nil?" {
-                                        let bang = if method_name == "reject!" { "!" } else { "" };
-                                        let loc = call.message_loc().unwrap_or(call.location());
-                                        let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                        return vec![self.diagnostic(
-                                            source,
-                                            line,
-                                            column,
-                                            format!("Use `compact{}` instead of `{} {{ |e| e.nil? }}`.", bang, method_name),
-                                        )];
+                    // Collect all block parameter names
+                    let param_names: Vec<Vec<u8>> = block_node.parameters()
+                        .and_then(|p| p.as_block_parameters_node())
+                        .and_then(|bp| bp.parameters())
+                        .map(|params| {
+                            params.requireds().iter()
+                                .filter_map(|r| r.as_required_parameter_node()
+                                    .map(|rp| rp.name().as_slice().to_vec()))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+
+                    if !param_names.is_empty() {
+                        if let Some(body) = block_node.body() {
+                            if let Some(stmts) = body.as_statements_node() {
+                                let stmts_list: Vec<_> = stmts.body().iter().collect();
+                                if stmts_list.len() == 1 {
+                                    if let Some(inner_call) = stmts_list[0].as_call_node() {
+                                        let inner_method = std::str::from_utf8(inner_call.name().as_slice()).unwrap_or("");
+                                        if inner_method == "nil?" {
+                                            // Verify the receiver is one of the block parameters directly
+                                            // (not a method chain like `notification.target_status.nil?`)
+                                            let receiver_is_param = inner_call.receiver()
+                                                .and_then(|r| r.as_local_variable_read_node())
+                                                .map(|lv| param_names.iter().any(|p| lv.name().as_slice() == p.as_slice()))
+                                                .unwrap_or(false);
+
+                                            if receiver_is_param {
+                                                let bang = if method_name == "reject!" { "!" } else { "" };
+                                                let loc = call.message_loc().unwrap_or(call.location());
+                                                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                                return vec![self.diagnostic(
+                                                    source,
+                                                    line,
+                                                    column,
+                                                    format!("Use `compact{}` instead of `{} {{ |e| e.nil? }}`.", bang, method_name),
+                                                )];
+                                            }
+                                        }
                                     }
                                 }
                             }

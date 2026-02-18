@@ -18,13 +18,15 @@ impl Cop for ReturnNilInPredicateMethodDefinition {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let _allowed_methods = config.get_string_array("AllowedMethods");
-        let _allowed_patterns = config.get_string_array("AllowedPatterns");
+        let allowed_methods = config.get_string_array("AllowedMethods").unwrap_or_default();
+        let allowed_patterns = config.get_string_array("AllowedPatterns").unwrap_or_default();
 
         let mut visitor = PredicateReturnVisitor {
             cop: self,
             source,
             diagnostics: Vec::new(),
+            allowed_methods,
+            allowed_patterns,
         };
         visitor.visit(&parse_result.node());
         visitor.diagnostics
@@ -35,6 +37,8 @@ struct PredicateReturnVisitor<'a> {
     cop: &'a ReturnNilInPredicateMethodDefinition,
     source: &'a SourceFile,
     diagnostics: Vec<Diagnostic>,
+    allowed_methods: Vec<String>,
+    allowed_patterns: Vec<String>,
 }
 
 impl<'pr> Visit<'pr> for PredicateReturnVisitor<'_> {
@@ -44,6 +48,19 @@ impl<'pr> Visit<'pr> for PredicateReturnVisitor<'_> {
         if !name.ends_with(b"?") {
             ruby_prism::visit_def_node(self, node);
             return;
+        }
+
+        // Check AllowedMethods
+        let name_str = std::str::from_utf8(name).unwrap_or("");
+        if self.allowed_methods.iter().any(|m| m == name_str) {
+            return;
+        }
+
+        // Check AllowedPatterns
+        for pattern in &self.allowed_patterns {
+            if name_str.contains(pattern.as_str()) {
+                return;
+            }
         }
 
         // Scan body for return/return nil statements

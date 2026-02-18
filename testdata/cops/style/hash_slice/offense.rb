@@ -4,3 +4,5 @@ hash.select { |k, v| k == :name }
      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/HashSlice: Use `slice(:name)` instead.
 hash.filter { |k, v| k == 'key' }
      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/HashSlice: Use `slice('key')` instead.
+hash.select { |k, _| allowed_keys.include?(k) }
+     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/HashSlice: Use `slice(*allowed_keys)` instead.

@@ -89,7 +89,16 @@ impl Cop for SoleNestedConditional {
             return Vec::new();
         }
 
-        let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
+        // RuboCop reports the offense on the inner conditional's keyword, not the outer
+        let inner_kw_loc = if let Some(inner_if) = body[0].as_if_node() {
+            inner_if.if_keyword_loc().unwrap_or(kw_loc)
+        } else if let Some(inner_unless) = body[0].as_unless_node() {
+            inner_unless.keyword_loc()
+        } else {
+            kw_loc
+        };
+
+        let (line, column) = source.offset_to_line_col(inner_kw_loc.start_offset());
         vec![self.diagnostic(
             source,
             line,

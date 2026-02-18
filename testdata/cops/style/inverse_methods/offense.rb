@@ -4,3 +4,5 @@
 ^^^^^^^^^^ Style/InverseMethods: Use `any?` instead of inverting `none?`.
 !foo.even?
 ^^^^^^^^^^ Style/InverseMethods: Use `odd?` instead of inverting `even?`.
+!(x == false)
+^^^^^^^^^^^^^ Style/InverseMethods: Use `!=` instead of inverting `==`.

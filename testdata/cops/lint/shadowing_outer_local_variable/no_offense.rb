@@ -53,3 +53,29 @@ def nested_blocks
     other.parts.each { |value| puts value }
   end
 end
+
+# Different branches of case/when - not flagged
+def different_branches
+  case filter
+  when "likes-min"
+    value = values.last
+    value if value =~ /\A\d+\z/
+  when "order"
+    values.flat_map { |value| value.split(",") }
+  end
+end
+
+# Class-level begin block vars don't shadow method-level block params
+class MyTranslator
+  MAPPING =
+    begin
+      from = "abc"
+      to = "xyz"
+      from.chars.zip(to.chars)
+    end
+
+  def translate(name)
+    MAPPING.each { |from, to| name.gsub!(from, to) }
+    name
+  end
+end

@@ -101,6 +101,11 @@ impl Cop for InvertibleUnlessCondition {
         "Style/InvertibleUnlessCondition"
     }
 
+    /// This cop is disabled by default in RuboCop (Enabled: false in vendor config/default.yml).
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,

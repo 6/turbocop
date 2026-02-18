@@ -1,3 +1,5 @@
+use ruby_prism::Visit;
+
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -100,20 +102,15 @@ impl Cop for ArgumentsForwarding {
             return Vec::new();
         };
 
-        // Check that the method body contains at least one call that forwards the args
-        // with *rest_name and &block_name
+        // Check that the method body contains at least one call that forwards
+        // *rest and &block to the SAME call. Without this, cases like
+        // `new(*args).tap(&block)` would be incorrectly flagged.
         let body = match def_node.body() {
             Some(b) => b,
             None => return Vec::new(),
         };
 
-        let body_src = body.location().as_slice();
-        let rest_splat = format!("*{}", String::from_utf8_lossy(&rest_name));
-        let block_pass = format!("&{}", String::from_utf8_lossy(&block_name));
-
-        // Simple check: body source must contain both `*args` and `&block` patterns
-        let body_str = String::from_utf8_lossy(body_src);
-        if !body_str.contains(&rest_splat) || !body_str.contains(&block_pass) {
+        if !has_forwarding_call(&body, &rest_name, &block_name) {
             return Vec::new();
         }
 
@@ -125,6 +122,65 @@ impl Cop for ArgumentsForwarding {
             column,
             "Use shorthand syntax `...` for arguments forwarding.".to_string(),
         )]
+    }
+}
+
+/// Check if any call node in the tree forwards both *rest_name and &block_name
+/// in the same argument list.
+fn has_forwarding_call(node: &ruby_prism::Node<'_>, rest_name: &[u8], block_name: &[u8]) -> bool {
+    let mut finder = ForwardingCallFinder {
+        rest_name: rest_name.to_vec(),
+        block_name: block_name.to_vec(),
+        found: false,
+    };
+    finder.visit(node);
+    finder.found
+}
+
+struct ForwardingCallFinder {
+    rest_name: Vec<u8>,
+    block_name: Vec<u8>,
+    found: bool,
+}
+
+impl<'pr> Visit<'pr> for ForwardingCallFinder {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        let mut has_splat = false;
+        let mut has_block = false;
+
+        if let Some(args) = node.arguments() {
+            for arg in args.arguments().iter() {
+                if let Some(splat) = arg.as_splat_node() {
+                    if let Some(expr) = splat.expression() {
+                        if let Some(lvar) = expr.as_local_variable_read_node() {
+                            if lvar.name().as_slice() == self.rest_name.as_slice() {
+                                has_splat = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(block) = node.block() {
+            if let Some(block_arg) = block.as_block_argument_node() {
+                if let Some(expr) = block_arg.expression() {
+                    if let Some(lvar) = expr.as_local_variable_read_node() {
+                        if lvar.name().as_slice() == self.block_name.as_slice() {
+                            has_block = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if has_splat && has_block {
+            self.found = true;
+            return;
+        }
+
+        // Continue recursing
+        ruby_prism::visit_call_node(self, node);
     }
 }
 

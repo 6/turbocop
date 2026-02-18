@@ -116,6 +116,7 @@ impl MapIntoArrayVisitor<'_> {
 
             // Now check: is there a preceding `var = []` in the same scope?
             let mut found_empty_array_init = false;
+            let mut init_idx = 0;
             for j in (0..i).rev() {
                 if let Some(asgn) = stmts[j].as_local_variable_write_node() {
                     if asgn.name().as_slice() == var_name.as_slice() {
@@ -124,6 +125,7 @@ impl MapIntoArrayVisitor<'_> {
                         if let Some(arr) = value.as_array_node() {
                             if arr.elements().iter().count() == 0 {
                                 found_empty_array_init = true;
+                                init_idx = j;
                             }
                         }
                         break; // found the most recent assignment, stop
@@ -132,6 +134,21 @@ impl MapIntoArrayVisitor<'_> {
             }
 
             if !found_empty_array_init {
+                continue;
+            }
+
+            // Check that var is not referenced between the init and the each call.
+            // If there are other uses of the variable (like `var << something`),
+            // we can't guarantee it's still an empty array.
+            let var_name_slice = var_name.as_slice();
+            let mut has_intermediate_ref = false;
+            for j in (init_idx + 1)..i {
+                if references_variable(&stmts[j], var_name_slice) {
+                    has_intermediate_ref = true;
+                    break;
+                }
+            }
+            if has_intermediate_ref {
                 continue;
             }
 
@@ -168,6 +185,44 @@ impl<'pr> Visit<'pr> for MapIntoArrayVisitor<'_> {
         }
         ruby_prism::visit_begin_node(self, node);
     }
+}
+
+/// Check if a node (recursively) references a local variable with the given name.
+fn references_variable(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
+    if let Some(lv) = node.as_local_variable_read_node() {
+        if lv.name().as_slice() == var_name {
+            return true;
+        }
+    }
+    if let Some(lv) = node.as_local_variable_write_node() {
+        if lv.name().as_slice() == var_name {
+            return true;
+        }
+    }
+    // Check children recursively
+    struct VarRefFinder<'a> {
+        var_name: &'a [u8],
+        found: bool,
+    }
+    impl<'pr> ruby_prism::Visit<'pr> for VarRefFinder<'_> {
+        fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
+            if node.name().as_slice() == self.var_name {
+                self.found = true;
+            }
+        }
+        fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
+            if node.name().as_slice() == self.var_name {
+                self.found = true;
+            }
+        }
+        fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+            // Check receiver and arguments
+            ruby_prism::visit_call_node(self, node);
+        }
+    }
+    let mut finder = VarRefFinder { var_name, found: false };
+    ruby_prism::Visit::visit(&mut finder, node);
+    finder.found
 }
 
 #[cfg(test)]

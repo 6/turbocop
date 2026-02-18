@@ -12,3 +12,10 @@ end
 items.each { |item| output << item.to_s }
 dest = "hello"
 src.each { |e| dest << e.to_s }
+# Variable used between init and each - not a pure map pattern
+attributes = []
+attributes << "Name: #{record.name}"
+attributes << "Email: #{record.email}"
+records.each do |record|
+  attributes << "#{record.key}: #{record.value}"
+end

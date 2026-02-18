@@ -49,30 +49,53 @@ impl Cop for DocumentDynamicEvalDefinition {
         let first_arg = &arg_list[0];
 
         // Check for interpolated string
-        let has_interpolation = if let Some(interp) = first_arg.as_interpolated_string_node() {
-            interp.parts().iter().any(|p| p.as_embedded_statements_node().is_some())
-        } else {
-            false
+        let interp = match first_arg.as_interpolated_string_node() {
+            Some(i) => i,
+            None => return Vec::new(),
         };
+
+        let has_interpolation = interp.parts().iter().any(|p| p.as_embedded_statements_node().is_some());
 
         if !has_interpolation {
             return Vec::new();
         }
 
-        // Check if there's a comment on the same line or within the heredoc
+        // Check if there are inline comments documenting the eval.
+        // RuboCop checks that every interpolation line has a comment (# not followed by {).
+        // We check both the string parts and the full source span.
+
+        // Check each string part for inline comment patterns
+        for part in interp.parts().iter() {
+            if let Some(str_part) = part.as_string_node() {
+                let content = str_part.content_loc().as_slice();
+                if let Ok(s) = std::str::from_utf8(content) {
+                    // Look for comment pattern: # not followed by {
+                    for line in s.lines() {
+                        if let Some(pos) = line.find(" # ") {
+                            // Verify the # is not part of an interpolation marker
+                            let after_hash = &line[pos + 2..];
+                            if !after_hash.starts_with('{') {
+                                return Vec::new();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also check the full location span (heredocs where body spans lines)
         let loc = first_arg.location();
         let start = loc.start_offset();
         let end = loc.end_offset();
         let content = &source.as_bytes()[start..end];
-        let content_str = std::str::from_utf8(content).unwrap_or("");
-        if content_str.contains('#') {
-            // There might be inline comments documenting the eval
-            let lines: Vec<&str> = content_str.lines().collect();
-            for line in &lines {
-                if let Some(comment_pos) = line.rfind(" # ") {
-                    // Has an inline comment
-                    let _ = comment_pos;
-                    return Vec::new();
+        if let Ok(content_str) = std::str::from_utf8(content) {
+            for line in content_str.lines() {
+                if let Some(pos) = line.rfind(" # ") {
+                    // Verify this is a real comment, not # followed by { (interpolation)
+                    let after_hash = &line[pos + 2..];
+                    if !after_hash.starts_with('{') {
+                        return Vec::new();
+                    }
                 }
             }
         }

@@ -6,3 +6,5 @@ method_call(**options)
 foo(x, **options)
 foo(x, **options.merge!(other_options))
 bar(x, y: 1, **opts)
+# kwsplat with merge not first element — preceding keyword arg
+notify(name, payload, caller_depth: 1, **kwargs.merge(yield))

@@ -293,6 +293,9 @@ pub struct ResolvedConfig {
     /// Target Rails version from AllCops.TargetRailsVersion (e.g. 7.1, 8.0).
     /// None means not specified (cops should default to 5.0 per RuboCop convention).
     target_rails_version: Option<f64>,
+    /// Whether ActiveSupport extensions are enabled (AllCops.ActiveSupportExtensionsEnabled).
+    /// Set to true by rubocop-rails. Affects cops like Style/CollectionQuerying.
+    active_support_extensions_enabled: bool,
     /// All cop names found in the installed rubocop gem's config/default.yml.
     /// When non-empty, core cops (Layout, Lint, Style, etc.) not in this set
     /// are treated as non-existent in the project's rubocop version.
@@ -316,6 +319,7 @@ impl ResolvedConfig {
             require_departments: HashSet::new(),
             target_ruby_version: None,
             target_rails_version: None,
+            active_support_extensions_enabled: false,
             rubocop_known_cops: HashSet::new(),
             dir_overrides: Vec::new(),
         }
@@ -345,6 +349,8 @@ struct ConfigLayer {
     target_ruby_version: Option<f64>,
     /// Target Rails version from AllCops.TargetRailsVersion.
     target_rails_version: Option<f64>,
+    /// AllCops.ActiveSupportExtensionsEnabled (set by rubocop-rails).
+    active_support_extensions_enabled: Option<bool>,
 }
 
 impl ConfigLayer {
@@ -362,6 +368,7 @@ impl ConfigLayer {
             require_departments: HashSet::new(),
             target_ruby_version: None,
             target_rails_version: None,
+            active_support_extensions_enabled: None,
         }
     }
 }
@@ -551,6 +558,7 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
         require_departments: base.require_departments,
         target_ruby_version,
         target_rails_version,
+        active_support_extensions_enabled: base.active_support_extensions_enabled.unwrap_or(false),
         rubocop_known_cops,
         dir_overrides,
     })
@@ -908,6 +916,7 @@ fn parse_config_layer(raw: &Value) -> ConfigLayer {
     let mut inherit_mode = InheritMode::default();
     let mut target_ruby_version = None;
     let mut target_rails_version = None;
+    let mut active_support_extensions_enabled = None;
 
     if let Value::Mapping(map) = raw {
         for (key, value) in map {
@@ -948,6 +957,11 @@ fn parse_config_layer(raw: &Value) -> ConfigLayer {
                             target_rails_version =
                                 trv.as_f64().or_else(|| trv.as_u64().map(|u| u as f64));
                         }
+                        if let Some(ase) =
+                            ac_map.get(&Value::String("ActiveSupportExtensionsEnabled".to_string()))
+                        {
+                            active_support_extensions_enabled = ase.as_bool();
+                        }
                     }
                     continue;
                 }
@@ -979,6 +993,7 @@ fn parse_config_layer(raw: &Value) -> ConfigLayer {
         require_departments: HashSet::new(),
         target_ruby_version,
         target_rails_version,
+        active_support_extensions_enabled,
     }
 }
 
@@ -1018,6 +1033,11 @@ fn merge_layer_into(
     // TargetRailsVersion: last writer wins
     if overlay.target_rails_version.is_some() {
         base.target_rails_version = overlay.target_rails_version;
+    }
+
+    // ActiveSupportExtensionsEnabled: last writer wins
+    if overlay.active_support_extensions_enabled.is_some() {
+        base.active_support_extensions_enabled = overlay.active_support_extensions_enabled;
     }
 
     // Merge department configs
@@ -1360,6 +1380,13 @@ impl ResolvedConfig {
                     .options
                     .insert("LineLengthEnabled".to_string(), Value::Bool(enabled));
             }
+        }
+        // Inject ActiveSupportExtensionsEnabled from AllCops for cops that need it
+        if name == "Style/CollectionQuerying" {
+            config
+                .options
+                .entry("ActiveSupportExtensionsEnabled".to_string())
+                .or_insert_with(|| Value::Bool(self.active_support_extensions_enabled));
         }
         config
     }

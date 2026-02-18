@@ -6,3 +6,12 @@ x.count.zero?
 
 x.count > 0
   ^^^^^ Style/CollectionQuerying: Use `any?` instead.
+
+x.count == 0
+  ^^^^^ Style/CollectionQuerying: Use `none?` instead.
+
+x.count != 0
+  ^^^^^ Style/CollectionQuerying: Use `any?` instead.
+
+x.count == 1
+  ^^^^^ Style/CollectionQuerying: Use `one?` instead.

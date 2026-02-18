@@ -4,3 +4,6 @@ items.reject(&:nil?)
 foo.map { |x| x.to_s(16) }
 bar.each { |x| puts x }
 baz.map { |x, y| x + y }
+# Safe navigation can't be converted to &:method
+items.map { |x| x&.name }
+args.filter_map { |a| a&.value }
