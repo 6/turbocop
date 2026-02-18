@@ -21,11 +21,13 @@ impl Cop for UnderscorePrefixedVariableName {
         source: &SourceFile,
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        let allow_keyword_block_args = config.get_bool("AllowKeywordBlockArguments", false);
         let mut visitor = DefFinder {
             cop: self,
             source,
+            allow_keyword_block_args,
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
@@ -36,6 +38,10 @@ impl Cop for UnderscorePrefixedVariableName {
 struct DefFinder<'a, 'src> {
     cop: &'a UnderscorePrefixedVariableName,
     source: &'src SourceFile,
+    // Currently only def nodes are checked; block keyword arg handling
+    // will use this field when block scope support is added.
+    #[allow(dead_code)]
+    allow_keyword_block_args: bool,
     diagnostics: Vec<Diagnostic>,
 }
 

@@ -131,5 +131,5 @@ impl Cop for TravelAround {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(TravelAround, "cops/rspec_rails/travel_around");
+    crate::cop_fixture_tests!(TravelAround, "cops/rspecrails/travel_around");
 }

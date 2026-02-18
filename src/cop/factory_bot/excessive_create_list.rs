@@ -92,6 +92,6 @@ mod tests {
     use super::*;
     crate::cop_fixture_tests!(
         ExcessiveCreateList,
-        "cops/factory_bot/excessive_create_list"
+        "cops/factorybot/excessive_create_list"
     );
 }

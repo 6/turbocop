@@ -144,6 +144,12 @@ fn is_static_size_receiver(node: &ruby_prism::Node<'_>) -> bool {
     if node.as_hash_node().is_some() {
         return true;
     }
+    // KeywordHashNode (keyword args like `foo(a: 1)`) cannot appear as a
+    // method receiver, so this is unreachable in practice. We explicitly
+    // exclude it to acknowledge the hash_node/keyword_hash_node distinction.
+    if node.as_keyword_hash_node().is_some() {
+        return false;
+    }
     false
 }
 

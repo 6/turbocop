@@ -204,6 +204,6 @@ mod tests {
     use super::*;
     crate::cop_fixture_tests!(
         AttributeDefinedStatically,
-        "cops/factory_bot/attribute_defined_statically"
+        "cops/factorybot/attribute_defined_statically"
     );
 }

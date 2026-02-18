@@ -5,3 +5,5 @@ bar = foo.minmax
 [foo.min, foo.length]
 
 [foo.max]
+
+[foo.min, foo.max, foo.sum]

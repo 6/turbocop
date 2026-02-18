@@ -69,9 +69,18 @@ impl Cop for NumberConversion {
             }
             // Skip allowed methods from config
             let allowed = config.get_string_array("AllowedMethods").unwrap_or_default();
+            let allowed_patterns = config.get_string_array("AllowedPatterns").unwrap_or_default();
             if let Ok(name) = std::str::from_utf8(recv_method) {
                 if allowed.iter().any(|a| a == name) {
                     return Vec::new();
+                }
+                // Skip if receiver method matches any AllowedPatterns (regex)
+                for pattern in &allowed_patterns {
+                    if let Ok(re) = regex::Regex::new(pattern) {
+                        if re.is_match(name) {
+                            return Vec::new();
+                        }
+                    }
                 }
             }
         }

@@ -87,6 +87,8 @@ fn is_mutable_value(node: &ruby_prism::Node<'_>) -> bool {
         return true;
     }
     // Hash literal {}
+    // Note: as_keyword_hash_node() is not checked here because keyword hash
+    // nodes (keyword args like `foo(a: 1)`) cannot appear as Hash.new arguments.
     if node.as_hash_node().is_some() {
         return true;
     }

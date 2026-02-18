@@ -306,5 +306,5 @@ fn is_trait_within_factory(method_name: &str, factory_node: &ruby_prism::Node<'_
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(AssociationStyle, "cops/factory_bot/association_style");
+    crate::cop_fixture_tests!(AssociationStyle, "cops/factorybot/association_style");
 }

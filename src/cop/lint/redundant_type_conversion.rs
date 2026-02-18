@@ -81,6 +81,8 @@ impl Cop for RedundantTypeConversion {
                     || is_kernel_method(&receiver, b"Array")
             }
             b"to_h" => {
+                // Note: as_keyword_hash_node() is not checked here because keyword
+                // hash nodes (keyword args like `foo(a: 1)`) cannot be receivers.
                 receiver.as_hash_node().is_some()
                     || is_constructor(&receiver, b"Hash", b"new")
                     || is_constructor(&receiver, b"Hash", b"[]")

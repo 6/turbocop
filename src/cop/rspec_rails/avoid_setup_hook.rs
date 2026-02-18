@@ -54,5 +54,5 @@ impl Cop for AvoidSetupHook {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(AvoidSetupHook, "cops/rspec_rails/avoid_setup_hook");
+    crate::cop_fixture_tests!(AvoidSetupHook, "cops/rspecrails/avoid_setup_hook");
 }

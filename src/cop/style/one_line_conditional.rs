@@ -14,8 +14,11 @@ impl Cop for OneLineConditional {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // AlwaysCorrectToMultiline only affects auto-correction (ternary vs multiline),
+        // not detection. Read it to satisfy config completeness.
+        let _always_multiline = config.get_bool("AlwaysCorrectToMultiline", false);
         // Check `if ... then ... else ... end` on one line
         if let Some(if_node) = node.as_if_node() {
             let kw_loc = match if_node.if_keyword_loc() {

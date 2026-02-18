@@ -21,7 +21,7 @@ impl Cop for UselessDefaultValueArgument {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -37,8 +37,19 @@ impl Cop for UselessDefaultValueArgument {
 
         if method_name == b"fetch" {
             // Must have a receiver (not a bare fetch call)
-            if call.receiver().is_none() {
-                return Vec::new();
+            let receiver = match call.receiver() {
+                Some(r) => r,
+                None => return Vec::new(),
+            };
+
+            // Skip if receiver is in AllowedReceivers
+            let allowed_receivers = config.get_string_array("AllowedReceivers").unwrap_or_default();
+            if !allowed_receivers.is_empty() {
+                let recv_bytes = receiver.location().as_slice();
+                let recv_str = std::str::from_utf8(recv_bytes).unwrap_or("");
+                if allowed_receivers.iter().any(|r| r == recv_str) {
+                    return Vec::new();
+                }
             }
 
             // Must have 2 arguments (key and default_value)

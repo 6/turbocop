@@ -197,5 +197,5 @@ impl InferredSpecType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(InferredSpecType, "cops/rspec_rails/inferred_spec_type");
+    crate::cop_fixture_tests!(InferredSpecType, "cops/rspecrails/inferred_spec_type");
 }

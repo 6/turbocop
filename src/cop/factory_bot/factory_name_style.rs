@@ -95,5 +95,5 @@ impl Cop for FactoryNameStyle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(FactoryNameStyle, "cops/factory_bot/factory_name_style");
+    crate::cop_fixture_tests!(FactoryNameStyle, "cops/factorybot/factory_name_style");
 }

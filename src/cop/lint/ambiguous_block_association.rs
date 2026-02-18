@@ -157,11 +157,19 @@ fn is_lambda_or_proc(node: &ruby_prism::Node<'_>) -> bool {
         }
 
         // `Proc.new { }` — receiver is `Proc`, method is `new`
+        // Handle both simple constants (Proc) and qualified constants (::Proc, Foo::Proc)
         if name == b"new" {
             if let Some(recv) = call.receiver() {
                 if let Some(cr) = recv.as_constant_read_node() {
                     if cr.name().as_slice() == b"Proc" {
                         return true;
+                    }
+                }
+                if let Some(cp) = recv.as_constant_path_node() {
+                    if let Some(cp_name) = cp.name() {
+                        if cp_name.as_slice() == b"Proc" {
+                            return true;
+                        }
                     }
                 }
             }

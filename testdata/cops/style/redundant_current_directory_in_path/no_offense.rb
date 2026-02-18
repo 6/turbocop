@@ -5,3 +5,5 @@ require_relative 'foo'
 require_relative '../bar/baz'
 
 require 'something'
+
+require 'json'

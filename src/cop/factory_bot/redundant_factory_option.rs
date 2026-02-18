@@ -122,6 +122,6 @@ mod tests {
     use super::*;
     crate::cop_fixture_tests!(
         RedundantFactoryOption,
-        "cops/factory_bot/redundant_factory_option"
+        "cops/factorybot/redundant_factory_option"
     );
 }

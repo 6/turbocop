@@ -374,5 +374,5 @@ fn get_integer_value(node: &ruby_prism::Node<'_>, source: &SourceFile) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(CreateList, "cops/factory_bot/create_list");
+    crate::cop_fixture_tests!(CreateList, "cops/factorybot/create_list");
 }

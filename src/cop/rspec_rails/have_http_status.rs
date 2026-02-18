@@ -181,5 +181,5 @@ impl Cop for HaveHttpStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(HaveHttpStatus, "cops/rspec_rails/have_http_status");
+    crate::cop_fixture_tests!(HaveHttpStatus, "cops/rspecrails/have_http_status");
 }

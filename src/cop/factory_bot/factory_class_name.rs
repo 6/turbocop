@@ -118,5 +118,5 @@ impl Cop for FactoryClassName {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(FactoryClassName, "cops/factory_bot/factory_class_name");
+    crate::cop_fixture_tests!(FactoryClassName, "cops/factorybot/factory_class_name");
 }

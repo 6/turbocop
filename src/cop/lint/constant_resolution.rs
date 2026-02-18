@@ -23,6 +23,12 @@ impl Cop for ConstantResolution {
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
         // Check for unqualified constant (no parent scope, just `Foo` not `::Foo`)
+        // ConstantPathNode (qualified like Foo::Bar or ::Foo) is already resolved,
+        // so we only flag simple ConstantReadNode references.
+        if node.as_constant_path_node().is_some() {
+            return Vec::new();
+        }
+
         let const_node = match node.as_constant_read_node() {
             Some(n) => n,
             None => return Vec::new(),

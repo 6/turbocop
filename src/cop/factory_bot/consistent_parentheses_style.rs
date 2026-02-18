@@ -148,6 +148,6 @@ mod tests {
     use super::*;
     crate::cop_fixture_tests!(
         ConsistentParenthesesStyle,
-        "cops/factory_bot/consistent_parentheses_style"
+        "cops/factorybot/consistent_parentheses_style"
     );
 }

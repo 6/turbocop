@@ -78,5 +78,5 @@ impl Cop for SyntaxMethods {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(SyntaxMethods, "cops/factory_bot/syntax_methods");
+    crate::cop_fixture_tests!(SyntaxMethods, "cops/factorybot/syntax_methods");
 }

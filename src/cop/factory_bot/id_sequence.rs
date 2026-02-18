@@ -78,5 +78,5 @@ impl Cop for IdSequence {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(IdSequence, "cops/factory_bot/id_sequence");
+    crate::cop_fixture_tests!(IdSequence, "cops/factorybot/id_sequence");
 }

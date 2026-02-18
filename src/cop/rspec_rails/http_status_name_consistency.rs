@@ -86,6 +86,6 @@ mod tests {
     use super::*;
     crate::cop_fixture_tests!(
         HttpStatusNameConsistency,
-        "cops/rspec_rails/http_status_name_consistency"
+        "cops/rspecrails/http_status_name_consistency"
     );
 }

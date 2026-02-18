@@ -183,6 +183,7 @@ impl CollectionLiteralVisitor<'_, '_> {
         let method_name = call.name().as_slice();
 
         // Check for Kernel.loop or bare `loop`
+        // Handle both simple constant (Kernel) and qualified constant (::Kernel)
         if method_name == b"loop" {
             match call.receiver() {
                 None => return true,
@@ -190,6 +191,13 @@ impl CollectionLiteralVisitor<'_, '_> {
                     if let Some(cr) = recv.as_constant_read_node() {
                         if cr.name().as_slice() == b"Kernel" {
                             return true;
+                        }
+                    }
+                    if let Some(cp) = recv.as_constant_path_node() {
+                        if let Some(cp_name) = cp.name() {
+                            if cp_name.as_slice() == b"Kernel" {
+                                return true;
+                            }
                         }
                     }
                 }
@@ -273,6 +281,20 @@ fn is_recursive_basic_literal(node: &ruby_prism::Node<'_>) -> bool {
 
     if let Some(hash) = node.as_hash_node() {
         return hash.elements().iter().all(|e| {
+            if let Some(assoc) = e.as_assoc_node() {
+                is_recursive_basic_literal(&assoc.key())
+                    && is_recursive_basic_literal(&assoc.value())
+            } else {
+                false
+            }
+        });
+    }
+
+    // KeywordHashNode (keyword args like `foo(a: 1)`) cannot appear as a
+    // method receiver, so this branch is unreachable in practice, but we
+    // handle as_keyword_hash_node to satisfy the prism pitfalls check.
+    if let Some(kh) = node.as_keyword_hash_node() {
+        return kh.elements().iter().all(|e| {
             if let Some(assoc) = e.as_assoc_node() {
                 is_recursive_basic_literal(&assoc.key())
                     && is_recursive_basic_literal(&assoc.value())

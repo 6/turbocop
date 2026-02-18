@@ -139,6 +139,6 @@ mod tests {
     use super::*;
     crate::cop_fixture_tests!(
         FactoryAssociationWithStrategy,
-        "cops/factory_bot/factory_association_with_strategy"
+        "cops/factorybot/factory_association_with_strategy"
     );
 }

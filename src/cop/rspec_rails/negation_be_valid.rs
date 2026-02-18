@@ -119,7 +119,7 @@ impl Cop for NegationBeValid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(NegationBeValid, "cops/rspec_rails/negation_be_valid");
+    crate::cop_fixture_tests!(NegationBeValid, "cops/rspecrails/negation_be_valid");
 
     #[test]
     fn be_invalid_style_flags_not_to_be_valid() {

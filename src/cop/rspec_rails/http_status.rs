@@ -402,7 +402,7 @@ impl HttpStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(HttpStatus, "cops/rspec_rails/http_status");
+    crate::cop_fixture_tests!(HttpStatus, "cops/rspecrails/http_status");
 
     #[test]
     fn numeric_style_flags_symbol() {

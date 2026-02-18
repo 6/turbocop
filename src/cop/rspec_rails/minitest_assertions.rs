@@ -241,5 +241,5 @@ impl Cop for MinitestAssertions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(MinitestAssertions, "cops/rspec_rails/minitest_assertions");
+    crate::cop_fixture_tests!(MinitestAssertions, "cops/rspecrails/minitest_assertions");
 }
