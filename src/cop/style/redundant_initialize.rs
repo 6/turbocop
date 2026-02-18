@@ -36,7 +36,10 @@ impl Cop for RedundantInitialize {
         let body = match def_node.body() {
             Some(b) => b,
             None => {
-                // Empty initialize method
+                // Empty initialize method — only redundant if no parameters
+                if def_node.parameters().is_some() {
+                    return Vec::new();
+                }
                 if allow_comments {
                     // Check for comments inside the method
                     let def_start = def_node.location().start_offset();

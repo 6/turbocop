@@ -29,3 +29,8 @@ end
 def initialize(**kwargs)
   super
 end
+
+# Empty initialize with parameter — not redundant (overrides parent)
+def initialize(_assistant); end
+def initialize(arg)
+end

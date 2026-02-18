@@ -92,26 +92,44 @@ impl Cop for CaseLikeIf {
     }
 }
 
-/// Extract all operands from a comparison condition.
-/// For `x == 1`, returns `[x, 1]`.
+/// Check if a node is a literal value (string, symbol, integer, constant, etc.)
+fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_string_node().is_some()
+        || node.as_symbol_node().is_some()
+        || node.as_integer_node().is_some()
+        || node.as_float_node().is_some()
+        || node.as_nil_node().is_some()
+        || node.as_true_node().is_some()
+        || node.as_false_node().is_some()
+        || node.as_regular_expression_node().is_some()
+        || node.as_constant_read_node().is_some()
+        || node.as_constant_path_node().is_some()
+}
+
+/// Extract the "target" (non-literal operand) from a comparison condition.
+/// For `x == 'foo'`, returns `[x]` (the non-literal side).
 /// For `x.is_a?(Foo)`, returns `[x]` (the receiver).
-/// For `x == 1 || x == 2`, returns the operands from the || branches.
+/// For `x == 1 || x == 2`, returns the target from the || branches.
 fn get_comparison_operands(node: &ruby_prism::Node<'_>) -> Option<Vec<Vec<u8>>> {
     if let Some(call) = node.as_call_node() {
         let method = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
         match method {
-            "==" | "===" | "=~" => {
-                let mut operands = Vec::new();
-                if let Some(receiver) = call.receiver() {
-                    operands.push(receiver.location().as_slice().to_vec());
-                }
-                if let Some(args) = call.arguments() {
-                    for arg in args.arguments().iter() {
-                        operands.push(arg.location().as_slice().to_vec());
+            "==" | "===" | "eql?" | "equal?" | "=~" => {
+                let receiver = call.receiver();
+                let args = call.arguments();
+                let first_arg = args.as_ref().and_then(|a| a.arguments().iter().next());
+                if let (Some(recv), Some(arg)) = (receiver, first_arg) {
+                    // The target is the non-literal side
+                    if is_literal(&arg) {
+                        return Some(vec![recv.location().as_slice().to_vec()]);
+                    } else if is_literal(&recv) {
+                        return Some(vec![arg.location().as_slice().to_vec()]);
                     }
-                }
-                if !operands.is_empty() {
-                    return Some(operands);
+                    // Both non-literal: return both as candidates
+                    return Some(vec![
+                        recv.location().as_slice().to_vec(),
+                        arg.location().as_slice().to_vec(),
+                    ]);
                 }
             }
             "is_a?" | "kind_of?" | "match?" => {

@@ -25,10 +25,11 @@ impl Cop for SendWithLiteralMethodName {
 
         let name = call.name().as_slice();
 
-        // Check for public_send, __send__, or send (if not allowed)
+        // Check for public_send, __send__, or send
+        // When AllowSend is true (default), only public_send is flagged.
+        // When AllowSend is false, send and __send__ are also flagged.
         let is_target = name == b"public_send"
-            || name == b"__send__"
-            || (!allow_send && name == b"send");
+            || (!allow_send && (name == b"__send__" || name == b"send"));
 
         if !is_target {
             return Vec::new();

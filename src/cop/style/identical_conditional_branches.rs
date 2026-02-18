@@ -11,6 +11,16 @@ fn contains_heredoc(node: &ruby_prism::Node<'_>) -> bool {
         found: bool,
     }
     impl<'pr> Visit<'pr> for HeredocChecker {
+        fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+            // Simple heredocs without interpolation are StringNode with << opening
+            if let Some(opening) = node.opening_loc() {
+                if opening.as_slice().starts_with(b"<<") {
+                    self.found = true;
+                    return;
+                }
+            }
+            ruby_prism::visit_string_node(self, node);
+        }
         fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
             // Heredocs have opening_loc starting with "<<"
             if let Some(opening) = node.opening_loc() {

@@ -18,40 +18,47 @@ impl Cop for PercentQLiterals {
     ) -> Vec<Diagnostic> {
         let style = config.get_str("EnforcedStyle", "lower_case_q");
 
-        // Check for %Q or %q string nodes
-        // In Prism, %Q strings are InterpolatedStringNode, %q strings are StringNode
-        // We need to check the source text to see if it starts with %Q or %q
+        // Check for %Q or %q string nodes using the opening_loc, which
+        // reliably identifies percent literals vs regular string content.
+        let opening_bytes = if let Some(s) = node.as_string_node() {
+            s.opening_loc().map(|loc| loc.as_slice())
+        } else if let Some(s) = node.as_interpolated_string_node() {
+            s.opening_loc().map(|loc| loc.as_slice())
+        } else {
+            None
+        };
 
-        let loc = node.location();
-        let src_bytes = loc.as_slice();
+        let opening = match opening_bytes {
+            Some(b) => b,
+            None => return Vec::new(),
+        };
 
-        if node.as_string_node().is_some() || node.as_interpolated_string_node().is_some() {
-            if style == "lower_case_q" {
-                // Flag %Q when %q would suffice (no interpolation)
-                if src_bytes.starts_with(b"%Q") {
-                    // Check if there's interpolation
-                    if node.as_string_node().is_some() {
-                        // StringNode means no interpolation -> should use %q
-                        let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(
-                            source,
-                            line,
-                            column,
-                            "Use `%q` instead of `%Q`.".to_string(),
-                        )];
-                    }
-                }
-            } else if style == "upper_case_q" {
-                // Flag %q when %Q is preferred
-                if src_bytes.starts_with(b"%q") {
+        if style == "lower_case_q" {
+            // Flag %Q when %q would suffice (no interpolation)
+            if opening.starts_with(b"%Q") {
+                if node.as_string_node().is_some() {
+                    // StringNode means no interpolation -> should use %q
+                    let loc = node.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
                     return vec![self.diagnostic(
                         source,
                         line,
                         column,
-                        "Use `%Q` instead of `%q`.".to_string(),
+                        "Use `%q` instead of `%Q`.".to_string(),
                     )];
                 }
+            }
+        } else if style == "upper_case_q" {
+            // Flag %q when %Q is preferred
+            if opening.starts_with(b"%q") {
+                let loc = node.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use `%Q` instead of `%q`.".to_string(),
+                )];
             }
         }
 

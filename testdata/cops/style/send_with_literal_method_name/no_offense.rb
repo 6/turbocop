@@ -6,3 +6,8 @@ obj.send(:foo)
 x = 1
 obj.public_send("name with space")
 obj.public_send("#{interpolated}string")
+
+# AllowSend: true (default) - send and __send__ are allowed
+obj.send(:literal_method)
+obj.__send__(:literal_method)
+generator.__send__(:snake_case, 'Foo')
