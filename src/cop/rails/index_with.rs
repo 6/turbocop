@@ -24,6 +24,15 @@ fn is_index_with_block(block_node: &ruby_prism::BlockNode<'_>) -> bool {
     if requireds.len() != 1 {
         return false;
     }
+    // Ensure there are no extra parameters (rest, optional, keyword, etc.)
+    if param_list.rest().is_some()
+        || !param_list.optionals().is_empty()
+        || !param_list.posts().is_empty()
+        || !param_list.keywords().is_empty()
+        || param_list.keyword_rest().is_some()
+    {
+        return false;
+    }
     let param_node = match requireds[0].as_required_parameter_node() {
         Some(p) => p,
         None => return false,

@@ -1,5 +1,8 @@
+use ruby_prism::Visit;
+
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
 pub struct NestedFileDirname;
@@ -9,64 +12,75 @@ impl Cop for NestedFileDirname {
         "Style/NestedFileDirname"
     }
 
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &CodeMap,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let call = match node.as_call_node() {
-            Some(c) => c,
-            None => return Vec::new(),
-        };
-
-        // Must be `dirname` method
-        if call.name().as_slice() != b"dirname" {
+        // minimum_target_ruby_version 3.1
+        let ruby_ver = config
+            .options
+            .get("TargetRubyVersion")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(3.4);
+        if ruby_ver < 3.1 {
             return Vec::new();
         }
 
-        // Receiver must be File constant
-        let receiver = match call.receiver() {
-            Some(r) => r,
-            None => return Vec::new(),
-        };
-
-        if !is_file_const(&receiver) {
-            return Vec::new();
-        }
-
-        // First argument must be another File.dirname call
-        let args = match call.arguments() {
-            Some(a) => a,
-            None => return Vec::new(),
-        };
-
-        let arg_list: Vec<_> = args.arguments().iter().collect();
-        if arg_list.is_empty() {
-            return Vec::new();
-        }
-
-        let first_arg = &arg_list[0];
-
-        // Check if first arg is itself File.dirname (nesting starts)
-        if !is_file_dirname_call(first_arg) {
-            return Vec::new();
-        }
-
-        let level = count_dirname_nesting(first_arg, 1) + 1;
-
-        // Get the innermost path arg source
-        let inner_path_src = get_innermost_path_source(first_arg, source);
-
-        let msg_loc = call.message_loc().unwrap_or_else(|| call.location());
-        let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        vec![self.diagnostic(
+        let mut visitor = DirnameVisitor {
+            cop: self,
             source,
-            line,
-            column,
-            format!("Use `dirname({}, {})` instead.", inner_path_src, level),
-        )]
+            diagnostics: Vec::new(),
+        };
+        visitor.visit(&parse_result.node());
+        visitor.diagnostics
+    }
+}
+
+struct DirnameVisitor<'a, 'src> {
+    cop: &'a NestedFileDirname,
+    source: &'src SourceFile,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl<'pr> Visit<'pr> for DirnameVisitor<'_, '_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if node.name().as_slice() == b"dirname" {
+            if let Some(recv) = node.receiver() {
+                if is_file_const(&recv) {
+                    if let Some(args) = node.arguments() {
+                        let arg_list: Vec<_> = args.arguments().iter().collect();
+                        if !arg_list.is_empty() && is_file_dirname_call(&arg_list[0]) {
+                            // Outermost nested File.dirname — report it.
+                            let level = count_dirname_nesting(&arg_list[0], 1) + 1;
+                            let inner_path_src =
+                                get_innermost_path_source(&arg_list[0], self.source);
+                            let msg_loc =
+                                node.message_loc().unwrap_or_else(|| node.location());
+                            let (line, column) =
+                                self.source.offset_to_line_col(msg_loc.start_offset());
+                            self.diagnostics.push(self.cop.diagnostic(
+                                self.source,
+                                line,
+                                column,
+                                format!(
+                                    "Use `dirname({}, {})` instead.",
+                                    inner_path_src, level
+                                ),
+                            ));
+                            // Skip visiting children — inner File.dirname calls
+                            // are already counted; don't produce inner reports.
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Default: visit all children
+        ruby_prism::visit_call_node(self, node);
     }
 }
 

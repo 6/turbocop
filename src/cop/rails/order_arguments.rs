@@ -29,11 +29,6 @@ impl Cop for OrderArguments {
             return Vec::new();
         }
 
-        // Must have a receiver
-        if call.receiver().is_none() {
-            return Vec::new();
-        }
-
         let args = match call.arguments() {
             Some(a) => a,
             None => return Vec::new(),

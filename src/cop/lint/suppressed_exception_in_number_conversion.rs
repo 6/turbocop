@@ -137,6 +137,12 @@ fn build_preferred(call: &ruby_prism::CallNode<'_>, source: &SourceFile) -> Stri
 }
 
 fn is_rescue_nil_or_empty(rescue_node: &ruby_prism::RescueNode<'_>) -> bool {
+    // Check exception classes: only flag if no specific class (bare rescue),
+    // or only ArgumentError/TypeError.
+    if !has_expected_exception_classes_only(rescue_node) {
+        return false;
+    }
+
     match rescue_node.statements() {
         None => true, // empty rescue
         Some(stmts) => {
@@ -144,6 +150,40 @@ fn is_rescue_nil_or_empty(rescue_node: &ruby_prism::RescueNode<'_>) -> bool {
             body.len() == 1 && body[0].as_nil_node().is_some()
         }
     }
+}
+
+/// Returns true if the rescue catches no specific exception, or only ArgumentError/TypeError.
+fn has_expected_exception_classes_only(rescue_node: &ruby_prism::RescueNode<'_>) -> bool {
+    let exceptions: Vec<_> = rescue_node.exceptions().iter().collect();
+    if exceptions.is_empty() {
+        // Bare rescue — catches all exceptions
+        return true;
+    }
+    // Each exception must be ArgumentError or TypeError
+    for exc in &exceptions {
+        if !is_expected_exception_class(exc) {
+            return false;
+        }
+    }
+    true
+}
+
+fn is_expected_exception_class(node: &ruby_prism::Node<'_>) -> bool {
+    // Simple constant: ArgumentError, TypeError
+    if let Some(c) = node.as_constant_read_node() {
+        let name = c.name().as_slice();
+        return name == b"ArgumentError" || name == b"TypeError";
+    }
+    // Qualified constant: ::ArgumentError, ::TypeError
+    if let Some(cp) = node.as_constant_path_node() {
+        if cp.parent().is_none() {
+            if let Some(name) = cp.name() {
+                let name = name.as_slice();
+                return name == b"ArgumentError" || name == b"TypeError";
+            }
+        }
+    }
+    false
 }
 
 #[cfg(test)]

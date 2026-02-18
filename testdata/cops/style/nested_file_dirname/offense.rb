@@ -6,3 +6,6 @@ File.dirname(File.dirname(__dir__))
 
 File.dirname(File.dirname(__FILE__))
      ^^^^^^^ Style/NestedFileDirname: Use `dirname(__FILE__, 2)` instead.
+
+File.dirname(File.dirname(File.dirname(__FILE__)))
+     ^^^^^^^ Style/NestedFileDirname: Use `dirname(__FILE__, 3)` instead.

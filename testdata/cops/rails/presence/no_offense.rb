@@ -20,3 +20,8 @@ if current.present?
 else
   something ? x : y
 end
+
+# chain with index access should not be flagged
+a.present? ? a[1] : nil
+a.present? ? a > 1 : nil
+a <= 0 if a.present?
