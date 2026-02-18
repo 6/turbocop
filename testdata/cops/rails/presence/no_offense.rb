@@ -26,9 +26,8 @@ a.present? ? a[1] : nil
 a.present? ? a > 1 : nil
 a <= 0 if a.present?
 
-# chain patterns (rubocop-rails 2.34+, not yet supported)
-field.destroy if field.present?
-notification_subscription.destroy! if notification_subscription.present?
-topic.update_pinned(false) if topic.present?
-reply_to_post.present? ? reply_to_post.post_number : nil
-email.present? ? email.downcase : nil
+# chain with assignment should not be flagged
+a[:key] = value if a.present?
+
+# chain with block should not be flagged (block node in parser gem)
+a.map { |x| x } if a.present?

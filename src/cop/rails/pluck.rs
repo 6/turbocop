@@ -22,6 +22,7 @@ impl Cop for Pluck {
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        eprintln!("DEBUG Rails/Pluck check_source called for {}", source.path.display());
         let mut visitor = PluckVisitor {
             cop: self,
             source,
@@ -29,6 +30,7 @@ impl Cop for Pluck {
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
+        eprintln!("DEBUG Rails/Pluck found {} diagnostics", visitor.diagnostics.len());
         visitor.diagnostics
     }
 }
@@ -43,14 +45,22 @@ struct PluckVisitor<'a, 'src> {
 }
 
 impl<'pr> Visit<'pr> for PluckVisitor<'_, '_> {
+    fn visit_instance_variable_or_write_node(&mut self, node: &ruby_prism::InstanceVariableOrWriteNode<'pr>) {
+        eprintln!("DEBUG: visiting InstanceVariableOrWriteNode");
+        ruby_prism::visit_instance_variable_or_write_node(self, node);
+    }
+
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         let method_name = node.name().as_slice();
 
         // Check for pluck candidate pattern: receiver.map/collect { |x| x[:key] }
         // Only at the top level (not inside any ancestor block) to prevent N+1 queries.
         if (method_name == b"map" || method_name == b"collect") && self.block_depth == 0 {
+            eprintln!("DEBUG: Found map/collect call, block_depth={}, has_block={}", self.block_depth, node.block().is_some());
             if let Some(diag) = self.check_pluck_candidate(node) {
                 self.diagnostics.push(diag);
+            } else {
+                eprintln!("DEBUG: check_pluck_candidate returned None");
             }
         }
 

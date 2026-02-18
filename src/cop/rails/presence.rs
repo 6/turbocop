@@ -38,18 +38,22 @@ impl Cop for Presence {
             let then_clause = if_node.statements();
             let else_clause = if_node.subsequent();
 
-            // Extract then single expr
-            let then_text = match extract_single_stmt_text(source, &then_clause) {
-                Some(t) => t,
+            // Extract then single node + text
+            let then_node = extract_single_stmt_node(&then_clause);
+            let then_text = then_node.as_ref().map(|n| node_text(source, n));
+            let then_text = match &then_text {
+                Some(t) => t.as_str(),
                 None => return Vec::new(),
             };
 
             // Extract else single expr or "nil"
-            let else_text = extract_else_text_from_subsequent(source, &else_clause);
-            let else_text = match &else_text {
-                Some(t) => t.as_str(),
-                None => return Vec::new(), // multi-expr else
+            let else_node = extract_else_node_from_subsequent(&else_clause);
+            let else_text_owned = match &else_node {
+                ElseNodeResult::Absent => "nil".to_string(),
+                ElseNodeResult::Single(n) => node_text(source, n),
+                ElseNodeResult::Multi => return Vec::new(),
             };
+            let else_text = else_text_owned.as_str();
 
             let else_is_ignored =
                 is_else_ignored_from_subsequent(&else_clause);
@@ -60,10 +64,15 @@ impl Cop for Presence {
                 node,
                 &receiver_text,
                 is_present,
-                &then_text,
+                then_text,
                 else_text,
                 &then_clause,
                 else_is_ignored,
+                then_node.as_ref(),
+                match &else_node {
+                    ElseNodeResult::Single(n) => Some(n),
+                    _ => None,
+                },
             );
         }
 
@@ -80,16 +89,20 @@ impl Cop for Presence {
             let then_clause = unless_node.statements();
             let else_clause = unless_node.else_clause();
 
-            let then_text = match extract_single_stmt_text(source, &then_clause) {
-                Some(t) => t,
-                None => return Vec::new(),
-            };
-
-            let else_text = extract_else_text_from_else_node(source, &else_clause);
-            let else_text = match &else_text {
+            let then_node = extract_single_stmt_node(&then_clause);
+            let then_text = then_node.as_ref().map(|n| node_text(source, n));
+            let then_text = match &then_text {
                 Some(t) => t.as_str(),
                 None => return Vec::new(),
             };
+
+            let else_node_result = extract_else_node_from_else_clause(&else_clause);
+            let else_text_owned = match &else_node_result {
+                ElseNodeResult::Absent => "nil".to_string(),
+                ElseNodeResult::Single(n) => node_text(source, n),
+                ElseNodeResult::Multi => return Vec::new(),
+            };
+            let else_text = else_text_owned.as_str();
 
             let else_is_ignored =
                 is_else_ignored_from_else_node(&else_clause);
@@ -100,15 +113,85 @@ impl Cop for Presence {
                 node,
                 &receiver_text,
                 is_present,
-                &then_text,
+                then_text,
                 else_text,
                 &then_clause,
                 else_is_ignored,
+                then_node.as_ref(),
+                match &else_node_result {
+                    ElseNodeResult::Single(n) => Some(n),
+                    _ => None,
+                },
             );
         }
 
         Vec::new()
     }
+}
+
+/// Result of extracting a single node from an else clause.
+enum ElseNodeResult<'a> {
+    /// No else clause (modifier if, or `if ... end` with no else)
+    Absent,
+    /// Single expression in else
+    Single(ruby_prism::Node<'a>),
+    /// Multiple expressions or non-matching structure
+    Multi,
+}
+
+/// Extract the single node from an IfNode's subsequent (Option<Node> wrapping ElseNode).
+fn extract_else_node_from_subsequent<'a>(
+    subsequent: &Option<ruby_prism::Node<'a>>,
+) -> ElseNodeResult<'a> {
+    match subsequent {
+        Some(else_node) => {
+            if let Some(else_n) = else_node.as_else_node() {
+                if let Some(stmts) = else_n.statements() {
+                    let body: Vec<_> = stmts.body().iter().collect();
+                    if body.len() == 1 {
+                        return ElseNodeResult::Single(body.into_iter().next().unwrap());
+                    }
+                    return ElseNodeResult::Multi;
+                }
+                // else clause with no statements (empty else)
+                ElseNodeResult::Absent
+            } else {
+                ElseNodeResult::Multi
+            }
+        }
+        None => ElseNodeResult::Absent,
+    }
+}
+
+/// Extract the single node from an UnlessNode's else_clause (Option<ElseNode>).
+fn extract_else_node_from_else_clause<'a>(
+    else_clause: &Option<ruby_prism::ElseNode<'a>>,
+) -> ElseNodeResult<'a> {
+    match else_clause {
+        Some(else_n) => {
+            if let Some(stmts) = else_n.statements() {
+                let body: Vec<_> = stmts.body().iter().collect();
+                if body.len() == 1 {
+                    return ElseNodeResult::Single(body.into_iter().next().unwrap());
+                }
+                return ElseNodeResult::Multi;
+            }
+            ElseNodeResult::Absent
+        }
+        None => ElseNodeResult::Absent,
+    }
+}
+
+/// Extract the single statement node from a StatementsNode.
+fn extract_single_stmt_node<'a>(
+    stmts: &Option<ruby_prism::StatementsNode<'a>>,
+) -> Option<ruby_prism::Node<'a>> {
+    let stmts = stmts.as_ref()?;
+    let body: Vec<_> = stmts.body().iter().collect();
+    if body.len() != 1 {
+        return None;
+    }
+    Some(body.into_iter().next().unwrap())
 }
 
 /// Core logic for both if and unless: check Pattern 1 (exact match) and Pattern 2 (chain).
@@ -122,6 +205,8 @@ fn check_presence_patterns(
     else_text: &str,
     then_clause: &Option<ruby_prism::StatementsNode<'_>>,
     else_is_ignored: bool,
+    then_node: Option<&ruby_prism::Node<'_>>,
+    else_node: Option<&ruby_prism::Node<'_>>,
 ) -> Vec<Diagnostic> {
     let (value_text, nil_text) = if is_present {
         (then_text, else_text)
@@ -159,10 +244,17 @@ fn check_presence_patterns(
         return emit_offense(cop, source, node, &replacement);
     }
 
-    // Pattern 2: value branch is a method call on receiver, other is nil.
-    // This "chain pattern" (e.g. `a.present? ? a.foo : nil` → `a.presence&.foo`)
-    // was added in rubocop-rails 2.34.0. Skip it for now to avoid FPs on projects
-    // using older rubocop-rails versions that don't have this detection.
+    // Pattern 2: value branch is a method call on receiver, nil branch is nil/absent.
+    // e.g. `a.present? ? a.foo : nil` -> `a.presence&.foo`
+    // e.g. `a.foo if a.present?` -> `a.presence&.foo`
+    if nil_text == "nil" {
+        let value_node = if is_present { then_node } else { else_node };
+        if let Some(vn) = value_node {
+            if let Some(diags) = check_chain_pattern(cop, source, node, receiver_text, vn) {
+                return diags;
+            }
+        }
+    }
 
     Vec::new()
 }
@@ -235,62 +327,6 @@ fn node_text(source: &SourceFile, node: &ruby_prism::Node<'_>) -> String {
         .to_string()
 }
 
-/// Extract the text of a single expression from a StatementsNode.
-fn extract_single_stmt_text(
-    source: &SourceFile,
-    stmts: &Option<ruby_prism::StatementsNode<'_>>,
-) -> Option<String> {
-    let stmts = stmts.as_ref()?;
-    let body: Vec<_> = stmts.body().iter().collect();
-    if body.len() != 1 {
-        return None;
-    }
-    Some(node_text(source, &body[0]))
-}
-
-/// Extract else text from IfNode's subsequent (which is Option<Node> wrapping ElseNode).
-/// Returns Some("nil") for absent else, Some(text) for single-expr else, None for multi-expr.
-fn extract_else_text_from_subsequent(
-    source: &SourceFile,
-    subsequent: &Option<ruby_prism::Node<'_>>,
-) -> Option<String> {
-    match subsequent {
-        Some(else_node) => {
-            let else_n = else_node.as_else_node()?;
-            if let Some(stmts) = else_n.statements() {
-                let body: Vec<_> = stmts.body().iter().collect();
-                if body.len() != 1 {
-                    return None;
-                }
-                Some(node_text(source, &body[0]))
-            } else {
-                Some("nil".to_string())
-            }
-        }
-        None => Some("nil".to_string()),
-    }
-}
-
-/// Extract else text from UnlessNode's else_clause (which is Option<ElseNode>).
-fn extract_else_text_from_else_node(
-    source: &SourceFile,
-    else_clause: &Option<ruby_prism::ElseNode<'_>>,
-) -> Option<String> {
-    match else_clause {
-        Some(else_n) => {
-            if let Some(stmts) = else_n.statements() {
-                let body: Vec<_> = stmts.body().iter().collect();
-                if body.len() != 1 {
-                    return None;
-                }
-                Some(node_text(source, &body[0]))
-            } else {
-                Some("nil".to_string())
-            }
-        }
-        None => Some("nil".to_string()),
-    }
-}
 
 /// Check if the else branch from IfNode's subsequent contains an ignored node.
 fn is_else_ignored_from_subsequent(subsequent: &Option<ruby_prism::Node<'_>>) -> bool {
