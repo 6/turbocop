@@ -29,6 +29,16 @@ RSpec.describe User do
   let(:user) { create(:user) }
 end
 
+# comment between includes does not trigger offense
+class UserModel
+  include Avatarable
+  # Include default devise modules.
+  include DeviseTokenAuth::Concerns::User
+  include Devise::Models::Confirmable
+
+  attr_reader :name
+end
+
 # include used as RSpec matcher argument
 it "includes the item" do
   expect(result).to include(item)

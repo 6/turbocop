@@ -4,3 +4,5 @@
 "foo\tbar"
 'foo\nbar'
 x = "hello"
+"line continuation \
+with backslash newline"

@@ -22,15 +22,13 @@ impl Cop for Pluck {
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        eprintln!("DEBUG Rails/Pluck check_source called for {}", source.path.display());
         let mut visitor = PluckVisitor {
             cop: self,
             source,
-            block_depth: 0,
+            nearest_block_has_receiver: false,
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        eprintln!("DEBUG Rails/Pluck found {} diagnostics", visitor.diagnostics.len());
         visitor.diagnostics
     }
 }
@@ -38,39 +36,39 @@ impl Cop for Pluck {
 struct PluckVisitor<'a, 'src> {
     cop: &'a Pluck,
     source: &'src SourceFile,
-    // Track depth of any ancestor blocks — map/collect inside any block is skipped
-    // to prevent N+1 query issues (matching RuboCop behavior).
-    block_depth: usize,
+    /// RuboCop skips map/collect when the nearest ancestor block's call has a
+    /// receiver (e.g., `5.times { users.map { |u| u[:name] } }`) to prevent
+    /// N+1 queries. But receiverless blocks like `class_methods do` or `it do`
+    /// don't set this flag.
+    nearest_block_has_receiver: bool,
     diagnostics: Vec<Diagnostic>,
 }
 
 impl<'pr> Visit<'pr> for PluckVisitor<'_, '_> {
-    fn visit_instance_variable_or_write_node(&mut self, node: &ruby_prism::InstanceVariableOrWriteNode<'pr>) {
-        eprintln!("DEBUG: visiting InstanceVariableOrWriteNode");
-        ruby_prism::visit_instance_variable_or_write_node(self, node);
-    }
-
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         let method_name = node.name().as_slice();
 
-        // Check for pluck candidate pattern: receiver.map/collect { |x| x[:key] }
-        // Only at the top level (not inside any ancestor block) to prevent N+1 queries.
-        if (method_name == b"map" || method_name == b"collect") && self.block_depth == 0 {
-            eprintln!("DEBUG: Found map/collect call, block_depth={}, has_block={}", self.block_depth, node.block().is_some());
+        // Check for pluck candidate: receiver.map/collect { |x| x[:key] }
+        // Skip when the nearest ancestor block's call has a receiver
+        // (RuboCop: `node.each_ancestor(:any_block).first&.receiver`).
+        if (method_name == b"map" || method_name == b"collect")
+            && !self.nearest_block_has_receiver
+        {
             if let Some(diag) = self.check_pluck_candidate(node) {
                 self.diagnostics.push(diag);
-            } else {
-                eprintln!("DEBUG: check_pluck_candidate returned None");
             }
         }
 
-        // Track block depth for ALL blocks — any map/collect inside any block is skipped
-        // to prevent N+1 query issues (matching RuboCop behavior).
+        // When entering a block, track whether the call that owns the block
+        // has a receiver. This is what RuboCop checks with
+        // `node.each_ancestor(:any_block).first&.receiver`.
         if let Some(block) = node.block() {
             if let Some(block_node) = block.as_block_node() {
-                self.block_depth += 1;
+                let has_receiver = node.receiver().is_some();
+                let prev = self.nearest_block_has_receiver;
+                self.nearest_block_has_receiver = has_receiver;
                 ruby_prism::visit_block_node(self, &block_node);
-                self.block_depth -= 1;
+                self.nearest_block_has_receiver = prev;
                 // Visit remaining children (receiver, arguments) but not the block again
                 if let Some(recv) = node.receiver() {
                     self.visit(&recv);

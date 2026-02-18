@@ -9,6 +9,19 @@ pub struct EmptyLinesAfterModuleInclusion;
 
 const MODULE_INCLUSION_METHODS: &[&[u8]] = &[b"include", b"extend", b"prepend"];
 
+/// Check if a trimmed line starts with a module inclusion method call.
+fn is_module_inclusion_line(trimmed: &[u8]) -> bool {
+    for &method in MODULE_INCLUSION_METHODS {
+        if trimmed.starts_with(method) {
+            let after = trimmed.get(method.len());
+            if after.is_none() || matches!(after, Some(b' ') | Some(b'(')) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 impl Cop for EmptyLinesAfterModuleInclusion {
     fn name(&self) -> &'static str {
         "Layout/EmptyLinesAfterModuleInclusion"
@@ -101,12 +114,30 @@ impl InclusionVisitor<'_> {
         }
 
         // If next line is another module inclusion, no offense
-        for &method in MODULE_INCLUSION_METHODS {
-            if next_trimmed.starts_with(method) {
-                let after = next_trimmed.get(method.len());
-                if after.is_none() || matches!(after, Some(b' ') | Some(b'(')) {
+        if is_module_inclusion_line(&next_trimmed) {
+            return;
+        }
+
+        // If next line is a comment, skip over comments and check if followed
+        // by another module inclusion (RuboCop treats comments between includes
+        // as part of the include block)
+        if next_trimmed.starts_with(b"#") {
+            let mut idx = last_line + 1;
+            while idx < lines.len() {
+                let line_trimmed: Vec<u8> = lines[idx]
+                    .iter()
+                    .copied()
+                    .skip_while(|&b| b == b' ' || b == b'\t')
+                    .collect();
+                if is_blank_line(lines[idx]) || line_trimmed.starts_with(b"#") {
+                    idx += 1;
+                    continue;
+                }
+                // Found a non-blank, non-comment line
+                if is_module_inclusion_line(&line_trimmed) {
                     return;
                 }
+                break;
             }
         }
 

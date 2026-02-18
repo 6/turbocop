@@ -7,13 +7,9 @@ users.collect(&:id)
 ids.map { |id| accounts_map[id] }
 rows.map { |row| row.data['domain'] }
 keys.map { |key| key.split(':')[2] }
-# Nested inside another block with a receiver — skip to prevent N+1 queries
-# The inner map { |e| e['timestamp'] } is inside the outer responses.map block
+# Nested inside a block with receiver — skip to prevent N+1 queries
 responses.map { |r| r.map { |e| e[:timestamp] } }
-# Nested inside a block without explicit receiver — also skip (any ancestor block)
-class_methods do
-  built_in_agent_tools.map { |tool| tool[:id] }
-end
-do_something do
-  items.map { |item| item[:name] }
+# Block with receiver wrapping map — nearest ancestor has receiver, skip
+5.times do
+  users.map { |u| u[:name] }
 end

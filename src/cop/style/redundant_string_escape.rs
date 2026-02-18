@@ -10,6 +10,7 @@ const MEANINGFUL_ESCAPES: &[u8] = &[
     b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7',
     b'x', b'u', b'c', b'C', b'M',
     b'#',
+    b'\n', b'\r', // literal newline/carriage-return: line continuation in double-quoted strings
 ];
 
 impl Cop for RedundantStringEscape {
