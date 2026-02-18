@@ -4,24 +4,6 @@ use crate::parse::source::SourceFile;
 
 pub struct FileNull;
 
-const NULL_DEVICE_PATTERNS: &[&str] = &["/dev/null", "nul", "nul:"];
-
-impl FileNull {
-    fn is_null_device_string(content: &str) -> Option<&'static str> {
-        let lower = content.to_lowercase();
-        for &pattern in NULL_DEVICE_PATTERNS {
-            if lower == pattern {
-                return Some(pattern);
-            }
-        }
-        // Also check /DEV/NULL style
-        if lower == "/dev/null" {
-            return Some("/dev/null");
-        }
-        None
-    }
-}
-
 impl Cop for FileNull {
     fn name(&self) -> &'static str {
         "Style/FileNull"

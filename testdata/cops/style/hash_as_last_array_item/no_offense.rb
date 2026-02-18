@@ -3,4 +3,4 @@
 [1, {}]
 foo(one: 1, two: 2)
 [1, 2, 3]
-[1, **options]
+[1, 2].each { |x| puts x }

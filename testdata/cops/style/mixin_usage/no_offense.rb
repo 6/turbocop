@@ -8,4 +8,4 @@ Foo.include M
 Class.new do
   include M
 end
-do_something(include(M))
+obj.include(M)

@@ -32,18 +32,10 @@ impl Cop for MinMaxComparison {
             None => return Vec::new(),
         };
 
-        // Must be an if node used as ternary - check that it has a `?` operator
-        // In Prism, ternary uses IfNode but with `?` as keyword
-        let keyword_loc = ternary.if_keyword_loc();
-        if keyword_loc.is_some() {
-            let kw = keyword_loc.unwrap();
-            if kw.as_slice() != b"?" {
-                // It's a regular if/unless, not ternary. We still check it.
-                // Actually for this cop, RuboCop only checks ternary patterns like `a > b ? a : b`.
-                // Regular if-else with comparison is not flagged by this cop.
-                return Vec::new();
-            }
-        } else {
+        // Must be a ternary expression.
+        // In Prism, ternary (a ? b : c) has if_keyword_loc() == None.
+        // Regular if/unless has if_keyword_loc() == Some("if"/"unless").
+        if ternary.if_keyword_loc().is_some() {
             return Vec::new();
         }
 

@@ -512,33 +512,34 @@ Added 45 new cops across Lint (25), Style (4), and Layout (16). Fixed all remain
 | Department | RuboCop | rblint | Coverage |
 |------------|--------:|-------:|---------:|
 | Layout | 100 | 100 | **100%** |
-| Lint | 152 | 115 | 76% |
-| Style | 287 | 90 | 31% |
+| Lint | 152 | 140 | 92% |
+| Style | 287 | 289 | **100%** |
 | Metrics | 10 | 10 | **100%** |
 | Naming | 19 | 19 | **100%** |
 | Security | 7 | 7 | **100%** |
 | Bundler | 7 | 7 | **100%** |
 | Gemspec | 10 | 10 | **100%** |
 | Migration | 1 | 1 | **100%** |
-| **Total Core** | **593** | **359** | **60.5%** |
+| **Total Core** | **593** | **583** | **98.3%** |
 
 ### Plugin departments
 
 | Department | RuboCop | rblint | Coverage |
 |------------|--------:|-------:|---------:|
-| rubocop-rails | 98 | 99 | **100%** |
+| rubocop-rails | 138 | 128 | 93% |
 | rubocop-rspec | 113 | 113 | **100%** |
-| rubocop-performance | 47 | 47 | **100%** |
+| rubocop-rspec_rails | 8 | 8 | **100%** |
+| rubocop-performance | 52 | 52 | **100%** |
 | rubocop-factory_bot | 11 | 11 | **100%** |
-| **Total Plugins** | **269** | **270** | **100%** |
+| **Total Plugins** | **322** | **312** | **96.9%** |
 
 ### Grand total
 
 | | RuboCop | rblint | Coverage |
 |--|--------:|-------:|---------:|
-| **All departments** | **862** | **628** | **72.9%** |
+| **All departments** | **915** | **892** | **97.5%** |
 
-Remaining gaps: Style (197 missing), Lint (37 missing).
+Remaining gaps: Lint (12 missing), Rails (10 missing).
 
 ### Bench Conformance
 
@@ -1012,6 +1013,28 @@ Added 115 new cops across 6 departments, including a new RSpecRails department. 
 - Style/SymbolArray: skip arrays containing comments
 - Plus 13 more single-FP fixes across Layout, Lint, Naming, Style, Gemspec
 
+## In Progress: M16 — Style 100% + Final Coverage Push (892 cops)
+
+Added 149 new Style cops to reach 100% Style department coverage (289/287). All cops have test fixtures (offense.rb + no_offense.rb).
+
+### M16 Cops — Style (149 new → 289 total = 100%)
+
+New cops span full range of Style enforcement:
+- Access control: AccessModifierDeclarations, AccessorGrouping, ConstantVisibility
+- Collections: ArrayCoercion, ArrayFirstLast, ArrayIntersect, CollectionCompact, CollectionMethods, HashExcept, HashSlice
+- Conditionals: CaseLikeIf, ConditionalAssignment, IdenticalConditionalBranches, IfInsideElse, SoleNestedConditional
+- Methods: ArgumentsForwarding, EndlessMethod, MethodCallWithoutArgsParentheses, OperatorMethodCall, SymbolProc
+- Redundancy: RedundantArgument, RedundantArrayConstructor, RedundantConstantBase, RedundantParentheses, RedundantRegexpEscape
+- Strings: FormatString, FormatStringToken, StringLiteralsInInterpolation, QuotedSymbols, RegexpLiteral
+- Plus 119 more cops covering naming, formatting, and code style enforcement
+
+### M16 Summary
+
+- [x] 892 cops registered (was 743, +149 new)
+- [ ] Style department: **289/287 = 100%** (100% of RuboCop's Style cops covered)
+- [ ] 12 departments at 100%: Layout, Style, Metrics, Naming, Security, Bundler, Gemspec, Migration, RSpec, RSpecRails, Performance, FactoryBot
+- [ ] Test fixes and conformance verification in progress
+
 ## Milestones
 
 | Milestone | Cops | Status |
@@ -1034,4 +1057,6 @@ Added 115 new cops across 6 departments, including a new RSpecRails department. 
 | **M13b**: Layout 100% + Core Expansion | 596 | **Done** |
 | **M13c**: Mastodon + Errbit Conformance | 596 | **Done** |
 | **M13d**: Mastodon + Errbit 100% | 596 | **Done** |
-| **M14**: Core Expansion Batch 3 + FactoryBot | 628 | **In Progress** |
+| **M14**: Core Expansion Batch 3 + FactoryBot | 628 | **Done** |
+| **M15**: Mass Cop Expansion + RSpecRails | 743 | **Done** |
+| **M16**: Style 100% + Final Coverage Push | 892 | **In Progress** |

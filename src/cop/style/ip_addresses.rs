@@ -110,7 +110,8 @@ impl Cop for IpAddresses {
             return Vec::new();
         }
 
-        let allowed = config.get_string_array("AllowedAddresses");
+        let allowed = config.get_string_array("AllowedAddresses")
+            .or_else(|| Some(vec!["::".to_string()]));
 
         // Check if it's in allowed addresses
         if let Some(ref allowed_list) = allowed {

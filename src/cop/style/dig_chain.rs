@@ -72,10 +72,17 @@ impl Cop for DigChain {
                     return Vec::new();
                 }
 
-                // This is a chained dig - only report on the outermost call
-                // First check if *this* call is also a receiver of another dig
-                // (we only want to report the topmost in a chain)
-                // We can't check parent, so we just report and the dedup will handle it.
+                // Only report if the receiver's receiver is NOT also a dig call.
+                // This ensures we only fire once per chain (at the innermost pair),
+                // avoiding duplicate reports for triple+ chains like dig.dig.dig.
+                if let Some(inner_recv) = recv_call.receiver() {
+                    if let Some(inner_recv_call) = inner_recv.as_call_node() {
+                        let inner_recv_method = std::str::from_utf8(inner_recv_call.name().as_slice()).unwrap_or("");
+                        if inner_recv_method == "dig" {
+                            return Vec::new(); // Let the innermost pair report
+                        }
+                    }
+                }
 
                 let loc = recv_call.message_loc().unwrap_or(recv_call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());

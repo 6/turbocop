@@ -63,7 +63,20 @@ impl Cop for RedundantHeredocDelimiterQuotes {
         // Let's check: for single-quoted, scan content for interpolation patterns
         if quote_char == b'\'' {
             // Check if the heredoc body contains interpolation-like patterns
-            let body_bytes = &source.as_bytes()[opening.end_offset()..node.location().end_offset()];
+            // Use content_loc() from the node for accurate body range
+            let body_bytes = if let Some(s) = node.as_string_node() {
+                s.content_loc().as_slice()
+            } else if let Some(s) = node.as_interpolated_string_node() {
+                // For interpolated strings, check the raw source between opening and closing
+                match (s.opening_loc(), s.closing_loc()) {
+                    (Some(open), Some(close)) => {
+                        &source.as_bytes()[open.end_offset()..close.start_offset()]
+                    }
+                    _ => &[] as &[u8],
+                }
+            } else {
+                &[] as &[u8]
+            };
             if body_bytes.windows(2).any(|w| w == b"#{" || w == b"#@" || w == b"#$") {
                 return Vec::new();
             }

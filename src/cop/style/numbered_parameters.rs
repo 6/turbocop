@@ -39,14 +39,13 @@ impl Cop for NumberedParameters {
             None => return Vec::new(),
         };
 
-        // Check if block uses numbered parameters (no explicit parameters but uses _1 etc.)
-        // In Prism, a block with numbered params has `parameters` as None but
-        // the body references NumberedReferenceReadNode or similar.
-        // Actually, numbered parameters (_1, _2, etc.) show up as LocalVariableReadNode
-        // with names like "_1", "_2", etc.
-        // We check if the block has no explicit parameters and its body uses _1.._9
-        if block_node.parameters().is_some() {
-            return Vec::new();
+        // In Prism, blocks with numbered params have parameters() set to a
+        // NumberedParametersNode. Blocks with explicit params have BlockParametersNode.
+        // Skip only if explicit parameters are present (BlockParametersNode).
+        if let Some(params) = block_node.parameters() {
+            if params.as_block_parameters_node().is_some() {
+                return Vec::new();
+            }
         }
 
         // Check body for _1.._9 usage

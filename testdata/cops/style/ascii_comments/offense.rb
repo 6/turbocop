@@ -5,4 +5,4 @@
       ^ Style/AsciiComments: Use only ascii symbols in comments.
 
 # comment with café
-               ^^^^ Style/AsciiComments: Use only ascii symbols in comments.
+                  ^^ Style/AsciiComments: Use only ascii symbols in comments.

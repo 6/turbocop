@@ -26,17 +26,22 @@ impl Cop for RedundantParentheses {
             None => return Vec::new(),
         };
 
-        // Check if the parenthesized expression is a literal, variable, or keyword
-        let msg = if is_literal(&body) {
-            "a literal"
-        } else if is_variable(&body) {
-            "a variable"
-        } else if is_keyword(&body) {
-            "a keyword"
-        } else if is_constant(&body) {
-            "a constant"
+        // Unwrap StatementsNode to get the single inner expression
+        // Use a helper to classify, checking both direct body or statements-wrapped
+        let msg = if let Some(stmts) = body.as_statements_node() {
+            let body_nodes: Vec<_> = stmts.body().iter().collect();
+            if body_nodes.len() == 1 {
+                classify_node(&body_nodes[0])
+            } else {
+                None
+            }
         } else {
-            return Vec::new();
+            classify_node(&body)
+        };
+
+        let msg = match msg {
+            Some(m) => m,
+            None => return Vec::new(),
         };
 
         let loc = node.location();
@@ -47,6 +52,20 @@ impl Cop for RedundantParentheses {
             column,
             format!("Don't use parentheses around {}.", msg),
         )]
+    }
+}
+
+fn classify_node(node: &ruby_prism::Node<'_>) -> Option<&'static str> {
+    if is_literal(node) {
+        Some("a literal")
+    } else if is_variable(node) {
+        Some("a variable")
+    } else if is_keyword(node) {
+        Some("a keyword")
+    } else if is_constant(node) {
+        Some("a constant")
+    } else {
+        None
     }
 }
 

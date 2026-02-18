@@ -59,9 +59,9 @@ impl Cop for HashEachMethods {
         let replacement = if is_keys { "each_key" } else { "each_value" };
         let original = if is_keys { "keys.each" } else { "values.each" };
 
-        // Check safe navigation
-        let has_safe_nav = call.call_operator_loc().is_some();
-        let recv_has_safe_nav = recv_call.call_operator_loc().is_some();
+        // Check safe navigation (&. vs regular .)
+        let has_safe_nav = call.call_operator_loc().is_some_and(|op| op.as_slice() == b"&.");
+        let recv_has_safe_nav = recv_call.call_operator_loc().is_some_and(|op| op.as_slice() == b"&.");
 
         let display_original = if has_safe_nav || recv_has_safe_nav {
             if is_keys { "keys&.each" } else { "values&.each" }

@@ -107,6 +107,41 @@ impl NextVisitor<'_> {
                     "Use `next` to skip iteration.".to_string(),
                 ));
             }
+        } else if let Some(unless_node) = stmt.as_unless_node() {
+            // Skip if it has an else branch
+            if unless_node.else_clause().is_some() {
+                return;
+            }
+
+            // Skip modifier unless if style is skip_modifier_ifs
+            if self.style == "skip_modifier_ifs" {
+                let kw_loc = unless_node.keyword_loc();
+                if let Some(body_stmts) = unless_node.statements() {
+                    let body_loc = body_stmts.location();
+                    if body_loc.start_offset() < kw_loc.start_offset() {
+                        return;
+                    }
+                }
+            }
+
+            // Check body length
+            if let Some(unless_body) = unless_node.statements() {
+                let unless_body_stmts: Vec<_> = unless_body.body().iter().collect();
+                if unless_body_stmts.len() < self.min_body_length {
+                    return;
+                }
+            } else {
+                return;
+            }
+
+            let kw_loc = unless_node.keyword_loc();
+            let (line, column) = self.source.offset_to_line_col(kw_loc.start_offset());
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                "Use `next` to skip iteration.".to_string(),
+            ));
         }
     }
 }

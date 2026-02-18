@@ -13,4 +13,4 @@ module_eval <<-EOT
 EOT
 
 instance_eval "def original_filename; 'stringio#{n}.txt'; end"
-              ^^^^^^^^^^^^^ Style/DocumentDynamicEvalDefinition: Add a comment block showing its appearance if interpolated.
+^^^^^^^^^^^^^ Style/DocumentDynamicEvalDefinition: Add a comment block showing its appearance if interpolated.

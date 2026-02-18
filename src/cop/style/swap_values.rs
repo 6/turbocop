@@ -56,8 +56,16 @@ impl<'pr> Visit<'pr> for SwapVisitor<'_> {
                 let c_value = get_lvar_name(&val3);
 
                 if let (Some(a_val), Some(b_val), Some(c_val)) = (a_value, b_value, c_value) {
-                    // tmp = a; a = b; b = tmp
-                    if a_val == b_name && c_name == a_val && c_val == tmp_name && b_val != tmp_name {
+                    // Pattern: tmp = a; a = b; b = tmp
+                    // w1: tmp_name = a_val  (save a into tmp)
+                    // w2: b_name = b_val    (assign b's value to a)
+                    // w3: c_name = c_val    (restore tmp into b)
+                    // Conditions:
+                    //   b_name == a_val (second writes to the saved variable)
+                    //   c_name == b_val (third writes to the source variable)
+                    //   c_val == tmp_name (third reads from temp)
+                    //   b_val != tmp_name (second doesn't read temp)
+                    if b_name == a_val && c_name == b_val && c_val == tmp_name && b_val != tmp_name {
                         let loc = window[0].location();
                         let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                         self.diagnostics.push(self.cop.diagnostic(

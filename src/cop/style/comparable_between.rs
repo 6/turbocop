@@ -35,23 +35,51 @@ fn check_between(
     let right_cmp = parse_comparison(source, right);
 
     if let (Some(l), Some(r)) = (left_cmp, right_cmp) {
-        // Check for patterns like: x >= min && x <= max
-        // or: min <= x && x <= max
-        let x_gte_min = (l.op == ">=" && r.op == "<=") || (l.op == "<=" && r.op == ">=");
-        let x_lte_max = (l.op == "<=" && r.op == ">=") || (l.op == ">=" && r.op == "<=");
+        // Detect patterns where the same variable x satisfies: low <= x && x <= high
+        // This covers all equivalent forms:
+        //   x >= min && x <= max   =>  x is l.left and r.left
+        //   min <= x && x <= max   =>  x is l.right and r.left
+        //   x <= max && x >= min   =>  x is l.left and r.left
+        //   max >= x && min <= x   =>  x is l.right and r.right
+        //
+        // The key insight: each comparison must have one side as ">=" or "<="
+        // and the shared variable must be on the "greater-or-equal" side of one
+        // comparison and the "less-or-equal" side of the other.
 
-        if x_gte_min || x_lte_max {
-            // Check that the same variable is used in both
-            if l.left == r.left || l.left == r.right || l.right == r.left || l.right == r.right {
-                let loc = left.location();
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![cop.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Prefer `between?` over logical comparison.".to_string(),
-                )];
-            }
+        // Only consider >= and <= operators (not > or <)
+        if !matches!(l.op.as_str(), ">=" | "<=") || !matches!(r.op.as_str(), ">=" | "<=") {
+            return Vec::new();
+        }
+
+        // Determine which side of each comparison the variable is on
+        // For `a >= b`, a is the "big" side, b is the "small" side
+        // For `a <= b`, a is the "small" side, b is the "big" side
+        let (l_small, l_big) = if l.op == ">=" {
+            (&l.right, &l.left) // a >= b means b <= a
+        } else {
+            (&l.left, &l.right) // a <= b
+        };
+
+        let (r_small, r_big) = if r.op == ">=" {
+            (&r.right, &r.left)
+        } else {
+            (&r.left, &r.right)
+        };
+
+        // The pattern is: x >= min && x <= max, which normalizes to:
+        // l_big is the shared variable (x), r_small is the shared variable (x)
+        // i.e. l_big == r_small
+        // Also handle reversed form: x <= max && x >= min
+        // where l_small == r_big
+        if l_big == r_small || l_small == r_big {
+            let and_node_loc = left.location();
+            let (line, column) = source.offset_to_line_col(and_node_loc.start_offset());
+            return vec![cop.diagnostic(
+                source,
+                line,
+                column,
+                "Prefer `between?` over logical comparison.".to_string(),
+            )];
         }
     }
 

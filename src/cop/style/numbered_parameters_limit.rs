@@ -33,9 +33,12 @@ impl Cop for NumberedParametersLimit {
             None => return Vec::new(),
         };
 
-        // Must have no explicit parameters
-        if block_node.parameters().is_some() {
-            return Vec::new();
+        // Skip blocks with explicit parameters (BlockParametersNode).
+        // Blocks using numbered parameters have NumberedParametersNode instead.
+        if let Some(params) = block_node.parameters() {
+            if params.as_block_parameters_node().is_some() {
+                return Vec::new();
+            }
         }
 
         let body = match block_node.body() {

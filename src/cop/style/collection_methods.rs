@@ -16,7 +16,18 @@ impl Cop for CollectionMethods {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let preferred_methods = config.get_string_hash("PreferredMethods").unwrap_or_default();
+        let preferred_methods = config.get_string_hash("PreferredMethods").unwrap_or_else(|| {
+            // Default preferred methods per RuboCop's default.yml
+            let mut m = std::collections::HashMap::new();
+            m.insert("collect".to_string(), "map".to_string());
+            m.insert("collect!".to_string(), "map!".to_string());
+            m.insert("collect_concat".to_string(), "flat_map".to_string());
+            m.insert("inject".to_string(), "reduce".to_string());
+            m.insert("detect".to_string(), "find".to_string());
+            m.insert("find_all".to_string(), "select".to_string());
+            m.insert("member?".to_string(), "include?".to_string());
+            m
+        });
         let _methods_accepting_symbol = config.get_string_array("MethodsAcceptingSymbol").unwrap_or_default();
 
         let call = match node.as_call_node() {

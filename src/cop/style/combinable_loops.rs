@@ -17,14 +17,19 @@ impl Cop for CombinableLoops {
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
         // Check in class/module/method bodies for consecutive loops
-        let stmts = if let Some(stmts_node) = node.as_statements_node() {
-            stmts_node
-        } else {
-            return Vec::new();
-        };
+        // Note: ProgramNode's StatementsNode is visited via visit_statements_node
+        // directly (not through generic visit()), so visit_branch_node_enter is
+        // NOT called for it. We handle ProgramNode explicitly here.
+        let stmt_list: Vec<ruby_prism::Node<'_>> =
+            if let Some(stmts_node) = node.as_statements_node() {
+                stmts_node.body().iter().collect()
+            } else if let Some(prog_node) = node.as_program_node() {
+                prog_node.statements().body().iter().collect()
+            } else {
+                return Vec::new();
+            };
 
         let mut diagnostics = Vec::new();
-        let stmt_list: Vec<_> = stmts.body().iter().collect();
 
         for i in 1..stmt_list.len() {
             let prev = &stmt_list[i - 1];
@@ -34,6 +39,13 @@ impl Cop for CombinableLoops {
                 get_loop_info(source, prev),
                 get_loop_info(source, curr),
             ) {
+                // Check that loops are truly consecutive (no blank lines between them)
+                let prev_end_line = source.offset_to_line_col(prev.location().end_offset()).0;
+                let curr_start_line = source.offset_to_line_col(curr.location().start_offset()).0;
+                if curr_start_line > prev_end_line + 1 {
+                    continue; // There's a gap (blank line) between them
+                }
+
                 if prev_info.receiver == curr_info.receiver
                     && prev_info.method == curr_info.method
                 {

@@ -37,6 +37,22 @@ struct MissingElseVisitor<'a> {
     diagnostics: Vec<Diagnostic>,
 }
 
+impl MissingElseVisitor<'_> {
+    /// Walk the if/elsif chain and return true only if it terminates with an else clause.
+    fn chain_has_else(node: &ruby_prism::Node<'_>) -> bool {
+        if let Some(if_node) = node.as_if_node() {
+            match if_node.subsequent() {
+                Some(sub) => Self::chain_has_else(&sub),
+                None => false,
+            }
+        } else if node.as_else_node().is_some() {
+            true
+        } else {
+            false
+        }
+    }
+}
+
 impl<'pr> Visit<'pr> for MissingElseVisitor<'_> {
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
         if self.style == "if" || self.style == "both" {
@@ -44,8 +60,12 @@ impl<'pr> Visit<'pr> for MissingElseVisitor<'_> {
             if let Some(kw_loc) = node.if_keyword_loc() {
                 let kw = kw_loc.as_slice();
                 if kw == b"if" {
-                    // Check if there's an else clause
-                    if node.subsequent().is_none() {
+                    // Check if the if/elsif chain ends with an else clause
+                    let has_else = match node.subsequent() {
+                        Some(sub) => Self::chain_has_else(&sub),
+                        None => false,
+                    };
+                    if !has_else {
                         let loc = node.location();
                         let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                         self.diagnostics.push(self.cop.diagnostic(

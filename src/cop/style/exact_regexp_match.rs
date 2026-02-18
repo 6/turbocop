@@ -8,8 +8,10 @@ impl ExactRegexpMatch {
     /// Check if a regex node is an exact match pattern like /\Afoo\z/
     fn is_exact_match_regex(node: &ruby_prism::Node<'_>) -> bool {
         if let Some(regex) = node.as_regular_expression_node() {
-            // Must have no flags (no /i, /m, etc.)
-            if regex.flags() != 0 {
+            // Must have no meaningful regex flags (no /i, /m, /x, etc.)
+            // Note: flags() includes base node flags (like encoding), so we
+            // check specific regex flag methods instead of flags() != 0.
+            if regex.is_ignore_case() || regex.is_extended() || regex.is_multi_line() || regex.is_once() {
                 return false;
             }
             let bytes = regex.unescaped();

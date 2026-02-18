@@ -41,33 +41,35 @@ impl Cop for NegatedIfElseCondition {
                 return Vec::new();
             }
 
-            // Must be a regular `if`, not `unless`
-            if let Some(kw_loc) = if_node.if_keyword_loc() {
-                let kw = kw_loc.as_slice();
-                if kw == b"unless" {
+            // Determine if ternary (no if_keyword_loc in Prism) or regular if
+            let is_ternary = if_node.if_keyword_loc().is_none();
+
+            if !is_ternary {
+                let kw = if_node.if_keyword_loc().unwrap();
+                let kw_bytes = kw.as_slice();
+                // Must be `if`, not `unless`
+                if kw_bytes == b"unless" {
                     return Vec::new();
                 }
-                // Check for ternary
-                let is_ternary = kw == b"?";
+            }
 
-                // Check the subsequent is an else (not elsif)
-                if let Some(sub) = if_node.subsequent() {
-                    if sub.as_else_node().is_none() {
-                        return Vec::new();
-                    }
+            // Check the subsequent is an else (not elsif)
+            if let Some(sub) = if_node.subsequent() {
+                if sub.as_else_node().is_none() {
+                    return Vec::new();
                 }
+            }
 
-                let predicate = if_node.predicate();
-                if Self::is_negated(&predicate) {
-                    let loc = if_node.location();
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    let msg = if is_ternary {
-                        "Invert the negated condition and swap the ternary branches."
-                    } else {
-                        "Invert the negated condition and swap the if-else branches."
-                    };
-                    return vec![self.diagnostic(source, line, column, msg.to_string())];
-                }
+            let predicate = if_node.predicate();
+            if Self::is_negated(&predicate) {
+                let loc = if_node.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                let msg = if is_ternary {
+                    "Invert the negated condition and swap the ternary branches."
+                } else {
+                    "Invert the negated condition and swap the if-else branches."
+                };
+                return vec![self.diagnostic(source, line, column, msg.to_string())];
             }
         }
 
