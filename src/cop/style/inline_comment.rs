@@ -17,7 +17,11 @@ impl Cop for InlineComment {
         let mut diagnostics = Vec::new();
         let lines = source.lines();
 
-        for (i, line) in lines.iter().enumerate() {
+        for (i, line_bytes) in lines.enumerate() {
+            let line = match std::str::from_utf8(line_bytes) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
             let trimmed = line.trim_start();
 
             // Skip standalone comment lines (line starts with #)

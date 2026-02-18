@@ -79,11 +79,11 @@ impl Cop for FileWrite {
         }
 
         if let Some(str_node) = open_arg_list[1].as_string_node() {
-            let content = str_node.unescaped();
-            if !Self::is_write_mode(content.as_slice()) {
+            let content: &[u8] = &str_node.unescaped();
+            if !Self::is_write_mode(content) {
                 return Vec::new();
             }
-            let is_binary = content.as_slice().contains(&b'b');
+            let is_binary = content.contains(&b'b');
             let write_method = if is_binary { "File.binwrite" } else { "File.write" };
 
             let loc = call.location();

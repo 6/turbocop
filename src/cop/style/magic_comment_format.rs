@@ -43,7 +43,9 @@ impl Cop for MagicCommentFormat {
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
-        let lines = source.lines();
+        let lines: Vec<&str> = source.lines()
+            .filter_map(|l| std::str::from_utf8(l).ok())
+            .collect();
         let style = config.get_str("EnforcedStyle", "snake_case");
         let _directive_cap = config.get_str("DirectiveCapitalization", "");
         let _value_cap = config.get_str("ValueCapitalization", "");

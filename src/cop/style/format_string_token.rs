@@ -93,8 +93,8 @@ impl Cop for FormatStringToken {
             None => return Vec::new(),
         };
 
-        let content = string_node.unescaped();
-        let content_str = match std::str::from_utf8(content.as_slice()) {
+        let content_bytes = string_node.unescaped();
+        let content_str = match std::str::from_utf8(&content_bytes) {
             Ok(s) => s,
             Err(_) => return Vec::new(),
         };

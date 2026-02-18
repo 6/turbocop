@@ -14,7 +14,7 @@ impl Cop for KeywordArgumentsMerging {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        config: &CopConfig,
+        _config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let call = match node.as_call_node() {
             Some(c) => c,

@@ -70,7 +70,7 @@ impl Cop for RedundantFetchBlock {
         // Check block body
         let body = block_node.body();
 
-        let is_redundant = if let Some(body) = body {
+        let is_redundant = if let Some(ref body) = body {
             if let Some(stmts) = body.as_statements_node() {
                 let body_stmts: Vec<_> = stmts.body().iter().collect();
                 if body_stmts.len() == 1 {

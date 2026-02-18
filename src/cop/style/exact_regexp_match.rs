@@ -9,11 +9,10 @@ impl ExactRegexpMatch {
     fn is_exact_match_regex(node: &ruby_prism::Node<'_>) -> bool {
         if let Some(regex) = node.as_regular_expression_node() {
             // Must have no flags (no /i, /m, etc.)
-            if !regex.flags().is_empty() {
+            if regex.flags() != 0 {
                 return false;
             }
-            let content = regex.unescaped();
-            let bytes = content.as_slice();
+            let bytes = regex.unescaped();
             return Self::is_exact_match_pattern(bytes);
         }
         false

@@ -15,7 +15,9 @@ impl Cop for LineEndConcatenation {
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
-        let lines = source.lines();
+        let lines: Vec<&str> = source.lines()
+            .filter_map(|l| std::str::from_utf8(l).ok())
+            .collect();
 
         for (i, line) in lines.iter().enumerate() {
             if i + 1 >= lines.len() {

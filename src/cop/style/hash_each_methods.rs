@@ -60,8 +60,8 @@ impl Cop for HashEachMethods {
         let original = if is_keys { "keys.each" } else { "values.each" };
 
         // Check safe navigation
-        let has_safe_nav = call.call_operator().map_or(false, |op| op.as_slice() == b"&.");
-        let recv_has_safe_nav = recv_call.call_operator().map_or(false, |op| op.as_slice() == b"&.");
+        let has_safe_nav = call.call_operator_loc().is_some();
+        let recv_has_safe_nav = recv_call.call_operator_loc().is_some();
 
         let display_original = if has_safe_nav || recv_has_safe_nav {
             if is_keys { "keys&.each" } else { "values&.each" }

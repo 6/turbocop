@@ -51,7 +51,7 @@ impl Cop for RedundantArgument {
         };
 
         if redundant {
-            let method_str = std::str::from_utf8(method_bytes).unwrap_or("");
+            let _method_str = std::str::from_utf8(method_bytes).unwrap_or("");
             let arg_src = std::str::from_utf8(arg.location().as_slice()).unwrap_or("");
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -71,7 +71,7 @@ impl RedundantArgument {
     fn is_string_value(&self, node: &ruby_prism::Node<'_>, _source: &SourceFile, expected: &str) -> bool {
         if let Some(str_node) = node.as_string_node() {
             let content = str_node.unescaped();
-            return content.as_slice() == expected.as_bytes();
+            return content == expected.as_bytes();
         }
         false
     }

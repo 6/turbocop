@@ -440,7 +440,7 @@ fn all_registered_cops_can_fire() {
 #[test]
 fn registry_has_expected_cop_count() {
     let registry = CopRegistry::default_registry();
-    assert_eq!(registry.len(), 743, "Expected 743 registered cops");
+    assert_eq!(registry.len(), 892, "Expected 892 registered cops");
 
     let names = registry.names();
     let expected = [
@@ -1895,8 +1895,8 @@ fn list_cops_prints_all_registered_cops() {
     let lines: Vec<&str> = stdout.lines().collect();
     assert_eq!(
         lines.len(),
-        743,
-        "Expected 743 cop names, got {}",
+        892,
+        "Expected 892 cop names, got {}",
         lines.len()
     );
 

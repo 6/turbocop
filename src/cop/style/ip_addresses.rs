@@ -101,7 +101,7 @@ impl Cop for IpAddresses {
         };
 
         let content = string_node.unescaped();
-        let content_str = match std::str::from_utf8(content.as_slice()) {
+        let content_str = match std::str::from_utf8(&content) {
             Ok(s) => s,
             Err(_) => return Vec::new(),
         };

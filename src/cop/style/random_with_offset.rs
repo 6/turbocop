@@ -27,11 +27,11 @@ impl Cop for RandomWithOffset {
         // Pattern 2: rand(n) - offset
         // Pattern 3: rand(n).succ / rand(n).next / rand(n).pred
         if method_bytes == b"+" || method_bytes == b"-" {
-            return self.check_arithmetic(source, node, call);
+            return self.check_arithmetic(source, node, &call);
         }
 
         if method_bytes == b"succ" || method_bytes == b"next" || method_bytes == b"pred" {
-            return self.check_succ_pred(source, node, call);
+            return self.check_succ_pred(source, node, &call);
         }
 
         Vec::new()

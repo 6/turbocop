@@ -77,8 +77,8 @@ impl Cop for FileTouch {
 
         // Second arg should be 'a'
         if let Some(str_node) = arg_list[1].as_string_node() {
-            let content = str_node.unescaped();
-            if content.as_slice() != b"a" {
+            let content: &[u8] = &str_node.unescaped();
+            if content != b"a" {
                 return Vec::new();
             }
         } else {

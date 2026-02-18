@@ -64,7 +64,7 @@ impl Cop for RedundantArrayConstructor {
             if let Some(args) = call.arguments() {
                 let arg_list: Vec<_> = args.arguments().iter().collect();
                 if arg_list.len() == 1 && arg_list[0].as_array_node().is_some() {
-                    let msg_loc = call.message_loc().unwrap_or_else(|| call.location());
+                    let _msg_loc = call.message_loc().unwrap_or_else(|| call.location());
                     let recv_start = receiver.location().start_offset();
                     let (line, column) = source.offset_to_line_col(recv_start);
                     return vec![self.diagnostic(

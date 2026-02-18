@@ -60,7 +60,10 @@ impl Cop for IfInsideElse {
             }
         }
 
-        let loc = inner_if.if_keyword_loc();
+        let loc = match inner_if.if_keyword_loc() {
+            Some(l) => l,
+            None => return Vec::new(),
+        };
         let (line, column) = source.offset_to_line_col(loc.start_offset());
 
         vec![self.diagnostic(
