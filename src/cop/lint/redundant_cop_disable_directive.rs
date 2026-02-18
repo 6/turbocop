@@ -4,9 +4,9 @@ use crate::diagnostic::Severity;
 /// Checks for `# rubocop:disable` comments that can be removed.
 ///
 /// This cop is special: it requires post-processing knowledge of which cops
-/// actually fired offenses, so it cannot detect issues in a single-pass.
-/// This struct exists so the cop name is registered and can be referenced
-/// in configuration. The actual detection logic would be in the linter pipeline.
+/// actually fired offenses, so the detection logic lives in `lint_source_inner`
+/// in `src/linter.rs`. This struct exists so the cop name is registered and
+/// can be referenced in configuration (enabled/disabled/excluded).
 pub struct RedundantCopDisableDirective;
 
 impl Cop for RedundantCopDisableDirective {
@@ -19,8 +19,8 @@ impl Cop for RedundantCopDisableDirective {
     }
 
     // This cop is intentionally a no-op in check_lines/check_node/check_source.
-    // A full implementation requires post-processing after all cops have run,
-    // to determine which disable directives actually suppressed an offense.
+    // The actual detection happens in lint_source_inner after all cops have run,
+    // where we can determine which disable directives actually suppressed an offense.
 }
 
 #[cfg(test)]
@@ -29,28 +29,20 @@ mod tests {
 
     #[test]
     fn cop_name() {
-        assert_eq!(RedundantCopDisableDirective.name(), "Lint/RedundantCopDisableDirective");
+        assert_eq!(
+            RedundantCopDisableDirective.name(),
+            "Lint/RedundantCopDisableDirective"
+        );
     }
 
     #[test]
     fn default_severity_is_warning() {
-        assert_eq!(RedundantCopDisableDirective.default_severity(), Severity::Warning);
+        assert_eq!(
+            RedundantCopDisableDirective.default_severity(),
+            Severity::Warning
+        );
     }
 
-    #[test]
-    fn no_offenses_on_clean_source() {
-        use crate::testutil::run_cop_full;
-        let source = b"x = 1\ny = 2\n";
-        let diags = run_cop_full(&RedundantCopDisableDirective, source);
-        assert!(diags.is_empty());
-    }
-
-    #[test]
-    fn no_offenses_with_disable_directive() {
-        use crate::testutil::run_cop_full;
-        let source = b"# rubocop:disable Layout/LineLength\nfoo\n# rubocop:enable Layout/LineLength\n";
-        let diags = run_cop_full(&RedundantCopDisableDirective, source);
-        // Stub cop produces no diagnostics
-        assert!(diags.is_empty());
-    }
+    // Full-pipeline tests for this cop live in tests/integration.rs because
+    // they need the complete linter pipeline (all cops running + post-processing).
 }

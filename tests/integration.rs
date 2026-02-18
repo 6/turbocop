@@ -2246,3 +2246,310 @@ fn codegen_exits_nonzero_without_args() {
         "Should print usage, got: {stderr}"
     );
 }
+
+// ---------- Lint/RedundantCopDisableDirective tests ----------
+//
+// This cop requires the full linter pipeline because it detects disable
+// directives that didn't suppress any offense. It can't use the standard
+// fixture test framework since that runs a single cop in isolation.
+//
+// The implementation is conservative: it only flags directives for cops
+// that are UNKNOWN in a known department (likely renamed/removed) or
+// cops that are DISABLED/EXCLUDED for this file. It does NOT flag
+// directives for cops that ARE running, since rblint might have gaps
+// in its detection vs. RuboCop.
+
+#[test]
+fn no_redundant_disable_unknown_cop_in_known_department() {
+    // Disable for a cop name that doesn't exist in a known department.
+    // Style/ is a known department, but NonexistentFakeCop doesn't exist.
+    // We do NOT flag this because it could be a project-local custom cop
+    // (e.g., Style/MiddleDot in mastodon).
+    let dir = temp_dir("redundant_disable_known_dept");
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"# frozen_string_literal: true\n\nx = 1 # rubocop:disable Style/NonexistentFakeCop\n",
+    );
+    let config = load_config(None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = default_args();
+
+    let result = run_linter(&[file], &config, &registry, &args);
+    let redundant: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
+        .collect();
+
+    assert!(
+        redundant.is_empty(),
+        "Should NOT flag unknown cop (could be custom), got: {:?}",
+        redundant
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn no_redundant_disable_unknown_department() {
+    // Disable for a cop in a completely unknown department.
+    // CustomDept/ doesn't exist in the registry, so it might be a
+    // custom cop from a plugin gem — don't flag.
+    let dir = temp_dir("redundant_disable_unknown_dept");
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"# frozen_string_literal: true\n\nx = 1 # rubocop:disable CustomDept/CustomCop\n",
+    );
+    let config = load_config(None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = default_args();
+
+    let result = run_linter(&[file], &config, &registry, &args);
+    let redundant: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
+        .collect();
+
+    assert!(
+        redundant.is_empty(),
+        "Should NOT flag disable for unknown department (might be custom cop), got: {:?}",
+        redundant
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn no_redundant_disable_running_cop_no_offense() {
+    // Disable for a real cop that is running but doesn't fire on clean code.
+    // Conservative approach: don't flag, since it might be a detection gap.
+    let dir = temp_dir("redundant_disable_running_clean");
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"# frozen_string_literal: true\n\nx = 1 # rubocop:disable Layout/TrailingWhitespace\n",
+    );
+    let config = load_config(None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = default_args();
+
+    let result = run_linter(&[file], &config, &registry, &args);
+    let redundant: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
+        .collect();
+
+    assert!(
+        redundant.is_empty(),
+        "Should NOT flag disable for a running cop (conservative approach), got: {:?}",
+        redundant
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn no_redundant_disable_when_offense_suppressed() {
+    // Block disable around a line with trailing whitespace -> used, not redundant.
+    let dir = temp_dir("redundant_disable_used");
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"# frozen_string_literal: true\n\n# rubocop:disable Layout/TrailingWhitespace\nx = 1   \n# rubocop:enable Layout/TrailingWhitespace\n",
+    );
+    let config = load_config(None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = default_args();
+
+    let result = run_linter(&[file], &config, &registry, &args);
+    let redundant: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
+        .collect();
+
+    assert!(
+        redundant.is_empty(),
+        "Should NOT report redundant disable when it actually suppresses an offense, got: {:?}",
+        redundant
+    );
+
+    // Also verify the trailing whitespace offense was suppressed
+    let tw: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Layout/TrailingWhitespace")
+        .collect();
+    assert!(
+        tw.is_empty(),
+        "TrailingWhitespace should be suppressed by disable directive"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn no_redundant_disable_with_only_flag() {
+    // When --only is set, don't report redundant disables (cops are filtered).
+    // Style/Copyright is disabled by default and WOULD be flagged as redundant
+    // normally, but --only means cops are filtered so we skip redundancy checks.
+    let dir = temp_dir("redundant_disable_only");
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"# frozen_string_literal: true\n\nx = 1 # rubocop:disable Style/Copyright\n",
+    );
+    let config = load_config(None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        only: vec!["Layout/TrailingWhitespace".to_string()],
+        ..default_args()
+    };
+
+    let result = run_linter(&[file], &config, &registry, &args);
+    let redundant: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
+        .collect();
+
+    assert!(
+        redundant.is_empty(),
+        "Should NOT report redundant disables when --only is set, got: {:?}",
+        redundant
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn redundant_disable_disabled_cop() {
+    // Disable for a cop that is explicitly disabled in config.
+    // Style/Copyright is disabled by default (default_enabled = false).
+    // A disable directive for it is redundant since the cop doesn't run.
+    let dir = temp_dir("redundant_disable_disabled_cop");
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"# frozen_string_literal: true\n\nx = 1 # rubocop:disable Style/Copyright\n",
+    );
+    let config = load_config(None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = default_args();
+
+    let result = run_linter(&[file], &config, &registry, &args);
+    let redundant: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
+        .collect();
+
+    assert_eq!(
+        redundant.len(),
+        1,
+        "Expected 1 redundant disable for disabled cop Style/Copyright, got: {:?}",
+        redundant
+    );
+    assert!(
+        redundant[0].message.contains("Style/Copyright"),
+        "Message should mention the cop name: {}",
+        redundant[0].message
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn no_redundant_disable_department_used() {
+    // Department-level disables are never flagged (conservative)
+    let dir = temp_dir("redundant_disable_dept_used");
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"# frozen_string_literal: true\n\nx = 1   # rubocop:disable Layout\n",
+    );
+    let config = load_config(None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = default_args();
+
+    let result = run_linter(&[file], &config, &registry, &args);
+    let redundant: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
+        .collect();
+
+    assert!(
+        redundant.is_empty(),
+        "Department disable should NOT be redundant, got: {:?}",
+        redundant
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn redundant_disable_todo_directive() {
+    // rubocop:todo is treated the same as disable — disabled cop is flagged
+    let dir = temp_dir("redundant_disable_todo");
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"# frozen_string_literal: true\n\nx = 1 # rubocop:todo Style/Copyright\n",
+    );
+    let config = load_config(None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = default_args();
+
+    let result = run_linter(&[file], &config, &registry, &args);
+    let redundant: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
+        .collect();
+
+    assert_eq!(
+        redundant.len(),
+        1,
+        "rubocop:todo for disabled cop should be flagged, got: {:?}",
+        redundant
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn no_redundant_disable_all() {
+    // `disable all` is never flagged as redundant (too broad to check)
+    let dir = temp_dir("redundant_disable_all_not_flagged");
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"# frozen_string_literal: true\n\n# rubocop:disable all\nx = 1\n# rubocop:enable all\n",
+    );
+    let config = load_config(None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        except: vec!["Style/DisableCopsWithinSourceCodeDirective".to_string()],
+        ..default_args()
+    };
+
+    let result = run_linter(&[file], &config, &registry, &args);
+    let redundant: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
+        .collect();
+
+    assert!(
+        redundant.is_empty(),
+        "disable all should NOT be flagged as redundant (conservative), got: {:?}",
+        redundant
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}

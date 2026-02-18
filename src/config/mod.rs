@@ -52,6 +52,11 @@ pub struct CopFilter {
 }
 
 impl CopFilter {
+    /// Returns true if the cop is enabled in config (Enabled: true).
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
     /// Check whether this cop should run on the given file path.
     pub fn is_match(&self, path: &Path) -> bool {
         if !self.enabled {

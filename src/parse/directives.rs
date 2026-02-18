@@ -9,6 +9,23 @@ static DIRECTIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"#\s*(?:rubocop|rblint)\s*:\s*(disable|enable|todo)\s+(.+)").unwrap()
 });
 
+/// A single disable directive entry (one cop name from a `# rubocop:disable` comment).
+#[derive(Debug, Clone)]
+pub struct DisableDirective {
+    /// The cop/department/all name exactly as written in the comment.
+    pub cop_name: String,
+    /// 1-indexed line number of the directive comment.
+    pub line: usize,
+    /// 0-indexed column of the `#` starting the comment.
+    pub column: usize,
+    /// Whether this directive is inline (code before the `#` on the same line).
+    pub is_inline: bool,
+    /// The line range this directive covers (start_line, end_line) inclusive, 1-indexed.
+    pub range: (usize, usize),
+    /// Whether this directive actually suppressed at least one diagnostic.
+    pub used: bool,
+}
+
 /// Tracks line ranges where cops are disabled via inline comments.
 ///
 /// Supports `# rubocop:disable`, `# rubocop:enable`, `# rubocop:todo`,
@@ -20,13 +37,17 @@ pub struct DisabledRanges {
     ranges: HashMap<String, Vec<(usize, usize)>>,
     /// If true, no directives were found — skip filtering entirely.
     empty: bool,
+    /// All disable directives found, for redundancy checking.
+    directives: Vec<DisableDirective>,
 }
 
 impl DisabledRanges {
     pub fn from_comments(source: &SourceFile, parse_result: &ruby_prism::ParseResult<'_>) -> Self {
         let mut ranges: HashMap<String, Vec<(usize, usize)>> = HashMap::new();
-        let mut open_disables: HashMap<String, usize> = HashMap::new();
+        // Track open block disables: cop_name -> (start_line, column, directive_index)
+        let mut open_disables: HashMap<String, (usize, usize, usize)> = HashMap::new();
         let mut found_any = false;
+        let mut directives: Vec<DisableDirective> = Vec::new();
 
         let lines: Vec<&[u8]> = source.lines().collect();
 
@@ -67,25 +88,58 @@ impl DisabledRanges {
                 .split(',')
                 .map(|s| s.trim())
                 .filter(|s| !s.is_empty())
+                .map(|s| {
+                    // Extract just the cop name, ignoring trailing free-text comments.
+                    // Cop names are: "all", "Department", or "Department/CopName".
+                    // If there's a space after the cop name, the rest is a comment.
+                    match s.find(' ') {
+                        Some(idx) => &s[..idx],
+                        None => s,
+                    }
+                })
+                .filter(|s| !s.is_empty())
                 .collect();
 
             match action {
                 "disable" | "todo" => {
                     for &cop in &cop_names {
                         if is_inline {
-                            ranges.entry(cop.to_string()).or_default().push((line, line));
+                            let range = (line, line);
+                            ranges.entry(cop.to_string()).or_default().push(range);
+                            directives.push(DisableDirective {
+                                cop_name: cop.to_string(),
+                                line,
+                                column: col,
+                                is_inline: true,
+                                range,
+                                used: false,
+                            });
                         } else {
-                            open_disables.insert(cop.to_string(), line);
+                            let directive_idx = directives.len();
+                            directives.push(DisableDirective {
+                                cop_name: cop.to_string(),
+                                line,
+                                column: col,
+                                is_inline: false,
+                                range: (line, usize::MAX), // placeholder, updated on enable/EOF
+                                used: false,
+                            });
+                            open_disables.insert(cop.to_string(), (line, col, directive_idx));
                         }
                     }
                 }
                 "enable" => {
                     for &cop in &cop_names {
-                        if let Some(start_line) = open_disables.remove(cop) {
+                        if let Some((start_line, _col, directive_idx)) = open_disables.remove(cop) {
+                            let range = (start_line, line);
                             ranges
                                 .entry(cop.to_string())
                                 .or_default()
-                                .push((start_line, line));
+                                .push(range);
+                            // Update the directive's range
+                            if directive_idx < directives.len() {
+                                directives[directive_idx].range = range;
+                            }
                         }
                         // Orphaned enable without prior disable: ignore
                     }
@@ -95,13 +149,18 @@ impl DisabledRanges {
         }
 
         // Close any remaining open disables to EOF
-        for (cop, start_line) in open_disables {
-            ranges.entry(cop).or_default().push((start_line, usize::MAX));
+        for (cop, (start_line, _col, directive_idx)) in open_disables {
+            let range = (start_line, usize::MAX);
+            ranges.entry(cop).or_default().push(range);
+            if directive_idx < directives.len() {
+                directives[directive_idx].range = range;
+            }
         }
 
         DisabledRanges {
             ranges,
             empty: !found_any,
+            directives,
         }
     }
 
@@ -125,8 +184,59 @@ impl DisabledRanges {
         self.check_ranges("all", line)
     }
 
+    /// Check if a diagnostic is disabled AND mark the matching directive(s) as used.
+    ///
+    /// Returns true if the diagnostic should be suppressed.
+    pub fn check_and_mark_used(&mut self, cop_name: &str, line: usize) -> bool {
+        let mut suppressed = false;
+
+        // Check exact cop name
+        if self.check_ranges(cop_name, line) {
+            self.mark_directives_used(cop_name, line);
+            suppressed = true;
+        }
+
+        // Check department name (e.g., "Layout" for "Layout/LineLength")
+        if let Some(dept) = cop_name.split('/').next() {
+            if dept != cop_name && self.check_ranges(dept, line) {
+                self.mark_directives_used(dept, line);
+                suppressed = true;
+            }
+        }
+
+        // Check "all"
+        if self.check_ranges("all", line) {
+            self.mark_directives_used("all", line);
+            suppressed = true;
+        }
+
+        suppressed
+    }
+
+    /// Mark all directives with the given key that cover the given line as used.
+    fn mark_directives_used(&mut self, key: &str, line: usize) {
+        for directive in &mut self.directives {
+            if directive.cop_name == key
+                && line >= directive.range.0
+                && line <= directive.range.1
+            {
+                directive.used = true;
+            }
+        }
+    }
+
+    /// Return all unused disable directives (those that didn't suppress any diagnostic).
+    pub fn unused_directives(&self) -> impl Iterator<Item = &DisableDirective> {
+        self.directives.iter().filter(|d| !d.used)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.empty
+    }
+
+    /// Returns true if there are any disable directives (used for redundancy checking).
+    pub fn has_directives(&self) -> bool {
+        !self.directives.is_empty()
     }
 
     fn check_ranges(&self, key: &str, line: usize) -> bool {
@@ -286,5 +396,68 @@ mod tests {
         assert!(dr.is_disabled("Layout/LineLength", 3));
         assert!(dr.is_disabled("Layout/LineLength", 4));
         assert!(!dr.is_disabled("Layout/LineLength", 5));
+    }
+
+    // --- check_and_mark_used tests ---
+
+    #[test]
+    fn check_and_mark_used_marks_directive() {
+        let mut dr = disabled_ranges("x = 1 # rubocop:disable Foo/Bar\ny = 2\n");
+        assert!(dr.check_and_mark_used("Foo/Bar", 1));
+        assert!(!dr.check_and_mark_used("Foo/Bar", 2));
+        let unused: Vec<_> = dr.unused_directives().collect();
+        assert!(unused.is_empty(), "directive should be marked used");
+    }
+
+    #[test]
+    fn unused_directive_reported() {
+        let mut dr = disabled_ranges("x = 1 # rubocop:disable Foo/Bar\ny = 2\n");
+        // Never call check_and_mark_used -> directive stays unused
+        let unused: Vec<_> = dr.unused_directives().collect();
+        assert_eq!(unused.len(), 1);
+        assert_eq!(unused[0].cop_name, "Foo/Bar");
+        assert_eq!(unused[0].line, 1);
+    }
+
+    #[test]
+    fn department_disable_marked_used() {
+        let mut dr = disabled_ranges(
+            "# rubocop:disable Metrics\nx = 1\n# rubocop:enable Metrics\ny = 2\n",
+        );
+        assert!(dr.check_and_mark_used("Metrics/MethodLength", 2));
+        let unused: Vec<_> = dr.unused_directives().collect();
+        assert!(unused.is_empty(), "department directive should be marked used");
+    }
+
+    #[test]
+    fn all_disable_marked_used() {
+        let mut dr = disabled_ranges(
+            "# rubocop:disable all\nx = 1\n# rubocop:enable all\ny = 2\n",
+        );
+        assert!(dr.check_and_mark_used("Style/Foo", 2));
+        let unused: Vec<_> = dr.unused_directives().collect();
+        assert!(unused.is_empty(), "all directive should be marked used");
+    }
+
+    #[test]
+    fn block_directive_unused() {
+        let mut dr = disabled_ranges(
+            "# rubocop:disable Foo/Bar\nx = 1\ny = 2\n# rubocop:enable Foo/Bar\nz = 3\n",
+        );
+        // No diagnostics suppressed
+        let unused: Vec<_> = dr.unused_directives().collect();
+        assert_eq!(unused.len(), 1);
+        assert_eq!(unused[0].cop_name, "Foo/Bar");
+        assert_eq!(unused[0].line, 1);
+        assert!(!unused[0].is_inline);
+    }
+
+    #[test]
+    fn multiple_cops_one_used_one_not() {
+        let mut dr = disabled_ranges("x = 1 # rubocop:disable Foo/Bar, Baz/Qux\ny = 2\n");
+        assert!(dr.check_and_mark_used("Foo/Bar", 1));
+        let unused: Vec<_> = dr.unused_directives().collect();
+        assert_eq!(unused.len(), 1);
+        assert_eq!(unused[0].cop_name, "Baz/Qux");
     }
 }
