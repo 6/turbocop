@@ -58,6 +58,21 @@ impl Cop for RedundantRegexpEscape {
         let full_bytes = &source.as_bytes()[node_loc.start_offset()..node_loc.end_offset()];
         let open_len = if full_bytes.starts_with(b"%r") { 3 } else { 1 };
 
+        // For %r(...) style regexps, escaped delimiter characters are NOT redundant
+        // because they prevent the parser from treating them as the delimiter boundary.
+        // Determine the opening and closing delimiter characters.
+        let delimiter_chars: Vec<u8> = if full_bytes.starts_with(b"%r") && full_bytes.len() >= 3 {
+            match full_bytes[2] {
+                b'(' => vec![b'(', b')'],
+                b'{' => vec![b'{', b'}'],
+                b'[' => vec![b'[', b']'],
+                b'<' => vec![b'<', b'>'],
+                delim => vec![delim],
+            }
+        } else {
+            Vec::new()
+        };
+
         let mut diagnostics = Vec::new();
         let mut i = 0;
         let mut in_char_class = false;
@@ -107,6 +122,12 @@ impl Cop for RedundantRegexpEscape {
                 if !is_meaningful {
                     // Also allow escaping / in slash-delimited regexp
                     if escaped == b'/' {
+                        i += 2;
+                        continue;
+                    }
+
+                    // Allow escaping delimiter characters in %r(...) style regexps
+                    if delimiter_chars.contains(&escaped) {
                         i += 2;
                         continue;
                     }

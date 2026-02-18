@@ -23,3 +23,11 @@ puts code
 #   def f # rubocop:disable Style/For
 #   end
 # rubocop:enable Style/For
+
+# Documentation text with embedded examples should not be treated as directives
+# Checks that `# rubocop:enable ...` and `# rubocop:disable ...` statements
+# are strictly formatted.
+
+# Plain comment mentioning rubocop:enable in prose is not a directive
+# removed. This is done in order to find rubocop:enable directives that
+# have now become useless.

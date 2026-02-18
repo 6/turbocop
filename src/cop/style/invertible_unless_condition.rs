@@ -48,6 +48,19 @@ impl InvertibleUnlessCondition {
             if call.name().as_slice() == b"!" {
                 return true;
             }
+
+            // Safe-navigation calls (`&.method`) are not invertible — RuboCop only
+            // handles `:send` nodes, not `:csend` (safe-navigation) nodes.
+            if call.call_operator_loc().is_some_and(|op: ruby_prism::Location<'_>| op.as_slice() == b"&.") {
+                return false;
+            }
+
+            // Calls with blocks (e.g., `any? { |x| ... }`) are not invertible —
+            // in RuboCop's AST, block calls are `:block` nodes, not `:send` nodes.
+            if call.block().is_some() {
+                return false;
+            }
+
             // Check if the method has an inverse in our map
             if inverse_map.contains_key(call.name().as_slice()) {
                 // For `<` operator: check if the receiver is a constant (class inheritance check)

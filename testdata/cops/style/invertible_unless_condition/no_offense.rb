@@ -17,3 +17,9 @@ foo unless x.present?
 foo unless x.blank?
 foo unless x.empty?
 foo unless x.include?(y)
+# Safe-navigation calls are not invertible (csend, not send)
+foo unless x&.include?(y)
+foo unless order&.any?
+# Calls with blocks are not invertible (block node, not send)
+foo unless items.any? { |i| i.valid? }
+foo unless @queue.none? { |_, s, r| s == "spec" }

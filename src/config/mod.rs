@@ -1184,9 +1184,35 @@ fn merge_cop_config(
         }
     }
 
+    // Check for cop-level inherit_mode in overlay options.
+    // When a cop config contains `inherit_mode: { merge: [AllowedMethods] }`,
+    // array options listed in `merge` should be appended instead of replaced.
+    let cop_inherit_mode = overlay
+        .options
+        .get("inherit_mode")
+        .and_then(|v| v.as_mapping())
+        .map(|m| {
+            let merge_keys: HashSet<String> = m
+                .get(&Value::String("merge".to_string()))
+                .and_then(|v| v.as_sequence())
+                .map(|seq| {
+                    seq.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            merge_keys
+        })
+        .unwrap_or_default();
+
     // Options: merge (last writer wins per key, deep-merge for Mapping values
     // to match RuboCop's behavior where Hash cop options are merged, not replaced)
     for (key, value) in &overlay.options {
+        // Skip inherit_mode itself — it's a merge directive, not a cop option
+        if key == "inherit_mode" {
+            continue;
+        }
+
         if let (Some(Value::Mapping(base_map)), Value::Mapping(overlay_map)) =
             (base.options.get(key), value)
         {
@@ -1195,6 +1221,21 @@ fn merge_cop_config(
                 merged.insert(k.clone(), v.clone());
             }
             base.options.insert(key.clone(), Value::Mapping(merged));
+        } else if cop_inherit_mode.contains(key) {
+            // Cop-level inherit_mode says merge this key — append arrays
+            if let (Some(Value::Sequence(base_seq)), Value::Sequence(overlay_seq)) =
+                (base.options.get(key), value)
+            {
+                let mut merged = base_seq.clone();
+                for item in overlay_seq {
+                    if !merged.contains(item) {
+                        merged.push(item.clone());
+                    }
+                }
+                base.options.insert(key.clone(), Value::Sequence(merged));
+            } else {
+                base.options.insert(key.clone(), value.clone());
+            }
         } else {
             base.options.insert(key.clone(), value.clone());
         }
@@ -1507,6 +1548,7 @@ impl ResolvedConfig {
                     EnabledState::Unset => !self.disabled_by_default && cop.default_enabled(),
                     EnabledState::True => true,
                 };
+
 
                 // Plugin department awareness: cops from plugin departments should
                 // only run if the corresponding gem was loaded via require:/plugins:.

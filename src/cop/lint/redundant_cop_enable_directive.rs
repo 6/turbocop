@@ -136,11 +136,30 @@ fn parse_all_directives(line: &str) -> Vec<(&str, Vec<String>, usize)> {
 
         let abs_pos = search_from + rubocop_pos;
 
-        // Verify there's a # before this rubocop: directive
+        // A real rubocop directive has the form `# rubocop:action` where
+        // the `#` is the Ruby comment marker (possibly preceded only by code
+        // or whitespace), not part of documentation text. We require the `#`
+        // immediately before `rubocop:` (with only whitespace between) AND
+        // that `#` must be either at the start of the line (after whitespace)
+        // or preceded by code (inline comment). Documentation examples like
+        // `` `# rubocop:enable` `` inside comments are excluded because the
+        // `#` before `rubocop:` is preceded by a backtick character.
         let before = &line[..abs_pos];
-        if !before.contains('#') {
+        let before_trimmed = before.trim_end();
+        if !before_trimmed.ends_with('#') {
             search_from = abs_pos + "rubocop:".len();
             continue;
+        }
+        // The `#` must be the comment-starting hash, not an example in backticks.
+        // Check that the character before `#` is whitespace, start-of-line, or a
+        // code character (not a backtick which indicates an embedded example).
+        let hash_pos = before_trimmed.len() - 1;
+        if hash_pos > 0 {
+            let char_before_hash = before_trimmed.as_bytes()[hash_pos - 1];
+            if char_before_hash == b'`' {
+                search_from = abs_pos + "rubocop:".len();
+                continue;
+            }
         }
 
         let after_prefix = &remaining[rubocop_pos + "rubocop:".len()..];

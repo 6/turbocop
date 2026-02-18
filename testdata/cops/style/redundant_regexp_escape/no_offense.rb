@@ -10,3 +10,7 @@ x =~ /[\s\-a]/
 x =~ /[\w\d\s]/
 # Escape bracket inside char class is meaningful
 x =~ /[\]]/
+# Escaping delimiter characters in %r(...) is not redundant
+x =~ %r(\A[^\(]*time)i
+x =~ %r(foo\(bar\))
+x =~ %r{foo\{bar\}}
