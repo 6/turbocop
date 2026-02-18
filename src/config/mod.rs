@@ -343,6 +343,10 @@ pub struct ResolvedConfig {
     /// When non-empty, core cops (Layout, Lint, Style, etc.) not in this set
     /// are treated as non-existent in the project's rubocop version.
     rubocop_known_cops: HashSet<String>,
+    /// Cops explicitly set to Enabled:true by user config (not from rubocop defaults
+    /// or require:/plugins: gem defaults). Used to determine whether a department-level
+    /// Enabled:false should override a cop-level Enabled:true.
+    user_enabled_cops: HashSet<String>,
     /// Per-directory cop config overrides from nested `.rubocop.yml` files.
     /// Keyed by directory path (sorted deepest-first for lookup).
     /// Each value contains only the cop-specific options from that directory's config.
@@ -364,6 +368,7 @@ impl ResolvedConfig {
             target_rails_version: None,
             active_support_extensions_enabled: false,
             rubocop_known_cops: HashSet::new(),
+            user_enabled_cops: HashSet::new(),
             dir_overrides: Vec::new(),
         }
     }
@@ -501,6 +506,18 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
     let mut visited = HashSet::new();
     let project_layer = load_config_recursive(&config_path, &config_dir, &mut visited)?;
 
+    // Compute the set of cops explicitly enabled by user config (not from defaults).
+    // This includes cops set to Enabled:true in inherit_from, inherit_gem, or local
+    // config, but NOT cops enabled by rubocop defaults or require:/plugins: gem defaults.
+    let user_enabled_cops: HashSet<String> = project_layer
+        .cop_configs
+        .iter()
+        .filter(|(name, c)| {
+            c.enabled == EnabledState::True && !project_layer.require_enabled_cops.contains(*name)
+        })
+        .map(|(name, _)| name.clone())
+        .collect();
+
     // Merge project config on top of rubocop defaults
     merge_layer_into(&mut base, &project_layer, None);
 
@@ -603,6 +620,7 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
         target_rails_version,
         active_support_extensions_enabled: base.active_support_extensions_enabled.unwrap_or(false),
         rubocop_known_cops,
+        user_enabled_cops,
         dir_overrides,
     })
 }
@@ -1309,13 +1327,26 @@ impl ResolvedConfig {
         let dept = name.split('/').next().unwrap_or("");
         let dept_config = self.department_configs.get(dept);
 
-        // 1. Determine enabled state (cop-level > department-level > defaults)
-        let enabled_state = match config.map(|c| c.enabled) {
-            Some(s) if s != EnabledState::Unset => s,
-            _ => match dept_config.map(|dc| dc.enabled) {
-                Some(s) if s != EnabledState::Unset => s,
-                _ => EnabledState::Unset,
-            },
+        // 1. Determine enabled state.
+        // Standard precedence: cop-level > department-level > defaults.
+        // Special case: department False overrides cop True when cop's True
+        // came from defaults (not user config).
+        let cop_enabled_state = config.map(|c| c.enabled).unwrap_or(EnabledState::Unset);
+        let dept_enabled_state = dept_config
+            .map(|dc| dc.enabled)
+            .unwrap_or(EnabledState::Unset);
+
+        let enabled_state = if cop_enabled_state == EnabledState::True
+            && dept_enabled_state == EnabledState::False
+            && !self.user_enabled_cops.contains(name)
+        {
+            EnabledState::False
+        } else if cop_enabled_state != EnabledState::Unset {
+            cop_enabled_state
+        } else if dept_enabled_state != EnabledState::Unset {
+            dept_enabled_state
+        } else {
+            EnabledState::Unset
         };
 
         match enabled_state {
@@ -1574,13 +1605,30 @@ impl ResolvedConfig {
                 let dept = name.split('/').next().unwrap_or("");
                 let dept_config = self.department_configs.get(dept);
 
-                // Determine enabled state (cop-level > department-level > defaults)
-                let enabled_state = match config.map(|c| c.enabled) {
-                    Some(s) if s != EnabledState::Unset => s,
-                    _ => match dept_config.map(|dc| dc.enabled) {
-                        Some(s) if s != EnabledState::Unset => s,
-                        _ => EnabledState::Unset,
-                    },
+                // Determine enabled state.
+                // Standard precedence: cop-level > department-level > defaults.
+                // Special case: when the department is explicitly False and the cop is
+                // True only from defaults (not user config), department wins. This matches
+                // RuboCop's behavior where `Metrics: Enabled: false` disables all Metrics
+                // cops even though rubocop defaults set them to Enabled: true.
+                let cop_enabled_state = config.map(|c| c.enabled).unwrap_or(EnabledState::Unset);
+                let dept_enabled_state = dept_config
+                    .map(|dc| dc.enabled)
+                    .unwrap_or(EnabledState::Unset);
+
+                let enabled_state = if cop_enabled_state == EnabledState::True
+                    && dept_enabled_state == EnabledState::False
+                    && !self.user_enabled_cops.contains(name)
+                {
+                    // Department says False, cop says True but only from defaults.
+                    // Department wins (user explicitly disabled the department).
+                    EnabledState::False
+                } else if cop_enabled_state != EnabledState::Unset {
+                    cop_enabled_state
+                } else if dept_enabled_state != EnabledState::Unset {
+                    dept_enabled_state
+                } else {
+                    EnabledState::Unset
                 };
 
                 let mut enabled = match enabled_state {

@@ -81,6 +81,11 @@ static REPOS: &[BenchRepo] = &[
         url: "https://github.com/activeadmin/activeadmin.git",
         tag: "v3.4.0",
     },
+    BenchRepo {
+        name: "good_job",
+        url: "https://github.com/bensheldon/good_job.git",
+        tag: "v4.13.3",
+    },
 ];
 
 // --- Helpers ---
