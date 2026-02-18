@@ -58,6 +58,42 @@ impl Cop for WhileUntilModifier {
             return Vec::new();
         }
 
+        // Check if the modifier form would fit within the max line length.
+        // RuboCop considers Layout/LineLength Max (default 120).
+        let max_line_length = _config
+            .options
+            .get("MaxLineLength")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(120) as usize;
+
+        // Estimate modifier form length: "body keyword condition"
+        let body_src = &source.as_bytes()[body_node.location().start_offset()..body_node.location().end_offset()];
+        let body_str = String::from_utf8_lossy(body_src);
+        let body_trimmed = body_str.trim();
+
+        let predicate = if let Some(while_node) = node.as_while_node() {
+            while_node.predicate()
+        } else if let Some(until_node) = node.as_until_node() {
+            until_node.predicate()
+        } else {
+            return Vec::new();
+        };
+        let pred_src = &source.as_bytes()[predicate.location().start_offset()..predicate.location().end_offset()];
+        let pred_str = String::from_utf8_lossy(pred_src);
+
+        // Calculate indentation of the original while/until keyword
+        let kw_offset = kw_loc.start_offset();
+        let src_bytes = source.as_bytes();
+        // Walk back to find the start of the line
+        let line_start = src_bytes[..kw_offset].iter().rposition(|&b| b == b'\n').map(|p| p + 1).unwrap_or(0);
+        let indent = src_bytes[line_start..].iter().take_while(|&&b| b == b' ' || b == b'\t').count();
+
+        // "  body keyword condition"
+        let modifier_len = indent + body_trimmed.len() + 1 + keyword.len() + 1 + pred_str.len();
+        if modifier_len > max_line_length {
+            return Vec::new();
+        }
+
         let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
         vec![self.diagnostic(
             source,

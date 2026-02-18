@@ -1,6 +1,8 @@
-foo(a: 1, **hash)
-    ^^^^^^^^^^^^^ Style/KeywordArgumentsMerging: Do not mix keyword arguments and hash splat.
-bar(x: 1, y: 2, **opts)
-    ^^^^^^^^^^^^^^^^^^^^ Style/KeywordArgumentsMerging: Do not mix keyword arguments and hash splat.
-method_call(key: value, **options)
-            ^^^^^^^^^^^^^^^^^^^^^^ Style/KeywordArgumentsMerging: Do not mix keyword arguments and hash splat.
+foo(x, **options.merge(y: 1))
+         ^^^^^^^^^^^^^^^^^^^ Style/KeywordArgumentsMerging: Provide additional arguments directly rather than using `merge`.
+
+foo(x, **options.merge(other_options))
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/KeywordArgumentsMerging: Provide additional arguments directly rather than using `merge`.
+
+foo(x, **options.merge(y: 1, **other_options, z: 2))
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/KeywordArgumentsMerging: Provide additional arguments directly rather than using `merge`.

@@ -9,7 +9,13 @@ impl Cop for RedundantLineContinuation {
         "Style/RedundantLineContinuation"
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        code_map: &crate::parse::codemap::CodeMap,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
         let lines: Vec<&[u8]> = source.lines().collect();
 
@@ -24,8 +30,31 @@ impl Cop for RedundantLineContinuation {
                 continue;
             }
 
-            // Skip if inside a string (very basic heuristic: check if line starts inside a string)
-            // We use a simple heuristic: line continuation after certain operators is redundant
+            // Compute the absolute offset of the backslash to check if it's in code
+            // We need to find the byte offset of this line's start + column
+            let line_start = {
+                let src = source.as_bytes();
+                let mut offset = 0;
+                let mut line_num = 0;
+                for &b in src.iter() {
+                    if line_num == i {
+                        break;
+                    }
+                    offset += 1;
+                    if b == b'\n' {
+                        line_num += 1;
+                    }
+                }
+                offset
+            };
+            let backslash_offset = line_start + trimmed.len() - 1;
+
+            // Use code_map to verify the backslash is in a code region
+            // (not inside a string, heredoc, or comment)
+            if !code_map.is_code(backslash_offset) {
+                continue;
+            }
+
             let before_backslash = trim_end(&trimmed[..trimmed.len() - 1]);
 
             // Check if the continuation is after an operator or opening bracket

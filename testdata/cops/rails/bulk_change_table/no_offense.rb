@@ -18,6 +18,6 @@ end
 
 def change
   add_reference :users, :team
-  add_column :users, :name, :string, null: false
-  remove_column :teams, :owner_name
+  add_column :teams, :name, :string, null: false
+  remove_column :posts, :owner_name
 end

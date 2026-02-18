@@ -13,3 +13,19 @@ end
 
 def do_something
 end
+
+def initialize(a, b)
+  super()
+end
+
+def initialize(a, b = 5)
+  super
+end
+
+def initialize(*args)
+  super
+end
+
+def initialize(**kwargs)
+  super
+end

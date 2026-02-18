@@ -9,3 +9,6 @@ until done
   step2
 end
 x = 10
+while some_very_long_condition_name && another_very_long_condition_name && yet_another_very_long_condition_name
+  do_something_with_a_very_long_body_that_exceeds_line_length
+end

@@ -50,13 +50,38 @@ impl Cop for LineEndConcatenation {
                 continue;
             }
 
-            // Check that the next line starts with a string literal
+            // Check that the next line starts with a string literal and is purely
+            // a string (not a string followed by a method call like `" " * 3`
+            // or `'gniht'.reverse`).
             let next_line = lines[i + 1].trim_start();
             let next_starts_with_string = next_line.starts_with('"')
                 || next_line.starts_with('\'');
 
             if !next_starts_with_string {
                 continue;
+            }
+
+            // Find the end of the string on the next line and check what follows
+            let next_trimmed = next_line.trim_end();
+            if let Some(after_string) = Self::after_string_literal(next_trimmed) {
+                let rest = after_string.trim();
+                // OK if rest is empty, or starts with `+` (continued concat) or `\` or `<<`
+                if !rest.is_empty()
+                    && !rest.starts_with('+')
+                    && !rest.starts_with("<<")
+                    && !rest.starts_with('\\')
+                    && !rest.starts_with('#') // inline comment
+                {
+                    continue;
+                }
+            }
+
+            // If the next line is a comment line, skip
+            if i + 2 <= lines.len() {
+                let next_trimmed_check = lines[i + 1].trim_start();
+                if next_trimmed_check.starts_with('#') {
+                    continue;
+                }
             }
 
             // Check there's no comment on the line
@@ -86,6 +111,30 @@ impl Cop for LineEndConcatenation {
 }
 
 impl LineEndConcatenation {
+    /// Given a line starting with a string literal, return the rest of the line after the string.
+    fn after_string_literal(line: &str) -> Option<&str> {
+        let bytes = line.as_bytes();
+        if bytes.is_empty() {
+            return None;
+        }
+        let quote = bytes[0];
+        if quote != b'\'' && quote != b'"' {
+            return None;
+        }
+        let mut i = 1;
+        while i < bytes.len() {
+            if bytes[i] == b'\\' {
+                i += 2; // skip escaped character
+                continue;
+            }
+            if bytes[i] == quote {
+                return Some(&line[i + 1..]);
+            }
+            i += 1;
+        }
+        None // unterminated string
+    }
+
     fn has_inline_comment(line: &str) -> bool {
         let bytes = line.as_bytes();
         let mut in_single = false;

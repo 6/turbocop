@@ -57,35 +57,64 @@ fn check_grouped(
     use std::collections::HashMap;
 
     let mut diagnostics = Vec::new();
-    // Track accessor method counts per type within current access modifier scope
+    // Track accessor method counts per type within current "group"
+    // A group is a contiguous sequence of accessor declarations.
+    // Any non-accessor statement (def, non-visibility method call, etc.) breaks the group.
     let mut accessor_counts: HashMap<String, Vec<usize>> = HashMap::new();
+    let stmt_list: Vec<_> = stmts.body().iter().collect();
 
-    for (idx, stmt) in stmts.body().iter().enumerate() {
-        // Reset counters on access modifier boundaries
+    // We need to detect consecutive accessor declarations.
+    // Accessors separated by comments, other method calls, or def nodes form separate groups.
+    let mut last_was_accessor = false;
+
+    for (idx, stmt) in stmt_list.iter().enumerate() {
         if let Some(call) = stmt.as_call_node() {
             let name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
-            if matches!(name, "private" | "protected" | "public") && call.arguments().is_none() {
+
+            // Bare access modifier resets the group
+            if matches!(name, "private" | "protected" | "public") && call.arguments().is_none() && call.block().is_none() {
+                report_grouped_offenses(cop, source, &accessor_counts, &stmt_list, &mut diagnostics);
                 accessor_counts.clear();
+                last_was_accessor = false;
                 continue;
             }
-        }
 
-        if let Some(call) = stmt.as_call_node() {
-            let name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
             if ACCESSOR_METHODS.contains(&name) && call.receiver().is_none() {
+                // Check if there's a gap (non-accessor statement) since the last accessor
+                // by checking if the previous statement was also an accessor
+                if !last_was_accessor && !accessor_counts.is_empty() {
+                    // Non-accessor statement appeared between accessors - report current group and start new one
+                    report_grouped_offenses(cop, source, &accessor_counts, &stmt_list, &mut diagnostics);
+                    accessor_counts.clear();
+                }
                 accessor_counts
                     .entry(name.to_string())
                     .or_default()
                     .push(idx);
+                last_was_accessor = true;
+                continue;
             }
         }
+        // Non-accessor statement
+        last_was_accessor = false;
     }
 
-    // Report offenses for accessor types that appear more than once
-    for (accessor_type, indices) in &accessor_counts {
+    // Report any remaining group
+    report_grouped_offenses(cop, source, &accessor_counts, &stmt_list, &mut diagnostics);
+
+    diagnostics
+}
+
+fn report_grouped_offenses(
+    cop: &AccessorGrouping,
+    source: &SourceFile,
+    accessor_counts: &std::collections::HashMap<String, Vec<usize>>,
+    stmt_list: &[ruby_prism::Node<'_>],
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for (accessor_type, indices) in accessor_counts {
         if indices.len() > 1 {
             for &idx in indices {
-                let stmt_list: Vec<_> = stmts.body().iter().collect();
                 if let Some(stmt) = stmt_list.get(idx) {
                     let loc = stmt.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -99,8 +128,6 @@ fn check_grouped(
             }
         }
     }
-
-    diagnostics
 }
 
 #[cfg(test)]

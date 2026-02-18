@@ -4,12 +4,16 @@ use crate::parse::source::SourceFile;
 
 pub struct RedundantRegexpArgument;
 
-/// Methods where a regexp argument can be replaced with a string
+/// Methods where a regexp argument can be replaced with a string.
+/// Must match vendor RuboCop's RESTRICT_ON_SEND list.
 const TARGET_METHODS: &[&[u8]] = &[
-    b"gsub", b"gsub!", b"sub", b"sub!",
-    b"match", b"match?",
-    b"split", b"start_with?", b"end_with?",
+    b"byteindex", b"byterindex",
+    b"gsub", b"gsub!",
+    b"partition", b"rpartition",
     b"scan",
+    b"split",
+    b"start_with?",
+    b"sub", b"sub!",
 ];
 
 impl Cop for RedundantRegexpArgument {
@@ -53,6 +57,11 @@ impl Cop for RedundantRegexpArgument {
         // Check if the regex is deterministic (no special regex chars)
         let content = regex.content_loc().as_slice();
         if !is_deterministic_regexp(content) {
+            return Vec::new();
+        }
+
+        // Skip single space regexps: / / is idiomatic
+        if content == b" " {
             return Vec::new();
         }
 

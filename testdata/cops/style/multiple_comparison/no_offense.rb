@@ -6,3 +6,4 @@ end
 a == "x" || b == "y"
 a == 1
 x == y
+foo.bar == "a" || foo.bar == "b"

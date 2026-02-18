@@ -4,3 +4,5 @@
 array.reduce(0) { |a, e| a }
 [].each_with_object({}) { |e, a| a[e] = 1 }
 x = 1
+[].inject({}) { |h, e| h.merge(e) }
+[].inject([]) { |a, e| a + [e] }

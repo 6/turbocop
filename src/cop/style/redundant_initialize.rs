@@ -68,12 +68,45 @@ impl Cop for RedundantInitialize {
             return Vec::new();
         }
 
-        // Check for super call (ForwardingSuperNode or SuperNode)
-        let is_super = body_nodes[0].as_forwarding_super_node().is_some()
-            || body_nodes[0].as_super_node().is_some();
+        // Check for super call
+        // ForwardingSuperNode = bare `super` (forwards all args)
+        // SuperNode = super with explicit args `super(...)` or `super(a, b)`
+        let is_forwarding_super = body_nodes[0].as_forwarding_super_node().is_some();
+        let is_explicit_super = body_nodes[0].as_super_node().is_some();
 
-        if !is_super {
+        if !is_forwarding_super && !is_explicit_super {
             return Vec::new();
+        }
+
+        // For bare `super`: only redundant if the method has no default args,
+        // rest args, keyword args, or block args (simple required params only)
+        if is_forwarding_super {
+            if let Some(params) = def_node.parameters() {
+                // Has optionals, rest, keywords, keyword_rest, or block
+                if !params.optionals().is_empty()
+                    || params.rest().is_some()
+                    || !params.keywords().is_empty()
+                    || params.keyword_rest().is_some()
+                    || params.block().is_some()
+                    || params.posts().iter().next().is_some()
+                {
+                    return Vec::new();
+                }
+            }
+        }
+
+        // For explicit `super(...)`: only redundant if both the def and super have 0 args
+        if is_explicit_super {
+            if let Some(super_node) = body_nodes[0].as_super_node() {
+                let super_has_args = super_node.arguments().is_some()
+                    && super_node.arguments().unwrap().arguments().iter().next().is_some();
+                let def_has_params = def_node.parameters().is_some()
+                    && def_node.parameters().unwrap().requireds().iter().next().is_some();
+                // super() is only redundant if the def also has no params
+                if super_has_args || def_has_params {
+                    return Vec::new();
+                }
+            }
         }
 
         if allow_comments {

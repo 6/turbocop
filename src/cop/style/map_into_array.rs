@@ -56,9 +56,32 @@ impl Cop for MapIntoArray {
             return Vec::new();
         }
 
-        // Check for arr << expr (which is a call to << method)
+        // Check for arr << expr or arr.push(expr) or arr.append(expr)
         if let Some(push_call) = body_nodes[0].as_call_node() {
-            if push_call.name().as_slice() == b"<<" || push_call.name().as_slice() == b"push" {
+            let push_method = push_call.name().as_slice();
+            if push_method == b"<<" || push_method == b"push" || push_method == b"append" {
+                // The receiver of << / push / append must be a local variable
+                // (not an instance var, class var, global var, or method call)
+                let push_receiver = match push_call.receiver() {
+                    Some(r) => r,
+                    None => return Vec::new(),
+                };
+                if push_receiver.as_local_variable_read_node().is_none() {
+                    return Vec::new();
+                }
+
+                // Receiver of `each` must not be `self` or bare (no receiver)
+                if let Some(each_receiver) = call.receiver() {
+                    if each_receiver.as_self_node().is_some() {
+                        return Vec::new();
+                    }
+                }
+
+                // `each` must have no arguments (e.g., StringIO.new.each(':') should not fire)
+                if call.arguments().is_some() {
+                    return Vec::new();
+                }
+
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 return vec![self.diagnostic(

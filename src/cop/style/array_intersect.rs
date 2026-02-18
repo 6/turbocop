@@ -14,8 +14,18 @@ impl Cop for ArrayIntersect {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // intersect? requires Ruby >= 3.1
+        let ruby_version = config
+            .options
+            .get("TargetRubyVersion")
+            .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
+            .unwrap_or(3.4);
+        if ruby_version < 3.1 {
+            return Vec::new();
+        }
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),

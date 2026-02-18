@@ -45,9 +45,25 @@ impl Cop for RegexpLiteral {
         let is_slash = open_bytes == b"/";
         let is_percent_r = open_bytes.starts_with(b"%r");
 
-        let has_slash = content_bytes.windows(1).enumerate().any(|(i, w)| {
-            w[0] == b'/' && (i == 0 || content_bytes[i - 1] != b'\\')
-        });
+        // Check if content contains unescaped forward slashes.
+        // Need to properly handle consecutive backslashes: `\\/` has an unescaped slash
+        // because `\\` is an escaped backslash, leaving `/` unescaped.
+        let has_slash = {
+            let mut found = false;
+            let mut i = 0;
+            while i < content_bytes.len() {
+                if content_bytes[i] == b'\\' {
+                    i += 2; // skip escaped character
+                    continue;
+                }
+                if content_bytes[i] == b'/' {
+                    found = true;
+                    break;
+                }
+                i += 1;
+            }
+            found
+        };
 
         let is_multiline = {
             let (start_line, _) = source.offset_to_line_col(node_start);

@@ -53,8 +53,14 @@ impl Cop for NegatedIfElseCondition {
                 }
             }
 
-            // Check the subsequent is an else (not elsif)
+            // Check the subsequent is a plain else (not elsif)
+            // Must have exactly 2 branches: if and else
             if let Some(sub) = if_node.subsequent() {
+                // If the subsequent is an IfNode, it's an elsif chain - skip
+                if sub.as_if_node().is_some() {
+                    return Vec::new();
+                }
+                // Must be an ElseNode for simple if-else
                 if sub.as_else_node().is_none() {
                     return Vec::new();
                 }

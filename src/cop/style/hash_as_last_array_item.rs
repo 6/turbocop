@@ -21,6 +21,12 @@ impl Cop for HashAsLastArrayItem {
             None => return Vec::new(),
         };
 
+        // Only check explicit array literals (those with `[` opening)
+        // Skip implicit arrays (e.g., method arguments)
+        if array.opening_loc().is_none() {
+            return Vec::new();
+        }
+
         let style = config.get_str("EnforcedStyle", "braces");
 
         let elements: Vec<_> = array.elements().iter().collect();

@@ -4,21 +4,88 @@ use crate::parse::source::SourceFile;
 
 pub struct WhereMissing;
 
-/// Collect all call nodes in a method chain, walking from outermost inward.
-fn collect_chain_calls<'a>(node: &ruby_prism::Node<'a>) -> Vec<ruby_prism::CallNode<'a>> {
-    let mut calls = Vec::new();
-    let mut current = node.clone();
-    loop {
-        if let Some(call) = current.as_call_node() {
-            calls.push(call.clone());
-            if let Some(recv) = call.receiver() {
-                current = recv;
-                continue;
+/// Information about a call in a method chain.
+#[allow(dead_code)]
+struct ChainCallInfo {
+    name: Vec<u8>,
+    start_offset: usize,
+    msg_offset: usize,
+    assoc_name: Option<Vec<u8>>,       // For left_joins(:assoc) calls
+    where_nil_assocs: Vec<Vec<u8>>,    // For where(assoc: { id: nil }) — which table names matched
+}
+
+/// Walk a method chain and collect info about each call.
+fn collect_chain_info(node: &ruby_prism::Node<'_>) -> Vec<ChainCallInfo> {
+    let mut infos = Vec::new();
+    collect_chain_info_inner(node, &mut infos);
+    infos
+}
+
+fn collect_chain_info_inner(node: &ruby_prism::Node<'_>, infos: &mut Vec<ChainCallInfo>) {
+    let call = match node.as_call_node() {
+        Some(c) => c,
+        None => return,
+    };
+
+    let name = call.name().as_slice().to_vec();
+    let start_offset = call.location().start_offset();
+    let msg_offset = call.message_loc().map(|l| l.start_offset()).unwrap_or(start_offset);
+
+    let assoc_name = left_joins_assoc(&call);
+    let where_nil_assocs = if name == b"where" {
+        extract_where_nil_assocs(&call)
+    } else {
+        Vec::new()
+    };
+
+    infos.push(ChainCallInfo {
+        name,
+        start_offset,
+        msg_offset,
+        assoc_name,
+        where_nil_assocs,
+    });
+
+    if let Some(recv) = call.receiver() {
+        collect_chain_info_inner(&recv, infos);
+    }
+}
+
+/// Extract association table names from `where(assocs: { id: nil })` patterns.
+fn extract_where_nil_assocs(call: &ruby_prism::CallNode<'_>) -> Vec<Vec<u8>> {
+    let mut assocs = Vec::new();
+    let args = match call.arguments() {
+        Some(a) => a,
+        None => return assocs,
+    };
+    for arg in args.arguments().iter() {
+        let kw = match arg.as_keyword_hash_node() {
+            Some(k) => k,
+            None => continue,
+        };
+        for elem in kw.elements().iter() {
+            let assoc_node = match elem.as_assoc_node() {
+                Some(a) => a,
+                None => continue,
+            };
+            let key = match assoc_node.key().as_symbol_node() {
+                Some(s) => s,
+                None => continue,
+            };
+            let value = assoc_node.value();
+            let has_nil_id = if let Some(hash) = value.as_hash_node() {
+                hash_has_id_nil(&hash)
+            } else if let Some(kw_hash) = value.as_keyword_hash_node() {
+                keyword_hash_has_id_nil(&kw_hash)
+            } else {
+                false
+            };
+            if has_nil_id {
+                assocs.push(key.unescaped().to_vec());
             }
         }
-        break;
     }
-    calls
+    assocs
 }
 
 /// Check if a call is `left_joins(:assoc)` or `left_outer_joins(:assoc)`.
@@ -38,60 +105,6 @@ fn left_joins_assoc<'a>(call: &ruby_prism::CallNode<'a>) -> Option<Vec<u8>> {
     Some(sym.unescaped().to_vec())
 }
 
-/// Check if a `where` call has `assoc_table: { id: nil }` pattern.
-/// assoc_name is the singular or plural form.
-fn where_has_nil_id_for_assoc(
-    call: &ruby_prism::CallNode<'_>,
-    assoc_name: &[u8],
-) -> bool {
-    let args = match call.arguments() {
-        Some(a) => a,
-        None => return false,
-    };
-
-    // Build both singular and plural table names
-    let mut table_names: Vec<Vec<u8>> = Vec::new();
-    // Plural form (assoc_name + "s")
-    let mut plural = assoc_name.to_vec();
-    plural.push(b's');
-    table_names.push(plural);
-    // Singular form (the assoc name itself)
-    table_names.push(assoc_name.to_vec());
-
-    for arg in args.arguments().iter() {
-        let kw = match arg.as_keyword_hash_node() {
-            Some(k) => k,
-            None => continue,
-        };
-        for elem in kw.elements().iter() {
-            let assoc_node = match elem.as_assoc_node() {
-                Some(a) => a,
-                None => continue,
-            };
-            let key = match assoc_node.key().as_symbol_node() {
-                Some(s) => s,
-                None => continue,
-            };
-            let key_name = key.unescaped();
-            if !table_names.iter().any(|tn| tn == key_name) {
-                continue;
-            }
-            // Value must be a hash with { id: nil }
-            let value = assoc_node.value();
-            if let Some(hash) = value.as_hash_node() {
-                if hash_has_id_nil(&hash) {
-                    return true;
-                }
-            }
-            if let Some(kw_hash) = value.as_keyword_hash_node() {
-                if keyword_hash_has_id_nil(&kw_hash) {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
 
 fn hash_has_id_nil(hash: &ruby_prism::HashNode<'_>) -> bool {
     for elem in hash.elements().iter() {
@@ -119,6 +132,7 @@ fn keyword_hash_has_id_nil(hash: &ruby_prism::KeywordHashNode<'_>) -> bool {
     false
 }
 
+
 impl Cop for WhereMissing {
     fn name(&self) -> &'static str {
         "Rails/WhereMissing"
@@ -140,70 +154,70 @@ impl Cop for WhereMissing {
         // 2. where(assoc_table: { id: nil })
         // These two calls should be in the same chain (not separated by `or` or `and`).
 
-        let calls = collect_chain_calls(node);
-        if calls.is_empty() {
+        let chain = collect_chain_info(node);
+        if chain.is_empty() {
             return Vec::new();
         }
 
+        // Only process this node if it's the outermost call in the chain.
+        // If chain[0] (this node) is a receiver of another call, a higher-level
+        // check_node invocation will handle it. We detect this by only processing
+        // when chain[0] is the current node AND is either the left_joins or the
+        // matching where — i.e., when index 0 is part of the pattern pair.
+        // Simpler approach: only fire if chain[0] is part of the pair.
+
         // Find left_joins calls
-        let mut left_joins_info: Vec<(usize, Vec<u8>)> = Vec::new();
-        for (i, call) in calls.iter().enumerate() {
-            if let Some(assoc) = left_joins_assoc(call) {
-                left_joins_info.push((i, assoc));
-            }
-        }
+        let left_joins_info: Vec<(usize, &Vec<u8>)> = chain
+            .iter()
+            .enumerate()
+            .filter_map(|(i, info)| info.assoc_name.as_ref().map(|a| (i, a)))
+            .collect();
 
         if left_joins_info.is_empty() {
             return Vec::new();
         }
 
-        // Check if there's also a matching where(...) call with {assoc: {id: nil}}
-        // Make sure we don't cross `or` or `and` boundaries
         let mut diagnostics = Vec::new();
 
         for (lj_idx, assoc_name) in &left_joins_info {
-            // Check for a matching where(...) in the chain.
-            // Only skip if `or`/`and` appears BETWEEN left_joins and where
-            // (in chain index order, not between them in the code).
-            let mut found_where = false;
+            // Build both singular and plural table names for matching
+            let mut plural = (*assoc_name).clone();
+            plural.push(b's');
 
-            for (i, call) in calls.iter().enumerate() {
+            for (i, info) in chain.iter().enumerate() {
                 if i == *lj_idx {
                     continue;
                 }
-                let name = call.name().as_slice();
-                if name == b"where" {
-                    if where_has_nil_id_for_assoc(call, assoc_name) {
-                        // Check if there's an `or` or `and` between this where and left_joins
-                        let min_idx = (*lj_idx).min(i);
-                        let max_idx = (*lj_idx).max(i);
-                        let has_separator = (min_idx + 1..max_idx).any(|j| {
-                            let n = calls[j].name().as_slice();
-                            n == b"or" || n == b"and"
-                        });
-                        if !has_separator {
-                            found_where = true;
-                            break;
-                        }
-                    }
+                // Check if this is a where call with matching nil-id assoc
+                if !info.where_nil_assocs.iter().any(|a| a.as_slice() == assoc_name.as_slice() || a.as_slice() == plural.as_slice()) {
+                    continue;
                 }
-            }
+                // Only fire if the closer-to-root element of the pair is at index 0
+                // (the current node). This prevents outer chain calls from duplicating.
+                let outermost_idx = (*lj_idx).min(i);
+                if outermost_idx != 0 {
+                    continue;
+                }
+                let max_idx = (*lj_idx).max(i);
+                let has_separator = (outermost_idx + 1..max_idx).any(|j| {
+                    let n = &chain[j].name;
+                    n == b"or" || n == b"and"
+                });
+                if !has_separator {
+                    let lj_info = &chain[*lj_idx];
+                    let (line, column) = source.offset_to_line_col(lj_info.msg_offset);
+                    let assoc_str = std::str::from_utf8(assoc_name).unwrap_or("assoc");
+                    let method_name = std::str::from_utf8(&lj_info.name).unwrap_or("left_joins");
 
-            if found_where {
-                let lj_call = &calls[*lj_idx];
-                let lj_loc = lj_call.message_loc().unwrap_or(lj_call.location());
-                let (line, column) = source.offset_to_line_col(lj_loc.start_offset());
-                let assoc_str = std::str::from_utf8(assoc_name).unwrap_or("assoc");
-                let method_name = std::str::from_utf8(lj_call.name().as_slice())
-                    .unwrap_or("left_joins");
-
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    format!(
-                        "Use `where.missing(:{assoc_str})` instead of `{method_name}(:{assoc_str}).where({assoc_str}s: {{ id: nil }})`."),
-                ));
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        format!(
+                            "Use `where.missing(:{assoc_str})` instead of `{method_name}(:{assoc_str}).where({assoc_str}s: {{ id: nil }})`."),
+                    ));
+                    break;
+                }
             }
         }
 

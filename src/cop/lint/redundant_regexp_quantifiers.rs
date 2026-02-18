@@ -46,7 +46,7 @@ impl Cop for RedundantRegexpQuantifiers {
 
         // Find redundant quantifiers: (?:...Q1)Q2 where both are greedy quantifiers
         // and the group contains only a single element with quantifier Q1
-        check_redundant_quantifiers(self, source, content_str, regexp, &mut diagnostics);
+        check_redundant_quantifiers(self, source, content_str, &regexp, &mut diagnostics);
 
         diagnostics
     }
@@ -100,9 +100,24 @@ fn check_redundant_quantifiers(
                 // Check if the group is followed by a quantifier
                 let after_group = end + 1;
                 if let Some((outer_q, outer_q_end)) = parse_quantifier(bytes, after_group) {
+                    // Check if the outer quantifier is followed by a possessive (+) or reluctant (?) modifier
+                    if outer_q_end < len && (bytes[outer_q_end] == b'+' || bytes[outer_q_end] == b'?') {
+                        i = group_end.map(|e| e + 1).unwrap_or(i + 1);
+                        continue;
+                    }
+                    // Skip interval quantifiers — they can't be trivially combined
+                    if matches!(outer_q, Quantifier::Interval(_, _)) {
+                        i = group_end.map(|e| e + 1).unwrap_or(i + 1);
+                        continue;
+                    }
                     // Check if the group content is a single element with a quantifier
                     let inner = &bytes[i + 3..end]; // content inside (?:...)
                     if let Some((inner_q, _)) = find_single_element_quantifier(inner) {
+                        // Skip interval inner quantifiers too
+                        if matches!(inner_q, Quantifier::Interval(_, _)) {
+                            i = group_end.map(|e| e + 1).unwrap_or(i + 1);
+                            continue;
+                        }
                         // Check if redundant (both greedy, no possessive/reluctant)
                         if is_greedy(&outer_q) && is_greedy(&inner_q) {
                             // Check that the group doesn't contain captures

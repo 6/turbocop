@@ -61,10 +61,17 @@ impl Cop for NestedParenthesizedCalls {
                 continue;
             }
 
-            // Check AllowedMethods
+            // Skip setter methods (ending with =)
+            if inner_bytes.last() == Some(&b'=') && inner_bytes.len() > 1 && inner_bytes[inner_bytes.len() - 2] != b'!' {
+                continue;
+            }
+
+            // Check AllowedMethods - only allowed when outer has 1 arg and inner has 1 arg
             if let Some(ref allowed) = allowed_methods {
                 let name_str = std::str::from_utf8(inner_bytes).unwrap_or("");
-                if allowed.iter().any(|m| m == name_str) {
+                let outer_arg_count = args.arguments().iter().count();
+                let inner_arg_count = inner_call.arguments().map(|a| a.arguments().iter().count()).unwrap_or(0);
+                if outer_arg_count == 1 && inner_arg_count == 1 && allowed.iter().any(|m| m == name_str) {
                     continue;
                 }
             }

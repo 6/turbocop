@@ -33,29 +33,21 @@ impl Cop for NumberedParametersLimit {
             None => return Vec::new(),
         };
 
-        // Skip blocks with explicit parameters (BlockParametersNode).
-        // Blocks using numbered parameters have NumberedParametersNode instead.
-        if let Some(params) = block_node.parameters() {
-            if params.as_block_parameters_node().is_some() {
-                return Vec::new();
-            }
-        }
-
-        let body = match block_node.body() {
-            Some(b) => b,
+        // In Prism, blocks with numbered params have parameters() set to a
+        // NumberedParametersNode which has a maximum() method returning the
+        // highest numbered parameter used. This avoids false positives from
+        // string matching _1.._9 in comments, strings, or variable names.
+        let params = match block_node.parameters() {
+            Some(p) => p,
             None => return Vec::new(),
         };
 
-        let body_src = std::str::from_utf8(body.location().as_slice()).unwrap_or("");
+        let numbered = match params.as_numbered_parameters_node() {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
 
-        // Find the highest numbered parameter used
-        let mut highest = 0;
-        for i in 1..=9 {
-            let param = format!("_{i}");
-            if body_src.contains(&param) {
-                highest = i;
-            }
-        }
+        let highest = numbered.maximum() as usize;
 
         if highest > max {
             let loc = node.location();

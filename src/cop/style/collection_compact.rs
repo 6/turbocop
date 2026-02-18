@@ -16,7 +16,7 @@ impl Cop for CollectionCompact {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let _allowed_receivers = config.get_string_array("AllowedReceivers").unwrap_or_default();
+        let allowed_receivers = config.get_string_array("AllowedReceivers").unwrap_or_default();
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),
@@ -28,6 +28,14 @@ impl Cop for CollectionCompact {
         if method_name == "reject" || method_name == "reject!" {
             if call.receiver().is_none() {
                 return Vec::new();
+            }
+
+            // Check AllowedReceivers
+            if let Some(receiver) = call.receiver() {
+                let recv_src = std::str::from_utf8(receiver.location().as_slice()).unwrap_or("");
+                if allowed_receivers.iter().any(|ar| recv_src == ar.as_str()) {
+                    return Vec::new();
+                }
             }
 
             // Check for block pass &:nil?

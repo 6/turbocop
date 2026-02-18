@@ -98,7 +98,7 @@ fn find_cop_column(line: &str, cop: &str) -> usize {
     // Find the position of the cop name in the enable directive
     if let Some(enable_pos) = line.find("rubocop:enable") {
         let after_enable = &line[enable_pos + "rubocop:enable".len()..];
-        if let Some(cop_pos) = after_enable.find(cop.as_str()) {
+        if let Some(cop_pos) = after_enable.find(cop) {
             return enable_pos + "rubocop:enable".len() + cop_pos;
         }
     }

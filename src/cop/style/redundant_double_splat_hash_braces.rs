@@ -16,14 +16,11 @@ impl Cop for RedundantDoubleSplatHashBraces {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // Look for **{...} in keyword arguments
-        let keyword_hash = if let Some(kh) = node.as_keyword_hash_node() {
-            kh
-        } else if let Some(h) = node.as_hash_node() {
-            // Also check plain hashes
-            return self.check_hash_elements(source, h.elements().iter());
-        } else {
-            return Vec::new();
+        // Look for **{key: val, ...} in keyword arguments (KeywordHashNode in method calls)
+        // Only check KeywordHashNode (method call keyword args), not plain HashNode
+        let keyword_hash = match node.as_keyword_hash_node() {
+            Some(kh) => kh,
+            None => return Vec::new(),
         };
 
         self.check_hash_elements(source, keyword_hash.elements().iter())
@@ -39,8 +36,14 @@ impl RedundantDoubleSplatHashBraces {
 
         for element in elements {
             if let Some(splat) = element.as_assoc_splat_node() {
-                // Check if the splatted value is a hash literal
+                // Check if the splatted value is a hash literal with elements
                 if let Some(value) = splat.value() {
+                    if let Some(hash) = value.as_hash_node() {
+                        // Don't flag empty hashes: **{}
+                        if hash.elements().iter().next().is_none() {
+                            continue;
+                        }
+                    }
                     if value.as_hash_node().is_some() {
                         let loc = element.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());

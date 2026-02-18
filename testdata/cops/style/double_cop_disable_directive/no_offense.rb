@@ -8,3 +8,5 @@ end
 def bar
 end
 # rubocop:enable Metrics/AbcSize
+# rubocop:todo Style/SomeOtherCop
+x = 1

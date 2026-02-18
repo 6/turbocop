@@ -35,9 +35,12 @@ struct SuperArgumentsVisitor<'a> {
 
 impl<'pr> Visit<'pr> for SuperArgumentsVisitor<'_> {
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
-        // Get the method's parameter names
+        // Get the method's parameter names (only for simple positional params)
         let param_names = if let Some(params) = node.parameters() {
-            extract_param_names(&params)
+            match extract_param_names(&params) {
+                Some(names) => names,
+                None => return, // Complex params (rest, keyword, block) - skip
+            }
         } else {
             Vec::new()
         };
@@ -89,7 +92,19 @@ impl<'pr> Visit<'pr> for SuperFinder {
     fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
 }
 
-fn extract_param_names(params: &ruby_prism::ParametersNode<'_>) -> Vec<Vec<u8>> {
+fn extract_param_names(params: &ruby_prism::ParametersNode<'_>) -> Option<Vec<Vec<u8>>> {
+    // Only handle methods with purely positional params (required + optional).
+    // If there are rest, keyword, keyword_rest, or block params, return None
+    // because the super forwarding is more complex.
+    if params.rest().is_some()
+        || params.keywords().iter().next().is_some()
+        || params.keyword_rest().is_some()
+        || params.block().is_some()
+        || params.posts().iter().next().is_some()
+    {
+        return None;
+    }
+
     let mut names = Vec::new();
     for p in params.requireds().iter() {
         if let Some(rp) = p.as_required_parameter_node() {
@@ -101,7 +116,7 @@ fn extract_param_names(params: &ruby_prism::ParametersNode<'_>) -> Vec<Vec<u8>> 
             names.push(op.name().as_slice().to_vec());
         }
     }
-    names
+    Some(names)
 }
 
 #[cfg(test)]

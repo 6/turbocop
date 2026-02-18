@@ -31,6 +31,11 @@ impl Cop for IdenticalConditionalBranches {
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
         if let Some(if_node) = node.as_if_node() {
+            // Must have an if keyword (skip ternaries)
+            if if_node.if_keyword_loc().is_none() {
+                return Vec::new();
+            }
+
             let if_stmts = match if_node.statements() {
                 Some(s) => s,
                 None => return Vec::new(),
@@ -41,6 +46,7 @@ impl Cop for IdenticalConditionalBranches {
                 None => return Vec::new(),
             };
 
+            // Must be a direct else, not an elsif
             let else_stmts = if let Some(ec) = else_clause.as_else_node() {
                 match ec.statements() {
                     Some(s) => s,

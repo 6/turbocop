@@ -44,11 +44,21 @@ impl Cop for SendWithLiteralMethodName {
             return Vec::new();
         }
 
-        // First argument must be a static symbol or string
-        let is_literal = arg_list[0].as_symbol_node().is_some()
-            || arg_list[0].as_string_node().is_some();
+        // First argument must be a static symbol or string with a valid method name.
+        // Strings with spaces or special chars are NOT valid method names.
+        let is_valid_literal = if let Some(sym) = arg_list[0].as_symbol_node() {
+            let name = sym.unescaped();
+            // Symbol must be a valid method name (no spaces)
+            !name.contains(&b' ')
+        } else if let Some(s) = arg_list[0].as_string_node() {
+            let content = s.unescaped();
+            // String must be a valid method name (no spaces, not empty)
+            !content.is_empty() && !content.contains(&b' ')
+        } else {
+            false
+        };
 
-        if !is_literal {
+        if !is_valid_literal {
             return Vec::new();
         }
 

@@ -1,8 +1,67 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use std::collections::HashMap;
 
 pub struct InverseMethods;
+
+impl InverseMethods {
+    /// Build the inverse methods map from config or defaults.
+    fn build_inverse_map(config: &CopConfig) -> HashMap<Vec<u8>, String> {
+        let mut map = HashMap::new();
+
+        if let Some(configured) = config.get_string_hash("InverseMethods") {
+            for (key, val) in &configured {
+                let k = key.trim_start_matches(':');
+                let v = val.trim_start_matches(':');
+                map.insert(k.as_bytes().to_vec(), v.to_string());
+            }
+        } else {
+            // RuboCop defaults — note: relationship only defined one direction
+            // but we need both directions for lookup
+            let defaults: &[(&[u8], &str)] = &[
+                (b"any?", "none?"),
+                (b"none?", "any?"),
+                (b"even?", "odd?"),
+                (b"odd?", "even?"),
+                (b"==", "!="),
+                (b"!=", "=="),
+                (b"=~", "!~"),
+                (b"!~", "=~"),
+                (b"<", ">="),
+                (b">=", "<"),
+                (b">", "<="),
+                (b"<=", ">"),
+            ];
+            for &(k, v) in defaults {
+                map.insert(k.to_vec(), v.to_string());
+            }
+        }
+        map
+    }
+
+    fn build_inverse_blocks(config: &CopConfig) -> HashMap<Vec<u8>, String> {
+        let mut map = HashMap::new();
+
+        if let Some(configured) = config.get_string_hash("InverseBlocks") {
+            for (key, val) in &configured {
+                let k = key.trim_start_matches(':');
+                let v = val.trim_start_matches(':');
+                map.insert(k.as_bytes().to_vec(), v.to_string());
+            }
+        } else {
+            // RuboCop defaults
+            let defaults: &[(&[u8], &str)] = &[
+                (b"select", "reject"),
+                (b"reject", "select"),
+            ];
+            for &(k, v) in defaults {
+                map.insert(k.to_vec(), v.to_string());
+            }
+        }
+        map
+    }
+}
 
 impl Cop for InverseMethods {
     fn name(&self) -> &'static str {
@@ -23,13 +82,6 @@ impl Cop for InverseMethods {
 
         let method_bytes = call.name().as_slice();
 
-        let _inverse_methods = config.get_string_hash("InverseMethods");
-        let _inverse_blocks = config.get_string_hash("InverseBlocks");
-
-        // Check for !foo.select { } -> foo.reject { }
-        // Check for !foo.any? -> foo.none?
-        // Default inverse methods: select <-> reject, any? <-> none?, include? <-> exclude?
-
         // Pattern: !receiver.method - the call is `!` with the inner being a method call
         if method_bytes != b"!" {
             return Vec::new();
@@ -47,20 +99,9 @@ impl Cop for InverseMethods {
 
         let inner_method = inner_call.name().as_slice();
 
-        let inverse = match inner_method {
-            b"any?" => Some("none?"),
-            b"none?" => Some("any?"),
-            b"include?" => Some("exclude?"),
-            b"exclude?" => Some("include?"),
-            b"even?" => Some("odd?"),
-            b"odd?" => Some("even?"),
-            b"present?" => Some("blank?"),
-            b"blank?" => Some("present?"),
-            b"empty?" => Some("any?"),
-            _ => None,
-        };
-
-        if let Some(inv) = inverse {
+        // Check InverseMethods (predicate methods: !foo.any? -> foo.none?)
+        let inverse_methods = Self::build_inverse_map(config);
+        if let Some(inv) = inverse_methods.get(inner_method) {
             let inner_name = std::str::from_utf8(inner_method).unwrap_or("method");
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -70,6 +111,22 @@ impl Cop for InverseMethods {
                 column,
                 format!("Use `{}` instead of inverting `{}`.", inv, inner_name),
             )];
+        }
+
+        // Check InverseBlocks (block methods: !foo.select { } -> foo.reject { })
+        let inverse_blocks = Self::build_inverse_blocks(config);
+        if inner_call.block().is_some() {
+            if let Some(inv) = inverse_blocks.get(inner_method) {
+                let inner_name = std::str::from_utf8(inner_method).unwrap_or("method");
+                let loc = call.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    format!("Use `{}` instead of inverting `{}`.", inv, inner_name),
+                )];
+            }
         }
 
         Vec::new()

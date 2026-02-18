@@ -28,8 +28,14 @@ impl Cop for DoubleCopDisableDirective {
                 None => continue,
             };
 
-            // Check if there's a second directive on the same line
-            let after_first = first_pos + 2; // skip "# "
+            // Check if there's a second directive on the same line.
+            // Skip past the entire first directive prefix to avoid self-matching.
+            let skip_len = if line_str[first_pos..].starts_with("# rubocop:disable ") {
+                "# rubocop:disable ".len()
+            } else {
+                "# rubocop:todo ".len()
+            };
+            let after_first = first_pos + skip_len;
             let rest = &line_str[after_first..];
             if rest.contains("# rubocop:disable ") || rest.contains("# rubocop:todo ") {
                 let col = first_pos;

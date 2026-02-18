@@ -49,30 +49,50 @@ impl Cop for ComparableClamp {
         let first_cond = if_node.predicate();
         let second_cond = elsif_node.predicate();
 
-        let is_first_cmp = is_less_or_greater(&first_cond);
-        let is_second_cmp = is_less_or_greater(&second_cond);
+        // Both conditions must be comparisons with < or >
+        let first_operands = get_comparison_operands(&first_cond);
+        let second_operands = get_comparison_operands(&second_cond);
 
-        if is_first_cmp && is_second_cmp {
-            let loc = if_node.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
-                source,
-                line,
-                column,
-                "Use `clamp` instead of `if/elsif/else`.".to_string(),
-            )];
+        // Both must be comparisons and must compare a common variable
+        if let (Some((f_left, f_right)), Some((s_left, s_right))) = (first_operands, second_operands) {
+            // The clamped variable appears in both conditions - check all combinations
+            let has_common = f_left == s_left
+                || f_left == s_right
+                || f_right == s_left
+                || f_right == s_right;
+            if has_common {
+                let loc = if_node.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use `clamp` instead of `if/elsif/else`.".to_string(),
+                )];
+            }
         }
 
         Vec::new()
     }
 }
 
-fn is_less_or_greater(node: &ruby_prism::Node<'_>) -> bool {
+/// Extract both operands from a comparison like `x < low` or `x > high`.
+fn get_comparison_operands(node: &ruby_prism::Node<'_>) -> Option<(Vec<u8>, Vec<u8>)> {
     if let Some(call) = node.as_call_node() {
         let method = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
-        return matches!(method, "<" | ">" | "<=" | ">=");
+        if matches!(method, "<" | ">" | "<=" | ">=") {
+            if let Some(receiver) = call.receiver() {
+                let args = call.arguments()?;
+                let arg_list: Vec<_> = args.arguments().iter().collect();
+                if arg_list.len() == 1 {
+                    let left = receiver.location().as_slice().to_vec();
+                    let right = arg_list[0].location().as_slice().to_vec();
+                    return Some((left, right));
+                }
+            }
+        }
     }
-    false
+    None
 }
 
 #[cfg(test)]

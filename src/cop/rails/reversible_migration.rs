@@ -148,7 +148,7 @@ impl IrreversibleFinder {
                 }
                 // t.change_default without from/to is irreversible
                 if name == b"change_default" && call.receiver().is_some() {
-                    if !has_from_and_to_args(call) {
+                    if !has_from_and_to_args(&call) {
                         self.offenses.push((
                             call.location().start_offset(),
                             "change_table(with change_default) is not reversible.".to_string(),
@@ -157,7 +157,7 @@ impl IrreversibleFinder {
                 }
                 // t.remove without type (for Rails >= 6.1)
                 if name == b"remove" && call.receiver().is_some() {
-                    if !has_type_option(call) {
+                    if !has_type_option(&call) {
                         self.offenses.push((
                             call.location().start_offset(),
                             "t.remove (without type) is not reversible.".to_string(),

@@ -18,11 +18,6 @@ impl Cop for NumberedParameters {
     ) -> Vec<Diagnostic> {
         let style = config.get_str("EnforcedStyle", "allow_single_line");
 
-        // Look for numbered block parameters (_1, _2, etc.)
-        // In Prism, these are represented as NumberedParametersNode in blocks
-        // Actually, in Prism, blocks with numbered parameters use `it` or `_1.._9` syntax
-        // and the block node has a `numbered_parameters` field.
-
         // Check for blocks that use numbered parameters
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -41,26 +36,16 @@ impl Cop for NumberedParameters {
 
         // In Prism, blocks with numbered params have parameters() set to a
         // NumberedParametersNode. Blocks with explicit params have BlockParametersNode.
-        // Skip only if explicit parameters are present (BlockParametersNode).
-        if let Some(params) = block_node.parameters() {
-            if params.as_block_parameters_node().is_some() {
-                return Vec::new();
-            }
-        }
-
-        // Check body for _1.._9 usage
-        let body = match block_node.body() {
-            Some(b) => b,
+        // Only proceed if parameters is a NumberedParametersNode — this is the
+        // authoritative way to detect numbered parameter usage via the AST,
+        // avoiding false positives from string matching _1.._9 in comments,
+        // strings, or variable names like _1_foo.
+        let params = match block_node.parameters() {
+            Some(p) => p,
             None => return Vec::new(),
         };
 
-        let body_src = std::str::from_utf8(body.location().as_slice()).unwrap_or("");
-        let has_numbered = (1..=9).any(|i| {
-            let param = format!("_{i}");
-            body_src.contains(&param)
-        });
-
-        if !has_numbered {
+        if params.as_numbered_parameters_node().is_none() {
             return Vec::new();
         }
 

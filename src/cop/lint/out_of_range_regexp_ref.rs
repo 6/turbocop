@@ -155,12 +155,12 @@ impl<'pr> Visit<'pr> for RegexpRefVisitor<'_, '_> {
                     self.current_capture_count = Some(max_captures);
                 }
                 if let Some(body) = when_node.statements() {
-                    self.visit(&ruby_prism::Node::from(body));
+                    self.visit_statements_node(&body);
                 }
             }
         }
         if let Some(else_clause) = node.else_clause() {
-            self.visit(&ruby_prism::Node::from(else_clause));
+            self.visit_else_node(&else_clause);
         }
         self.current_capture_count = saved;
     }
@@ -174,12 +174,12 @@ impl<'pr> Visit<'pr> for RegexpRefVisitor<'_, '_> {
                     self.current_capture_count = Some(max_captures);
                 }
                 if let Some(body) = in_node.statements() {
-                    self.visit(&ruby_prism::Node::from(body));
+                    self.visit_statements_node(&body);
                 }
             }
         }
         if let Some(else_clause) = node.else_clause() {
-            self.visit(&ruby_prism::Node::from(else_clause));
+            self.visit_else_node(&else_clause);
         }
         self.current_capture_count = saved;
     }

@@ -440,7 +440,7 @@ fn all_registered_cops_can_fire() {
 #[test]
 fn registry_has_expected_cop_count() {
     let registry = CopRegistry::default_registry();
-    assert_eq!(registry.len(), 892, "Expected 892 registered cops");
+    assert_eq!(registry.len(), 915, "Expected 915 registered cops");
 
     let names = registry.names();
     let expected = [
@@ -576,7 +576,7 @@ fn registry_has_expected_cop_count() {
         "Layout/SpaceInsideStringInterpolation",
         "Layout/TrailingEmptyLines",
         "Layout/TrailingWhitespace",
-        // Lint (104)
+        // Lint (116)
         "Lint/AmbiguousAssignment",
         "Lint/AmbiguousOperatorPrecedence",
         "Lint/AmbiguousRange",
@@ -585,6 +585,7 @@ fn registry_has_expected_cop_count() {
         "Lint/BinaryOperatorWithIdenticalOperands",
         "Lint/BooleanSymbol",
         "Lint/CircularArgumentReference",
+        "Lint/CopDirectiveSyntax",
         "Lint/ConstantDefinitionInBlock",
         "Lint/ConstantOverwrittenInRescue",
         "Lint/ConstantReassignment",
@@ -616,6 +617,7 @@ fn registry_has_expected_cop_count() {
         "Lint/FlipFlop",
         "Lint/FloatComparison",
         "Lint/FloatOutOfRange",
+        "Lint/FormatParameterMismatch",
         "Lint/HashCompareByIdentity",
         "Lint/IdentityComparison",
         "Lint/ImplicitStringConcatenation",
@@ -626,6 +628,7 @@ fn registry_has_expected_cop_count() {
         "Lint/LiteralAssignmentInCondition",
         "Lint/LiteralInInterpolation",
         "Lint/Loop",
+        "Lint/MissingCopEnableDirective",
         "Lint/MissingSuper",
         "Lint/MultipleComparison",
         "Lint/NestedMethodDefinition",
@@ -637,11 +640,15 @@ fn registry_has_expected_cop_count() {
         "Lint/NumberedParameterAssignment",
         "Lint/OrAssignmentToConstant",
         "Lint/OrderedMagicComments",
+        "Lint/OutOfRangeRegexpRef",
         "Lint/PercentStringArray",
         "Lint/PercentSymbolArray",
         "Lint/RaiseException",
         "Lint/RandOne",
+        "Lint/RedundantCopDisableDirective",
+        "Lint/RedundantCopEnableDirective",
         "Lint/RedundantDirGlobSort",
+        "Lint/RedundantRegexpQuantifiers",
         "Lint/RedundantRequireStatement",
         "Lint/RedundantSafeNavigation",
         "Lint/RedundantSplatExpansion",
@@ -655,20 +662,25 @@ fn registry_has_expected_cop_count() {
         "Lint/RescueType",
         "Lint/ReturnInVoidContext",
         "Lint/SafeNavigationChain",
+        "Lint/SafeNavigationConsistency",
         "Lint/ScriptPermission",
         "Lint/SelfAssignment",
         "Lint/SendWithMixinArgument",
         "Lint/ShadowedArgument",
         "Lint/ShadowedException",
+        "Lint/ShadowingOuterLocalVariable",
         "Lint/StructNewOverride",
         "Lint/SuppressedException",
         "Lint/SymbolConversion",
+        "Lint/Syntax",
         "Lint/ToEnumArguments",
         "Lint/ToJSON",
         "Lint/TopLevelReturnWithArgument",
         "Lint/TrailingCommaInAttributeDeclaration",
         "Lint/TripleQuotes",
+        "Lint/UnescapedBracketInRegexp",
         "Lint/UnifiedInteger",
+        "Lint/UnmodifiedReduceAccumulator",
         "Lint/UnreachableCode",
         "Lint/UnreachableLoop",
         "Lint/UnusedBlockArgument",
@@ -876,12 +888,13 @@ fn registry_has_expected_cop_count() {
         "RSpec/VerifiedDoubles",
         "RSpec/VoidExpect",
         "RSpec/Yield",
-        // Rails (99)
+        // Rails (110)
         "Rails/ActionControllerFlashBeforeRender",
         "Rails/ActionControllerTestCase",
         "Rails/ActionOrder",
         "Rails/ActiveRecordCallbacksOrder",
         "Rails/ActiveSupportAliases",
+        "Rails/ActiveSupportOnLoad",
         "Rails/AddColumnIndex",
         "Rails/AfterCommitOverride",
         "Rails/ApplicationController",
@@ -890,6 +903,7 @@ fn registry_has_expected_cop_count() {
         "Rails/ApplicationRecord",
         "Rails/AttributeDefaultBlockValue",
         "Rails/Blank",
+        "Rails/BulkChangeTable",
         "Rails/CompactBlank",
         "Rails/ContentTag",
         "Rails/CreateTableWithTimestamps",
@@ -897,6 +911,7 @@ fn registry_has_expected_cop_count() {
         "Rails/Date",
         "Rails/Delegate",
         "Rails/DelegateAllowBlank",
+        "Rails/DeprecatedActiveModelErrorsMethods",
         "Rails/DotSeparatedKeys",
         "Rails/DuplicateAssociation",
         "Rails/DuplicateScope",
@@ -913,6 +928,7 @@ fn registry_has_expected_cop_count() {
         "Rails/ExpandedDateRange",
         "Rails/FilePath",
         "Rails/FindBy",
+        "Rails/FindByOrAssignmentMemoization",
         "Rails/FindEach",
         "Rails/FreezeTime",
         "Rails/HasAndBelongsToMany",
@@ -923,6 +939,7 @@ fn registry_has_expected_cop_count() {
         "Rails/HttpStatusNameConsistency",
         "Rails/I18nLazyLookup",
         "Rails/I18nLocaleAssignment",
+        "Rails/I18nLocaleTexts",
         "Rails/IndexBy",
         "Rails/Inquiry",
         "Rails/InverseOf",
@@ -943,6 +960,7 @@ fn registry_has_expected_cop_count() {
         "Rails/RedundantAllowNil",
         "Rails/RedundantForeignKey",
         "Rails/RedundantPresenceValidationOnBelongsTo",
+        "Rails/RedundantReceiverInWithOptions",
         "Rails/RedundantTravelBack",
         "Rails/ReflectionClassName",
         "Rails/RefuteMethods",
@@ -951,17 +969,21 @@ fn registry_has_expected_cop_count() {
         "Rails/RenderPlainText",
         "Rails/RequestReferer",
         "Rails/ResponseParsedBody",
+        "Rails/ReversibleMigration",
         "Rails/ReversibleMigrationMethodDefinition",
         "Rails/RootJoinChain",
         "Rails/RootPathnameMethods",
         "Rails/RootPublicPath",
         "Rails/SafeNavigation",
+        "Rails/SaveBang",
         "Rails/SchemaComment",
         "Rails/ScopeArgs",
         "Rails/SelectMap",
         "Rails/ShortI18n",
         "Rails/SkipsModelValidations",
+        "Rails/SquishedSQLHeredocs",
         "Rails/StripHeredoc",
+        "Rails/StrongParametersExpect",
         "Rails/TableNameAssignment",
         "Rails/ThreeStateBooleanColumn",
         "Rails/TimeZone",
@@ -974,6 +996,7 @@ fn registry_has_expected_cop_count() {
         "Rails/UnusedRenderContent",
         "Rails/Validation",
         "Rails/WhereExists",
+        "Rails/WhereMissing",
         "Rails/WhereNot",
         "Rails/WhereRange",
         // Security (7)
@@ -1391,9 +1414,19 @@ fn all_cops_have_minimum_test_coverage() {
     let testdata = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/cops");
     let registry = CopRegistry::default_registry();
 
+    // No-op stub cops that never produce offenses by design.
+    // These exist for configuration compatibility only.
+    let stub_cops: &[&str] = &[
+        "Lint/RedundantCopDisableDirective", // requires post-processing after all cops run
+        "Lint/Syntax",                       // syntax errors reported by parser, not this cop
+    ];
+
     let mut failures = Vec::new();
 
     for cop_name in registry.names() {
+        if stub_cops.contains(&cop_name) {
+            continue;
+        }
         let parts: Vec<&str> = cop_name.split('/').collect();
         let dept = parts[0].to_lowercase();
         let name = to_snake_case(parts[1]);
@@ -1895,8 +1928,8 @@ fn list_cops_prints_all_registered_cops() {
     let lines: Vec<&str> = stdout.lines().collect();
     assert_eq!(
         lines.len(),
-        892,
-        "Expected 892 cop names, got {}",
+        915,
+        "Expected 915 cop names, got {}",
         lines.len()
     );
 

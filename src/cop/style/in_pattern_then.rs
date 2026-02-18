@@ -9,54 +9,45 @@ impl Cop for InPatternThen {
         "Style/InPatternThen"
     }
 
-    fn check_lines(
+    fn check_node(
         &self,
         source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
-        let lines = source.lines();
+        // Check for `in` pattern nodes in case-in expressions
+        let in_node = match node.as_in_node() {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
 
-        for (i, line_bytes) in lines.enumerate() {
-            let line = match std::str::from_utf8(line_bytes) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-            let trimmed = line.trim();
+        // Get the source between pattern and body
+        let pattern = in_node.pattern();
+        let pattern_end = pattern.location().end_offset();
 
-            // Look for `in <pattern>;` (semicolon after in pattern)
-            if !trimmed.starts_with("in ") {
-                continue;
-            }
-
-            // Find semicolon that's not inside a string
-            let rest = &trimmed[3..]; // skip "in "
-            if let Some(semi_pos) = rest.find(';') {
-                // Make sure it's not `in pattern then` already
-                let before_semi = &rest[..semi_pos];
-                if before_semi.contains(" then") {
-                    continue;
-                }
-                // After the semicolon there should be something (body)
-                let after_semi = rest[semi_pos + 1..].trim();
-                if after_semi.is_empty() {
-                    continue;
-                }
-                // Find the absolute position of the semicolon
-                let line_start = line.find("in ").unwrap_or(0);
-                let abs_semi_pos = line_start + 3 + semi_pos;
-
-                let line_num = i + 1;
-                diagnostics.push(self.diagnostic(
+        // Check if there's a semicolon between the pattern and body (then-like separator)
+        // Look at the source bytes between pattern end and body/statements start
+        let src = source.as_bytes();
+        if let Some(stmts) = in_node.statements() {
+            let stmts_start = stmts.location().start_offset();
+            let between = &src[pattern_end..stmts_start];
+            // Check if there's a semicolon (`;`) in the gap
+            if between.contains(&b';') {
+                // This is `in pattern; body` — should use `in pattern then body`
+                let semi_offset = pattern_end + between.iter().position(|&b| b == b';').unwrap();
+                let (line, column) = source.offset_to_line_col(semi_offset);
+                let pattern_src = String::from_utf8_lossy(pattern.location().as_slice());
+                return vec![self.diagnostic(
                     source,
-                    line_num,
-                    abs_semi_pos,
-                    format!("Do not use `{}`. Use `{} then` instead.", trimmed.split(';').next().unwrap_or(trimmed), trimmed.split(';').next().unwrap_or(trimmed)),
-                ));
+                    line,
+                    column,
+                    format!("Do not use `in {}`. Use `in {} then` instead.", pattern_src, pattern_src),
+                )];
             }
         }
 
-        diagnostics
+        Vec::new()
     }
 }
 

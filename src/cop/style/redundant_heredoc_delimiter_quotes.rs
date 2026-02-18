@@ -55,15 +55,22 @@ impl Cop for RedundantHeredocDelimiterQuotes {
             return Vec::new();
         }
 
-        // If it's single-quoted, it's always redundant if the content has no interpolation
-        // (single-quoted heredocs disable interpolation, but if the content doesn't use
-        // interpolation syntax, the quotes are redundant)
-        // If it's double-quoted, it's redundant because double-quote is the default
-        // However, single-quoted heredocs with interpolation-like content (#{ }) need the quotes.
-        // Let's check: for single-quoted, scan content for interpolation patterns
+        // Extract the delimiter name (between quotes)
+        let delim = &rest[1..rest.len() - 1]; // strip quotes
+
+        // If the delimiter contains special characters that require quoting, skip.
+        // Delimiters with spaces, quotes, backslashes, or other special chars
+        // need quotes to be parsed correctly by Ruby.
+        for &b in delim {
+            if b == b' ' || b == b'\'' || b == b'"' || b == b'\\' || !b.is_ascii_graphic() {
+                return Vec::new();
+            }
+        }
+
         if quote_char == b'\'' {
-            // Check if the heredoc body contains interpolation-like patterns
-            // Use content_loc() from the node for accurate body range
+            // Single-quoted heredocs suppress interpolation and backslash escapes.
+            // The quotes are only redundant if the body doesn't use any interpolation
+            // patterns or backslash escapes that would be active in a double-quoted heredoc.
             let body_bytes = if let Some(s) = node.as_string_node() {
                 s.content_loc().as_slice()
             } else if let Some(s) = node.as_interpolated_string_node() {
@@ -77,14 +84,19 @@ impl Cop for RedundantHeredocDelimiterQuotes {
             } else {
                 &[] as &[u8]
             };
+            // Check for interpolation patterns: #{, #@, #@@, #$
             if body_bytes.windows(2).any(|w| w == b"#{" || w == b"#@" || w == b"#$") {
+                return Vec::new();
+            }
+            // Check for backslash escapes — in single-quoted heredocs, backslashes
+            // are literal. Removing quotes would make them escape sequences.
+            if body_bytes.contains(&b'\\') {
                 return Vec::new();
             }
         }
 
         // Build the suggested replacement
         let prefix = &open_bytes[..open_bytes.len() - rest.len()];
-        let delim = &rest[1..rest.len() - 1]; // strip quotes
         let prefix_str = String::from_utf8_lossy(prefix);
         let delim_str = String::from_utf8_lossy(delim);
 

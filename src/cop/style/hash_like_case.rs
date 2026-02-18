@@ -70,6 +70,13 @@ impl HashLikeCaseVisitor<'_, '_> {
 
 impl<'pr> Visit<'pr> for HashLikeCaseVisitor<'_, '_> {
     fn visit_case_node(&mut self, node: &ruby_prism::CaseNode<'pr>) {
+        // Must have a case subject (predicate) - `case x; when ...`
+        // `case; when ...` without subject is a different pattern
+        if node.predicate().is_none() {
+            ruby_prism::visit_case_node(self, node);
+            return;
+        }
+
         let conditions: Vec<_> = node.conditions().iter().collect();
         let when_count = conditions.len();
 

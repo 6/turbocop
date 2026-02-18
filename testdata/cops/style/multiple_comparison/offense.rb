@@ -1,3 +1,4 @@
+a = "test"
 a == "x" || a == "y"
 ^^^^^^^^^^^^^^^^^^^^ Style/MultipleComparison: Avoid comparing a variable with multiple items in a conditional, use `Array#include?` instead.
 

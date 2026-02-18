@@ -31,6 +31,10 @@ impl Cop for RedundantFetchBlock {
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let safe_for_constants = config.get_bool("SafeForConstants", false);
+        // Check if frozen_string_literal is enabled (needed for string body)
+        let frozen_string_literal = source.lines().next().is_some_and(|line| {
+            std::str::from_utf8(line).unwrap_or("").contains("frozen_string_literal: true")
+        });
 
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -70,15 +74,37 @@ impl Cop for RedundantFetchBlock {
         // Check block body
         let body = block_node.body();
 
+        // Skip Rails.cache.fetch - those blocks do computation
+        if let Some(receiver) = call.receiver() {
+            if let Some(recv_call) = receiver.as_call_node() {
+                if recv_call.name().as_slice() == b"cache" {
+                    if let Some(recv_recv) = recv_call.receiver() {
+                        if let Some(const_node) = recv_recv.as_constant_read_node() {
+                            if const_node.name().as_slice() == b"Rails" {
+                                return Vec::new();
+                            }
+                        }
+                        if let Some(const_path) = recv_recv.as_constant_path_node() {
+                            if const_path.location().as_slice() == b"Rails" {
+                                return Vec::new();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let is_redundant = if let Some(ref body) = body {
             if let Some(stmts) = body.as_statements_node() {
                 let body_stmts: Vec<_> = stmts.body().iter().collect();
                 if body_stmts.len() == 1 {
                     let expr = &body_stmts[0];
-                    if Self::is_simple_literal(expr) {
+                    // String literals require frozen_string_literal: true
+                    if expr.as_string_node().is_some() && !frozen_string_literal {
+                        false
+                    } else if Self::is_simple_literal(expr) {
                         true
                     } else if safe_for_constants {
-                        // Also flag constants
                         expr.as_constant_read_node().is_some()
                             || expr.as_constant_path_node().is_some()
                     } else {
