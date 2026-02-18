@@ -505,54 +505,11 @@ Added 45 new cops across Lint (25), Style (4), and Layout (16). Fixed all remain
 - [x] 1,607 unit + 42 integration tests passing
 - [x] **100% conformance on all 3 bench repos** (Mastodon, Discourse, Rails)
 
-## Cop Coverage Summary
+## Cop Coverage & Conformance
 
-### Core RuboCop departments
+See **[docs/coverage.md](docs/coverage.md)** for the auto-generated coverage table, missing cops, and bench conformance results.
 
-| Department | RuboCop | rblint | Coverage |
-|------------|--------:|-------:|---------:|
-| Layout | 100 | 100 | **100%** |
-| Lint | 152 | 140 | 92% |
-| Style | 287 | 289 | **100%** |
-| Metrics | 10 | 10 | **100%** |
-| Naming | 19 | 19 | **100%** |
-| Security | 7 | 7 | **100%** |
-| Bundler | 7 | 7 | **100%** |
-| Gemspec | 10 | 10 | **100%** |
-| Migration | 1 | 1 | **100%** |
-| **Total Core** | **593** | **583** | **98.3%** |
-
-### Plugin departments
-
-| Department | RuboCop | rblint | Coverage |
-|------------|--------:|-------:|---------:|
-| rubocop-rails | 138 | 125 | 91% |
-| rubocop-rspec | 113 | 113 | **100%** |
-| rubocop-rspec_rails | 8 | 8 | **100%** |
-| rubocop-performance | 52 | 52 | **100%** |
-| rubocop-factory_bot | 11 | 11 | **100%** |
-| **Total Plugins** | **322** | **309** | **96.0%** |
-
-### Grand total
-
-| | RuboCop | rblint | Coverage |
-|--|--------:|-------:|---------:|
-| **All departments** | **915** | **892** | **97.5%** |
-
-Remaining gaps: Rails (13 missing), Lint (12 missing).
-
-### Bench Conformance
-
-| Repo | Category | FPs | FNs | Match Rate |
-|------|----------|----:|----:|---------:|
-| Mastodon | Large Rails app | 42 | 3 | **84.6%** |
-| Discourse | Large Rails app | 0 | 0 | **100.0%** |
-| Rails | Framework | 680 | 2 | 0.1% |
-| rubocop | Ruby tool (RSpec-heavy) | 307 | 0 | 0.6% |
-| chatwoot | Large Rails app | 47 | 0 | 0.0% |
-| errbit | Small Rails app | 11 | 0 | **99.3%** |
-
-6 bench repos total. 628 covered cops. Discourse at 100%. New cops added in M14 need FP fixes to restore mastodon/errbit/rails conformance (the new cops fire but are disabled or have bugs in bench repos).
+Regenerate with: `cargo run --bin coverage_table -- --show-missing --output docs/coverage.md`
 
 ### Bench Repo Candidates (Evaluated)
 

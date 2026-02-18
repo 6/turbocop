@@ -14,6 +14,10 @@ name = "bench_rblint"
 path = "bench/bench.rs"
 
 [[bin]]
+name = "coverage_table"
+path = "src/bin/coverage_table.rs"
+
+[[bin]]
 name = "node_pattern_codegen"
 path = "src/bin/node_pattern_codegen.rs"
 

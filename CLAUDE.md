@@ -144,11 +144,28 @@ To add a new cop department from a RuboCop plugin (e.g., rubocop-rspec, rubocop-
 cargo run --release --bin bench_rblint                # full run: setup + bench + conform + report
 cargo run --release --bin bench_rblint -- setup        # clone benchmark repos only
 cargo run --release --bin bench_rblint -- bench        # timing benchmarks (hyperfine)
-cargo run --release --bin bench_rblint -- conform      # conformance comparison
+cargo run --release --bin bench_rblint -- conform      # conformance comparison → bench/conform.json + bench/results.md
 cargo run --release --bin bench_rblint -- report       # regenerate results.md from cached data
 ```
 
-Results are written to `bench/results.md`. Benchmark repos (Mastodon, Discourse) are cloned to `bench/repos/` (gitignored).
+Results are written to `bench/results.md` (checked in). Conformance data is also written to `bench/conform.json` (gitignored) as structured data for the coverage table. Benchmark repos are cloned to `bench/repos/` (gitignored).
+
+## Coverage Reporting
+
+```
+cargo run --bin coverage_table                                  # print to stdout
+cargo run --bin coverage_table -- --show-missing                # include missing cop lists
+cargo run --bin coverage_table -- --output docs/coverage.md     # write to file (checked in)
+```
+
+Generates `docs/coverage.md` with:
+- **Cop coverage table** — counts per department from vendor YAML vs registry
+- **Missing cops** — which vendor cops aren't implemented yet (with `--show-missing`)
+- **Conformance table** — FP/FN rates per bench repo (reads `bench/conform.json` if available)
+
+Pipeline: `bench_rblint conform` → `bench/conform.json` → `coverage_table` → `docs/coverage.md`
+
+PROGRESS.md links to `docs/coverage.md` instead of maintaining inline tables.
 
 ## Rules
 

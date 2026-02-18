@@ -9,3 +9,4 @@ target/
 # Benchmark repos and raw result cache
 bench/repos/
 bench/results/
+bench/conform.json

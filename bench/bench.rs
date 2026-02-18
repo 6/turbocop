@@ -376,13 +376,15 @@ struct RubocopLocation {
     start_line: usize,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
 struct CopStats {
     matches: usize,
     fp: usize,
+    #[serde(rename = "fn")]
     fn_: usize,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 struct ConformResult {
     rblint_count: usize,
     rubocop_count: usize,
@@ -843,10 +845,16 @@ fn main() {
         "conform" => {
             build_rblint();
             let conform = run_conform();
+            // Write structured JSON for coverage_table to consume
+            let json_path = project_root().join("bench/conform.json");
+            let json = serde_json::to_string_pretty(&conform).unwrap();
+            fs::write(&json_path, &json).unwrap();
+            eprintln!("\nWrote {}", json_path.display());
+            // Also write human-readable markdown
             let bench = load_cached_bench();
             let md = generate_report(&bench, &conform, &args);
             fs::write(&output_path, &md).unwrap();
-            eprintln!("\nWrote {}", output_path.display());
+            eprintln!("Wrote {}", output_path.display());
         }
         "report" => {
             let bench = load_cached_bench();
@@ -861,9 +869,13 @@ fn main() {
             build_rblint();
             let bench = run_bench(&args);
             let conform = run_conform();
+            let json_path = project_root().join("bench/conform.json");
+            let json = serde_json::to_string_pretty(&conform).unwrap();
+            fs::write(&json_path, &json).unwrap();
+            eprintln!("\nWrote {}", json_path.display());
             let md = generate_report(&bench, &conform, &args);
             fs::write(&output_path, &md).unwrap();
-            eprintln!("\nWrote {}", output_path.display());
+            eprintln!("Wrote {}", output_path.display());
         }
         other => {
             eprintln!("Unknown mode: {other}. Use: setup, bench, conform, report, or all.");
