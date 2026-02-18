@@ -526,12 +526,12 @@ Added 45 new cops across Lint (25), Style (4), and Layout (16). Fixed all remain
 
 | Department | RuboCop | rblint | Coverage |
 |------------|--------:|-------:|---------:|
-| rubocop-rails | 138 | 128 | 93% |
+| rubocop-rails | 138 | 125 | 91% |
 | rubocop-rspec | 113 | 113 | **100%** |
 | rubocop-rspec_rails | 8 | 8 | **100%** |
 | rubocop-performance | 52 | 52 | **100%** |
 | rubocop-factory_bot | 11 | 11 | **100%** |
-| **Total Plugins** | **322** | **312** | **96.9%** |
+| **Total Plugins** | **322** | **309** | **96.0%** |
 
 ### Grand total
 
@@ -539,7 +539,7 @@ Added 45 new cops across Lint (25), Style (4), and Layout (16). Fixed all remain
 |--|--------:|-------:|---------:|
 | **All departments** | **915** | **892** | **97.5%** |
 
-Remaining gaps: Lint (12 missing), Rails (10 missing).
+Remaining gaps: Rails (13 missing), Lint (12 missing).
 
 ### Bench Conformance
 
