@@ -920,6 +920,94 @@ Added 32 new cops: 11 Lint, 10 Style, 11 FactoryBot (new department). Fixed Inde
 - Naming/MemoizedInstanceVariableName: skip initialize methods
 - RSpec/DescribedClass: stop recursion into def nodes
 - RSpec/LetBeforeExamples: skip shared_examples groups
+
+## Completed: M15 — Mass Cop Expansion + RSpecRails (743 cops)
+
+Added 115 new cops across 6 departments, including a new RSpecRails department. Fixed 15+ cop bugs to maintain 100% conformance on 5/6 bench repos.
+
+### M15 New Department — RSpecRails (8 cops)
+
+- [x] RSpecRails/AvoidSetupHook — Prefer `before` over `setup`
+- [x] RSpecRails/HaveHttpStatus — Prefer `have_http_status` matcher
+- [x] RSpecRails/HttpStatus — Consistent HTTP status style (symbolic/numeric/be_status)
+- [x] RSpecRails/HttpStatusNameConsistency — Deprecated HTTP status names
+- [x] RSpecRails/InferredSpecType — Redundant `type:` metadata
+- [x] RSpecRails/MinitestAssertions — Minitest → RSpec assertion conversion
+- [x] RSpecRails/NegationBeValid — Consistent negated be_valid style
+- [x] RSpecRails/TravelAround — Time travel in `around` blocks
+
+### M15 Cops — Lint (25 new → 140 total)
+
+- [x] Lint/AmbiguousOperator, ArrayLiteralInRegexp, ConstantResolution
+- [x] Lint/DuplicateMatchPattern, DuplicateRegexpCharacterClassElement, DuplicateSetElement
+- [x] Lint/ErbNewArguments, HashNewWithKeywordArgumentsAsDefault
+- [x] Lint/HeredocMethodCallPosition, IncompatibleIoSelectWithFiberScheduler
+- [x] Lint/ItWithoutArgumentsInBlock, MixedCaseRange, NumberConversion
+- [x] Lint/NumericOperationWithConstantResult, RedundantTypeConversion
+- [x] Lint/RefinementImportMethods, SharedMutableDefault
+- [x] Lint/SuppressedExceptionInNumberConversion, UnexpectedBlockArity
+- [x] Lint/UselessConstantScoping, UselessDefaultValueArgument, UselessDefined
+- [x] Lint/UselessOr, UselessRescue, UselessRuby2Keywords
+
+### M15 Cops — Performance (5 new → 52 total, 100% of rubocop-performance)
+
+- [x] Performance/CollectionLiteralInLoop, ConstantRegexp, FixedSize
+- [x] Performance/StringBytesize, ZipWithoutBlock
+
+### M15 Cops — Rails (27 new → 128 total)
+
+- [x] Rails/ActionFilter, ActiveRecordOverride, ArelStar, BelongsTo
+- [x] Rails/DefaultScope, EagerEvaluationLogMessage, FindById
+- [x] Rails/IgnoredColumnsAssignment, IgnoredSkipActionFilterOption, IndexWith
+- [x] Rails/LinkToBlank, MailerName, MatchRoute, MultipleRoutePaths
+- [x] Rails/OrderArguments, OrderById, PluralizationGrammar, Presence
+- [x] Rails/RedirectBackOrTo, RequireDependency, SafeNavigationWithBlank
+- [x] Rails/TopLevelHashWithIndifferentAccess, UniqBeforePluck
+- [x] Rails/WhereEquals, WhereNotWithMultipleConditions
+- [x] Rails/ActiveRecordAliases, AssertNot (2 registered, already implemented)
+
+### M15 Cops — Style (26 new → 140 total)
+
+- [x] Style/DataInheritance, EnvHome, GlobalStdStream
+- [x] Style/IfUnlessModifierOfIfUnless, IfWithSemicolon, LambdaCall
+- [x] Style/MethodCalledOnDoEndBlock, MinMax, MultilineBlockChain
+- [x] Style/MultilineMethodSignature, MultilineTernaryOperator, NestedFileDirname
+- [x] Style/NestedModifier, NestedTernaryOperator, OneLineConditional
+- [x] Style/RedundantCurrentDirectoryInPath, RedundantSortBy, Send
+- [x] Style/StderrPuts, StringChars, StructInheritance
+- [x] Style/TrailingBodyOnClass, TrailingBodyOnMethodDefinition, TrailingBodyOnModule
+- [x] Style/TrailingMethodEndStatement, WhileUntilDo
+
+### M15 FP Fixes
+
+- Style/TrailingBodyOnMethodDefinition: Fixed BeginNode unwrapping for rescue/ensure bodies
+- Style/TrailingMethodEndStatement: Drill into BeginNode clauses for body_last_line
+- Style/MultilineBlockChain: Rewrite as visitor, require block-to-block chain
+- Style/CommentAnnotation: Fix heredoc/string content detection
+- Lint/DuplicateRegexpCharacterClassElement: Fix Unicode \p{...} parsing, nested classes, && intersection
+- Style/Alias: Fix false positive in certain method contexts
+- Style/GlobalStdStream: Respect repo config disabled state
+- Style/IfWithSemicolon: Only scan before first newline for semicolons
+- Rails/Presence: Complete rewrite for chain patterns, negation, ternary
+- Rails/IndexWith: Skip blocks with splat/rest parameters
+- Style/NestedFileDirname: Rewrite as visitor, add TargetRubyVersion >= 3.1 check
+- Lint/SuppressedExceptionInNumberConversion: Check rescue exception class
+- Rails/OrderArguments: Remove incorrect receiver requirement
+
+### M15 Summary
+
+- [x] 743 cops registered (was 628, +115 new)
+- [x] 2,134 lib tests passing
+- [x] New department: RSpecRails (8 cops)
+- [x] Performance department: 100% complete (52/52)
+- [x] Vendor submodule: rubocop-rspec_rails v2.32.0
+- [x] **5 of 6 bench repos at 100% conformance**
+- [x] Mastodon: **100%** (255 offenses matched)
+- [x] Discourse: **100%** (604 offenses matched)
+- [x] Rails: **100%** (3 offenses matched)
+- [x] Rubocop: **100%** (2 offenses matched)
+- [x] Errbit: **100%** (1551 offenses matched)
+- [x] Chatwoot: 17 FP (RuboCop version differences + new cop version gaps)
 - Style/HashTransformKeys: require destructured block params
 - Style/SymbolArray: skip arrays containing comments
 - Plus 13 more single-FP fixes across Layout, Lint, Naming, Style, Gemspec
