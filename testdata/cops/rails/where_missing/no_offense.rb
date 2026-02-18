@@ -1,0 +1,6 @@
+Foo.left_joins(:foo).where(bazs: { id: nil })
+Foo.left_joins(:foobar).where(foo: { id: nil })
+Foo.left_joins(:foo).where(foos: { name: nil })
+Foo.left_joins(:foo).where(foos: { id: 1 })
+Foo.left_joins(foo: :bar).where(bars: { id: nil })
+Foo.left_joins(left_joins).where(bars: { id: nil })
