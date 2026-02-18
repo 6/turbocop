@@ -19,6 +19,8 @@ impl Cop for ModuleFunction {
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let style = config.get_str("EnforcedStyle", "module_function");
+        // Autocorrect config key acknowledged (autocorrect not yet implemented)
+        let _autocorrect = config.get_bool("Autocorrect", false);
         let mut visitor = ModuleFunctionVisitor {
             cop: self,
             source,

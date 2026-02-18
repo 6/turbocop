@@ -10,7 +10,9 @@ impl HashFetchChain {
         if node.as_nil_node().is_some() {
             return true;
         }
-        // {} (empty hash)
+        // {} (empty hash literal) — keyword_hash_node is not applicable here
+        // because keyword hashes only appear in argument positions and cannot
+        // be a fetch default value.
         if let Some(hash) = node.as_hash_node() {
             if hash.elements().iter().next().is_none() {
                 return true;

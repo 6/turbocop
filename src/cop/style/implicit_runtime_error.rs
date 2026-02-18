@@ -28,10 +28,14 @@ impl Cop for ImplicitRuntimeError {
             return Vec::new();
         }
 
-        // Must have no explicit receiver (or Kernel receiver)
+        // Must have no explicit receiver (or Kernel/::Kernel receiver)
         if let Some(recv) = call.receiver() {
             let is_kernel = recv.as_constant_read_node()
-                .map_or(false, |c| c.name().as_slice() == b"Kernel");
+                .map_or(false, |c| c.name().as_slice() == b"Kernel")
+                || recv.as_constant_path_node().map_or(false, |cp| {
+                    cp.parent().is_none()
+                        && cp.name().map_or(false, |n| n.as_slice() == b"Kernel")
+                });
             if !is_kernel {
                 return Vec::new();
             }

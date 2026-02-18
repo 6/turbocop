@@ -70,6 +70,8 @@ fn classify_node(node: &ruby_prism::Node<'_>) -> Option<&'static str> {
 }
 
 fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
+    // Note: keyword_hash_node is not applicable here — keyword hashes only
+    // appear in argument positions and cannot be wrapped in standalone parentheses.
     node.as_string_node().is_some()
         || node.as_interpolated_string_node().is_some()
         || node.as_symbol_node().is_some()

@@ -166,6 +166,16 @@ pub trait Cop: Send + Sync {
         &[]
     }
 
+    /// Whether the cop is enabled by default.
+    ///
+    /// Matches the `Enabled` value from vendor `config/default.yml`.
+    /// Cops that have `Enabled: false` in the vendor config should override
+    /// this to return `false`. This ensures they stay disabled even when no
+    /// `.rubocop.yml` is present (and vendor defaults are not loaded).
+    fn default_enabled(&self) -> bool {
+        true
+    }
+
     /// Create a Diagnostic with standard fields filled in.
     fn diagnostic(
         &self,

@@ -10,6 +10,10 @@ impl Cop for Copyright {
         "Style/Copyright"
     }
 
+    fn default_enabled(&self) -> bool {
+        false // Matches vendor config/default.yml: Enabled: false
+    }
+
     fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
         let notice_pattern = config.get_str("Notice", r"^Copyright (\(c\) )?2[0-9]{3} .+");
         let _autocorrect_notice = config.get_str("AutocorrectNotice", "");

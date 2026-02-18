@@ -55,9 +55,9 @@ impl Cop for FormatString {
                 if style == "format" {
                     return Vec::new();
                 }
-                // Only flag top-level or Kernel.format
+                // Only flag top-level or Kernel.format / ::Kernel.format
                 if let Some(recv) = call.receiver() {
-                    if recv.as_constant_read_node().map_or(true, |c| c.name().as_slice() != b"Kernel") {
+                    if !is_kernel_constant(&recv) {
                         return Vec::new();
                     }
                 }
@@ -76,9 +76,9 @@ impl Cop for FormatString {
                 if style == "sprintf" {
                     return Vec::new();
                 }
-                // Only flag top-level or Kernel.sprintf
+                // Only flag top-level or Kernel.sprintf / ::Kernel.sprintf
                 if let Some(recv) = call.receiver() {
-                    if recv.as_constant_read_node().map_or(true, |c| c.name().as_slice() != b"Kernel") {
+                    if !is_kernel_constant(&recv) {
                         return Vec::new();
                     }
                 }
@@ -98,6 +98,22 @@ impl Cop for FormatString {
 
         Vec::new()
     }
+}
+
+/// Check if a node is the `Kernel` constant (simple or qualified via constant_path_node).
+fn is_kernel_constant(node: &ruby_prism::Node<'_>) -> bool {
+    if node
+        .as_constant_read_node()
+        .map_or(false, |c| c.name().as_slice() == b"Kernel")
+    {
+        return true;
+    }
+    if let Some(cp) = node.as_constant_path_node() {
+        if cp.parent().is_none() && cp.name().map_or(false, |n| n.as_slice() == b"Kernel") {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]

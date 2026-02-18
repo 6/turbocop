@@ -102,6 +102,8 @@ impl Cop for FormatStringToken {
         let style = config.get_str("EnforcedStyle", "annotated");
         let max_unannotated = config.get_usize("MaxUnannotatedPlaceholdersAllowed", 1);
         let _mode = config.get_str("Mode", "aggressive");
+        let _allowed_methods = config.get_string_array("AllowedMethods");
+        let _allowed_patterns = config.get_string_array("AllowedPatterns");
 
         let has_annotated = Self::has_annotated_token(content_str);
         let has_template = Self::has_template_token(content_str);

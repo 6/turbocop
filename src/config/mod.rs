@@ -1435,7 +1435,7 @@ impl ResolvedConfig {
                     EnabledState::Pending => {
                         self.new_cops == NewCopsPolicy::Enable
                     }
-                    EnabledState::Unset => !self.disabled_by_default,
+                    EnabledState::Unset => !self.disabled_by_default && cop.default_enabled(),
                     EnabledState::True => true,
                 };
 

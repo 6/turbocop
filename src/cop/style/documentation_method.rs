@@ -17,6 +17,7 @@ impl Cop for DocumentationMethod {
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let require_for_non_public = config.get_bool("RequireForNonPublicMethods", false);
+        let allowed_methods = config.get_string_array("AllowedMethods");
 
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -28,6 +29,13 @@ impl Cop for DocumentationMethod {
         // Skip initialize
         if method_name == "initialize" {
             return Vec::new();
+        }
+
+        // Skip allowed methods
+        if let Some(ref allowed) = allowed_methods {
+            if allowed.iter().any(|m| m == method_name) {
+                return Vec::new();
+            }
         }
 
         // Skip private/protected methods unless configured

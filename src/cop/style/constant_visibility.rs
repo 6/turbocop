@@ -18,11 +18,15 @@ impl Cop for ConstantVisibility {
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let _ignore_pattern = config.get_str("IgnoreModuleContaining", "");
+        let ignore_modules = config.get_bool("IgnoreModules", false);
 
         // Only check class and module bodies
         let body = if let Some(class_node) = node.as_class_node() {
             class_node.body()
         } else if let Some(module_node) = node.as_module_node() {
+            if ignore_modules {
+                return Vec::new();
+            }
             module_node.body()
         } else {
             return Vec::new();
