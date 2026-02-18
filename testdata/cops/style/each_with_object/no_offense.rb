@@ -1,0 +1,6 @@
+[].inject(:+)
+[1, 2, 3].inject { |a, e| a + e }
+[].inject({}) { |h| h[rand] = rand; h }
+array.reduce(0) { |a, e| a }
+[].each_with_object({}) { |e, a| a[e] = 1 }
+x = 1

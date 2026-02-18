@@ -1,0 +1,6 @@
+x = '%<name>s is %<age>d'
+y = '%s'
+z = 'hello world'
+a = '%%s'
+b = '%<greeting>s %<target>s'
+c = '%d'

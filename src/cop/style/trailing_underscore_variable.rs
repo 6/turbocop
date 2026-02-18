@@ -1,0 +1,103 @@
+use crate::cop::{Cop, CopConfig};
+use crate::diagnostic::Diagnostic;
+use crate::parse::source::SourceFile;
+
+pub struct TrailingUnderscoreVariable;
+
+impl Cop for TrailingUnderscoreVariable {
+    fn name(&self) -> &'static str {
+        "Style/TrailingUnderscoreVariable"
+    }
+
+    fn check_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        config: &CopConfig,
+    ) -> Vec<Diagnostic> {
+        let allow_named = config.get_bool("AllowNamedUnderscoreVariables", true);
+
+        let multi = match node.as_multi_write_node() {
+            Some(m) => m,
+            None => return Vec::new(),
+        };
+
+        let lefts: Vec<_> = multi.lefts().iter().collect();
+        if lefts.is_empty() {
+            return Vec::new();
+        }
+
+        // Check trailing underscore variables
+        let mut trailing_count = 0;
+        for target in lefts.iter().rev() {
+            if is_underscore_var(target, allow_named) {
+                trailing_count += 1;
+            } else {
+                break;
+            }
+        }
+
+        // Also check rest assignment
+        if let Some(rest) = multi.rest() {
+            if is_underscore_var(&rest, allow_named) && trailing_count == lefts.len() {
+                trailing_count += 1;
+            }
+        }
+
+        if trailing_count == 0 {
+            return Vec::new();
+        }
+
+        // Don't flag if ALL variables are underscores
+        if trailing_count >= lefts.len() {
+            return Vec::new();
+        }
+
+        let loc = node.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        vec![self.diagnostic(
+            source,
+            line,
+            column,
+            "Trailing underscore variable(s) in parallel assignment are unnecessary.".to_string(),
+        )]
+    }
+}
+
+fn is_underscore_var(node: &ruby_prism::Node<'_>, allow_named: bool) -> bool {
+    if let Some(target) = node.as_local_variable_target_node() {
+        let name = target.name().as_slice();
+        if name == b"_" {
+            return true;
+        }
+        if !allow_named && name.starts_with(b"_") {
+            return true;
+        }
+        return false;
+    }
+    // Splat node like *_
+    if let Some(splat) = node.as_splat_node() {
+        if let Some(expr) = splat.expression() {
+            if let Some(target) = expr.as_local_variable_target_node() {
+                let name = target.name().as_slice();
+                if name == b"_" {
+                    return true;
+                }
+                if !allow_named && name.starts_with(b"_") {
+                    return true;
+                }
+            }
+        } else {
+            // bare * (implicit rest)
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    crate::cop_fixture_tests!(TrailingUnderscoreVariable, "cops/style/trailing_underscore_variable");
+}

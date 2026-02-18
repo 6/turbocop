@@ -1,0 +1,5 @@
+foo(a: 1, b: 2)
+bar(**hash)
+foo(**hash.merge(a: 1))
+method_call(key: value)
+method_call(**options)

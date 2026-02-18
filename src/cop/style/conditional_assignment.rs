@@ -1,0 +1,109 @@
+use crate::cop::{Cop, CopConfig};
+use crate::diagnostic::Diagnostic;
+use crate::parse::source::SourceFile;
+
+pub struct ConditionalAssignment;
+
+impl Cop for ConditionalAssignment {
+    fn name(&self) -> &'static str {
+        "Style/ConditionalAssignment"
+    }
+
+    fn check_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        config: &CopConfig,
+    ) -> Vec<Diagnostic> {
+        let enforced_style = config.get_str("EnforcedStyle", "assign_to_condition");
+        let _single_line_only = config.get_bool("SingleLineConditionsOnly", true);
+        let _include_ternary = config.get_bool("IncludeTernaryExpressions", true);
+
+        if enforced_style != "assign_to_condition" {
+            return Vec::new();
+        }
+
+        // Check for if/else where each branch assigns to the same variable
+        let if_node = match node.as_if_node() {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+
+        // Must have an else clause
+        let else_clause = match if_node.subsequent() {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        // Must be a simple if/else (not if/elsif/else)
+        if else_clause.as_if_node().is_some() {
+            return Vec::new();
+        }
+
+        // Check if both branches assign to the same variable
+        let if_body = match if_node.statements() {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        let if_stmts: Vec<_> = if_body.body().iter().collect();
+        if if_stmts.len() != 1 {
+            return Vec::new();
+        }
+
+        let if_assign_name = get_assignment_target(&if_stmts[0]);
+
+        if let Some(else_node) = else_clause.as_else_node() {
+            if let Some(else_stmts) = else_node.statements() {
+                let else_list: Vec<_> = else_stmts.body().iter().collect();
+                if else_list.len() != 1 {
+                    return Vec::new();
+                }
+
+                let else_assign_name = get_assignment_target(&else_list[0]);
+
+                if let (Some(if_name), Some(else_name)) = (if_assign_name, else_assign_name) {
+                    if if_name == else_name {
+                        let loc = if_node.location();
+                        let (line, column) = source.offset_to_line_col(loc.start_offset());
+                        return vec![self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            format!(
+                                "Use the return value of `if` expression for variable assignment and comparison."
+                            ),
+                        )];
+                    }
+                }
+            }
+        }
+
+        Vec::new()
+    }
+}
+
+fn get_assignment_target(node: &ruby_prism::Node<'_>) -> Option<String> {
+    if let Some(write) = node.as_local_variable_write_node() {
+        return Some(
+            std::str::from_utf8(write.name().as_slice())
+                .unwrap_or("")
+                .to_string(),
+        );
+    }
+    if let Some(write) = node.as_instance_variable_write_node() {
+        return Some(
+            std::str::from_utf8(write.name().as_slice())
+                .unwrap_or("")
+                .to_string(),
+        );
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    crate::cop_fixture_tests!(ConditionalAssignment, "cops/style/conditional_assignment");
+}

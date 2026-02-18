@@ -1,0 +1,6 @@
+"#{condition ? send_node : 'foo'}"
+"#{condition ? 'foo' : send_node}"
+"#{condition ? send_node : another_send_node}"
+"hello #{name}"
+"#{x} + #{y}"
+result = "value"

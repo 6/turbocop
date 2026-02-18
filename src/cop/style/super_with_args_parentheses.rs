@@ -1,0 +1,49 @@
+use crate::cop::{Cop, CopConfig};
+use crate::diagnostic::Diagnostic;
+use crate::parse::source::SourceFile;
+
+pub struct SuperWithArgsParentheses;
+
+impl Cop for SuperWithArgsParentheses {
+    fn name(&self) -> &'static str {
+        "Style/SuperWithArgsParentheses"
+    }
+
+    fn check_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
+        let super_node = match node.as_super_node() {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        // Must have arguments
+        if super_node.arguments().is_none() {
+            return Vec::new();
+        }
+
+        // Check if parentheses are missing
+        if super_node.lparen_loc().is_some() {
+            return Vec::new();
+        }
+
+        let loc = super_node.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        vec![self.diagnostic(
+            source,
+            line,
+            column,
+            "Use parentheses for `super` with arguments.".to_string(),
+        )]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    crate::cop_fixture_tests!(SuperWithArgsParentheses, "cops/style/super_with_args_parentheses");
+}

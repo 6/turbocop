@@ -1,0 +1,79 @@
+use crate::cop::{Cop, CopConfig};
+use crate::diagnostic::Diagnostic;
+use crate::parse::source::SourceFile;
+
+pub struct OperatorMethodCall;
+
+const OPERATOR_METHODS: &[&[u8]] = &[
+    b"+", b"-", b"*", b"/", b"%", b"**",
+    b"==", b"!=", b"<", b">", b"<=", b">=", b"<=>",
+    b"<<", b">>", b"|", b"&", b"^",
+];
+
+impl Cop for OperatorMethodCall {
+    fn name(&self) -> &'static str {
+        "Style/OperatorMethodCall"
+    }
+
+    fn check_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
+        let call = match node.as_call_node() {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+
+        let method_name = call.name();
+        let method_bytes = method_name.as_slice();
+
+        // Must be an operator method
+        if !OPERATOR_METHODS.iter().any(|&m| m == method_bytes) {
+            return Vec::new();
+        }
+
+        // Must have a receiver
+        if call.receiver().is_none() {
+            return Vec::new();
+        }
+
+        // Must have a dot call operator (redundant dot before operator)
+        let call_op = match call.call_operator_loc() {
+            Some(op) => op,
+            None => return Vec::new(),
+        };
+
+        if call_op.as_slice() != b"." {
+            return Vec::new();
+        }
+
+        // Must have exactly one argument (binary operator)
+        if let Some(args) = call.arguments() {
+            let arg_list: Vec<_> = args.arguments().iter().collect();
+            if arg_list.len() != 1 {
+                return Vec::new();
+            }
+        } else {
+            // Unary operator with dot is also wrong but less common
+            // Only flag binary operators
+            return Vec::new();
+        }
+
+        let (line, column) = source.offset_to_line_col(call_op.start_offset());
+        vec![self.diagnostic(
+            source,
+            line,
+            column,
+            "Redundant dot detected.".to_string(),
+        )]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    crate::cop_fixture_tests!(OperatorMethodCall, "cops/style/operator_method_call");
+}

@@ -1,0 +1,6 @@
+do_something(foo: bar, baz: qux)
+method(**options)
+call(a: 1, **opts)
+do_something(**variable)
+foo(bar: baz)
+method(**config)
