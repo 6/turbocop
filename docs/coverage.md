@@ -44,100 +44,36 @@ Location-level comparison: file + line + cop_name. Only cops implemented by rbli
 
 | Repo | rblint | rubocop | Matches | FP (rblint only) | FN (rubocop only) | Match rate |
 |------|-------:|--------:|--------:|-----------------:|------------------:|-----------:|
-| mastodon | 290 | 306 | 281 | 9 | 25 | **89.2%** |
-| discourse | 602 | 613 | 595 | 7 | 18 | **96.0%** |
-| rails | 4 | 3 | 3 | 1 | 0 | **75.0%** |
-| rubocop | 15 | 2 | 2 | 13 | 0 | **13.3%** |
-| chatwoot | 242 | 255 | 230 | 12 | 25 | **86.1%** |
-| errbit | 1580 | 1579 | 1576 | 4 | 3 | **99.6%** |
+| mastodon | 302 | 306 | 302 | 0 | 4 | **98.7%** |
+| discourse | 611 | 613 | 611 | 0 | 2 | **99.7%** |
+| rails | 3 | 3 | 3 | 0 | 0 | **100.0%** |
+| rubocop | 2 | 2 | 2 | 0 | 0 | **100.0%** |
+| chatwoot | 255 | 255 | 255 | 0 | 0 | **100.0%** |
+| errbit | 1579 | 1579 | 1579 | 0 | 0 | **100.0%** |
 
 <details>
-<summary>Divergent cops — mastodon (11 of 11 shown)</summary>
+<summary>Divergent cops — mastodon (1 of 1 shown)</summary>
 
 | Cop | Matches | FP | FN |
 |-----|--------:|---:|---:|
-| Style/RedundantParentheses | 0 | 0 | 13 |
-| Style/CollectionQuerying | 1 | 1 | 4 |
-| Style/FetchEnvVar | 0 | 5 | 0 |
 | Lint/RedundantCopDisableDirective | 0 | 0 | 4 |
-| Rails/Presence | 0 | 0 | 1 |
-| Style/ArgumentsForwarding | 0 | 1 | 0 |
-| Style/CollectionCompact | 0 | 1 | 0 |
-| Style/FormatStringToken | 0 | 1 | 0 |
-| Style/HashSlice | 0 | 0 | 1 |
-| Style/MultipleComparison | 0 | 0 | 1 |
-| Style/RedundantRegexpEscape | 0 | 0 | 1 |
 
 </details>
 
 <details>
-<summary>Divergent cops — discourse (4 of 4 shown)</summary>
+<summary>Divergent cops — discourse (1 of 1 shown)</summary>
 
 | Cop | Matches | FP | FN |
 |-----|--------:|---:|---:|
-| Rails/Presence | 23 | 0 | 13 |
-| Lint/ShadowingOuterLocalVariable | 4 | 3 | 3 |
-| Style/InvertibleUnlessCondition | 0 | 4 | 0 |
 | Lint/RedundantCopDisableDirective | 0 | 0 | 2 |
 
 </details>
 
-<details>
-<summary>Divergent cops — rails (1 of 1 shown)</summary>
+**rails:** All cops match perfectly!
 
-| Cop | Matches | FP | FN |
-|-----|--------:|---:|---:|
-| Style/KeywordArgumentsMerging | 0 | 1 | 0 |
+**rubocop:** All cops match perfectly!
 
-</details>
+**chatwoot:** All cops match perfectly!
 
-<details>
-<summary>Divergent cops — rubocop (11 of 11 shown)</summary>
-
-| Cop | Matches | FP | FN |
-|-----|--------:|---:|---:|
-| Lint/RedundantCopEnableDirective | 0 | 2 | 0 |
-| Style/FormatStringToken | 0 | 2 | 0 |
-| Style/CaseLikeIf | 0 | 1 | 0 |
-| Style/ConditionalAssignment | 0 | 1 | 0 |
-| Style/DocumentDynamicEvalDefinition | 0 | 1 | 0 |
-| Style/RedundantParentheses | 0 | 1 | 0 |
-| Style/RegexpLiteral | 0 | 1 | 0 |
-| Style/ReturnNilInPredicateMethodDefinition | 0 | 1 | 0 |
-| Style/StringLiteralsInInterpolation | 0 | 1 | 0 |
-| Style/SymbolProc | 0 | 1 | 0 |
-| Style/YAMLFileRead | 0 | 1 | 0 |
-
-</details>
-
-<details>
-<summary>Divergent cops — chatwoot (10 of 10 shown)</summary>
-
-| Cop | Matches | FP | FN |
-|-----|--------:|---:|---:|
-| Rails/Pluck | 0 | 0 | 12 |
-| Style/FetchEnvVar | 0 | 6 | 0 |
-| Style/HashAsLastArrayItem | 0 | 0 | 6 |
-| Rails/Presence | 0 | 0 | 4 |
-| Style/CollectionQuerying | 6 | 2 | 2 |
-| Layout/EmptyLinesAfterModuleInclusion | 55 | 1 | 0 |
-| Style/FormatStringToken | 0 | 1 | 0 |
-| Style/MapIntoArray | 0 | 1 | 0 |
-| Style/RedundantRegexpEscape | 1 | 0 | 1 |
-| Style/RedundantStringEscape | 0 | 1 | 0 |
-
-</details>
-
-<details>
-<summary>Divergent cops — errbit (5 of 5 shown)</summary>
-
-| Cop | Matches | FP | FN |
-|-----|--------:|---:|---:|
-| Style/FetchEnvVar | 2 | 2 | 0 |
-| Style/SoleNestedConditional | 0 | 1 | 1 |
-| Style/CollectionQuerying | 0 | 1 | 0 |
-| Style/InverseMethods | 1 | 0 | 1 |
-| Style/RedundantRegexpEscape | 0 | 0 | 1 |
-
-</details>
+**errbit:** All cops match perfectly!
 
