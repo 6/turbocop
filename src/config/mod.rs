@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
+use regex::RegexSet;
 use serde_yml::Value;
 
 use crate::cop::registry::CopRegistry;
@@ -47,8 +48,10 @@ struct InheritMode {
 /// recompiling glob patterns on every `is_cop_enabled` call.
 pub struct CopFilter {
     enabled: bool,
-    include_set: Option<GlobSet>, // None = match all files
-    exclude_set: Option<GlobSet>, // None = exclude no files
+    include_set: Option<GlobSet>,     // None = match all files
+    exclude_set: Option<GlobSet>,     // None = exclude no files
+    include_re: Option<RegexSet>,     // Ruby regexp include patterns
+    exclude_re: Option<RegexSet>,     // Ruby regexp exclude patterns
 }
 
 impl CopFilter {
@@ -77,18 +80,39 @@ impl CopFilter {
 
     /// Check whether the given path matches this cop's Include patterns.
     fn is_included(&self, path: &Path) -> bool {
-        match self.include_set {
-            Some(ref inc) => inc.is_match(path),
-            None => true, // no Include = match all
+        let has_globs = self.include_set.is_some();
+        let has_regexes = self.include_re.is_some();
+        if !has_globs && !has_regexes {
+            return true; // no Include = match all
         }
+        let path_str = path.to_string_lossy();
+        if let Some(ref inc) = self.include_set {
+            if inc.is_match(path) {
+                return true;
+            }
+        }
+        if let Some(ref re) = self.include_re {
+            if re.is_match(path_str.as_ref()) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Check whether the given path matches this cop's Exclude patterns.
     fn is_excluded(&self, path: &Path) -> bool {
-        match self.exclude_set {
-            Some(ref exc) => exc.is_match(path),
-            None => false, // no Exclude = exclude nothing
+        let path_str = path.to_string_lossy();
+        if let Some(ref exc) = self.exclude_set {
+            if exc.is_match(path) {
+                return true;
+            }
         }
+        if let Some(ref re) = self.exclude_re {
+            if re.is_match(path_str.as_ref()) {
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -98,7 +122,8 @@ impl CopFilter {
 /// all rayon worker threads. Eliminates per-file glob compilation overhead.
 pub struct CopFilterSet {
     global_exclude: GlobSet,
-    filters: Vec<CopFilter>, // indexed by cop position in registry
+    global_exclude_re: Option<RegexSet>, // Ruby regexp global exclude patterns
+    filters: Vec<CopFilter>,            // indexed by cop position in registry
     /// Config directory for relativizing file paths before glob matching.
     /// Cop Include/Exclude patterns are relative to the project root
     /// (where `.rubocop.yml` lives), but file paths may include a prefix
@@ -118,13 +143,28 @@ impl CopFilterSet {
         if self.global_exclude.is_match(path) {
             return true;
         }
+        // Check Ruby regexp patterns against the path string
+        if let Some(ref re) = self.global_exclude_re {
+            let path_str = path.to_string_lossy();
+            if re.is_match(path_str.as_ref()) {
+                return true;
+            }
+        }
         // Also try matching against the path relativized to config_dir.
         // This handles running from outside the project root, where file
         // paths include a prefix (e.g., `bench/repos/mastodon/vendor/foo.rb`
         // needs to match a pattern like `vendor/**`).
         if let Some(ref cd) = self.config_dir {
             if let Ok(rel) = path.strip_prefix(cd) {
-                return self.global_exclude.is_match(rel);
+                if self.global_exclude.is_match(rel) {
+                    return true;
+                }
+                if let Some(ref re) = self.global_exclude_re {
+                    let rel_str = rel.to_string_lossy();
+                    if re.is_match(rel_str.as_ref()) {
+                        return true;
+                    }
+                }
             }
         }
         false
@@ -196,16 +236,27 @@ impl CopFilterSet {
         let exclude_pats: Vec<&str> = cop_config.exclude.iter().map(|s| s.as_str()).collect();
         let include_set = build_glob_set(&include_pats);
         let exclude_set = build_glob_set(&exclude_pats);
+        let include_re = build_regex_set(&include_pats);
+        let exclude_re = build_regex_set(&exclude_pats);
 
         let rel_path = self
             .nearest_config_dir(path)
             .and_then(|cd| path.strip_prefix(cd).ok());
 
         // Include check: if patterns exist, file must match at least one form
-        if let Some(ref inc) = include_set {
-            let included =
-                inc.is_match(path) || rel_path.is_some_and(|rel| inc.is_match(rel));
-            if !included {
+        let has_include = include_set.is_some() || include_re.is_some();
+        if has_include {
+            let path_str = path.to_string_lossy();
+            let glob_match = include_set
+                .as_ref()
+                .is_some_and(|inc| inc.is_match(path) || rel_path.is_some_and(|rel| inc.is_match(rel)));
+            let re_match = include_re
+                .as_ref()
+                .is_some_and(|re| {
+                    re.is_match(path_str.as_ref())
+                        || rel_path.is_some_and(|rel| re.is_match(&rel.to_string_lossy()))
+                });
+            if !glob_match && !re_match {
                 return false;
             }
         }
@@ -214,6 +265,14 @@ impl CopFilterSet {
         if let Some(ref exc) = exclude_set {
             let excluded =
                 exc.is_match(path) || rel_path.is_some_and(|rel| exc.is_match(rel));
+            if excluded {
+                return false;
+            }
+        }
+        if let Some(ref re) = exclude_re {
+            let path_str = path.to_string_lossy();
+            let excluded = re.is_match(path_str.as_ref())
+                || rel_path.is_some_and(|rel| re.is_match(&rel.to_string_lossy()));
             if excluded {
                 return false;
             }
@@ -290,19 +349,55 @@ fn load_dir_overrides(root: &Path) -> Vec<(PathBuf, HashMap<String, CopConfig>)>
     overrides
 }
 
-/// Build a `GlobSet` from a list of pattern strings.
-/// Returns `None` if the list is empty.
+/// Check if a pattern string is a Ruby regexp (from `!ruby/regexp /pattern/`).
+/// Returns the inner regex pattern if it is, stripping the surrounding `/` delimiters.
+fn extract_ruby_regexp(s: &str) -> Option<&str> {
+    let s = s.trim();
+    if s.starts_with('/') && s.len() > 1 {
+        // Find the closing `/`, which may be followed by flags like `i`, `x`, `m`
+        if let Some(end) = s[1..].rfind('/') {
+            return Some(&s[1..end + 1]);
+        }
+    }
+    None
+}
+
+/// Build a `GlobSet` from a list of pattern strings, skipping any that are
+/// Ruby regexp patterns (these are handled separately by `build_regex_set`).
+/// Returns `None` if no glob patterns remain.
 fn build_glob_set(patterns: &[&str]) -> Option<GlobSet> {
     if patterns.is_empty() {
         return None;
     }
     let mut builder = GlobSetBuilder::new();
+    let mut count = 0;
     for pat in patterns {
+        if extract_ruby_regexp(pat).is_some() {
+            continue; // Skip regex patterns — handled by build_regex_set
+        }
         if let Ok(glob) = GlobBuilder::new(pat).literal_separator(false).build() {
             builder.add(glob);
+            count += 1;
         }
     }
+    if count == 0 {
+        return None;
+    }
     builder.build().ok()
+}
+
+/// Build a `RegexSet` from Ruby regexp patterns in the list.
+/// Only patterns that look like `/pattern/` are included.
+/// Returns `None` if no regex patterns are found.
+fn build_regex_set(patterns: &[&str]) -> Option<RegexSet> {
+    let regexes: Vec<&str> = patterns
+        .iter()
+        .filter_map(|p| extract_ruby_regexp(p))
+        .collect();
+    if regexes.is_empty() {
+        return None;
+    }
+    RegexSet::new(&regexes).ok()
 }
 
 /// Resolved configuration from .rubocop.yml with full inheritance support.
@@ -1590,11 +1685,12 @@ impl ResolvedConfig {
     /// excludes into compiled `GlobSet` matchers. Call once at startup, then
     /// share across rayon workers.
     pub fn build_cop_filters(&self, registry: &CopRegistry) -> CopFilterSet {
-        // Build global exclude set
-        let global_exclude = {
-            let pats: Vec<&str> = self.global_excludes.iter().map(|s| s.as_str()).collect();
-            build_glob_set(&pats).unwrap_or_else(GlobSet::empty)
-        };
+        // Build global exclude set (globs + regexes)
+        let global_exclude_pats: Vec<&str> =
+            self.global_excludes.iter().map(|s| s.as_str()).collect();
+        let global_exclude =
+            build_glob_set(&global_exclude_pats).unwrap_or_else(GlobSet::empty);
+        let global_exclude_re = build_regex_set(&global_exclude_pats);
 
         let filters = registry
             .cops()
@@ -1689,6 +1785,8 @@ impl ResolvedConfig {
                         enabled: false,
                         include_set: None,
                         exclude_set: None,
+                        include_re: None,
+                        exclude_re: None,
                     };
                 }
 
@@ -1722,6 +1820,8 @@ impl ResolvedConfig {
                     enabled: true,
                     include_set: build_glob_set(&include_patterns),
                     exclude_set: build_glob_set(&exclude_patterns),
+                    include_re: build_regex_set(&include_patterns),
+                    exclude_re: build_regex_set(&exclude_patterns),
                 }
             })
             .collect();
@@ -1735,6 +1835,7 @@ impl ResolvedConfig {
 
         CopFilterSet {
             global_exclude,
+            global_exclude_re,
             filters,
             config_dir: self.config_dir.clone(),
             sub_config_dirs,
@@ -2008,6 +2109,14 @@ fn parse_gem_version_from_lockfile(content: &str, gem_name: &str) -> Option<f64>
 /// the path. We try matching against both the full path and just the relative
 /// components to handle RuboCop's convention of patterns relative to project root.
 fn glob_matches(pattern: &str, path: &Path) -> bool {
+    // Check if this is a Ruby regexp pattern (from !ruby/regexp /pattern/)
+    if let Some(re_pattern) = extract_ruby_regexp(pattern) {
+        if let Ok(re) = regex::Regex::new(re_pattern) {
+            let path_str = path.to_string_lossy();
+            return re.is_match(&path_str);
+        }
+        return false;
+    }
     let glob = match GlobBuilder::new(pattern)
         .literal_separator(false)
         .build()
@@ -2227,6 +2336,170 @@ mod tests {
             "spec/**",
             Path::new("spec/models/user_spec.rb")
         ));
+    }
+
+    // ---- Ruby regexp tests ----
+
+    #[test]
+    fn extract_ruby_regexp_basic() {
+        assert_eq!(extract_ruby_regexp("/vendor/"), Some("vendor"));
+        assert_eq!(
+            extract_ruby_regexp("/(vendor|bundle|bin)($|\\/.*)/"),
+            Some("(vendor|bundle|bin)($|\\/.*)")
+        );
+        // Not a regexp — just a regular string
+        assert_eq!(extract_ruby_regexp("vendor/**"), None);
+        assert_eq!(extract_ruby_regexp(""), None);
+        // Single slash only — not a valid regexp
+        assert_eq!(extract_ruby_regexp("/"), None);
+    }
+
+    #[test]
+    fn glob_matches_handles_ruby_regexp() {
+        // Regex pattern: matches paths containing "vendor"
+        assert!(glob_matches(
+            "/(vendor|bundle|bin)($|\\/.*)/",
+            Path::new("vendor/gems/foo.rb")
+        ));
+        assert!(glob_matches(
+            "/(vendor|bundle|bin)($|\\/.*)/",
+            Path::new("bundle/config")
+        ));
+        assert!(glob_matches(
+            "/(vendor|bundle|bin)($|\\/.*)/",
+            Path::new("bin/rails")
+        ));
+        // Should NOT match unrelated paths
+        assert!(!glob_matches(
+            "/(vendor|bundle|bin)($|\\/.*)/",
+            Path::new("app/models/user.rb")
+        ));
+    }
+
+    #[test]
+    fn ruby_regexp_in_global_excludes() {
+        let dir = std::env::temp_dir().join("rblint_test_config_ruby_regexp");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        // Config with !ruby/regexp in Exclude alongside regular string patterns.
+        // Use a simple regex that clearly matches vendor/*, tmp/*, etc.
+        let path = write_config(
+            &dir,
+            "AllCops:\n  Exclude:\n    - 'config/initializers/forbidden_yaml.rb'\n    - !ruby/regexp /(vendor|bundle|tmp|server)($|\\/.*)/\n",
+        );
+        let config = load_config(Some(&path), None).unwrap();
+
+        // Verify the regexp pattern is stored in global_excludes (as a plain /.../ string)
+        let re_count = config
+            .global_excludes()
+            .iter()
+            .filter(|s| extract_ruby_regexp(s).is_some())
+            .count();
+        assert!(
+            re_count > 0,
+            "Expected at least one regexp pattern in global_excludes, got: {:?}",
+            config.global_excludes()
+        );
+
+        // Regular string pattern should still work
+        assert!(!config.is_cop_enabled(
+            "Style/Foo",
+            Path::new("config/initializers/forbidden_yaml.rb"),
+            &[],
+            &[]
+        ));
+        // Regexp pattern should match vendor paths
+        assert!(!config.is_cop_enabled(
+            "Style/Foo",
+            Path::new("vendor/bundle/foo.rb"),
+            &[],
+            &[]
+        ));
+        // Regexp pattern should match tmp paths
+        assert!(!config.is_cop_enabled(
+            "Style/Foo",
+            Path::new("tmp/cache/something.rb"),
+            &[],
+            &[]
+        ));
+        // Regexp pattern should match bare "vendor" (end-of-string)
+        assert!(!config.is_cop_enabled(
+            "Style/Foo",
+            Path::new("vendor"),
+            &[],
+            &[]
+        ));
+        // Non-matching paths should still work
+        assert!(config.is_cop_enabled(
+            "Style/Foo",
+            Path::new("app/models/user.rb"),
+            &[],
+            &[]
+        ));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn ruby_regexp_in_cop_filter_set_global_excludes() {
+        let dir = std::env::temp_dir().join("rblint_test_config_ruby_regexp_filter");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = write_config(
+            &dir,
+            "AllCops:\n  Exclude:\n    - 'tmp/**'\n    - !ruby/regexp /(vendor|bundle)($|\\/.*)/\n",
+        );
+        let config = load_config(Some(&path), None).unwrap();
+        // Build a minimal filter set to test is_globally_excluded
+        let pats: Vec<&str> = config.global_excludes().iter().map(|s| s.as_str()).collect();
+        let global_exclude = build_glob_set(&pats).unwrap_or_else(GlobSet::empty);
+        let global_exclude_re = build_regex_set(&pats);
+        let filter_set = CopFilterSet {
+            global_exclude,
+            global_exclude_re,
+            filters: Vec::new(),
+            config_dir: config.config_dir().map(|p| p.to_path_buf()),
+            sub_config_dirs: Vec::new(),
+        };
+        // Glob pattern should work
+        assert!(filter_set.is_globally_excluded(Path::new(&format!(
+            "{}/tmp/cache/foo.rb",
+            dir.display()
+        ))));
+        // Regex pattern should work
+        assert!(filter_set.is_globally_excluded(Path::new(&format!(
+            "{}/vendor/gems/bar.rb",
+            dir.display()
+        ))));
+        assert!(filter_set.is_globally_excluded(Path::new(&format!(
+            "{}/bundle/config",
+            dir.display()
+        ))));
+        // Non-matching should not be excluded
+        assert!(!filter_set.is_globally_excluded(Path::new(&format!(
+            "{}/app/models/user.rb",
+            dir.display()
+        ))));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn build_regex_set_filters_correctly() {
+        // Mix of glob and regex patterns
+        let patterns = vec!["vendor/**", "/(tmp|cache)($|\\/.*)/", "**/*.log"];
+        let re = build_regex_set(&patterns);
+        assert!(re.is_some(), "Should build a regex set with 1 regex pattern");
+        let re = re.unwrap();
+        assert!(re.is_match("tmp/foo.rb"));
+        assert!(re.is_match("cache/bar.rb"));
+        assert!(!re.is_match("vendor/foo.rb")); // This is a glob, not a regex
+
+        // Glob set should NOT include the regex pattern
+        let gs = build_glob_set(&patterns);
+        assert!(gs.is_some());
+        let gs = gs.unwrap();
+        assert!(gs.is_match(Path::new("vendor/foo.rb")));
+        assert!(gs.is_match(Path::new("something.log")));
+        // The regex pattern was skipped in glob set, so /tmp/... won't be a glob match
     }
 
     // ---- Inheritance tests ----
@@ -2876,6 +3149,8 @@ mod tests {
             enabled,
             include_set: build_glob_set(include),
             exclude_set: build_glob_set(exclude),
+            include_re: build_regex_set(include),
+            exclude_re: build_regex_set(exclude),
         }
     }
 
@@ -2886,6 +3161,7 @@ mod tests {
         let filter = make_filter(true, &[], &["lib/tasks/*.rake"]);
         let filter_set = CopFilterSet {
             global_exclude: GlobSet::empty(),
+            global_exclude_re: None,
             filters: vec![filter],
             config_dir: Some(PathBuf::from("bench/repos/mastodon")),
             sub_config_dirs: Vec::new(),
@@ -2903,6 +3179,7 @@ mod tests {
         let filter = make_filter(true, &["/tmp/test/db/migrate/**/*.rb"], &[]);
         let filter_set = CopFilterSet {
             global_exclude: GlobSet::empty(),
+            global_exclude_re: None,
             filters: vec![filter],
             config_dir: Some(PathBuf::from("/tmp/test")),
             sub_config_dirs: Vec::new(),
@@ -2921,6 +3198,7 @@ mod tests {
         let filter = make_filter(true, &["**/spec/**/*_spec.rb"], &[]);
         let filter_set = CopFilterSet {
             global_exclude: GlobSet::empty(),
+            global_exclude_re: None,
             filters: vec![filter],
             config_dir: Some(PathBuf::from("bench/repos/discourse")),
             sub_config_dirs: Vec::new(),
@@ -2943,6 +3221,7 @@ mod tests {
         );
         let filter_set = CopFilterSet {
             global_exclude: GlobSet::empty(),
+            global_exclude_re: None,
             filters: vec![filter],
             config_dir: Some(PathBuf::from("bench/repos/discourse")),
             sub_config_dirs: Vec::new(),
@@ -2960,6 +3239,7 @@ mod tests {
         let filter = make_filter(true, &["**/*.rb"], &["vendor/**"]);
         let filter_set = CopFilterSet {
             global_exclude: GlobSet::empty(),
+            global_exclude_re: None,
             filters: vec![filter],
             config_dir: None,
             sub_config_dirs: Vec::new(),
@@ -2973,6 +3253,7 @@ mod tests {
         let filter = make_filter(false, &[], &[]);
         let filter_set = CopFilterSet {
             global_exclude: GlobSet::empty(),
+            global_exclude_re: None,
             filters: vec![filter],
             config_dir: None,
             sub_config_dirs: Vec::new(),
