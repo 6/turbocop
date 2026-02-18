@@ -86,19 +86,74 @@ impl Cop for RedundantReceiverInWithOptions {
         }
 
         let param_bytes = param_name.unwrap();
-        let mut diagnostics = Vec::new();
 
-        // Check each statement in the block body
-        for stmt in stmts.body().iter() {
-            self.check_stmt_for_redundant_receiver(
-                source,
-                &stmt,
-                &param_bytes,
-                &mut diagnostics,
-            );
+        // RuboCop requires ALL send nodes in the block to use the block parameter
+        // as receiver. If any statement uses a different receiver (e.g. `self`),
+        // or is not a send node, the whole block is not flagged.
+        // Also skip if there are nested blocks (which would make scope analysis unsafe).
+        let body_stmts: Vec<_> = stmts.body().iter().collect();
+
+        // Skip if any nested blocks exist
+        if body_stmts.iter().any(|s| has_nested_block(s)) {
+            return Vec::new();
+        }
+
+        // Collect all send nodes recursively
+        let mut all_sends = Vec::new();
+        for stmt in &body_stmts {
+            collect_send_nodes(stmt, &mut all_sends);
+        }
+
+        // ALL sends must have the block parameter as receiver
+        if all_sends.is_empty() {
+            return Vec::new();
+        }
+        if !all_sends.iter().all(|call| {
+            if let Some(receiver) = call.receiver() {
+                self.is_param_receiver(&receiver, &param_bytes)
+            } else {
+                false
+            }
+        }) {
+            return Vec::new();
+        }
+
+        // All sends use the block param as receiver — flag them all
+        let mut diagnostics = Vec::new();
+        for call in &all_sends {
+            if let Some(receiver) = call.receiver() {
+                let recv_loc = receiver.location();
+                let (line, column) = source.offset_to_line_col(recv_loc.start_offset());
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Redundant receiver in `with_options`.".to_string(),
+                ));
+            }
         }
 
         diagnostics
+    }
+}
+
+/// Check if a node contains a nested block.
+fn has_nested_block(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(call) = node.as_call_node() {
+        if call.block().is_some() {
+            return true;
+        }
+    }
+    false
+}
+
+/// Collect all CallNode (send) nodes from a statement, including in arguments.
+fn collect_send_nodes<'a>(
+    node: &'a ruby_prism::Node<'a>,
+    calls: &mut Vec<ruby_prism::CallNode<'a>>,
+) {
+    if let Some(call) = node.as_call_node() {
+        calls.push(call);
     }
 }
 

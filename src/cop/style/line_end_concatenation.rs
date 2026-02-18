@@ -9,9 +9,11 @@ impl Cop for LineEndConcatenation {
         "Style/LineEndConcatenation"
     }
 
-    fn check_lines(
+    fn check_source(
         &self,
         source: &SourceFile,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
@@ -19,8 +21,21 @@ impl Cop for LineEndConcatenation {
             .filter_map(|l| std::str::from_utf8(l).ok())
             .collect();
 
+        // Compute byte offsets where each line starts
+        let mut line_offsets = Vec::with_capacity(lines.len());
+        let mut offset = 0usize;
+        for line in &lines {
+            line_offsets.push(offset);
+            offset += line.len() + 1; // +1 for the newline
+        }
+
         for (i, line) in lines.iter().enumerate() {
             if i + 1 >= lines.len() {
+                continue;
+            }
+
+            // Skip lines that are inside a heredoc body
+            if code_map.is_heredoc(line_offsets[i]) {
                 continue;
             }
 

@@ -296,7 +296,7 @@ pub fn run_cop_full_with_config(
 }
 
 /// Internal helper that runs all three cop methods with a configurable filename.
-fn run_cop_full_internal(
+pub fn run_cop_full_internal(
     cop: &dyn Cop,
     source_bytes: &[u8],
     config: CopConfig,

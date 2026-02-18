@@ -290,6 +290,9 @@ pub struct ResolvedConfig {
     /// Target Ruby version from AllCops.TargetRubyVersion (e.g. 3.1, 3.2).
     /// None means not specified (cops should default to 2.7 per RuboCop convention).
     target_ruby_version: Option<f64>,
+    /// Target Rails version from AllCops.TargetRailsVersion (e.g. 7.1, 8.0).
+    /// None means not specified (cops should default to 5.0 per RuboCop convention).
+    target_rails_version: Option<f64>,
     /// All cop names found in the installed rubocop gem's config/default.yml.
     /// When non-empty, core cops (Layout, Lint, Style, etc.) not in this set
     /// are treated as non-existent in the project's rubocop version.
@@ -312,6 +315,7 @@ impl ResolvedConfig {
             require_known_cops: HashSet::new(),
             require_departments: HashSet::new(),
             target_ruby_version: None,
+            target_rails_version: None,
             rubocop_known_cops: HashSet::new(),
             dir_overrides: Vec::new(),
         }
@@ -339,6 +343,8 @@ struct ConfigLayer {
     require_departments: HashSet<String>,
     /// Target Ruby version from AllCops.TargetRubyVersion.
     target_ruby_version: Option<f64>,
+    /// Target Rails version from AllCops.TargetRailsVersion.
+    target_rails_version: Option<f64>,
 }
 
 impl ConfigLayer {
@@ -355,6 +361,7 @@ impl ConfigLayer {
             require_known_cops: HashSet::new(),
             require_departments: HashSet::new(),
             target_ruby_version: None,
+            target_rails_version: None,
         }
     }
 }
@@ -511,6 +518,20 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
         None
     });
 
+    // Fall back to Gemfile.lock if TargetRailsVersion wasn't set in config.
+    // RuboCop looks for the 'railties' gem in the lockfile.
+    let target_rails_version = base.target_rails_version.or_else(|| {
+        for lock_name in &["Gemfile.lock", "gems.locked"] {
+            let lock_path = config_dir.join(lock_name);
+            if let Ok(content) = std::fs::read_to_string(&lock_path) {
+                if let Some(ver) = parse_gem_version_from_lockfile(&content, "railties") {
+                    return Some(ver);
+                }
+            }
+        }
+        None
+    });
+
     // Discover and parse nested .rubocop.yml files for per-directory cop overrides.
     // These provide cop-specific option overrides for files in subdirectories
     // (e.g., db/migrate/.rubocop.yml setting CheckSymbols: false for Naming/VariableNumber).
@@ -529,6 +550,7 @@ pub fn load_config(path: Option<&Path>, target_dir: Option<&Path>) -> Result<Res
         require_known_cops: base.require_known_cops,
         require_departments: base.require_departments,
         target_ruby_version,
+        target_rails_version,
         rubocop_known_cops,
         dir_overrides,
     })
@@ -885,6 +907,7 @@ fn parse_config_layer(raw: &Value) -> ConfigLayer {
     let mut disabled_by_default = None;
     let mut inherit_mode = InheritMode::default();
     let mut target_ruby_version = None;
+    let mut target_rails_version = None;
 
     if let Value::Mapping(map) = raw {
         for (key, value) in map {
@@ -919,6 +942,12 @@ fn parse_config_layer(raw: &Value) -> ConfigLayer {
                             target_ruby_version =
                                 trv.as_f64().or_else(|| trv.as_u64().map(|u| u as f64));
                         }
+                        if let Some(trv) =
+                            ac_map.get(&Value::String("TargetRailsVersion".to_string()))
+                        {
+                            target_rails_version =
+                                trv.as_f64().or_else(|| trv.as_u64().map(|u| u as f64));
+                        }
                     }
                     continue;
                 }
@@ -949,6 +978,7 @@ fn parse_config_layer(raw: &Value) -> ConfigLayer {
         require_known_cops: HashSet::new(),
         require_departments: HashSet::new(),
         target_ruby_version,
+        target_rails_version,
     }
 }
 
@@ -983,6 +1013,11 @@ fn merge_layer_into(
     // TargetRubyVersion: last writer wins
     if overlay.target_ruby_version.is_some() {
         base.target_ruby_version = overlay.target_ruby_version;
+    }
+
+    // TargetRailsVersion: last writer wins
+    if overlay.target_rails_version.is_some() {
+        base.target_rails_version = overlay.target_rails_version;
     }
 
     // Merge department configs
@@ -1288,6 +1323,13 @@ impl ResolvedConfig {
                 .entry("TargetRubyVersion".to_string())
                 .or_insert_with(|| Value::Number(serde_yml::Number::from(version)));
         }
+        // Inject TargetRailsVersion from AllCops into cop options
+        if let Some(version) = self.target_rails_version {
+            config
+                .options
+                .entry("TargetRailsVersion".to_string())
+                .or_insert_with(|| Value::Number(serde_yml::Number::from(version)));
+        }
         // Inject MaxLineLength and LineLengthEnabled from Layout/LineLength into
         // cops that need it (mirrors RuboCop's `config.for_cop('Layout/LineLength')`).
         // When Layout/LineLength is disabled, max_line_length returns nil in RuboCop,
@@ -1463,7 +1505,7 @@ impl ResolvedConfig {
                     && dept_has_known_cops
                     && self.require_departments.contains(dept)
                     && !self.require_known_cops.contains(name)
-                    && config.is_none_or(|c| c.enabled == EnabledState::Unset)
+                    && config.is_none_or(|c| c.enabled != EnabledState::True)
                 {
                     enabled = false;
                 }
@@ -1477,7 +1519,7 @@ impl ResolvedConfig {
                     && !self.rubocop_known_cops.is_empty()
                     && !is_plugin_department(dept)
                     && !self.rubocop_known_cops.contains(name)
-                    && config.is_none_or(|c| c.enabled == EnabledState::Unset)
+                    && config.is_none_or(|c| c.enabled != EnabledState::True)
                 {
                     enabled = false;
                 }
@@ -1775,6 +1817,31 @@ fn is_plugin_department(dept: &str) -> bool {
     PLUGIN_GEM_DEPARTMENTS
         .iter()
         .any(|(d, _)| *d == dept)
+}
+
+/// Parse a gem's major.minor version from a Gemfile.lock/gems.locked file.
+/// Returns the version as a float (e.g. 7.1 for "7.1.3.4").
+fn parse_gem_version_from_lockfile(content: &str, gem_name: &str) -> Option<f64> {
+    // Gemfile.lock format has gems indented with 4 spaces in the GEM/specs section:
+    //     railties (7.1.3.4)
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix(gem_name) {
+            if let Some(ver_str) = rest.strip_prefix(" (") {
+                if let Some(ver_str) = ver_str.strip_suffix(')') {
+                    let parts: Vec<&str> = ver_str.split('.').collect();
+                    if parts.len() >= 2 {
+                        if let (Ok(major), Ok(minor)) =
+                            (parts[0].parse::<u64>(), parts[1].parse::<u64>())
+                        {
+                            return Some(major as f64 + minor as f64 / 10.0);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Patterns like `db/migrate/**/*.rb` or `**/*_spec.rb` are matched against

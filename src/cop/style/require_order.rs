@@ -9,9 +9,23 @@ impl Cop for RequireOrder {
         "Style/RequireOrder"
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        code_map: &crate::parse::codemap::CodeMap,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
         let lines: Vec<&[u8]> = source.lines().collect();
+
+        // Compute byte offsets where each line starts
+        let mut line_offsets = Vec::with_capacity(lines.len());
+        let mut offset = 0usize;
+        for line in &lines {
+            line_offsets.push(offset);
+            offset += line.len() + 1; // +1 for the newline
+        }
 
         // Groups are separated by blank lines or non-require lines.
         // `require` and `require_relative` are separate groups even if adjacent.
@@ -20,6 +34,17 @@ impl Cop for RequireOrder {
         let mut current_kind: &str = "";
 
         for (i, line) in lines.iter().enumerate() {
+            // Skip lines inside heredocs
+            if i < line_offsets.len() && code_map.is_heredoc(line_offsets[i]) {
+                if current_group.len() > 1 {
+                    groups.push(std::mem::take(&mut current_group));
+                } else {
+                    current_group.clear();
+                }
+                current_kind = "";
+                continue;
+            }
+
             let trimmed = std::str::from_utf8(line).unwrap_or("").trim();
             if let Some((path, kind)) = extract_require_path_and_kind(trimmed) {
                 // If the kind changed (require vs require_relative), start a new group

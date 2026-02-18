@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
 /// Checks for `# rubocop:enable` comments that can be removed because
@@ -17,18 +18,37 @@ impl Cop for RedundantCopEnableDirective {
         Severity::Warning
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        code_map: &CodeMap,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
         // Track which cops/departments are currently disabled
         let mut disabled: HashSet<String> = HashSet::new();
 
+        let mut byte_offset = 0usize;
         for (i, line) in source.lines().enumerate() {
             let line_str = match std::str::from_utf8(line) {
                 Ok(s) => s,
-                Err(_) => continue,
+                Err(_) => {
+                    byte_offset += line.len() + 1;
+                    continue;
+                }
             };
 
+            // Skip lines inside strings/heredocs
+            if let Some(hash_pos) = line_str.find('#') {
+                if !code_map.is_not_string(byte_offset + hash_pos) {
+                    byte_offset += line.len() + 1;
+                    continue;
+                }
+            }
+
             let Some((action, cops, _col)) = parse_directive(line_str) else {
+                byte_offset += line.len() + 1;
                 continue;
             };
 
@@ -88,6 +108,8 @@ impl Cop for RedundantCopEnableDirective {
                 }
                 _ => {}
             }
+
+            byte_offset += line.len() + 1;
         }
 
         diagnostics

@@ -80,10 +80,23 @@ fn check_grouped(
             }
 
             if ACCESSOR_METHODS.contains(&name) && call.receiver().is_none() {
-                // Check if there's a gap (non-accessor statement) since the last accessor
-                // by checking if the previous statement was also an accessor
-                if !last_was_accessor && !accessor_counts.is_empty() {
-                    // Non-accessor statement appeared between accessors - report current group and start new one
+                // Check if there's a gap (non-accessor statement or comment)
+                // since the last accessor
+                let has_gap = if !last_was_accessor {
+                    true
+                } else if idx > 0 {
+                    // Check if there's a comment between the previous statement
+                    // and this one by looking at the source text between them
+                    let prev_end = stmt_list[idx - 1].location().end_offset();
+                    let curr_start = stmt.location().start_offset();
+                    let between = &source.as_bytes()[prev_end..curr_start];
+                    let between_str = std::str::from_utf8(between).unwrap_or("");
+                    between_str.lines().any(|l| l.trim().starts_with('#'))
+                } else {
+                    false
+                };
+
+                if has_gap && !accessor_counts.is_empty() {
                     report_grouped_offenses(cop, source, &accessor_counts, &stmt_list, &mut diagnostics);
                     accessor_counts.clear();
                 }

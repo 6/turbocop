@@ -165,8 +165,15 @@ impl Cop for BulkChangeTable {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let _database = config.get_str("Database", "");
-        let _supported_databases = config.get_string_array("SupportedDatabases");
+        // RuboCop only fires when the database adapter is known to support bulk ALTER.
+        // The `Database` config key can be "mysql" or "postgresql". When not set, rubocop
+        // tries to parse config/database.yml (which often fails due to ERB), then
+        // falls back to DATABASE_URL. If neither works, the cop is silently skipped.
+        // We replicate this: only fire when Database is explicitly configured.
+        let database = config.get_str("Database", "");
+        if database != "mysql" && database != "postgresql" {
+            return Vec::new();
+        }
 
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -278,5 +285,48 @@ impl Cop for BulkChangeTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(BulkChangeTable, "cops/rails/bulk_change_table");
+    use crate::cop::CopConfig;
+    use std::collections::HashMap;
+
+    fn mysql_config() -> CopConfig {
+        let mut options = HashMap::new();
+        options.insert(
+            "Database".to_string(),
+            serde_yml::Value::String("mysql".to_string()),
+        );
+        CopConfig {
+            options,
+            ..CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn offense_fixture() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &BulkChangeTable,
+            include_bytes!("../../../testdata/cops/rails/bulk_change_table/offense.rb"),
+            mysql_config(),
+        );
+    }
+
+    #[test]
+    fn no_offense_fixture() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &BulkChangeTable,
+            include_bytes!("../../../testdata/cops/rails/bulk_change_table/no_offense.rb"),
+            mysql_config(),
+        );
+    }
+
+    #[test]
+    fn skipped_when_database_not_set() {
+        let source = b"# rblint-filename: db/migrate/001_test.rb\ndef change\n  add_column :users, :name, :string\n  add_column :users, :age, :integer\nend\n";
+        let diagnostics = crate::testutil::run_cop_full_internal(
+            &BulkChangeTable,
+            source,
+            CopConfig::default(),
+            "db/migrate/001_test.rb",
+        );
+        assert!(diagnostics.is_empty(), "Should not fire when Database is not set");
+    }
 }

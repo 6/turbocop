@@ -106,7 +106,15 @@ impl Cop for PluralizationGrammar {
             let text = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
             let text_str = std::str::from_utf8(text).unwrap_or("0");
             let clean: String = text_str.chars().filter(|c| *c != '_').collect();
-            clean.parse::<f64>().ok().map(|f| f as i64)
+            // Only treat as integer if the float is a whole number (e.g. 1.0, -1.0)
+            // Fractional values like 1.5 are not singular or plural in the integer sense
+            clean.parse::<f64>().ok().and_then(|f| {
+                if f == f.trunc() {
+                    Some(f as i64)
+                } else {
+                    None
+                }
+            })
         } else {
             return Vec::new();
         };

@@ -1,5 +1,6 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
 pub struct CopDirectiveSyntax;
@@ -17,86 +18,94 @@ impl Cop for CopDirectiveSyntax {
         false
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        code_map: &CodeMap,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
 
+        let mut byte_offset = 0usize;
         for (i, line) in source.lines().enumerate() {
             let line_str = match std::str::from_utf8(line) {
                 Ok(s) => s,
-                Err(_) => continue,
+                Err(_) => {
+                    byte_offset += line.len() + 1;
+                    continue;
+                }
             };
 
             // Find `# rubocop:` directive — must be the first `#` that starts the directive
             // Ignore lines where `# rubocop:` is commented out (e.g., `# # rubocop:disable`)
             // or quoted (e.g., `# "rubocop:disable"`)
             let Some(hash_pos) = find_directive_start(line_str) else {
+                byte_offset += line.len() + 1;
                 continue;
             };
+
+            // Skip directives inside strings/heredocs
+            if !code_map.is_not_string(byte_offset + hash_pos) {
+                byte_offset += line.len() + 1;
+                continue;
+            }
 
             let directive_text = &line_str[hash_pos..];
             let after_hash = directive_text[1..].trim_start();
 
             // Must start with `rubocop:` (not `"rubocop:` or `# rubocop:`)
-            if !after_hash.starts_with("rubocop:") {
-                continue;
+            if after_hash.starts_with("rubocop:") {
+                let after_rubocop_colon = &after_hash["rubocop:".len()..];
+
+                // Check if mode name is missing
+                if after_rubocop_colon.is_empty() || after_rubocop_colon.trim().is_empty() {
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        i + 1,
+                        hash_pos,
+                        "Malformed directive comment detected. The mode name is missing.".to_string(),
+                    ));
+                } else {
+                    // Extract mode name (first word after `rubocop:`)
+                    let mode_end = after_rubocop_colon
+                        .find(|c: char| c.is_ascii_whitespace())
+                        .unwrap_or(after_rubocop_colon.len());
+                    let mode = &after_rubocop_colon[..mode_end];
+
+                    // Validate mode
+                    if !matches!(mode, "enable" | "disable" | "todo" | "push" | "pop") {
+                        diagnostics.push(self.diagnostic(
+                            source,
+                            i + 1,
+                            hash_pos,
+                            "Malformed directive comment detected. The mode name must be one of `enable`, `disable`, `todo`, `push`, or `pop`.".to_string(),
+                        ));
+                    } else {
+                        // After the mode, extract the rest (cop names + optional comment)
+                        let after_mode = &after_rubocop_colon[mode_end..].trim_start();
+
+                        // Check if cop name is missing
+                        if after_mode.is_empty() {
+                            diagnostics.push(self.diagnostic(
+                                source,
+                                i + 1,
+                                hash_pos,
+                                "Malformed directive comment detected. The cop name is missing.".to_string(),
+                            ));
+                        } else if is_malformed_cop_list(after_mode) {
+                            diagnostics.push(self.diagnostic(
+                                source,
+                                i + 1,
+                                hash_pos,
+                                "Malformed directive comment detected. Cop names must be separated by commas. Comment in the directive must start with `--`.".to_string(),
+                            ));
+                        }
+                    }
+                }
             }
 
-            let after_rubocop_colon = &after_hash["rubocop:".len()..];
-
-            // Check if mode name is missing
-            if after_rubocop_colon.is_empty() || after_rubocop_colon.trim().is_empty() {
-                diagnostics.push(self.diagnostic(
-                    source,
-                    i + 1,
-                    hash_pos,
-                    "Malformed directive comment detected. The mode name is missing.".to_string(),
-                ));
-                continue;
-            }
-
-            // Extract mode name (first word after `rubocop:`)
-            let mode_end = after_rubocop_colon
-                .find(|c: char| c.is_ascii_whitespace())
-                .unwrap_or(after_rubocop_colon.len());
-            let mode = &after_rubocop_colon[..mode_end];
-
-            // Validate mode
-            if !matches!(mode, "enable" | "disable" | "todo" | "push" | "pop") {
-                diagnostics.push(self.diagnostic(
-                    source,
-                    i + 1,
-                    hash_pos,
-                    "Malformed directive comment detected. The mode name must be one of `enable`, `disable`, `todo`, `push`, or `pop`.".to_string(),
-                ));
-                continue;
-            }
-
-            // After the mode, extract the rest (cop names + optional comment)
-            let after_mode = &after_rubocop_colon[mode_end..].trim_start();
-
-            // Check if cop name is missing
-            if after_mode.is_empty() {
-                diagnostics.push(self.diagnostic(
-                    source,
-                    i + 1,
-                    hash_pos,
-                    "Malformed directive comment detected. The cop name is missing.".to_string(),
-                ));
-                continue;
-            }
-
-            // Validate the cop list format:
-            // - Cop names must be separated by commas
-            // - Comments must start with `--`
-            // - No duplicate `# rubocop:` directives in one line
-            if is_malformed_cop_list(after_mode) {
-                diagnostics.push(self.diagnostic(
-                    source,
-                    i + 1,
-                    hash_pos,
-                    "Malformed directive comment detected. Cop names must be separated by commas. Comment in the directive must start with `--`.".to_string(),
-                ));
-            }
+            byte_offset += line.len() + 1;
         }
 
         diagnostics
@@ -109,6 +118,7 @@ impl Cop for CopDirectiveSyntax {
 fn find_directive_start(line: &str) -> Option<usize> {
     // Find `# rubocop:` — possibly after code (inline directive)
     let mut search_from = 0;
+    let mut first_hash_seen = false;
     loop {
         let rest = &line[search_from..];
         let hash_pos = rest.find('#')?;
@@ -131,7 +141,19 @@ fn find_directive_start(line: &str) -> Option<usize> {
                 search_from = abs_pos + 1;
                 continue;
             }
+            // If we already saw a `#` that started a non-directive comment,
+            // then this `# rubocop:` is inside comment text (e.g. documentation),
+            // not an actual directive.
+            if first_hash_seen {
+                return None;
+            }
             return Some(abs_pos);
+        }
+
+        // This `#` starts a comment but is NOT a rubocop directive.
+        // Any subsequent `# rubocop:` on this line is inside the comment text.
+        if !first_hash_seen {
+            first_hash_seen = true;
         }
 
         search_from = abs_pos + 1;

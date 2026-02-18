@@ -4,3 +4,6 @@ z = 'hello world'
 a = '%%s'
 b = '%<greeting>s %<target>s'
 c = '%d'
+d = '%c/%u |%b%i| %e'
+e = "%b %d %l:%M%P"
+g = '%s %s %d'

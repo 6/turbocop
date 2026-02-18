@@ -150,6 +150,18 @@ impl Cop for PercentLiteralDelimiters {
         };
 
         if actual_delim != expected_open {
+            // Check if the content contains the preferred delimiters.
+            // If so, skip — can't use preferred delimiters when content contains them.
+            let node_loc = node.location();
+            let content_start = opening.end_offset();
+            let content_end = node_loc.end_offset().saturating_sub(1); // skip closing delimiter
+            if content_end > content_start {
+                let content = &source.as_bytes()[content_start..content_end];
+                if content.contains(&expected_open) || content.contains(&expected_close) {
+                    return Vec::new();
+                }
+            }
+
             let loc = opening;
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             return vec![self.diagnostic(

@@ -4,6 +4,14 @@ use crate::parse::source::SourceFile;
 
 pub struct FindByOrAssignmentMemoization;
 
+fn trim_ascii_start(s: &[u8]) -> &[u8] {
+    let mut i = 0;
+    while i < s.len() && s[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    &s[i..]
+}
+
 /// Check if a node is a `find_by` call (not `find_by!`).
 fn is_find_by_call(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(call) = node.as_call_node() {
@@ -40,6 +48,27 @@ impl Cop for FindByOrAssignmentMemoization {
         // The value should be a direct find_by call (not part of || or ternary)
         if !is_find_by_call(&value) {
             return Vec::new();
+        }
+
+        // RuboCop skips when the ||= is inside an if/unless (including modifiers).
+        // Since we don't have ancestor tracking, check if the IfNode wrapping this
+        // node extends beyond our range (indicating a modifier if/unless).
+        // Practically: check if the node is wrapped in an IfNode by looking at the
+        // source bytes just after the find_by call's closing paren for ` if ` or ` unless `.
+        let node_end = node.location().end_offset();
+        let src = source.as_bytes();
+        if node_end < src.len() {
+            let after = &src[node_end..];
+            // Look for modifier if/unless on the same line
+            let line_rest: &[u8] = after.split(|&b| b == b'\n').next().unwrap_or(after);
+            let trimmed = trim_ascii_start(line_rest);
+            if trimmed.starts_with(b"if ")
+                || trimmed.starts_with(b"unless ")
+                || trimmed.starts_with(b"if\t")
+                || trimmed.starts_with(b"unless\t")
+            {
+                return Vec::new();
+            }
         }
 
         let loc = node.location();

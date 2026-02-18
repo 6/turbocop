@@ -34,8 +34,19 @@ impl Cop for StrongParametersExpect {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // minimum_target_rails_version 8.0
+        // params.expect(...) was introduced in Rails 8.0; skip for older versions.
+        let rails_version = config
+            .options
+            .get("TargetRailsVersion")
+            .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
+            .unwrap_or(5.0);
+        if rails_version < 8.0 {
+            return Vec::new();
+        }
+
         // Pattern 1: params.require(:x).permit(:a, :b)
         // Pattern 2: params.permit(x: [:a, :b]).require(:x)
         let chain = match as_method_chain(node) {
@@ -84,5 +95,62 @@ impl Cop for StrongParametersExpect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(StrongParametersExpect, "cops/rails/strong_parameters_expect");
+    use crate::cop::CopConfig;
+    use std::collections::HashMap;
+
+    fn config_with_rails(version: f64) -> CopConfig {
+        let mut options = HashMap::new();
+        options.insert(
+            "TargetRailsVersion".to_string(),
+            serde_yml::Value::Number(serde_yml::value::Number::from(version)),
+        );
+        CopConfig {
+            options,
+            ..CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn offense_fixture() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &StrongParametersExpect,
+            include_bytes!("../../../testdata/cops/rails/strong_parameters_expect/offense.rb"),
+            config_with_rails(8.0),
+        );
+    }
+
+    #[test]
+    fn no_offense_fixture() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &StrongParametersExpect,
+            include_bytes!("../../../testdata/cops/rails/strong_parameters_expect/no_offense.rb"),
+            config_with_rails(8.0),
+        );
+    }
+
+    #[test]
+    fn skipped_when_rails_below_8() {
+        // On Rails 7.x, the cop should never fire
+        let source = b"params.require(:user).permit(:name)\n";
+        let diagnostics = crate::testutil::run_cop_full_internal(
+            &StrongParametersExpect,
+            source,
+            config_with_rails(7.1),
+            "test.rb",
+        );
+        assert!(diagnostics.is_empty(), "Should not fire on Rails < 8.0");
+    }
+
+    #[test]
+    fn skipped_when_no_rails_version() {
+        // Default (no TargetRailsVersion) should be 5.0, so cop doesn't fire
+        let source = b"params.require(:user).permit(:name)\n";
+        let diagnostics = crate::testutil::run_cop_full_internal(
+            &StrongParametersExpect,
+            source,
+            CopConfig::default(),
+            "test.rb",
+        );
+        assert!(diagnostics.is_empty(), "Should not fire when TargetRailsVersion defaults to 5.0");
+    }
 }

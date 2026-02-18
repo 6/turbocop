@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
 pub struct MissingCopEnableDirective;
@@ -15,21 +16,40 @@ impl Cop for MissingCopEnableDirective {
         Severity::Warning
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        code_map: &CodeMap,
+        config: &CopConfig,
+    ) -> Vec<Diagnostic> {
         let max_range = get_max_range_size(config);
         let mut diagnostics = Vec::new();
         // Track open disables: cop_name -> (line_number, column)
         let mut open_disables: HashMap<String, (usize, usize)> = HashMap::new();
         let lines: Vec<&[u8]> = source.lines().collect();
 
+        let mut byte_offset = 0usize;
         for (i, line) in lines.iter().enumerate() {
             let line_str = match std::str::from_utf8(line) {
                 Ok(s) => s,
-                Err(_) => continue,
+                Err(_) => {
+                    byte_offset += line.len() + 1;
+                    continue;
+                }
             };
+
+            // Skip lines inside strings/heredocs
+            if let Some(hash_pos) = line_str.find('#') {
+                if !code_map.is_not_string(byte_offset + hash_pos) {
+                    byte_offset += line.len() + 1;
+                    continue;
+                }
+            }
 
             // Find rubocop directives
             let Some((action, cops, col)) = parse_directive(line_str) else {
+                byte_offset += line.len() + 1;
                 continue;
             };
 
@@ -37,14 +57,11 @@ impl Cop for MissingCopEnableDirective {
                 "disable" | "todo" => {
                     // Check if this is an inline disable (code before the comment)
                     let before = &line_str[..col];
-                    let is_inline = before.trim().len() > 0;
-                    if is_inline {
-                        // Inline disables are single-line, no need to track
-                        continue;
-                    }
-
-                    for cop in &cops {
-                        open_disables.insert(cop.to_string(), (i + 1, col));
+                    let is_inline = !before.trim().is_empty();
+                    if !is_inline {
+                        for cop in &cops {
+                            open_disables.insert(cop.to_string(), (i + 1, col));
+                        }
                     }
                 }
                 "enable" => {
@@ -67,6 +84,8 @@ impl Cop for MissingCopEnableDirective {
                 }
                 _ => {}
             }
+
+            byte_offset += line.len() + 1;
         }
 
         // Report all remaining open disables (never re-enabled)

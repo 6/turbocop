@@ -66,6 +66,38 @@ impl Cop for UnescapedBracketInRegexp {
     }
 }
 
+/// Skip a character class starting at `bytes[pos]` == b'['.
+/// Returns the position after the closing `]`.
+/// Handles nested character classes `[a[b]]` and POSIX classes `[[:alpha:]]`.
+fn skip_char_class(bytes: &[u8], start: usize) -> usize {
+    let len = bytes.len();
+    let mut i = start + 1; // past the opening [
+
+    // Handle ^ (negation)
+    if i < len && bytes[i] == b'^' {
+        i += 1;
+    }
+    // `]` as first char in class is literal
+    if i < len && bytes[i] == b']' {
+        i += 1;
+    }
+
+    while i < len {
+        if bytes[i] == b'\\' {
+            i += 2; // skip escaped char
+        } else if bytes[i] == b'[' {
+            // Nested character class or POSIX class — recurse
+            i = skip_char_class(bytes, i);
+        } else if bytes[i] == b']' {
+            return i + 1; // past the closing ]
+        } else {
+            i += 1;
+        }
+    }
+
+    i // unterminated class — return end
+}
+
 fn find_unescaped_brackets(
     cop: &UnescapedBracketInRegexp,
     source: &SourceFile,
@@ -85,27 +117,10 @@ fn find_unescaped_brackets(
             continue;
         }
 
-        // Skip character classes `[...]`
+        // Skip character classes `[...]`, including nested classes and POSIX classes
         if bytes[i] == b'[' {
             is_first_char = false;
-            i += 1;
-            if i < len && bytes[i] == b'^' {
-                i += 1;
-            }
-            // `]` as first char in class is literal
-            if i < len && bytes[i] == b']' {
-                i += 1;
-            }
-            while i < len && bytes[i] != b']' {
-                if bytes[i] == b'\\' {
-                    i += 2;
-                } else {
-                    i += 1;
-                }
-            }
-            if i < len {
-                i += 1; // skip closing ]
-            }
+            i = skip_char_class(bytes, i);
             continue;
         }
 

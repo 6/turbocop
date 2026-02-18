@@ -159,22 +159,10 @@ fn check_presence_patterns(
         return emit_offense(cop, source, node, &replacement);
     }
 
-    // Pattern 2: value branch is a method call on receiver, other is nil
-    if nil_text == "nil" {
-        if is_present {
-            // Value is the then branch
-            if let Some(stmts) = then_clause {
-                let body: Vec<_> = stmts.body().iter().collect();
-                if body.len() == 1 {
-                    if let Some(result) =
-                        check_chain_pattern(cop, source, node, receiver_text, &body[0])
-                    {
-                        return result;
-                    }
-                }
-            }
-        }
-    }
+    // Pattern 2: value branch is a method call on receiver, other is nil.
+    // This "chain pattern" (e.g. `a.present? ? a.foo : nil` → `a.presence&.foo`)
+    // was added in rubocop-rails 2.34.0. Skip it for now to avoid FPs on projects
+    // using older rubocop-rails versions that don't have this detection.
 
     Vec::new()
 }

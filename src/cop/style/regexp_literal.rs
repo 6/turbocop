@@ -27,11 +27,13 @@ impl Cop for RegexpLiteral {
                 (opening.as_slice().to_vec(), content.to_vec(), loc.start_offset(), loc.end_offset())
             } else if let Some(re) = node.as_interpolated_regular_expression_node() {
                 let opening = re.opening_loc();
+                let closing = re.closing_loc();
                 let loc = re.location();
-                let full = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
                 let open = opening.as_slice();
-                let content_end = full.len().saturating_sub(1);
-                let content_start = open.len();
+                // Content is between opening and closing delimiters
+                let content_start = opening.end_offset() - loc.start_offset();
+                let content_end = closing.start_offset() - loc.start_offset();
+                let full = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
                 let content = if content_end > content_start {
                     full[content_start..content_end].to_vec()
                 } else {

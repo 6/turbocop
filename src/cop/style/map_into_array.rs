@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 pub struct MapIntoArray;
 
@@ -9,91 +10,163 @@ impl Cop for MapIntoArray {
         "Style/MapIntoArray"
     }
 
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let call = match node.as_call_node() {
-            Some(c) => c,
-            None => return Vec::new(),
+        let mut visitor = MapIntoArrayVisitor {
+            cop: self,
+            source,
+            diagnostics: Vec::new(),
         };
+        visitor.visit(&parse_result.node());
+        visitor.diagnostics
+    }
+}
 
-        // Check for each { |x| arr << transform(x) } pattern
-        // Suggesting map instead
-        if call.name().as_slice() != b"each" {
-            return Vec::new();
-        }
+struct MapIntoArrayVisitor<'a> {
+    cop: &'a MapIntoArray,
+    source: &'a SourceFile,
+    diagnostics: Vec<Diagnostic>,
+}
 
-        if call.receiver().is_none() {
-            return Vec::new();
-        }
+impl MapIntoArrayVisitor<'_> {
+    /// Check if a statements node contains:
+    ///   dest = []
+    ///   ...each { |x| dest << expr }
+    /// Pattern: look at pairs of siblings in a statements block.
+    fn check_statements(&mut self, stmts: &[ruby_prism::Node<'_>]) {
+        for (i, stmt) in stmts.iter().enumerate() {
+            // Check if this is a `collection.each { |x| var << expr }` pattern
+            let call = match stmt.as_call_node() {
+                Some(c) => c,
+                None => continue,
+            };
 
-        let block = match call.block() {
-            Some(b) => b,
-            None => return Vec::new(),
-        };
+            if call.name().as_slice() != b"each" {
+                continue;
+            }
+            if call.receiver().is_none() {
+                continue;
+            }
+            // each must have no arguments
+            if call.arguments().is_some() {
+                continue;
+            }
 
-        let block_node = match block.as_block_node() {
-            Some(b) => b,
-            None => return Vec::new(),
-        };
+            let block = match call.block() {
+                Some(b) => b,
+                None => continue,
+            };
+            let block_node = match block.as_block_node() {
+                Some(b) => b,
+                None => continue,
+            };
+            let body = match block_node.body() {
+                Some(b) => b,
+                None => continue,
+            };
+            let body_stmts = match body.as_statements_node() {
+                Some(s) => s,
+                None => continue,
+            };
+            let body_nodes: Vec<_> = body_stmts.body().iter().collect();
+            if body_nodes.len() != 1 {
+                continue;
+            }
 
-        let body = match block_node.body() {
-            Some(b) => b,
-            None => return Vec::new(),
-        };
-
-        let stmts = match body.as_statements_node() {
-            Some(s) => s,
-            None => return Vec::new(),
-        };
-
-        let body_nodes: Vec<_> = stmts.body().iter().collect();
-        if body_nodes.len() != 1 {
-            return Vec::new();
-        }
-
-        // Check for arr << expr or arr.push(expr) or arr.append(expr)
-        if let Some(push_call) = body_nodes[0].as_call_node() {
+            // Check for var << expr or var.push(expr) or var.append(expr)
+            let push_call = match body_nodes[0].as_call_node() {
+                Some(c) => c,
+                None => continue,
+            };
             let push_method = push_call.name().as_slice();
-            if push_method == b"<<" || push_method == b"push" || push_method == b"append" {
-                // The receiver of << / push / append must be a local variable
-                // (not an instance var, class var, global var, or method call)
-                let push_receiver = match push_call.receiver() {
-                    Some(r) => r,
-                    None => return Vec::new(),
-                };
-                if push_receiver.as_local_variable_read_node().is_none() {
-                    return Vec::new();
-                }
+            if push_method != b"<<" && push_method != b"push" && push_method != b"append" {
+                continue;
+            }
 
-                // Receiver of `each` must not be `self` or bare (no receiver)
-                if let Some(each_receiver) = call.receiver() {
-                    if each_receiver.as_self_node().is_some() {
-                        return Vec::new();
+            // Receiver must be a local variable
+            let push_receiver = match push_call.receiver() {
+                Some(r) => r,
+                None => continue,
+            };
+            let lvar = match push_receiver.as_local_variable_read_node() {
+                Some(l) => l,
+                None => continue,
+            };
+
+            let var_name = lvar.name();
+
+            // Check that the push argument is suitable (not a splat, etc.)
+            if let Some(args) = push_call.arguments() {
+                let arg_list: Vec<_> = args.arguments().iter().collect();
+                if arg_list.len() != 1 {
+                    continue;
+                }
+                // Skip if argument is a splat
+                if arg_list[0].as_splat_node().is_some() {
+                    continue;
+                }
+            } else {
+                continue;
+            }
+
+            // Now check: is there a preceding `var = []` in the same scope?
+            let mut found_empty_array_init = false;
+            for j in (0..i).rev() {
+                if let Some(asgn) = stmts[j].as_local_variable_write_node() {
+                    if asgn.name().as_slice() == var_name.as_slice() {
+                        // Check if the value is an empty array `[]`
+                        let value = asgn.value();
+                        if let Some(arr) = value.as_array_node() {
+                            if arr.elements().iter().count() == 0 {
+                                found_empty_array_init = true;
+                            }
+                        }
+                        break; // found the most recent assignment, stop
                     }
                 }
-
-                // `each` must have no arguments (e.g., StringIO.new.each(':') should not fire)
-                if call.arguments().is_some() {
-                    return Vec::new();
-                }
-
-                let loc = call.location();
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Use `map` instead of `each` to map elements into an array.".to_string(),
-                )];
             }
-        }
 
-        Vec::new()
+            if !found_empty_array_init {
+                continue;
+            }
+
+            // Receiver of `each` must not be `self`
+            if let Some(each_receiver) = call.receiver() {
+                if each_receiver.as_self_node().is_some() {
+                    continue;
+                }
+            }
+
+            let loc = call.location();
+            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                "Use `map` instead of `each` to map elements into an array.".to_string(),
+            ));
+        }
+    }
+}
+
+impl<'pr> Visit<'pr> for MapIntoArrayVisitor<'_> {
+    fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
+        let stmts: Vec<_> = node.body().iter().collect();
+        self.check_statements(&stmts);
+        ruby_prism::visit_statements_node(self, node);
+    }
+
+    fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
+        if let Some(body) = node.statements() {
+            let stmts: Vec<_> = body.body().iter().collect();
+            self.check_statements(&stmts);
+        }
+        ruby_prism::visit_begin_node(self, node);
     }
 }
 

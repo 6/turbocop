@@ -159,22 +159,9 @@ fn check_return_values(
             return;
         }
 
-        // Check if any other statement returns the accumulator (via next/break)
-        let has_acc_return = stmts.iter().any(|s| {
-            if let Some(next) = s.as_next_node() {
-                if let Some(args) = next.arguments() {
-                    let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
-                    return arg_list.iter().any(|a| references_var(a, acc_name));
-                }
-            }
-            if let Some(brk) = s.as_break_node() {
-                if let Some(args) = brk.arguments() {
-                    let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
-                    return arg_list.iter().any(|a| references_var(a, acc_name));
-                }
-            }
-            false
-        });
+        // Check if any return point (next/break, including inside conditionals)
+        // returns the accumulator.
+        let has_acc_return = stmts.iter().any(|s| returns_accumulator(s, acc_name));
 
         if has_acc_return {
             // If some branch returns the accumulator, the element return is OK
@@ -269,6 +256,74 @@ fn check_next_break(
     }
 }
 
+/// Check if a statement or any nested conditional contains a next/break
+/// that returns the accumulator.
+fn returns_accumulator(node: &ruby_prism::Node<'_>, acc_name: &str) -> bool {
+    if let Some(next) = node.as_next_node() {
+        if let Some(args) = next.arguments() {
+            let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
+            if arg_list.iter().any(|a| references_var(a, acc_name)) {
+                return true;
+            }
+        }
+    }
+    if let Some(brk) = node.as_break_node() {
+        if let Some(args) = brk.arguments() {
+            let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
+            if arg_list.iter().any(|a| references_var(a, acc_name)) {
+                return true;
+            }
+        }
+    }
+    // Check inside conditionals
+    if let Some(if_node) = node.as_if_node() {
+        if let Some(body) = if_node.statements() {
+            if body.body().iter().any(|s| returns_accumulator(&s, acc_name)) {
+                return true;
+            }
+        }
+        if let Some(else_clause) = if_node.subsequent() {
+            if returns_accumulator(&else_clause, acc_name) {
+                return true;
+            }
+        }
+    }
+    if let Some(unless_node) = node.as_unless_node() {
+        if let Some(body) = unless_node.statements() {
+            if body.body().iter().any(|s| returns_accumulator(&s, acc_name)) {
+                return true;
+            }
+        }
+    }
+    if let Some(else_node) = node.as_else_node() {
+        if let Some(stmts) = else_node.statements() {
+            if stmts.body().iter().any(|s| returns_accumulator(&s, acc_name)) {
+                return true;
+            }
+        }
+    }
+    // Check inside case/when
+    if let Some(case_node) = node.as_case_node() {
+        for condition in case_node.conditions().iter() {
+            if let Some(when_node) = condition.as_when_node() {
+                if let Some(body) = when_node.statements() {
+                    if body.body().iter().any(|s| returns_accumulator(&s, acc_name)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        if let Some(else_clause) = case_node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                if stmts.body().iter().any(|s| returns_accumulator(&s, acc_name)) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Check if an expression references a variable by name.
 fn references_var(node: &ruby_prism::Node<'_>, var_name: &str) -> bool {
     if let Some(read) = node.as_local_variable_read_node() {
@@ -325,26 +380,41 @@ fn references_var(node: &ruby_prism::Node<'_>, var_name: &str) -> bool {
 }
 
 /// Check if the expression only references the element variable (and not the accumulator).
+/// Only returns true for simple element expressions (bare `el` or `el.method` with no args
+/// involving other variables). Method chains on the element (like `el[:key].bar`) are NOT
+/// considered "only element" because they may return a transformed value that serves as
+/// a valid new accumulator (matching RuboCop's behavior via expression_values).
 fn is_only_element_expr(node: &ruby_prism::Node<'_>, acc_name: &str, el_name: &str) -> bool {
     // Direct element read
     if let Some(read) = node.as_local_variable_read_node() {
         return std::str::from_utf8(read.name().as_slice()).unwrap_or("") == el_name;
     }
 
-    // Expression involving the element
+    // Expression involving the element — only flag simple one-level method calls
+    // where the receiver is directly the element variable (not a chain)
     if let Some(call) = node.as_call_node() {
         if let Some(recv) = call.receiver() {
-            if references_var(&recv, el_name) && !references_var(&recv, acc_name) {
-                // Check args don't reference accumulator
-                if let Some(args) = call.arguments() {
-                    for arg in args.arguments().iter() {
-                        if references_var(&arg, acc_name) {
-                            return false;
+            // Only flag if the receiver IS the element variable directly (not a chain)
+            if let Some(read) = recv.as_local_variable_read_node() {
+                let recv_name = std::str::from_utf8(read.name().as_slice()).unwrap_or("");
+                if recv_name == el_name {
+                    // Check args don't reference accumulator or other variables
+                    if let Some(args) = call.arguments() {
+                        for arg in args.arguments().iter() {
+                            if references_var(&arg, acc_name) {
+                                return false;
+                            }
+                            // If args contain any local variable, it's a complex expression
+                            if has_any_local_var(&arg) {
+                                return false;
+                            }
                         }
                     }
+                    return true;
                 }
-                return true;
             }
+            // Receiver is a complex expression (method chain) — not "only element"
+            return false;
         }
         // Bare method call with element as argument
         if call.receiver().is_none() {
@@ -359,6 +429,28 @@ fn is_only_element_expr(node: &ruby_prism::Node<'_>, acc_name: &str, el_name: &s
         }
     }
 
+    false
+}
+
+/// Check if an expression contains any local variable reference.
+fn has_any_local_var(node: &ruby_prism::Node<'_>) -> bool {
+    if node.as_local_variable_read_node().is_some() {
+        return true;
+    }
+    if let Some(call) = node.as_call_node() {
+        if let Some(recv) = call.receiver() {
+            if has_any_local_var(&recv) {
+                return true;
+            }
+        }
+        if let Some(args) = call.arguments() {
+            for arg in args.arguments().iter() {
+                if has_any_local_var(&arg) {
+                    return true;
+                }
+            }
+        }
+    }
     false
 }
 

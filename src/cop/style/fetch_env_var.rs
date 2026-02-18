@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -32,6 +34,29 @@ impl FetchEnvVar {
         }
         false
     }
+
+    /// Collect start offsets of all ENV['X'] nodes that appear inside a given
+    /// subtree. Used to suppress ENV['X'] nodes that are part of an if/unless
+    /// condition or the LHS of `||`.
+    fn collect_env_bracket_offsets(node: &ruby_prism::Node<'_>, offsets: &mut HashSet<usize>) {
+        struct Collector<'a> {
+            offsets: &'a mut HashSet<usize>,
+        }
+        impl<'pr> Visit<'pr> for Collector<'_> {
+            fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+                if node.name().as_slice() == b"[]" {
+                    if let Some(receiver) = node.receiver() {
+                        if FetchEnvVar::is_env_receiver(&receiver) {
+                            self.offsets.insert(node.location().start_offset());
+                        }
+                    }
+                }
+                ruby_prism::visit_call_node(self, node);
+            }
+        }
+        let mut collector = Collector { offsets };
+        collector.visit(node);
+    }
 }
 
 impl Cop for FetchEnvVar {
@@ -55,6 +80,7 @@ impl Cop for FetchEnvVar {
             diagnostics: Vec::new(),
             allowed_vars,
             default_to_nil,
+            suppressed_offsets: HashSet::new(),
         };
         visitor.visit(&parse_result.node());
         visitor.diagnostics
@@ -67,23 +93,45 @@ struct FetchEnvVarVisitor<'a> {
     diagnostics: Vec<Diagnostic>,
     allowed_vars: Option<Vec<String>>,
     default_to_nil: bool,
+    /// Start offsets of ENV['X'] nodes that should NOT be reported
+    /// (used as flag in if/unless condition, or LHS of `||`).
+    suppressed_offsets: HashSet<usize>,
+}
+
+impl FetchEnvVarVisitor<'_> {
+    /// Suppress all ENV['X'] nodes that appear inside an if/unless condition.
+    /// RuboCop's `used_as_flag?` checks if the ENV['X'] is used in the condition
+    /// of an ancestor if/unless. We implement this by suppressing ENV['X'] nodes
+    /// that appear anywhere in if/unless/ternary predicate expressions.
+    fn suppress_env_in_condition(&mut self, condition: &ruby_prism::Node<'_>) {
+        FetchEnvVar::collect_env_bracket_offsets(condition, &mut self.suppressed_offsets);
+    }
 }
 
 impl<'pr> Visit<'pr> for FetchEnvVarVisitor<'_> {
+    fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
+        // Suppress ENV['X'] used in the condition of if/elsif/ternary
+        self.suppress_env_in_condition(&node.predicate());
+        ruby_prism::visit_if_node(self, node);
+    }
+
+    fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
+        // Suppress ENV['X'] used in the condition of unless
+        self.suppress_env_in_condition(&node.predicate());
+        ruby_prism::visit_unless_node(self, node);
+    }
+
+    fn visit_or_node(&mut self, node: &ruby_prism::OrNode<'pr>) {
+        // ENV['X'] || default — suppress ENV['X'] on the LHS of ||
+        // Also suppress if this or_node is nested inside another or_node
+        // (e.g., ENV['A'] || ENV['B'] || default)
+        FetchEnvVar::collect_env_bracket_offsets(&node.left(), &mut self.suppressed_offsets);
+        ruby_prism::visit_or_node(self, node);
+    }
+
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         let name = node.name();
         let method_bytes = name.as_slice();
-
-        // Check for ENV['X'] that is the receiver of another method call.
-        // In that context, ENV['X'] becomes a receiver of the outer call,
-        // so we check the outer call instead.
-        if method_bytes != b"[]" {
-            // This is an outer call. Check if receiver is ENV['X'] — if so, skip.
-            // (ENV['X'].some_method, !ENV['X'], ENV['X'] == 1, etc.)
-            // We handle these by NOT reporting ENV['X'] when it's used as a receiver.
-            // Just recurse normally — the inner ENV['X'] will be visited but
-            // we'll skip it in the check below if it's a receiver here.
-        }
 
         if method_bytes == b"[]" {
             let receiver = match node.receiver() {
@@ -96,6 +144,11 @@ impl<'pr> Visit<'pr> for FetchEnvVarVisitor<'_> {
 
             if !FetchEnvVar::is_env_receiver(&receiver) {
                 ruby_prism::visit_call_node(self, node);
+                return;
+            }
+
+            // Check if this ENV['X'] is suppressed (used as flag or LHS of ||)
+            if self.suppressed_offsets.contains(&node.location().start_offset()) {
                 return;
             }
 
@@ -126,8 +179,6 @@ impl<'pr> Visit<'pr> for FetchEnvVarVisitor<'_> {
                 }
             }
 
-            // This is ENV['X'] — mark it as a candidate.
-            // We'll store its offset and message, but we might suppress it later.
             let loc = node.location();
             let call_src = &self.source.as_bytes()[loc.start_offset()..loc.end_offset()];
             let call_str = String::from_utf8_lossy(call_src);
@@ -167,31 +218,17 @@ impl<'pr> Visit<'pr> for FetchEnvVarVisitor<'_> {
             }
         }
 
-        // For operator-assignment nodes like `ENV['X'] ||= y`, the ENV['X']
-        // node is wrapped in special assignment nodes, not as a receiver.
-        // We handle that via visit_or_write_node and visit_and_write_node.
-
         ruby_prism::visit_call_node(self, node);
     }
 
     fn visit_call_operator_write_node(&mut self, node: &ruby_prism::CallOperatorWriteNode<'pr>) {
-        // ENV['X'] ||= y creates a CallOperatorWriteNode
-        // The receiver ENV is on the "target" side, not a CallNode we'd visit.
-        // We skip these entirely — don't recurse.
-        // Actually, just recurse normally but the ENV['X'] part is the target
-        // which won't be a separate CallNode visited.
         ruby_prism::visit_call_operator_write_node(self, node);
     }
 
     fn visit_call_or_write_node(&mut self, node: &ruby_prism::CallOrWriteNode<'pr>) {
-        // ENV['X'] ||= y  — this is the lhs; don't flag it.
-        // The receiver inside is ENV, the method is []=, and this is a compound assignment.
-        // The node's receiver is ENV, and we should not report it.
-        // Don't recurse into this node's receiver to avoid generating a FP.
+        // ENV['X'] ||= y  — don't flag it.
         if let Some(receiver) = node.receiver() {
             if FetchEnvVar::is_env_receiver(&receiver) {
-                // This is ENV['X'] ||= y — skip it entirely
-                // Only visit the value side
                 self.visit(&node.value());
                 return;
             }
@@ -200,7 +237,7 @@ impl<'pr> Visit<'pr> for FetchEnvVarVisitor<'_> {
     }
 
     fn visit_call_and_write_node(&mut self, node: &ruby_prism::CallAndWriteNode<'pr>) {
-        // ENV['X'] &&= y  — same as above
+        // ENV['X'] &&= y  — don't flag it.
         if let Some(receiver) = node.receiver() {
             if FetchEnvVar::is_env_receiver(&receiver) {
                 self.visit(&node.value());
