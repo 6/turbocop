@@ -86,6 +86,16 @@ static REPOS: &[BenchRepo] = &[
         url: "https://github.com/bensheldon/good_job.git",
         tag: "v4.13.3",
     },
+    BenchRepo {
+        name: "docuseal",
+        url: "https://github.com/docusealco/docuseal.git",
+        tag: "2.3.4",
+    },
+    BenchRepo {
+        name: "rubygems.org",
+        url: "https://github.com/rubygems/rubygems.org.git",
+        tag: "master",
+    },
 ];
 
 // --- Helpers ---

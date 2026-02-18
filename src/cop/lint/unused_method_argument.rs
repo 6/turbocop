@@ -104,6 +104,7 @@ impl Cop for UnusedMethodArgument {
         let mut finder = VarReadFinder {
             names: Vec::new(),
             has_forwarding_super: false,
+            has_binding_call: false,
         };
         finder.visit(&body);
 
@@ -122,6 +123,12 @@ impl Cop for UnusedMethodArgument {
         // If the body contains bare `super` (ForwardingSuperNode), all args are
         // implicitly forwarded and therefore "used".
         if finder.has_forwarding_super {
+            return Vec::new();
+        }
+
+        // If the body calls `binding`, all local variables are accessible via
+        // `binding.local_variable_get`, so consider all args as used.
+        if finder.has_binding_call {
             return Vec::new();
         }
 
@@ -212,6 +219,7 @@ fn check_not_implemented_call(node: &ruby_prism::Node<'_>) -> bool {
 struct VarReadFinder {
     names: Vec<Vec<u8>>,
     has_forwarding_super: bool,
+    has_binding_call: bool,
 }
 
 impl<'pr> Visit<'pr> for VarReadFinder {
@@ -233,6 +241,17 @@ impl<'pr> Visit<'pr> for VarReadFinder {
         _node: &ruby_prism::ForwardingSuperNode<'pr>,
     ) {
         self.has_forwarding_super = true;
+    }
+
+    // Detect `binding` calls — accessing binding exposes all local variables
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if node.receiver().is_none()
+            && node.name().as_slice() == b"binding"
+            && node.arguments().is_none()
+        {
+            self.has_binding_call = true;
+        }
+        ruby_prism::visit_call_node(self, node);
     }
 
     // Don't recurse into nested def/class/module (they have their own scope)

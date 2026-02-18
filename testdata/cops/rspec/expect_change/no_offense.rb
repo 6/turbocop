@@ -4,3 +4,8 @@ expect { run }.to change { User.sum(:points) }
 expect { run }.to change { user.reload.name }
 expect(run).to change(Order, :total)
 Record.change { User.count }
+# Block form with local variable receiver is not flagged (RuboCop only flags bare method calls/constants)
+cron_entry = find(:example)
+my_local = find(:other)
+expect { run }.to change { cron_entry.enabled? }
+expect { run }.to change { my_local.name }

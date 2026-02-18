@@ -184,19 +184,17 @@ fn check_number_style(
         return None;
     }
 
-    // Strip trailing `?` or `!` (method name suffixes) before checking
-    let check_name = name.trim_end_matches(|c| c == '?' || c == '!');
-
     // RuboCop checks the END of the identifier against a format regex.
-    // The key insight is only the TRAILING number pattern matters.
+    // The name is checked INCLUDING trailing `?` or `!` suffixes — these
+    // count as non-digit characters that satisfy the \D alternative.
     //
     // normalcase:  /(?:\D|[^_\d]\d+|\A\d+)\z/ — trailing digits must NOT be preceded by _
     // snake_case:  /(?:\D|_\d+|\A\d+)\z/      — trailing digits MUST be preceded by _
     // non_integer: /(\D|\A\d+)\z/              — no trailing digits allowed
     let valid = match enforced_style {
-        "normalcase" => is_valid_normalcase(check_name),
-        "snake_case" => is_valid_snake_case(check_name),
-        "non_integer" => is_valid_non_integer(check_name),
+        "normalcase" => is_valid_normalcase(name),
+        "snake_case" => is_valid_snake_case(name),
+        "non_integer" => is_valid_non_integer(name),
         _ => true,
     };
 

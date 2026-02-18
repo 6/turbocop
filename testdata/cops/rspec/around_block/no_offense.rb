@@ -42,3 +42,17 @@ around do |example|
   measurement = Benchmark.measure { example.run }
   log(measurement)
 end
+# example.run inside if/else branches
+around do |example|
+  next example.run if example.metadata[:skip_wrapper]
+
+  if some_condition
+    wrapper.perform do
+      example.run
+    end
+  else
+    other_wrapper.wrap do
+      example.run
+    end
+  end
+end

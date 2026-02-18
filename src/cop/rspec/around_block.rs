@@ -179,6 +179,47 @@ fn node_tree_uses_param(node: &ruby_prism::Node<'_>, param_name: &[u8]) -> bool 
         }
     }
 
+    // Handle IfNode / UnlessNode — recurse into predicate, if-body, and else/elsif
+    if let Some(if_node) = node.as_if_node() {
+        if node_tree_uses_param(&if_node.predicate(), param_name) {
+            return true;
+        }
+        if let Some(stmts) = if_node.statements() {
+            for s in stmts.body().iter() {
+                if node_tree_uses_param(&s, param_name) {
+                    return true;
+                }
+            }
+        }
+        if let Some(subsequent) = if_node.subsequent() {
+            if node_tree_uses_param(&subsequent, param_name) {
+                return true;
+            }
+        }
+    }
+
+    // Handle ElseNode
+    if let Some(else_node) = node.as_else_node() {
+        if let Some(stmts) = else_node.statements() {
+            for s in stmts.body().iter() {
+                if node_tree_uses_param(&s, param_name) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Handle `next expr` — the expression inside next may use the param
+    if let Some(next_node) = node.as_next_node() {
+        if let Some(args) = next_node.arguments() {
+            for arg in args.arguments().iter() {
+                if node_tree_uses_param(&arg, param_name) {
+                    return true;
+                }
+            }
+        }
+    }
+
     false
 }
 

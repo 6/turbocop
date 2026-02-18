@@ -21,3 +21,16 @@ class Baz
   def example
   end
 end
+
+# YARD-documented attribute accessors with comments between them
+class ExecutionResult
+  # @return [Object, nil]
+  attr_reader :value
+  # @return [Exception, nil]
+  attr_reader :handled_error
+  # @return [Exception, nil]
+  attr_reader :unhandled_error
+
+  def example
+  end
+end

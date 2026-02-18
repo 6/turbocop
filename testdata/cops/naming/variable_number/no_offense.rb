@@ -11,3 +11,7 @@ _1 = 'implicit param'
 disable_2fa = true
 :disable_2fa
 def method_2fa; end
+# Symbols/methods ending with ? or ! after digits are valid because the
+# suffix is a non-digit character that satisfies the \D regex alternative
+:ipv4?
+def ipv4?; end

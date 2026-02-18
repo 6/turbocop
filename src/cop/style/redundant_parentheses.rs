@@ -106,6 +106,21 @@ impl RedundantParensVisitor<'_> {
             }
         }
 
+        // allowed_ancestor? — don't flag `break(value)`, `return(value)`, `next(value)`
+        // when the keyword is directly adjacent to the open paren (no space).
+        // RuboCop's `parens_required?` checks if a letter precedes the `(`.
+        if let Some(p) = parent {
+            if matches!(p.kind, ParentKind::Return | ParentKind::Next | ParentKind::Break) {
+                let open_offset = node.location().start_offset();
+                if open_offset > 0 {
+                    let before = self.source.content[open_offset - 1];
+                    if before.is_ascii_alphabetic() {
+                        return;
+                    }
+                }
+            }
+        }
+
         // allowed_ternary? — look through wrapper nodes (StatementsNode, ElseNode)
         // because Prism wraps ternary branches in intermediate nodes
         if self.has_ternary_ancestor() {
@@ -246,6 +261,19 @@ fn check_method_call<'a>(
         return None;
     }
 
+    // If the inner call has a do..end block and is an argument to an
+    // unparenthesized method call, the parens are required to prevent
+    // Ruby from binding the do..end block to the outer method call.
+    // e.g. `scope :name, (lambda do |args| ... end)` — removing the parens
+    // would make `do..end` attach to `scope` instead of `lambda`.
+    if has_do_end_block(&call) {
+        if let Some(p) = parent {
+            if matches!(p.kind, ParentKind::Call) && !p.call_parenthesized {
+                return None;
+            }
+        }
+    }
+
     let has_args = call.arguments().is_some();
     let call_has_parens = call.opening_loc().is_some();
 
@@ -378,6 +406,16 @@ fn is_chained(content: &[u8], paren_node: &ruby_prism::ParenthesesNode<'_>) -> b
         let next_byte = content[end_offset];
         if next_byte == b'.' || next_byte == b'&' {
             return true;
+        }
+    }
+    false
+}
+
+/// Returns true if the call node has a do..end block attached to it.
+fn has_do_end_block(call: &ruby_prism::CallNode<'_>) -> bool {
+    if let Some(block) = call.block() {
+        if let Some(block_node) = block.as_block_node() {
+            return block_node.opening_loc().as_slice() == b"do";
         }
     }
     false

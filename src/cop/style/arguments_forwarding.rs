@@ -18,11 +18,14 @@ impl Cop for ArgumentsForwarding {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let _allow_only_rest = config.get_bool("AllowOnlyRestArgument", true);
+        let allow_only_rest = config.get_bool("AllowOnlyRestArgument", true);
         let _use_anonymous = config.get_bool("UseAnonymousForwarding", true);
-        let _redundant_rest = config.get_string_array("RedundantRestArgumentNames").unwrap_or_default();
-        let _redundant_kw_rest = config.get_string_array("RedundantKeywordRestArgumentNames").unwrap_or_default();
-        let _redundant_block = config.get_string_array("RedundantBlockArgumentNames").unwrap_or_default();
+        let redundant_rest = config.get_string_array("RedundantRestArgumentNames")
+            .unwrap_or_else(|| vec!["args".to_string(), "arguments".to_string()]);
+        let _redundant_kw_rest = config.get_string_array("RedundantKeywordRestArgumentNames")
+            .unwrap_or_else(|| vec!["kwargs".to_string(), "options".to_string(), "opts".to_string()]);
+        let redundant_block = config.get_string_array("RedundantBlockArgumentNames")
+            .unwrap_or_else(|| vec!["blk".to_string(), "block".to_string(), "proc".to_string()]);
 
         // `...` forwarding requires Ruby >= 2.7
         let ruby_version = config
@@ -101,6 +104,27 @@ impl Cop for ArgumentsForwarding {
         } else {
             return Vec::new();
         };
+
+        // RuboCop checks if parameter names are "redundant" (i.e., in the
+        // configurable lists of meaningless names). If AllowOnlyRestArgument is
+        // true and the block argument name is NOT redundant, RuboCop won't
+        // suggest `...` forwarding because the block arg has a meaningful name
+        // and might be used for readability.
+        if allow_only_rest {
+            let block_name_str = String::from_utf8_lossy(&block_name).to_string();
+            if !redundant_block.iter().any(|n| n == &block_name_str) {
+                return Vec::new();
+            }
+        }
+
+        // Similarly, check if the rest arg name is redundant when AllowOnlyRestArgument
+        // is true. If it's not in the RedundantRestArgumentNames list, don't flag.
+        if allow_only_rest {
+            let rest_name_str = String::from_utf8_lossy(&rest_name).to_string();
+            if !redundant_rest.iter().any(|n| n == &rest_name_str) {
+                return Vec::new();
+            }
+        }
 
         // Check that the method body contains at least one call that forwards
         // *rest and &block to the SAME call. Without this, cases like

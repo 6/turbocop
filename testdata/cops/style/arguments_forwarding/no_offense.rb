@@ -18,3 +18,9 @@ end
 def self.with(*args, &block)
   new(*args).tap(&block).to_element
 end
+
+# Block arg name 'task' is not in RedundantBlockArgumentNames — meaningful name
+# AllowOnlyRestArgument prevents suggesting ... forwarding
+def post(*args, &task)
+  @executor&.post(*args, &task)
+end

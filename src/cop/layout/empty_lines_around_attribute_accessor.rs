@@ -84,12 +84,34 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
         }
 
         // If next line is another attribute accessor, no offense
-        for &attr in ATTRIBUTE_METHODS {
-            if next_trimmed.starts_with(attr) {
-                let after = next_trimmed.get(attr.len());
-                if after.is_none() || matches!(after, Some(b' ') | Some(b'(') | Some(b'\n')) {
+        if is_attr_method_line(&next_trimmed) {
+            return Vec::new();
+        }
+
+        // If next line is a comment, look past comments to see if the next code line
+        // is another attribute accessor. This allows YARD-style documented accessors:
+        //   attr_reader :value
+        //   # @return [Exception, nil]
+        //   attr_reader :handled_error
+        if next_trimmed.starts_with(b"#") {
+            let mut idx = last_line + 1;
+            while idx < lines.len() {
+                let line_trimmed: Vec<u8> = lines[idx]
+                    .iter()
+                    .copied()
+                    .skip_while(|&b| b == b' ' || b == b'\t')
+                    .collect();
+                if line_trimmed.is_empty() || line_trimmed == b"\n" || line_trimmed == b"\r\n" {
+                    break; // blank line means end of group
+                }
+                if line_trimmed.starts_with(b"#") {
+                    idx += 1;
+                    continue; // skip comments
+                }
+                if is_attr_method_line(&line_trimmed) {
                     return Vec::new();
                 }
+                break;
             }
         }
 
@@ -127,6 +149,18 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
             "Add an empty line after attribute accessor.".to_string(),
         )]
     }
+}
+
+fn is_attr_method_line(trimmed: &[u8]) -> bool {
+    for &attr in ATTRIBUTE_METHODS {
+        if trimmed.starts_with(attr) {
+            let after = trimmed.get(attr.len());
+            if after.is_none() || matches!(after, Some(b' ') | Some(b'(') | Some(b'\n')) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[cfg(test)]

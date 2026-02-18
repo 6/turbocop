@@ -123,13 +123,13 @@ impl Cop for ExpectChange {
             return Vec::new();
         }
 
-        // The receiver must be a simple expression — constant, local variable, or
-        // simple method call without args. Not arbitrary expressions.
+        // The receiver must match RuboCop's pattern: a constant or bare method
+        // call (no receiver). Local variables and instance variables do NOT match
+        // because RuboCop's pattern `(send nil? _)` only matches bare method calls,
+        // not `(lvar ...)` or `(ivar ...)`.
         let recv = inner_call.receiver().unwrap();
         let is_simple_receiver = recv.as_constant_read_node().is_some()
             || recv.as_constant_path_node().is_some()
-            || recv.as_local_variable_read_node().is_some()
-            || recv.as_instance_variable_read_node().is_some()
             || (recv.as_call_node().is_some_and(|c| {
                 c.receiver().is_none() && c.arguments().is_none() && c.block().is_none()
             }));

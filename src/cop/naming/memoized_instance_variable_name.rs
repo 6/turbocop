@@ -11,12 +11,30 @@ impl MemoizedInstanceVariableName {
         or_write: ruby_prism::InstanceVariableOrWriteNode<'_>,
         base_name: &str,
         method_name_str: &str,
+        leading_underscore_style: &str,
     ) -> Vec<Diagnostic> {
         let ivar_name = or_write.name().as_slice();
         let ivar_str = std::str::from_utf8(ivar_name).unwrap_or("");
         let ivar_base = ivar_str.strip_prefix('@').unwrap_or(ivar_str);
 
-        if ivar_base != base_name {
+        let matches = match leading_underscore_style {
+            "required" => {
+                // @_method_name is the only valid form
+                let expected = format!("_{base_name}");
+                ivar_base == expected
+            }
+            "optional" => {
+                // Both @method_name and @_method_name are valid
+                let with_underscore = format!("_{base_name}");
+                ivar_base == base_name || ivar_base == with_underscore
+            }
+            _ => {
+                // "disallowed" (default): only @method_name is valid
+                ivar_base == base_name
+            }
+        };
+
+        if !matches {
             let loc = or_write.name_loc();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             return vec![self.diagnostic(
@@ -45,7 +63,7 @@ impl Cop for MemoizedInstanceVariableName {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let _enforced_style = config.get_str("EnforcedStyleForLeadingUnderscores", "disallowed");
+        let enforced_style = config.get_str("EnforcedStyleForLeadingUnderscores", "disallowed");
 
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -76,7 +94,7 @@ impl Cop for MemoizedInstanceVariableName {
 
         // Body could be a bare InstanceVariableOrWriteNode (single statement)
         if let Some(or_write) = body.as_instance_variable_or_write_node() {
-            return self.check_or_write(source, or_write, base_name, method_name_str);
+            return self.check_or_write(source, or_write, base_name, method_name_str, enforced_style);
         }
 
         let stmts = match body.as_statements_node() {
@@ -92,7 +110,7 @@ impl Cop for MemoizedInstanceVariableName {
         // Only check the last statement — vendor requires ||= be the sole or last statement
         let last = &body_nodes[body_nodes.len() - 1];
         if let Some(or_write) = last.as_instance_variable_or_write_node() {
-            return self.check_or_write(source, or_write, base_name, method_name_str);
+            return self.check_or_write(source, or_write, base_name, method_name_str, enforced_style);
         }
 
         Vec::new()
@@ -107,4 +125,66 @@ mod tests {
         MemoizedInstanceVariableName,
         "cops/naming/memoized_instance_variable_name"
     );
+
+    #[test]
+    fn required_style_allows_leading_underscore() {
+        use crate::cop::CopConfig;
+        use crate::testutil::assert_cop_no_offenses_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyleForLeadingUnderscores".to_string(),
+                serde_yml::Value::String("required".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"def js_modules\n  @_js_modules ||= compute_modules\nend\n";
+        assert_cop_no_offenses_full_with_config(&MemoizedInstanceVariableName, source, config);
+    }
+
+    #[test]
+    fn optional_style_allows_both_forms() {
+        use crate::cop::CopConfig;
+        use crate::testutil::assert_cop_no_offenses_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyleForLeadingUnderscores".to_string(),
+                serde_yml::Value::String("optional".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        // Both forms should be accepted
+        let source = b"def js_modules\n  @_js_modules ||= compute_modules\nend\n";
+        assert_cop_no_offenses_full_with_config(
+            &MemoizedInstanceVariableName,
+            source,
+            config.clone(),
+        );
+        let source2 = b"def js_modules\n  @js_modules ||= compute_modules\nend\n";
+        assert_cop_no_offenses_full_with_config(&MemoizedInstanceVariableName, source2, config);
+    }
+
+    #[test]
+    fn required_style_flags_missing_underscore() {
+        use crate::cop::CopConfig;
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyleForLeadingUnderscores".to_string(),
+                serde_yml::Value::String("required".to_string()),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"def js_modules\n  @js_modules ||= compute_modules\nend\n";
+        let diags = run_cop_full_with_config(&MemoizedInstanceVariableName, source, config);
+        assert!(
+            !diags.is_empty(),
+            "required style should flag @js_modules (missing underscore)"
+        );
+    }
 }

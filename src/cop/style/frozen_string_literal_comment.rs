@@ -42,16 +42,25 @@ impl Cop for FrozenStringLiteralComment {
             idx += 1;
         }
 
-        // Check for frozen_string_literal magic comment
-        if idx < lines.len() && is_frozen_string_literal_comment(lines[idx]) {
-            if enforced_style == "always_true" {
-                // Must be set to true specifically
-                if !is_frozen_string_literal_true(lines[idx]) {
-                    return vec![self.diagnostic(source, idx + 1, 0, "Frozen string literal comment must be set to `true`.".to_string())];
+        // Scan leading comment lines for the frozen_string_literal magic comment.
+        // This handles files with other magic comments before it, e.g.:
+        //   # typed: true
+        //   # frozen_string_literal: true
+        let scan_start = idx;
+        while idx < lines.len() && is_comment_line(lines[idx]) {
+            if is_frozen_string_literal_comment(lines[idx]) {
+                if enforced_style == "always_true" {
+                    // Must be set to true specifically
+                    if !is_frozen_string_literal_true(lines[idx]) {
+                        return vec![self.diagnostic(source, idx + 1, 0, "Frozen string literal comment must be set to `true`.".to_string())];
+                    }
                 }
+                return Vec::new();
             }
-            return Vec::new();
+            idx += 1;
         }
+        // Reset idx for the diagnostic line
+        let _ = scan_start;
 
         let msg = if enforced_style == "always_true" {
             "Missing magic comment `# frozen_string_literal: true`."
@@ -60,6 +69,11 @@ impl Cop for FrozenStringLiteralComment {
         };
         vec![self.diagnostic(source, 1, 0, msg.to_string())]
     }
+}
+
+fn is_comment_line(line: &[u8]) -> bool {
+    let trimmed = line.iter().skip_while(|&&b| b == b' ' || b == b'\t');
+    matches!(trimmed.clone().next(), Some(b'#'))
 }
 
 fn is_encoding_comment(line: &[u8]) -> bool {
@@ -299,5 +313,26 @@ mod tests {
         );
         let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
         assert!(diags.is_empty(), "Should recognize frozen_string_literal with leading whitespace");
+    }
+
+    #[test]
+    fn with_typed_comment_before_frozen() {
+        // Sorbet typed: true comment before frozen_string_literal should be recognized
+        let source = SourceFile::from_bytes(
+            "test.rb",
+            b"# typed: true\n# frozen_string_literal: true\nputs 'hello'\n".to_vec(),
+        );
+        let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
+        assert!(diags.is_empty(), "Should find frozen_string_literal after # typed: true");
+    }
+
+    #[test]
+    fn with_shebang_and_typed_and_frozen() {
+        let source = SourceFile::from_bytes(
+            "test.rb",
+            b"#!/usr/bin/env ruby\n# typed: strict\n# frozen_string_literal: true\nputs 'hello'\n".to_vec(),
+        );
+        let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
+        assert!(diags.is_empty(), "Should find frozen_string_literal after shebang + typed comment");
     }
 }

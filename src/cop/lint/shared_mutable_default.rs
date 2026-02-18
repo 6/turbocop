@@ -1,4 +1,3 @@
-use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -42,12 +41,18 @@ impl Cop for SharedMutableDefault {
             None => return Vec::new(),
         };
 
-        let recv_name = match constant_name(&receiver) {
-            Some(n) => n,
-            None => return Vec::new(),
+        // Must be bare `Hash` or root `::Hash`, not qualified like `Concurrent::Hash`
+        let is_plain_hash = if let Some(cr) = receiver.as_constant_read_node() {
+            cr.name().as_slice() == b"Hash"
+        } else if let Some(cp) = receiver.as_constant_path_node() {
+            // ::Hash (cbase) — parent is None
+            cp.parent().is_none()
+                && cp.name().map(|n| n.as_slice() == b"Hash").unwrap_or(false)
+        } else {
+            false
         };
 
-        if recv_name != b"Hash" {
+        if !is_plain_hash {
             return Vec::new();
         }
 
@@ -92,14 +97,23 @@ fn is_mutable_value(node: &ruby_prism::Node<'_>) -> bool {
     if node.as_hash_node().is_some() {
         return true;
     }
-    // Array.new or Hash.new
+    // Array.new or Hash.new (only bare or root-qualified, not Concurrent::Array.new)
     if let Some(call) = node.as_call_node() {
         if call.name().as_slice() == b"new" {
             if let Some(recv) = call.receiver() {
-                if let Some(name) = constant_name(&recv) {
-                    if name == b"Array" || name == b"Hash" {
-                        return true;
-                    }
+                let is_plain_array_or_hash = if let Some(cr) = recv.as_constant_read_node() {
+                    let name = cr.name().as_slice();
+                    name == b"Array" || name == b"Hash"
+                } else if let Some(cp) = recv.as_constant_path_node() {
+                    cp.parent().is_none()
+                        && cp.name().map(|n| {
+                            n.as_slice() == b"Array" || n.as_slice() == b"Hash"
+                        }).unwrap_or(false)
+                } else {
+                    false
+                };
+                if is_plain_array_or_hash {
+                    return true;
                 }
             }
         }

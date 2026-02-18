@@ -40,3 +40,8 @@ end
 def check_children_line_break(node, start = node)
   puts start
 end
+
+# binding call exposes all locals — args accessed via binding.local_variable_get
+def render_icon(name, class: nil, **options)
+  binding.local_variable_get(:class)
+end
