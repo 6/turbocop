@@ -4,12 +4,12 @@
 
 ## Cop Coverage
 
-**rblint cops:** 892
+**rblint cops:** 915
 
 | Department | RuboCop | rblint | Coverage |
 |------------|--------:|-------:|---------:|
 | Layout | 100 | 100 | **100%** |
-| Lint | 152 | 140 | 92% |
+| Lint | 152 | 152 | **100%** |
 | Style | 287 | 289 | **100%** |
 | Metrics | 10 | 10 | **100%** |
 | Naming | 19 | 19 | **100%** |
@@ -17,45 +17,19 @@
 | Bundler | 7 | 7 | **100%** |
 | Gemspec | 10 | 10 | **100%** |
 | Migration | 1 | 1 | **100%** |
-| Rails | 138 | 125 | 91% |
+| Rails | 138 | 136 | 99% |
 | Performance | 52 | 52 | **100%** |
 | RSpec | 113 | 113 | **100%** |
 | RSpecRails (gem) | 8 | 8 | **100%** |
 | FactoryBot | 11 | 11 | **100%** |
-| **Total** | **915** | **892** | **97.5%** |
+| **Total** | **915** | **915** | **100.0%** |
 
 ## Missing Cops
 
-### Lint (12 missing)
+### Rails (2 missing)
 
-- `Lint/CopDirectiveSyntax`
-- `Lint/FormatParameterMismatch`
-- `Lint/MissingCopEnableDirective`
-- `Lint/OutOfRangeRegexpRef`
-- `Lint/RedundantCopDisableDirective`
-- `Lint/RedundantCopEnableDirective`
-- `Lint/RedundantRegexpQuantifiers`
-- `Lint/SafeNavigationConsistency`
-- `Lint/ShadowingOuterLocalVariable`
-- `Lint/Syntax`
-- `Lint/UnescapedBracketInRegexp`
-- `Lint/UnmodifiedReduceAccumulator`
-
-### Rails (13 missing)
-
-- `Rails/ActiveSupportOnLoad`
-- `Rails/BulkChangeTable`
-- `Rails/DeprecatedActiveModelErrorsMethods`
-- `Rails/FindByOrAssignmentMemoization`
-- `Rails/I18nLocaleTexts`
-- `Rails/RedundantReceiverInWithOptions`
-- `Rails/ReversibleMigration`
-- `Rails/SaveBang`
-- `Rails/SquishedSQLHeredocs`
-- `Rails/StrongParametersExpect`
 - `Rails/UniqueValidationWithoutIndex`
 - `Rails/UnusedIgnoredColumns`
-- `Rails/WhereMissing`
 
 
 ### Extra Cops (in rblint, not in vendor)
@@ -66,58 +40,55 @@
 
 ## Conformance
 
-Location-level comparison: file + line + cop_name. Only cops implemented by rblint (892) are compared.
+Location-level comparison: file + line + cop_name. Only cops implemented by rblint (915) are compared.
 
 | Repo | rblint | rubocop | Matches | FP (rblint only) | FN (rubocop only) | Match rate |
 |------|-------:|--------:|--------:|-----------------:|------------------:|-----------:|
-| mastodon | 1115 | 302 | 277 | 838 | 25 | **24.3%** |
-| discourse | 724 | 604 | 604 | 120 | 0 | **83.4%** |
-| rails | 170 | 3 | 3 | 167 | 0 | **1.8%** |
-| rubocop | 2273 | 2 | 2 | 2271 | 0 | **0.1%** |
-| chatwoot | 1431 | 0 | 0 | 1431 | 0 | **0.0%** |
-| errbit | 1674 | 1571 | 1568 | 106 | 3 | **93.5%** |
+| mastodon | 418 | 306 | 283 | 135 | 23 | **64.2%** |
+| discourse | 1078 | 613 | 608 | 470 | 5 | **56.1%** |
+| rails | 8 | 3 | 3 | 5 | 0 | **37.5%** |
+| rubocop | 336 | 2 | 2 | 334 | 0 | **0.6%** |
+| chatwoot | 145 | 0 | 0 | 145 | 0 | **0.0%** |
+| errbit | 1593 | 1579 | 1576 | 17 | 3 | **98.7%** |
 
 <details>
-<summary>Divergent cops — mastodon (27 of 27 shown)</summary>
+<summary>Divergent cops — mastodon (22 of 22 shown)</summary>
 
 | Cop | Matches | FP | FN |
 |-----|--------:|---:|---:|
-| Style/PercentLiteralDelimiters | 0 | 419 | 0 |
-| Style/NumberedParameters | 0 | 128 | 0 |
-| Style/FetchEnvVar | 0 | 74 | 0 |
-| Style/NumberedParametersLimit | 0 | 61 | 0 |
-| Style/MixinGrouping | 0 | 50 | 0 |
-| Style/InverseMethods | 0 | 24 | 0 |
-| Style/RedundantRegexpArgument | 0 | 21 | 0 |
-| Style/MapIntoArray | 0 | 15 | 0 |
+| Rails/StrongParametersExpect | 0 | 55 | 0 |
+| Style/FetchEnvVar | 0 | 22 | 0 |
 | Style/RedundantParentheses | 0 | 0 | 13 |
 | Style/FormatStringToken | 0 | 10 | 0 |
-| Style/KeywordArgumentsMerging | 0 | 4 | 6 |
+| Style/MapIntoArray | 0 | 10 | 0 |
 | Style/RegexpLiteral | 0 | 9 | 0 |
+| Lint/UnescapedBracketInRegexp | 0 | 7 | 0 |
+| Rails/FindByOrAssignmentMemoization | 0 | 5 | 0 |
 | Style/CollectionQuerying | 1 | 1 | 4 |
-| Style/CaseLikeIf | 0 | 4 | 0 |
+| Lint/RedundantCopDisableDirective | 0 | 0 | 4 |
 | Style/NegatedIfElseCondition | 0 | 3 | 0 |
-| Style/RedundantInitialize | 0 | 3 | 0 |
+| Rails/RedundantReceiverInWithOptions | 0 | 2 | 0 |
 | Style/IdenticalConditionalBranches | 0 | 2 | 0 |
-| Style/NestedParenthesizedCalls | 0 | 2 | 0 |
+| Style/PercentLiteralDelimiters | 0 | 2 | 0 |
 | Style/WhileUntilModifier | 0 | 2 | 0 |
+| Lint/UnmodifiedReduceAccumulator | 0 | 1 | 0 |
 | Style/ArgumentsForwarding | 0 | 1 | 0 |
+| Style/CaseLikeIf | 0 | 1 | 0 |
 | Style/CollectionCompact | 0 | 1 | 0 |
-| Style/ComparableClamp | 0 | 1 | 0 |
-| Style/EachWithObject | 0 | 1 | 0 |
 | Style/HashSlice | 0 | 0 | 1 |
 | Style/MultipleComparison | 1 | 1 | 0 |
-| Style/RandomWithOffset | 0 | 1 | 0 |
 | Style/RedundantRegexpEscape | 0 | 0 | 1 |
 
 </details>
 
 <details>
-<summary>Divergent cops — discourse (1 of 1 shown)</summary>
+<summary>Divergent cops — discourse (3 of 3 shown)</summary>
 
 | Cop | Matches | FP | FN |
 |-----|--------:|---:|---:|
-| Style/InvertibleUnlessCondition | 0 | 120 | 0 |
+| Lint/ShadowingOuterLocalVariable | 4 | 466 | 3 |
+| Style/InvertibleUnlessCondition | 0 | 4 | 0 |
+| Lint/RedundantCopDisableDirective | 0 | 0 | 2 |
 
 </details>
 
@@ -126,62 +97,59 @@ Location-level comparison: file + line + cop_name. Only cops implemented by rbli
 
 | Cop | Matches | FP | FN |
 |-----|--------:|---:|---:|
-| Style/KeywordArgumentsMerging | 0 | 160 | 0 |
-| Style/RedundantDoubleSplatHashBraces | 0 | 7 | 0 |
+| Style/RedundantDoubleSplatHashBraces | 0 | 4 | 0 |
+| Style/KeywordArgumentsMerging | 0 | 1 | 0 |
 
 </details>
 
 <details>
-<summary>Divergent cops — rubocop (30 of 38 shown)</summary>
+<summary>Divergent cops — rubocop (30 of 30 shown)</summary>
 
 | Cop | Matches | FP | FN |
 |-----|--------:|---:|---:|
-| Style/PercentLiteralDelimiters | 0 | 666 | 0 |
-| Style/NumberedParameters | 0 | 551 | 0 |
-| Style/RedundantHeredocDelimiterQuotes | 0 | 496 | 0 |
-| Style/NumberedParametersLimit | 0 | 204 | 0 |
-| Style/InverseMethods | 0 | 66 | 0 |
-| Style/MixinGrouping | 0 | 63 | 0 |
-| Style/RequireOrder | 0 | 30 | 0 |
-| Style/LineEndConcatenation | 0 | 29 | 0 |
-| Style/RedundantLineContinuation | 0 | 27 | 0 |
-| Style/FetchEnvVar | 0 | 22 | 0 |
+| Lint/RedundantCopEnableDirective | 0 | 72 | 0 |
+| Lint/CopDirectiveSyntax | 0 | 71 | 0 |
+| Lint/MissingCopEnableDirective | 0 | 46 | 0 |
+| Style/LineEndConcatenation | 0 | 23 | 0 |
+| Lint/UnescapedBracketInRegexp | 0 | 21 | 0 |
+| Style/RequireOrder | 0 | 17 | 0 |
 | Style/RegexpLiteral | 0 | 12 | 0 |
-| Style/MapIntoArray | 0 | 11 | 0 |
-| Style/ReverseFind | 0 | 11 | 0 |
-| Style/RedundantRegexpArgument | 0 | 10 | 0 |
+| Style/PercentLiteralDelimiters | 0 | 11 | 0 |
 | Style/AccessorGrouping | 0 | 8 | 0 |
-| Style/ArrayIntersect | 0 | 8 | 0 |
 | Style/SendWithLiteralMethodName | 0 | 7 | 0 |
-| Style/WhileUntilModifier | 0 | 7 | 0 |
 | Style/FormatStringToken | 0 | 6 | 0 |
-| Style/InPatternThen | 0 | 5 | 0 |
 | Style/RedundantInterpolationUnfreeze | 0 | 5 | 0 |
+| Style/FetchEnvVar | 0 | 4 | 0 |
+| Style/WhileUntilModifier | 0 | 4 | 0 |
 | Style/DoubleCopDisableDirective | 0 | 3 | 0 |
 | Style/HashLikeCase | 0 | 3 | 0 |
+| Style/MapIntoArray | 0 | 3 | 0 |
 | Style/MethodCallWithoutArgsParentheses | 0 | 3 | 0 |
-| Style/CaseLikeIf | 0 | 2 | 0 |
+| Lint/UnmodifiedReduceAccumulator | 0 | 2 | 0 |
 | Style/MultipleComparison | 0 | 2 | 0 |
 | Style/PercentQLiterals | 0 | 2 | 0 |
-| Style/SuperArguments | 0 | 2 | 0 |
+| Style/CaseLikeIf | 0 | 1 | 0 |
 | Style/ConditionalAssignment | 0 | 1 | 0 |
 | Style/DocumentDynamicEvalDefinition | 0 | 1 | 0 |
+| Style/IdenticalConditionalBranches | 0 | 1 | 0 |
+| Style/RedundantParentheses | 0 | 1 | 0 |
+| Style/ReturnNilInPredicateMethodDefinition | 0 | 1 | 0 |
+| Style/StringLiteralsInInterpolation | 0 | 1 | 0 |
+| Style/SymbolProc | 0 | 1 | 0 |
+| Style/YAMLFileRead | 0 | 1 | 0 |
 
 </details>
 
 <details>
-<summary>Divergent cops — chatwoot (27 of 27 shown)</summary>
+<summary>Divergent cops — chatwoot (21 of 21 shown)</summary>
 
 | Cop | Matches | FP | FN |
 |-----|--------:|---:|---:|
-| Style/NumberedParameters | 0 | 744 | 0 |
-| Style/NumberedParametersLimit | 0 | 517 | 0 |
-| Style/MixinGrouping | 0 | 54 | 0 |
-| Style/FetchEnvVar | 0 | 37 | 0 |
+| Rails/StrongParametersExpect | 0 | 41 | 0 |
+| Rails/BulkChangeTable | 0 | 27 | 0 |
+| Style/FetchEnvVar | 0 | 15 | 0 |
+| Lint/ShadowingOuterLocalVariable | 0 | 12 | 0 |
 | Style/FormatStringToken | 0 | 12 | 0 |
-| Style/PercentLiteralDelimiters | 0 | 9 | 0 |
-| Style/KeywordArgumentsMerging | 0 | 8 | 0 |
-| Style/RedundantInitialize | 0 | 7 | 0 |
 | Style/HashAsLastArrayItem | 0 | 6 | 0 |
 | Style/MapIntoArray | 0 | 6 | 0 |
 | Layout/IndentationWidth | 0 | 5 | 0 |
@@ -189,36 +157,31 @@ Location-level comparison: file + line + cop_name. Only cops implemented by rbli
 | Layout/MultilineMethodCallIndentation | 0 | 2 | 0 |
 | Rails/FindById | 0 | 2 | 0 |
 | Rails/PluralizationGrammar | 0 | 2 | 0 |
-| Style/RandomWithOffset | 0 | 2 | 0 |
-| Style/RedundantFetchBlock | 0 | 2 | 0 |
-| Style/RedundantLineContinuation | 0 | 2 | 0 |
+| Style/RedundantInitialize | 0 | 2 | 0 |
 | Style/WhileUntilModifier | 0 | 2 | 0 |
 | Lint/AmbiguousRange | 0 | 1 | 0 |
 | Lint/DuplicateRegexpCharacterClassElement | 0 | 1 | 0 |
-| Style/EachWithObject | 0 | 1 | 0 |
+| Lint/UnescapedBracketInRegexp | 0 | 1 | 0 |
 | Style/HashLikeCase | 0 | 1 | 0 |
 | Style/IdenticalConditionalBranches | 0 | 1 | 0 |
-| Style/RedundantRegexpArgument | 0 | 1 | 0 |
 | Style/RedundantRegexpEscape | 0 | 1 | 0 |
 | Style/RedundantStringEscape | 0 | 1 | 0 |
 
 </details>
 
 <details>
-<summary>Divergent cops — errbit (11 of 11 shown)</summary>
+<summary>Divergent cops — errbit (9 of 9 shown)</summary>
 
 | Cop | Matches | FP | FN |
 |-----|--------:|---:|---:|
-| Style/NumberedParameters | 0 | 43 | 0 |
-| Style/NumberedParametersLimit | 0 | 37 | 0 |
-| Style/FetchEnvVar | 2 | 14 | 0 |
+| Style/FetchEnvVar | 2 | 6 | 0 |
 | Style/FormatStringToken | 4 | 4 | 0 |
-| Style/InverseMethods | 1 | 2 | 1 |
-| Style/MapIntoArray | 1 | 2 | 0 |
+| Rails/StrongParametersExpect | 0 | 3 | 0 |
 | Style/SoleNestedConditional | 0 | 1 | 1 |
 | Style/CollectionQuerying | 0 | 1 | 0 |
 | Style/IdenticalConditionalBranches | 0 | 1 | 0 |
-| Style/RedundantInitialize | 0 | 1 | 0 |
+| Style/InverseMethods | 1 | 0 | 1 |
+| Style/MapIntoArray | 1 | 1 | 0 |
 | Style/RedundantRegexpEscape | 0 | 0 | 1 |
 
 </details>
