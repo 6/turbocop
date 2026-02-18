@@ -2553,3 +2553,76 @@ fn no_redundant_disable_all() {
 
     fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn redundant_disable_renamed_cop_extended_format() {
+    // Naming/PredicateName was renamed to Naming/PredicatePrefix (extended format
+    // in obsoletion.yml with new_name key). A disable directive for the old name
+    // should be flagged as redundant since the old cop name no longer exists.
+    let dir = temp_dir("redundant_disable_renamed_cop");
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"# frozen_string_literal: true\n\ndef is_foo? # rubocop:disable Naming/PredicateName\n  true\nend\n",
+    );
+    let config = load_config(None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = default_args();
+
+    let result = run_linter(&[file], &config, &registry, &args);
+    let redundant: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
+        .collect();
+
+    assert_eq!(
+        redundant.len(),
+        1,
+        "Expected 1 redundant disable for renamed cop Naming/PredicateName, got: {:?}",
+        redundant
+    );
+    assert!(
+        redundant[0].message.contains("Naming/PredicateName"),
+        "Message should mention the old cop name: {}",
+        redundant[0].message
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn redundant_disable_renamed_cop_simple_value() {
+    // Layout/Tab was renamed to Layout/IndentationStyle (simple key: value format
+    // in obsoletion.yml). A disable directive for the old name should be flagged.
+    let dir = temp_dir("redundant_disable_renamed_simple");
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"# frozen_string_literal: true\n\nx = 1 # rubocop:disable Layout/Tab\n",
+    );
+    let config = load_config(None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = default_args();
+
+    let result = run_linter(&[file], &config, &registry, &args);
+    let redundant: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
+        .collect();
+
+    assert_eq!(
+        redundant.len(),
+        1,
+        "Expected 1 redundant disable for renamed cop Layout/Tab, got: {:?}",
+        redundant
+    );
+    assert!(
+        redundant[0].message.contains("Layout/Tab"),
+        "Message should mention the old cop name: {}",
+        redundant[0].message
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}

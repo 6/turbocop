@@ -183,6 +183,44 @@ impl CopFilterSet {
 
         true
     }
+
+    /// Check whether a file path would be matched (not excluded) by a cop's
+    /// Include/Exclude patterns from its `CopConfig`. This is used for cops
+    /// NOT in the registry (unimplemented cops from gem configs) to determine
+    /// if a `rubocop:disable` directive is redundant.
+    ///
+    /// Returns true if the file WOULD be matched (cop would run on it),
+    /// false if the file is excluded by Include/Exclude patterns.
+    pub fn is_path_matched_by_cop_config(&self, cop_config: &CopConfig, path: &Path) -> bool {
+        let include_pats: Vec<&str> = cop_config.include.iter().map(|s| s.as_str()).collect();
+        let exclude_pats: Vec<&str> = cop_config.exclude.iter().map(|s| s.as_str()).collect();
+        let include_set = build_glob_set(&include_pats);
+        let exclude_set = build_glob_set(&exclude_pats);
+
+        let rel_path = self
+            .nearest_config_dir(path)
+            .and_then(|cd| path.strip_prefix(cd).ok());
+
+        // Include check: if patterns exist, file must match at least one form
+        if let Some(ref inc) = include_set {
+            let included =
+                inc.is_match(path) || rel_path.is_some_and(|rel| inc.is_match(rel));
+            if !included {
+                return false;
+            }
+        }
+
+        // Exclude check: file is excluded if either path form matches
+        if let Some(ref exc) = exclude_set {
+            let excluded =
+                exc.is_match(path) || rel_path.is_some_and(|rel| exc.is_match(rel));
+            if excluded {
+                return false;
+            }
+        }
+
+        true
+    }
 }
 
 /// Walk the project tree and find directories containing `.rubocop.yml` files

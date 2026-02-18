@@ -76,6 +76,11 @@ static REPOS: &[BenchRepo] = &[
         url: "https://github.com/errbit/errbit.git",
         tag: "v0.10.7",
     },
+    BenchRepo {
+        name: "activeadmin",
+        url: "https://github.com/activeadmin/activeadmin.git",
+        tag: "v3.4.0",
+    },
 ];
 
 // --- Helpers ---

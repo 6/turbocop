@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::LazyLock;
 
 use rayon::prelude::*;
 use ruby_prism::Visit;
@@ -10,6 +12,61 @@ use crate::cop::walker::CopWalker;
 use crate::diagnostic::{Diagnostic, Location, Severity};
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
+
+/// Renamed cops from vendor/rubocop/config/obsoletion.yml.
+/// Maps old cop name -> new cop name (e.g., "Naming/PredicateName" -> "Naming/PredicatePrefix").
+static RENAMED_COPS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
+    parse_renamed_cops(include_str!(
+        "../vendor/rubocop/config/obsoletion.yml"
+    ))
+});
+
+/// Parse the `renamed:` section from obsoletion.yml content.
+///
+/// The YAML format supports two styles:
+///   - Simple:   `OldName: NewName`
+///   - Extended:  `OldName:\n  new_name: NewName\n  severity: warning`
+fn parse_renamed_cops(yaml_content: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+
+    let raw: serde_yml::Value = match serde_yml::from_str(yaml_content) {
+        Ok(v) => v,
+        Err(_) => return map,
+    };
+
+    let Some(renamed) = raw.get("renamed") else {
+        return map;
+    };
+    let Some(mapping) = renamed.as_mapping() else {
+        return map;
+    };
+
+    for (key, value) in mapping {
+        let Some(old_name) = key.as_str() else {
+            continue;
+        };
+
+        let new_name = if let Some(s) = value.as_str() {
+            // Simple format: OldName: NewName
+            s.to_string()
+        } else if let Some(inner_map) = value.as_mapping() {
+            // Extended format: OldName: { new_name: NewName, severity: ... }
+            inner_map
+                .get(&serde_yml::Value::String("new_name".to_string()))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_default()
+        } else {
+            continue;
+        };
+
+        if !new_name.is_empty() {
+            map.insert(old_name.to_string(), new_name);
+        }
+    }
+
+    map
+}
 
 pub struct LintResult {
     pub diagnostics: Vec<Diagnostic>,
@@ -87,19 +144,21 @@ const REDUNDANT_DISABLE_COP: &str = "Lint/RedundantCopDisableDirective";
 /// Returns true if the directive IS redundant (should be reported), false if
 /// we should skip it.
 ///
-/// The logic is ultra-conservative to avoid false positives:
+/// The logic is conservative to avoid false positives:
 ///   - "all" or department-only directives: never flag (too broad to check)
-///   - Cop NOT in the registry: never flag (could be a custom cop from a
-///     plugin gem, a project-local cop, or a renamed/removed cop)
 ///   - Known cop that is explicitly disabled (Enabled: false): flag as redundant
-///   - Known cop that is enabled: never flag, even if Include/Exclude would
-///     exclude it from this file, because rblint's path resolution may differ
-///     from RuboCop's (e.g., per-directory .rubocop.yml overrides)
+///   - Known cop that is enabled: don't flag (rblint may have detection gaps)
+///   - Renamed cop (per obsoletion.yml) whose new name IS in the registry:
+///     flag as redundant (the old name is obsolete)
+///   - Cop NOT in the registry but known from gem config (has Include/Exclude):
+///     flag as redundant if the file is excluded by those patterns
+///   - Completely unknown cop: never flag (could be custom/project-local)
 fn is_directive_redundant(
     cop_name: &str,
     registry: &CopRegistry,
     cop_filters: &CopFilterSet,
-    _path: &Path, // reserved for future Include/Exclude-based detection
+    config: &ResolvedConfig,
+    path: &Path,
 ) -> bool {
     // "all" is a wildcard — never flag (too broad to determine redundancy)
     if cop_name == "all" {
@@ -120,25 +179,55 @@ fn is_directive_redundant(
 
     if let Some((idx, _)) = cop_entry {
         // Cop IS in the registry.
-        // Only flag when the cop is explicitly disabled (Enabled: false).
-        // Do NOT flag when the cop is enabled but fails Include/Exclude matching,
-        // because rblint's Include/Exclude resolution may differ from RuboCop's
-        // (e.g., per-directory .rubocop.yml overrides, plugin gem path patterns).
-        // Also don't flag running cops — rblint might just have a detection gap.
         let filter = cop_filters.cop_filter(idx);
         if !filter.is_enabled() {
             // Cop is explicitly disabled — the disable directive is redundant.
             true
         } else {
-            // Cop is enabled (even if Include/Exclude might exclude it) — don't flag.
+            // Cop is enabled — don't flag even if excluded by Include/Exclude.
+            // The Include/Exclude matching uses relative paths which may not
+            // resolve correctly for all file paths, and rblint may have
+            // detection gaps vs. RuboCop. Conservative approach: only flag
+            // explicitly disabled cops.
             false
         }
     } else {
-        // Cop is NOT in the registry — never flag.
-        // It could be a custom cop from a plugin gem (e.g., InternalAffairs/*,
-        // Discourse/*), a project-local custom cop (e.g., Style/MiddleDot),
-        // or a renamed/removed cop. We can't distinguish these cases reliably,
-        // so we conservatively skip all of them to avoid false positives.
+        // Cop is NOT in the registry. Check if it's a renamed cop whose new
+        // name IS in the registry and is enabled. RuboCop treats disable
+        // directives for renamed cops as redundant since the old name no
+        // longer exists.
+        if let Some(new_name) = RENAMED_COPS.get(cop_name) {
+            let new_cop_entry = registry
+                .cops()
+                .iter()
+                .enumerate()
+                .find(|(_, c)| c.name() == new_name.as_str());
+
+            if let Some((_idx, _)) = new_cop_entry {
+                // The renamed-to cop IS in the registry.
+                // Regardless of enabled/disabled state, a disable for the old
+                // (renamed) name is always redundant — the old cop no longer exists.
+                return true;
+            }
+        }
+
+        // Not a renamed cop (or renamed-to cop is also not in registry).
+        // Check if it's known from gem config (has Include/Exclude patterns).
+        // For example, Discourse/* cops from rubocop-discourse have Include
+        // patterns that limit them to spec files — a disable directive in a
+        // non-spec file is redundant. Similarly, cops excluded from certain
+        // paths via Exclude patterns (e.g., **/app/controllers/**) are
+        // redundant to disable in those files.
+        let cop_config = config.cop_config(cop_name);
+        if !cop_config.include.is_empty() || !cop_config.exclude.is_empty() {
+            if !cop_filters.is_path_matched_by_cop_config(&cop_config, path) {
+                return true;
+            }
+        }
+
+        // Unknown cop with no Include/Exclude info, or file IS matched —
+        // don't flag. Could be a custom cop, project-local cop, or the
+        // directive is genuinely needed.
         false
     }
 }
@@ -213,13 +302,13 @@ fn lint_source_inner(
 
     // Generate Lint/RedundantCopDisableDirective offenses for unused directives.
     //
-    // Only flag a directive as redundant when:
+    // Flag a directive as redundant when:
     //   - The referenced cop is in the registry AND explicitly disabled (Enabled: false)
-    //
-    // We intentionally skip:
-    //   - Unknown cops (could be custom/plugin/renamed cops)
-    //   - Enabled cops (rblint may have detection gaps vs. RuboCop)
-    //   - Cops excluded by Include/Exclude (rblint's path resolution may differ)
+    //   - The referenced cop is in the registry, enabled, but excluded from this
+    //     file by Include/Exclude patterns
+    //   - The referenced cop is a renamed cop (old name is obsolete)
+    //   - The referenced cop is from a gem config with Include/Exclude patterns
+    //     that exclude this file
     //
     // Only run when:
     // 1. There are disable directives to check
@@ -245,6 +334,7 @@ fn lint_source_inner(
                     &directive.cop_name,
                     registry,
                     cop_filters,
+                    config,
                     &source.path,
                 ) {
                     continue;
