@@ -47,8 +47,8 @@ impl Cop for NegatedIfElseCondition {
             if !is_ternary {
                 let kw = if_node.if_keyword_loc().unwrap();
                 let kw_bytes = kw.as_slice();
-                // Must be `if`, not `unless`
-                if kw_bytes == b"unless" {
+                // Must be `if`, not `unless` or `elsif`
+                if kw_bytes == b"unless" || kw_bytes == b"elsif" {
                     return Vec::new();
                 }
             }

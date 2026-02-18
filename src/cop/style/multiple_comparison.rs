@@ -40,18 +40,24 @@ impl MultipleComparison {
                 let lhs_src = lhs.location().as_slice();
                 let rhs_src = rhs.location().as_slice();
 
-                // Try lhs as the variable
-                if lhs.as_local_variable_read_node().is_some() {
+                // Try lhs as the variable, rhs as the value
+                if lhs.as_local_variable_read_node().is_some()
+                    || (!allow_method && lhs.as_call_node().is_some())
+                {
+                    // When AllowMethodComparison is true, skip if the value
+                    // (other side) is a method call
+                    if allow_method && rhs.as_call_node().is_some() {
+                        return None;
+                    }
                     return Some((lhs_src.to_vec(), 1));
                 }
-                if !allow_method && lhs.as_call_node().is_some() {
-                    return Some((lhs_src.to_vec(), 1));
-                }
-                // Try rhs as the variable
-                if rhs.as_local_variable_read_node().is_some() {
-                    return Some((rhs_src.to_vec(), 1));
-                }
-                if !allow_method && rhs.as_call_node().is_some() {
+                // Try rhs as the variable, lhs as the value
+                if rhs.as_local_variable_read_node().is_some()
+                    || (!allow_method && rhs.as_call_node().is_some())
+                {
+                    if allow_method && lhs.as_call_node().is_some() {
+                        return None;
+                    }
                     return Some((rhs_src.to_vec(), 1));
                 }
             }

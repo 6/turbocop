@@ -77,6 +77,13 @@ impl<'pr> Visit<'pr> for HashLikeCaseVisitor<'_, '_> {
             return;
         }
 
+        // Must not have an else clause — a case with else can't be trivially
+        // replaced with a hash lookup
+        if node.else_clause().is_some() {
+            ruby_prism::visit_case_node(self, node);
+            return;
+        }
+
         let conditions: Vec<_> = node.conditions().iter().collect();
         let when_count = conditions.len();
 

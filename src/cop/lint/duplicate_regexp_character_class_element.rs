@@ -33,6 +33,7 @@ impl Cop for DuplicateRegexpCharacterClassElement {
             Err(_) => return Vec::new(),
         };
 
+
         let mut diagnostics = Vec::new();
         let bytes = source.as_bytes();
         let content_loc = regexp.content_loc();
@@ -94,7 +95,7 @@ fn find_char_class_end(chars: &[char], open: usize) -> Option<usize> {
 
     while j < chars.len() {
         if chars[j] == '\\' && j + 1 < chars.len() {
-            j += 2; // skip escaped char
+            j += escape_sequence_len(chars, j);
         } else if chars[j] == '[' {
             if j + 1 < chars.len() && chars[j + 1] == ':' {
                 // POSIX character class like [:digit:] — skip to :]
@@ -169,40 +170,49 @@ fn check_class_for_duplicates(
                 k += 1;
             }
         } else if class_content[k] == '\\' && k + 1 < class_content.len() {
-            // Handle \p{...} and \P{...} Unicode property escapes as single entity
-            let next = class_content[k + 1];
-            if (next == 'p' || next == 'P') && k + 2 < class_content.len() && class_content[k + 2] == '{' {
-                // Find closing }
-                let mut p = k + 3;
-                while p < class_content.len() && class_content[p] != '}' {
-                    p += 1;
+            let esc_len = escape_sequence_len(class_content, k);
+            let entity: String = class_content[k..k + esc_len].iter().collect();
+
+            // Check if this escape is followed by `-` forming a range
+            let after_esc = k + esc_len;
+            if after_esc + 1 < class_content.len()
+                && class_content[after_esc] == '-'
+                && class_content[after_esc + 1] != ']'
+            {
+                // Range where the start is an escape sequence (e.g. \x00-\x1F)
+                let range_end_start = after_esc + 1;
+                let range_end_len = if class_content[range_end_start] == '\\' && range_end_start + 1 < class_content.len() {
+                    escape_sequence_len(class_content, range_end_start)
+                } else {
+                    1
+                };
+                let range_str: String = class_content[k..range_end_start + range_end_len].iter().collect();
+                if !seen.insert(range_str) {
+                    emit_duplicate(cop, source, all_chars, class_start_in_all + k, content_start, bytes, diagnostics);
                 }
-                if p < class_content.len() {
-                    p += 1; // include the }
-                }
-                let entity: String = class_content[k..p].iter().collect();
+                k = range_end_start + range_end_len;
+            } else {
                 if !seen.insert(entity) {
                     emit_duplicate(cop, source, all_chars, class_start_in_all + k, content_start, bytes, diagnostics);
                 }
-                k = p;
-            } else {
-                // Regular escaped character: \s, \d, \n, etc.
-                let escaped: String = class_content[k..k + 2].iter().collect();
-                if !seen.insert(escaped) {
-                    emit_duplicate(cop, source, all_chars, class_start_in_all + k, content_start, bytes, diagnostics);
-                }
-                k += 2;
+                k += esc_len;
             }
         } else if k + 2 < class_content.len()
             && class_content[k + 1] == '-'
             && class_content[k + 2] != ']'
         {
-            // Range like a-z, skip as a unit
-            let range: String = class_content[k..k + 3].iter().collect();
+            // Range like a-z — the end might be an escape sequence
+            let range_end_start = k + 2;
+            let range_end_len = if class_content[range_end_start] == '\\' && range_end_start + 1 < class_content.len() {
+                escape_sequence_len(class_content, range_end_start)
+            } else {
+                1
+            };
+            let range: String = class_content[k..range_end_start + range_end_len].iter().collect();
             if !seen.insert(range) {
                 emit_duplicate(cop, source, all_chars, class_start_in_all + k, content_start, bytes, diagnostics);
             }
-            k += 3;
+            k = range_end_start + range_end_len;
         } else {
             // Single character
             let ch = class_content[k].to_string();
@@ -211,6 +221,87 @@ fn check_class_for_duplicates(
             }
             k += 1;
         }
+    }
+}
+
+/// Calculate the length of an escape sequence starting at `chars[start]` == `\`.
+/// Handles: \xHH (4), \uHHHH (6), \u{...} (variable), \p{...}/\P{...} (variable),
+/// \cX (3), \C-X (4), \M-X (4), \M-\C-X (6), octal \0nn (up to 4), and simple 2-char escapes.
+fn escape_sequence_len(chars: &[char], start: usize) -> usize {
+    let len = chars.len();
+    if start + 1 >= len {
+        return 1; // lone backslash at end
+    }
+    let next = chars[start + 1];
+    match next {
+        'x' => {
+            // \xHH — up to 2 hex digits
+            let mut count = 2; // \x
+            let mut i = start + 2;
+            while i < len && count < 4 && chars[i].is_ascii_hexdigit() {
+                count += 1;
+                i += 1;
+            }
+            count
+        }
+        'u' => {
+            if start + 2 < len && chars[start + 2] == '{' {
+                // \u{HHHH} — variable length
+                let mut p = start + 3;
+                while p < len && chars[p] != '}' {
+                    p += 1;
+                }
+                if p < len {
+                    p + 1 - start // include closing }
+                } else {
+                    p - start
+                }
+            } else {
+                // \uHHHH — exactly 4 hex digits
+                let mut count = 2; // \u
+                let mut i = start + 2;
+                while i < len && count < 6 && chars[i].is_ascii_hexdigit() {
+                    count += 1;
+                    i += 1;
+                }
+                count
+            }
+        }
+        'p' | 'P' => {
+            // \p{Name} or \P{Name}
+            if start + 2 < len && chars[start + 2] == '{' {
+                let mut p = start + 3;
+                while p < len && chars[p] != '}' {
+                    p += 1;
+                }
+                if p < len {
+                    p + 1 - start
+                } else {
+                    p - start
+                }
+            } else {
+                2
+            }
+        }
+        'c' => {
+            // \cX — control character
+            if start + 2 < len {
+                3
+            } else {
+                2
+            }
+        }
+        '0'..='7' => {
+            // Octal escape: \0, \00, \000, \1, \12, \123, etc.
+            let mut count = 2; // \ + first digit
+            let mut i = start + 2;
+            while i < len && count < 4 && chars[i] >= '0' && chars[i] <= '7' {
+                count += 1;
+                i += 1;
+            }
+            count
+        }
+        _ => 2, // Simple 2-char escape: \n, \t, \s, \d, \w, etc.
     }
 }
 

@@ -53,6 +53,11 @@ impl Cop for MethodCallWithoutArgsParentheses {
             return Vec::new();
         }
 
+        // Skip operator methods ([], []=, etc.) - these use bracket syntax, not parentheses
+        if method_bytes == b"[]" || method_bytes == b"[]=" {
+            return Vec::new();
+        }
+
         // Skip `not()` - keyword (Prism names it `!` internally but message_loc is `not`)
         if method_bytes == b"not" || msg_loc.as_slice() == b"not" {
             return Vec::new();

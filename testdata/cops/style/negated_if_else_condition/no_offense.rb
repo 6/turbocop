@@ -19,3 +19,12 @@ elsif y
 else
   three
 end
+
+# Elsif with negated condition should not be flagged
+if x
+  do_a
+elsif !y
+  do_b
+else
+  do_c
+end

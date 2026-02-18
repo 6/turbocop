@@ -15,3 +15,9 @@ r = /[^\P{ASCII}]/
 # Character class intersection should not trigger false positives
 r = /[\S&&[^\\]]/
 r = /[a-z&&[^aeiou]]/
+# Hex escape sequences in character classes should not trigger false positives
+r = /[\x00-\x1F\x7F]/
+r = /[\x20-\x7E]/
+r = /[\\<>@"!#$%&*+=?^`{|}~:;]/
+# Octal escapes should not trigger false positives
+r = /[\0\1\2]/

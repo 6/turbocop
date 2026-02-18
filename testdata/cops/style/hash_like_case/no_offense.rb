@@ -23,3 +23,15 @@ when x == 'b'
 when x == 'c'
   3
 end
+
+# Case with else clause - can't trivially replace with hash
+case x
+when 'a'
+  'first'
+when 'b'
+  'second'
+when 'c'
+  'third'
+else
+  'default'
+end

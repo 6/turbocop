@@ -9,10 +9,30 @@ impl Cop for DoubleCopDisableDirective {
         "Style/DoubleCopDisableDirective"
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_source(
+        &self,
+        source: &SourceFile,
+        _parse_result: &ruby_prism::ParseResult<'_>,
+        code_map: &crate::parse::codemap::CodeMap,
+        _config: &CopConfig,
+    ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
 
-        for (i, line) in source.lines().enumerate() {
+        // Compute line byte offsets for heredoc checking
+        let lines: Vec<&[u8]> = source.lines().collect();
+        let mut line_offsets = Vec::with_capacity(lines.len());
+        let mut offset = 0usize;
+        for line in &lines {
+            line_offsets.push(offset);
+            offset += line.len() + 1;
+        }
+
+        for (i, line) in lines.iter().enumerate() {
+            // Skip lines inside heredocs
+            if i < line_offsets.len() && code_map.is_heredoc(line_offsets[i]) {
+                continue;
+            }
+
             let line_str = match std::str::from_utf8(line) {
                 Ok(s) => s,
                 Err(_) => continue,

@@ -5,6 +5,35 @@ use crate::parse::source::SourceFile;
 
 pub struct FindById;
 
+/// Check if a call has exactly one keyword argument with key `:id`.
+fn has_sole_id_keyword_arg(call: &ruby_prism::CallNode<'_>) -> bool {
+    let args = match call.arguments() {
+        Some(a) => a,
+        None => return false,
+    };
+    let all_args: Vec<_> = args.arguments().iter().collect();
+    if all_args.len() != 1 {
+        return false;
+    }
+    let kw = match all_args[0].as_keyword_hash_node() {
+        Some(k) => k,
+        None => return false,
+    };
+    let elements: Vec<_> = kw.elements().iter().collect();
+    if elements.len() != 1 {
+        return false;
+    }
+    let assoc = match elements[0].as_assoc_node() {
+        Some(a) => a,
+        None => return false,
+    };
+    let sym = match assoc.key().as_symbol_node() {
+        Some(s) => s,
+        None => return false,
+    };
+    sym.unescaped() == b"id"
+}
+
 impl Cop for FindById {
     fn name(&self) -> &'static str {
         "Rails/FindById"
@@ -43,21 +72,17 @@ impl Cop for FindById {
             return Vec::new();
         }
 
-        // Pattern 2: find_by!(id: value)
+        // Pattern 2: find_by!(id: value) — only when id is the sole argument
         if name == b"find_by!" {
-            if call.receiver().is_some() {
-                if let Some(val) = util::keyword_arg_value(&call, b"id") {
-                    // Only flag if it's the sole keyword argument
-                    let _ = val;
-                    let loc = call.message_loc().unwrap_or(call.location());
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Use `find` instead of `find_by!`.".to_string(),
-                    )];
-                }
+            if call.receiver().is_some() && has_sole_id_keyword_arg(&call) {
+                let loc = call.message_loc().unwrap_or(call.location());
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                return vec![self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use `find` instead of `find_by!`.".to_string(),
+                )];
             }
             return Vec::new();
         }
@@ -71,8 +96,8 @@ impl Cop for FindById {
             if chain.inner_method != b"where" {
                 return Vec::new();
             }
-            // Check that `where` has an `id:` keyword arg
-            if util::keyword_arg_value(&chain.inner_call, b"id").is_some() {
+            // Check that `where` has `id:` as the sole keyword arg
+            if has_sole_id_keyword_arg(&chain.inner_call) {
                 let loc = chain.inner_call.message_loc().unwrap_or(chain.inner_call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 return vec![self.diagnostic(

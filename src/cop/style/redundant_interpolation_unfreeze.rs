@@ -14,8 +14,18 @@ impl Cop for RedundantInterpolationUnfreeze {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     ) -> Vec<Diagnostic> {
+        // minimum_target_ruby_version 3.0 — only applies for Ruby 3.0+
+        let ruby_version = config
+            .options
+            .get("TargetRubyVersion")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(3.4);
+        if ruby_version < 3.0 {
+            return Vec::new();
+        }
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return Vec::new(),

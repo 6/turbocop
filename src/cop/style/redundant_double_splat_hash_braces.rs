@@ -43,8 +43,19 @@ impl RedundantDoubleSplatHashBraces {
                         if hash.elements().iter().next().is_none() {
                             continue;
                         }
-                    }
-                    if value.as_hash_node().is_some() {
+                        // Skip if any pair uses hash rocket (=>) syntax
+                        // because non-symbol keys can't be keyword arguments
+                        let has_hash_rocket = hash.elements().iter().any(|e| {
+                            if let Some(assoc) = e.as_assoc_node() {
+                                assoc.operator_loc().is_some()
+                                    && assoc.operator_loc().unwrap().as_slice() == b"=>"
+                            } else {
+                                false
+                            }
+                        });
+                        if has_hash_rocket {
+                            continue;
+                        }
                         let loc = element.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
                         diagnostics.push(self.diagnostic(

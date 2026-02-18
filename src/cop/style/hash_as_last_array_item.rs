@@ -40,6 +40,18 @@ impl Cop for HashAsLastArrayItem {
             "braces" => {
                 // Flag keyword hash (no braces) as last array item
                 if last.as_keyword_hash_node().is_some() {
+                    // Don't flag if ALL elements are keyword hashes (matching current style)
+                    let all_keyword_hashes = elements.iter().all(|e| e.as_keyword_hash_node().is_some());
+                    if all_keyword_hashes {
+                        return Vec::new();
+                    }
+                    // Don't flag if second-to-last element is also a hash
+                    if elements.len() >= 2 {
+                        let second_last = &elements[elements.len() - 2];
+                        if second_last.as_keyword_hash_node().is_some() || second_last.as_hash_node().is_some() {
+                            return Vec::new();
+                        }
+                    }
                     let loc = last.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
                     return vec![self.diagnostic(
