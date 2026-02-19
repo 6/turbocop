@@ -56,14 +56,24 @@ pub fn read_lock(dir: &Path) -> Result<RblintLock> {
     Ok(lock)
 }
 
-/// Check that the lockfile is still fresh (Gemfile.lock hasn't changed).
-/// Returns an error if stale.
+/// Check that the cache is still fresh.
+/// Detects: Gemfile.lock changes, Ruby version switches, gem reinstalls.
 pub fn check_freshness(lock: &RblintLock, dir: &Path) -> Result<()> {
     let current_hash = hash_file(&dir.join("Gemfile.lock"));
     if lock.gemfile_lock_sha256 != current_hash {
         anyhow::bail!(
             "Stale .rblint.cache (Gemfile.lock changed). Run 'rblint --init' to refresh."
         );
+    }
+    // Verify cached gem paths still exist (catches Ruby version switches,
+    // gem reinstalls, rbenv rehash, etc.)
+    for (name, path) in &lock.gems {
+        if !path.exists() {
+            anyhow::bail!(
+                "Stale .rblint.cache (gem path for '{name}' no longer exists: {}). Run 'rblint --init' to refresh.",
+                path.display()
+            );
+        }
     }
     Ok(())
 }
