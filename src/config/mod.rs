@@ -1003,7 +1003,7 @@ fn load_config_recursive(
                 for (gem_key, gem_paths) in gem_map {
                     if let Some(gem_name) = gem_key.as_str() {
                         let gem_layers =
-                            resolve_inherit_gem(gem_name, gem_paths, working_dir, visited, gem_cache);
+                            resolve_inherit_gem(gem_name, gem_paths, working_dir, visited, gem_cache)?;
                         for layer in gem_layers {
                             merge_layer_into(&mut base_layer, &layer, None);
                         }
@@ -1059,23 +1059,26 @@ fn load_config_recursive(
 
 /// Resolve `inherit_gem` entries. Each gem name maps to one or more YAML paths
 /// relative to the gem's root directory.
+///
+/// Returns an error if the gem cannot be resolved — this is intentionally a hard
+/// failure because `inherit_gem` configs can set critical flags like
+/// `DisabledByDefault: true`. Silently skipping them leads to incorrect behavior.
 fn resolve_inherit_gem(
     gem_name: &str,
     paths_value: &Value,
     working_dir: &Path,
     visited: &mut HashSet<PathBuf>,
     gem_cache: Option<&HashMap<String, PathBuf>>,
-) -> Vec<ConfigLayer> {
+) -> Result<Vec<ConfigLayer>> {
     let gem_root = if let Some(path) = gem_cache.and_then(|c| c.get(gem_name)) {
         path.clone()
     } else {
-        match gem_path::resolve_gem_path(gem_name, working_dir) {
-            Ok(p) => p,
-            Err(e) => {
-                eprintln!("warning: {e:#}");
-                return vec![];
-            }
-        }
+        gem_path::resolve_gem_path(gem_name, working_dir).with_context(|| {
+            format!(
+                "inherit_gem: failed to resolve gem '{gem_name}'. \
+                 Run `bundle install` to install it, or remove it from inherit_gem in .rubocop.yml."
+            )
+        })?
     };
 
     let rel_paths: Vec<String> = match paths_value {
@@ -1091,24 +1094,24 @@ fn resolve_inherit_gem(
     for rel_path in &rel_paths {
         let full_path = gem_root.join(rel_path);
         if !full_path.exists() {
-            eprintln!(
-                "warning: inherit_gem config not found: {} (gem {})",
+            anyhow::bail!(
+                "inherit_gem: config file not found: {} (gem '{gem_name}')",
                 full_path.display(),
-                gem_name
             );
-            continue;
         }
         match load_config_recursive(&full_path, working_dir, visited, gem_cache) {
             Ok(layer) => layers.push(layer),
             Err(e) => {
-                eprintln!(
-                    "warning: failed to load gem config {}: {e:#}",
-                    full_path.display()
-                );
+                return Err(e).with_context(|| {
+                    format!(
+                        "inherit_gem: failed to load config {} from gem '{gem_name}'",
+                        full_path.display()
+                    )
+                });
             }
         }
     }
-    layers
+    Ok(layers)
 }
 
 /// Parse a single YAML Value into a ConfigLayer (no inheritance resolution).
@@ -3146,6 +3149,71 @@ mod tests {
         assert!(config.is_cop_enabled("Style/Foo", Path::new("a.rb"), &[], &[]));
         // Unmentioned cop is disabled
         assert!(!config.is_cop_enabled("Style/Bar", Path::new("a.rb"), &[], &[]));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn disabled_by_default_via_inherit_gem() {
+        // Simulates the discourse scenario: inherit_gem loads a config that
+        // sets DisabledByDefault: true. Only explicitly enabled cops should run.
+        let dir = std::env::temp_dir().join("rblint_test_disabled_by_default_inherit_gem");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        // Create a fake gem directory with a config file that sets DisabledByDefault
+        let fake_gem_dir = dir.join("fake-rubocop-plugin");
+        fs::create_dir_all(&fake_gem_dir).unwrap();
+        write_yaml(
+            &fake_gem_dir,
+            "custom.yml",
+            "AllCops:\n  DisabledByDefault: true\n",
+        );
+
+        // Pre-populate gem cache so we don't need `bundle`
+        let mut gem_cache = HashMap::new();
+        gem_cache.insert(
+            "fake-rubocop-plugin".to_string(),
+            fake_gem_dir.clone(),
+        );
+
+        // Project config inherits from the fake gem and enables one cop
+        let path = write_config(
+            &dir,
+            "inherit_gem:\n  fake-rubocop-plugin: custom.yml\nStyle/Foo:\n  Enabled: true\n",
+        );
+        let config = load_config(Some(&path), None, Some(&gem_cache)).unwrap();
+
+        // Explicitly enabled cop is still enabled
+        assert!(config.is_cop_enabled("Style/Foo", Path::new("a.rb"), &[], &[]));
+        // Unmentioned cops are disabled (DisabledByDefault from inherited gem)
+        assert!(!config.is_cop_enabled("Style/Bar", Path::new("a.rb"), &[], &[]));
+        assert!(!config.is_cop_enabled("Lint/SomeOtherCop", Path::new("a.rb"), &[], &[]));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn inherit_gem_missing_gem_returns_error() {
+        // When inherit_gem references a gem that can't be resolved, load_config
+        // should return an error rather than silently skipping the config.
+        let dir = std::env::temp_dir().join("rblint_test_inherit_gem_missing");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let path = write_config(
+            &dir,
+            "inherit_gem:\n  nonexistent-gem-xyz: config.yml\n",
+        );
+        // Pass empty gem cache — gem won't be found
+        let gem_cache = HashMap::new();
+        let result = load_config(Some(&path), Some(&dir), Some(&gem_cache));
+        assert!(result.is_err(), "Expected error for missing inherit_gem, got Ok");
+        let err_msg = format!("{:#}", result.unwrap_err());
+        assert!(
+            err_msg.contains("inherit_gem") && err_msg.contains("nonexistent-gem-xyz"),
+            "Error should mention inherit_gem and the gem name, got: {err_msg}"
+        );
 
         fs::remove_dir_all(&dir).ok();
     }
