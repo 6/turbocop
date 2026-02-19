@@ -32,8 +32,69 @@ pub fn run(args: Args) -> Result<i32> {
             p.as_path()
         }
     });
+
+    let registry = CopRegistry::default_registry();
+
+    // --list-cops: print all registered cop names and exit (no config needed)
+    if args.list_cops {
+        let mut names: Vec<&str> = registry.cops().iter().map(|c| c.name()).collect();
+        names.sort();
+        for name in names {
+            println!("{name}");
+        }
+        return Ok(0);
+    }
+
+    // --init: resolve gem paths and write .rblint.lock
+    if args.init {
+        let config_start = std::time::Instant::now();
+        let config = load_config(args.config.as_deref(), target_dir, None)?;
+        let config_elapsed = config_start.elapsed();
+
+        let gem_paths = config::gem_path::drain_resolved_paths();
+        let lock_dir = config
+            .config_dir()
+            .unwrap_or_else(|| target_dir.unwrap_or(std::path::Path::new(".")));
+        config::lockfile::write_lock(&gem_paths, lock_dir)?;
+
+        eprintln!(
+            "Created .rblint.lock ({} gems cached in {config_elapsed:.0?})",
+            gem_paths.len()
+        );
+        for (name, path) in &gem_paths {
+            eprintln!("  {name}: {}", path.display());
+        }
+        return Ok(0);
+    }
+
+    // Determine whether to use lockfile:
+    // --no-lock, --rubocop-only, and --stdin bypass the lockfile requirement
+    let use_lockfile = !args.no_lock && !args.rubocop_only && args.stdin.is_none();
+
+    // Load config — use lockfile if available
     let config_start = std::time::Instant::now();
-    let config = load_config(args.config.as_deref(), target_dir)?;
+    let config = if use_lockfile {
+        // Try to find config dir for lockfile lookup
+        let lock_dir = target_dir.unwrap_or(std::path::Path::new("."));
+        match config::lockfile::read_lock(lock_dir) {
+            Ok(lock) => {
+                config::lockfile::check_freshness(&lock, lock_dir)?;
+                if args.debug {
+                    eprintln!(
+                        "debug: using .rblint.lock ({} cached gems)",
+                        lock.gems.len()
+                    );
+                }
+                load_config(args.config.as_deref(), target_dir, Some(&lock.gems))?
+            }
+            Err(e) => {
+                // If lockfile is missing, fail with helpful message
+                anyhow::bail!("{e}");
+            }
+        }
+    } else {
+        load_config(args.config.as_deref(), target_dir, None)?
+    };
     let config_elapsed = config_start.elapsed();
 
     if args.debug {
@@ -48,18 +109,6 @@ pub fn run(args: Args) -> Result<i32> {
             "debug: global excludes: {:?}",
             config.global_excludes()
         );
-    }
-
-    let registry = CopRegistry::default_registry();
-
-    // --list-cops: print all registered cop names and exit
-    if args.list_cops {
-        let mut names: Vec<&str> = registry.cops().iter().map(|c| c.name()).collect();
-        names.sort();
-        for name in names {
-            println!("{name}");
-        }
-        return Ok(0);
     }
 
     // --rubocop-only: print uncovered cops and exit

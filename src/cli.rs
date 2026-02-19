@@ -44,4 +44,12 @@ pub struct Args {
     /// Read source from stdin, use PATH for display and config matching
     #[arg(long, value_name = "PATH")]
     pub stdin: Option<PathBuf>,
+
+    /// Generate .rblint.lock with cached gem paths and exit
+    #[arg(long)]
+    pub init: bool,
+
+    /// Skip .rblint.lock requirement (use bundler directly for gem resolution)
+    #[arg(long)]
+    pub no_lock: bool,
 }

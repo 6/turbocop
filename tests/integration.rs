@@ -41,6 +41,8 @@ fn default_args() -> Args {
         rubocop_only: false,
         list_cops: false,
         stdin: None,
+        init: false,
+        no_lock: false,
     }
 }
 
@@ -54,7 +56,7 @@ fn lint_clean_file_no_offenses() {
         "clean.rb",
         b"# frozen_string_literal: true\n\nx = 1\ny = 2\n",
     );
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -77,7 +79,7 @@ fn lint_file_with_multiple_offenses() {
     let dir = temp_dir("multi_offense");
     // Missing frozen_string_literal + trailing whitespace
     let file = write_file(&dir, "bad.rb", b"x = 1  \ny = 2\n");
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -107,7 +109,7 @@ fn lint_multiple_files() {
     );
     let f2 = write_file(&dir, "b.rb", b"y = 2  \n");
 
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -138,7 +140,7 @@ fn only_filter_limits_cops() {
     let dir = temp_dir("only_filter");
     // Missing frozen_string_literal + trailing whitespace
     let file = write_file(&dir, "test.rb", b"x = 1  \n");
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
         only: vec!["Layout/TrailingWhitespace".to_string()],
@@ -167,7 +169,7 @@ fn only_filter_limits_cops() {
 fn except_filter_excludes_cops() {
     let dir = temp_dir("except_filter");
     let file = write_file(&dir, "test.rb", b"x = 1  \n");
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
         except: vec![
@@ -195,7 +197,7 @@ fn except_filter_excludes_cops() {
 fn only_with_single_cop_on_clean_file() {
     let dir = temp_dir("only_clean");
     let file = write_file(&dir, "test.rb", b"x = 1\ny = 2\n");
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
         only: vec!["Layout/TrailingWhitespace".to_string()],
@@ -219,7 +221,7 @@ fn config_disables_cop() {
         ".rubocop.yml",
         b"Layout/TrailingWhitespace:\n  Enabled: false\nStyle/FrozenStringLiteralComment:\n  Enabled: false\n",
     );
-    let config = load_config(Some(config_path.as_path()), None).unwrap();
+    let config = load_config(Some(config_path.as_path()), None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -254,7 +256,7 @@ fn config_line_length_max_override() {
         ".rubocop.yml",
         b"Layout/LineLength:\n  Max: 10\n",
     );
-    let config = load_config(Some(config_path.as_path()), None).unwrap();
+    let config = load_config(Some(config_path.as_path()), None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
         only: vec!["Layout/LineLength".to_string()],
@@ -284,7 +286,7 @@ fn default_line_length_allows_120() {
         "x" .repeat(120)
     );
     let file = write_file(&dir, "test.rb", line.as_bytes());
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
         only: vec!["Layout/LineLength".to_string()],
@@ -306,7 +308,7 @@ fn default_line_length_allows_120() {
 fn empty_file_no_crash() {
     let dir = temp_dir("empty");
     let file = write_file(&dir, "empty.rb", b"");
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -322,7 +324,7 @@ fn file_with_syntax_errors_still_lints() {
     let dir = temp_dir("syntax_error");
     // Invalid Ruby syntax — Prism parses with errors but still returns a tree
     let file = write_file(&dir, "bad_syntax.rb", b"def foo(\n  x = 1\n");
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -339,7 +341,7 @@ fn binary_content_no_crash() {
     let dir = temp_dir("binary");
     // Binary content with null bytes
     let file = write_file(&dir, "binary.rb", b"\x00\x01\x02\xff\xfe");
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -358,7 +360,7 @@ fn crlf_line_endings_detected() {
         "crlf.rb",
         b"# frozen_string_literal: true\r\n\r\nx = 1\r\n",
     );
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
         only: vec!["Layout/EndOfLine".to_string()],
@@ -383,7 +385,7 @@ fn diagnostics_are_sorted_by_path_then_location() {
     let dir = temp_dir("sort_order");
     let f1 = write_file(&dir, "b.rb", b"x = 1  \n");
     let f2 = write_file(&dir, "a.rb", b"y = 2  \n");
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
         only: vec!["Layout/TrailingWhitespace".to_string()],
@@ -413,7 +415,7 @@ fn all_registered_cops_can_fire() {
     // - Trailing whitespace on line 1
     // - Tab on line 2
     let file = write_file(&dir, "test.rb", b"x = 1  \n\ty = 2\n");
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -1109,7 +1111,7 @@ fn performance_cops_fire_on_slow_patterns() {
     );
     // Need plugins: entry so Performance department cops are enabled
     write_file(&dir, ".rubocop.yml", b"plugins:\n  - rubocop-performance\n");
-    let config = load_config(None, Some(dir.as_ref())).unwrap();
+    let config = load_config(None, Some(dir.as_ref()), None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -1154,7 +1156,7 @@ fn lint_cops_fire_on_bad_code() {
         "bad.rb",
         b"# frozen_string_literal: true\n\nbinding.pry\nraise Exception, \"bad\"\nx = :true\n",
     );
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -1203,7 +1205,7 @@ fn json_formatter_includes_all_departments() {
         "multi.rb",
         b"binding.pry  \nx = :true\n",
     );
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -1255,7 +1257,7 @@ fn migration_cop_filtered_by_path() {
     let migration_content = b"class CreateUsers < ActiveRecord::Migration[7.0]\n  def change\n    create_table :users do |t|\n      t.string :name\n    end\n  end\nend\n";
     let migrate_file = write_file(&dir, "db/migrate/001_create_users.rb", migration_content);
     let model_file = write_file(&dir, "app/models/user.rb", migration_content);
-    let config = load_config(Some(config_path.as_path()), None).unwrap();
+    let config = load_config(Some(config_path.as_path()), None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
         only: vec!["Rails/CreateTableWithTimestamps".to_string()],
@@ -1302,7 +1304,7 @@ fn global_exclude_skips_file() {
     // Place the same file outside vendor/
     let app_file = write_file(&dir, "app.rb", b"x = 1  \n");
 
-    let config = load_config(Some(config_path.as_path()), None).unwrap();
+    let config = load_config(Some(config_path.as_path()), None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
         only: vec!["Layout/TrailingWhitespace".to_string()],
@@ -1348,7 +1350,7 @@ fn user_include_override_widens_scope() {
     let migration_content = b"class CreateUsers < ActiveRecord::Migration[7.0]\n  def change\n    create_table :users do |t|\n      t.string :name\n    end\n  end\nend\n";
     // This file is in db/ but NOT in db/migrate/ — only matches the widened Include
     let seeds_file = write_file(&dir, "db/seeds.rb", migration_content);
-    let config = load_config(Some(config_path.as_path()), None).unwrap();
+    let config = load_config(Some(config_path.as_path()), None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
         only: vec!["Rails/CreateTableWithTimestamps".to_string()],
@@ -1539,7 +1541,7 @@ fn metrics_cops_fire_on_complex_code() {
         "complex.rb",
         b"# frozen_string_literal: true\n\ndef long_method\n  a = 1\n  b = 2\n  c = 3\n  d = 4\n  e = 5\n  f = 6\n  g = 7\n  h = 8\n  i = 9\n  j = 10\n  k = 11\n  l = 12\n  m = 13\n  n = 14\n  o = 15\n  p = 16\nend\n",
     );
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
         only: vec!["Metrics/MethodLength".to_string()],
@@ -1565,7 +1567,7 @@ fn naming_cops_fire_on_bad_names() {
         "bad_names.rb",
         b"# frozen_string_literal: true\n\ndef myMethod\nend\n",
     );
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
         only: vec!["Naming/MethodName".to_string()],
@@ -1596,7 +1598,7 @@ fn config_overrides_new_departments() {
         ".rubocop.yml",
         b"Metrics/MethodLength:\n  Max: 3\n",
     );
-    let config = load_config(Some(config_path.as_path()), None).unwrap();
+    let config = load_config(Some(config_path.as_path()), None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
         only: vec!["Metrics/MethodLength".to_string()],
@@ -1623,7 +1625,7 @@ fn config_overrides_new_departments() {
 fn inherit_from_merges_configs() {
     let child_path =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/config/inherit_from/child.yml");
-    let config = load_config(Some(child_path.as_path()), None).unwrap();
+    let config = load_config(Some(child_path.as_path()), None, None).unwrap();
 
     // Child overrides Layout/LineLength Max from 100 to 120
     let cc = config.cop_config("Layout/LineLength");
@@ -1655,7 +1657,7 @@ fn inherit_from_merges_configs() {
 fn circular_inherit_from_is_detected() {
     let circular_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("testdata/config/inherit_from/circular_a.yml");
-    let result = load_config(Some(circular_path.as_path()), None);
+    let result = load_config(Some(circular_path.as_path()), None, None);
     assert!(result.is_err(), "Circular inheritance should fail");
     let err_msg = format!("{:#}", result.unwrap_err());
     assert!(
@@ -1864,7 +1866,7 @@ fn inherited_config_affects_linting() {
     );
     let file = write_file(&dir, "test.rb", b"x = 1   \n");
 
-    let config = load_config(Some(config_path.as_path()), None).unwrap();
+    let config = load_config(Some(config_path.as_path()), None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
         only: vec!["Layout/TrailingWhitespace".to_string()],
@@ -1888,7 +1890,7 @@ fn lint_source_directly() {
 
     let source =
         SourceFile::from_string(PathBuf::from("test.rb"), "x = 1   \n".to_string());
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
         only: vec!["Layout/TrailingWhitespace".to_string()],
@@ -2271,7 +2273,7 @@ fn no_redundant_disable_unknown_cop_in_known_department() {
         "test.rb",
         b"# frozen_string_literal: true\n\nx = 1 # rubocop:disable Style/NonexistentFakeCop\n",
     );
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -2302,7 +2304,7 @@ fn no_redundant_disable_unknown_department() {
         "test.rb",
         b"# frozen_string_literal: true\n\nx = 1 # rubocop:disable CustomDept/CustomCop\n",
     );
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -2332,7 +2334,7 @@ fn no_redundant_disable_running_cop_no_offense() {
         "test.rb",
         b"# frozen_string_literal: true\n\nx = 1 # rubocop:disable Layout/TrailingWhitespace\n",
     );
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -2361,7 +2363,7 @@ fn no_redundant_disable_when_offense_suppressed() {
         "test.rb",
         b"# frozen_string_literal: true\n\n# rubocop:disable Layout/TrailingWhitespace\nx = 1   \n# rubocop:enable Layout/TrailingWhitespace\n",
     );
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -2403,7 +2405,7 @@ fn no_redundant_disable_with_only_flag() {
         "test.rb",
         b"# frozen_string_literal: true\n\nx = 1 # rubocop:disable Style/Copyright\n",
     );
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
         only: vec!["Layout/TrailingWhitespace".to_string()],
@@ -2437,7 +2439,7 @@ fn redundant_disable_disabled_cop() {
         "test.rb",
         b"# frozen_string_literal: true\n\nx = 1 # rubocop:disable Style/Copyright\n",
     );
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -2472,7 +2474,7 @@ fn no_redundant_disable_department_used() {
         "test.rb",
         b"# frozen_string_literal: true\n\nx = 1   # rubocop:disable Layout\n",
     );
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -2501,7 +2503,7 @@ fn redundant_disable_todo_directive() {
         "test.rb",
         b"# frozen_string_literal: true\n\nx = 1 # rubocop:todo Style/Copyright\n",
     );
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -2531,7 +2533,7 @@ fn no_redundant_disable_all() {
         "test.rb",
         b"# frozen_string_literal: true\n\n# rubocop:disable all\nx = 1\n# rubocop:enable all\n",
     );
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
         except: vec!["Style/DisableCopsWithinSourceCodeDirective".to_string()],
@@ -2565,7 +2567,7 @@ fn redundant_disable_renamed_cop_extended_format() {
         "test.rb",
         b"# frozen_string_literal: true\n\ndef is_foo? # rubocop:disable Naming/PredicateName\n  true\nend\n",
     );
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
@@ -2601,7 +2603,7 @@ fn redundant_disable_renamed_cop_simple_value() {
         "test.rb",
         b"# frozen_string_literal: true\n\nx = 1 # rubocop:disable Layout/Tab\n",
     );
-    let config = load_config(None, None).unwrap();
+    let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 

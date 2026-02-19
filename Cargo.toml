@@ -31,6 +31,7 @@ rayon = "1.11"
 ignore = "0.4"
 globset = "0.4"
 anyhow = "1.0"
+sha2 = "0.10"
 regex = "1"
 fancy-regex = "0.14"
 
