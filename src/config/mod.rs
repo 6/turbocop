@@ -79,6 +79,16 @@ impl CopFilter {
         true
     }
 
+    /// Returns true if this cop always matches any file (enabled, no Include/Exclude patterns).
+    /// Universal cops can skip per-file glob matching entirely.
+    pub fn is_universal(&self) -> bool {
+        self.enabled
+            && self.include_set.is_none()
+            && self.exclude_set.is_none()
+            && self.include_re.is_none()
+            && self.exclude_re.is_none()
+    }
+
     /// Check whether the given path matches this cop's Include patterns.
     fn is_included(&self, path: &Path) -> bool {
         let has_globs = self.include_set.is_some();
@@ -136,6 +146,11 @@ pub struct CopFilterSet {
     /// directory, so files in `db/migrate/` with a local `.rubocop.yml` have their
     /// paths relativized to `db/migrate/` rather than the project root.
     sub_config_dirs: Vec<PathBuf>,
+    /// Indices of cops that always match any file (enabled, no Include/Exclude).
+    /// These skip per-file glob matching entirely in the filter loop.
+    universal_cop_indices: Vec<usize>,
+    /// Indices of enabled cops that need per-file Include/Exclude pattern matching.
+    pattern_cop_indices: Vec<usize>,
 }
 
 impl CopFilterSet {
@@ -174,6 +189,16 @@ impl CopFilterSet {
     /// Get the pre-compiled filter for a cop by its registry index.
     pub fn cop_filter(&self, index: usize) -> &CopFilter {
         &self.filters[index]
+    }
+
+    /// Indices of cops that always match any file (enabled, no Include/Exclude).
+    pub fn universal_cop_indices(&self) -> &[usize] {
+        &self.universal_cop_indices
+    }
+
+    /// Indices of enabled cops that need per-file Include/Exclude pattern matching.
+    pub fn pattern_cop_indices(&self) -> &[usize] {
+        &self.pattern_cop_indices
     }
 
     /// Find the nearest sub-config directory for a file path.
@@ -1717,6 +1742,62 @@ impl ResolvedConfig {
         Some(config)
     }
 
+    /// Find which override directory (if any) applies to a file path.
+    /// Call once per file, then use `apply_override_from_dir` for each cop.
+    /// This avoids repeating directory path comparisons per-cop.
+    pub fn find_override_dir_for_file(
+        &self,
+        file_path: &Path,
+    ) -> Option<&HashMap<String, CopConfig>> {
+        if self.dir_overrides.is_empty() {
+            return None;
+        }
+        for (dir, cop_overrides) in &self.dir_overrides {
+            if file_path.starts_with(dir) {
+                return Some(cop_overrides);
+            }
+        }
+        if let Some(ref config_dir) = self.config_dir {
+            if let Ok(rel_path) = file_path.strip_prefix(config_dir) {
+                for (dir, cop_overrides) in &self.dir_overrides {
+                    if let Ok(rel_dir) = dir.strip_prefix(config_dir) {
+                        if rel_path.starts_with(rel_dir) {
+                            return Some(cop_overrides);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Apply a directory override for a specific cop, given an already-matched
+    /// override directory. Use with `find_override_dir_for_file`.
+    pub fn apply_override_from_dir(
+        base: &CopConfig,
+        cop_name: &str,
+        dir_overrides: &HashMap<String, CopConfig>,
+    ) -> Option<CopConfig> {
+        let override_config = dir_overrides.get(cop_name)?;
+        let mut config = base.clone();
+        for (key, value) in &override_config.options {
+            config.options.insert(key.clone(), value.clone());
+        }
+        if override_config.enabled != EnabledState::Unset {
+            config.enabled = override_config.enabled;
+        }
+        if override_config.severity.is_some() {
+            config.severity = override_config.severity;
+        }
+        if !override_config.include.is_empty() {
+            config.include.clone_from(&override_config.include);
+        }
+        if !override_config.exclude.is_empty() {
+            config.exclude.clone_from(&override_config.exclude);
+        }
+        Some(config)
+    }
+
     /// Find the nearest directory-specific override for a cop, if any.
     /// Checks both the original file path and the path relativized to config_dir.
     fn find_dir_override(&self, cop_name: &str, file_path: &Path) -> Option<CopConfig> {
@@ -1772,7 +1853,7 @@ impl ResolvedConfig {
             build_glob_set(&global_exclude_pats).unwrap_or_else(GlobSet::empty);
         let global_exclude_re = build_regex_set(&global_exclude_pats);
 
-        let filters = registry
+        let filters: Vec<CopFilter> = registry
             .cops()
             .iter()
             .map(|cop| {
@@ -1913,12 +1994,27 @@ impl ResolvedConfig {
             .map(|cd| discover_sub_config_dirs(cd))
             .unwrap_or_default();
 
+        // Pre-compute universal vs pattern cop index lists.
+        // Universal cops (enabled, no Include/Exclude) skip per-file glob matching.
+        let mut universal_cop_indices = Vec::new();
+        let mut pattern_cop_indices = Vec::new();
+        for (i, filter) in filters.iter().enumerate() {
+            if filter.is_universal() {
+                universal_cop_indices.push(i);
+            } else if filter.enabled {
+                pattern_cop_indices.push(i);
+            }
+            // disabled cops go in neither list
+        }
+
         CopFilterSet {
             global_exclude,
             global_exclude_re,
             filters,
             config_dir: self.config_dir.clone(),
             sub_config_dirs,
+            universal_cop_indices,
+            pattern_cop_indices,
         }
     }
 
@@ -2539,6 +2635,8 @@ mod tests {
             filters: Vec::new(),
             config_dir: config.config_dir().map(|p| p.to_path_buf()),
             sub_config_dirs: Vec::new(),
+            universal_cop_indices: Vec::new(),
+            pattern_cop_indices: Vec::new(),
         };
         // Glob pattern should work
         assert!(filter_set.is_globally_excluded(Path::new(&format!(
@@ -3245,6 +3343,8 @@ mod tests {
             filters: vec![filter],
             config_dir: Some(PathBuf::from("bench/repos/mastodon")),
             sub_config_dirs: Vec::new(),
+            universal_cop_indices: Vec::new(),
+            pattern_cop_indices: Vec::new(),
         };
         let path = Path::new("bench/repos/mastodon/lib/tasks/emojis.rake");
         assert!(
@@ -3263,6 +3363,8 @@ mod tests {
             filters: vec![filter],
             config_dir: Some(PathBuf::from("/tmp/test")),
             sub_config_dirs: Vec::new(),
+            universal_cop_indices: Vec::new(),
+            pattern_cop_indices: Vec::new(),
         };
         let path = Path::new("/tmp/test/db/migrate/001_create_users.rb");
         assert!(
@@ -3282,6 +3384,8 @@ mod tests {
             filters: vec![filter],
             config_dir: Some(PathBuf::from("bench/repos/discourse")),
             sub_config_dirs: Vec::new(),
+            universal_cop_indices: Vec::new(),
+            pattern_cop_indices: Vec::new(),
         };
         let path = Path::new("bench/repos/discourse/spec/models/user_spec.rb");
         assert!(
@@ -3305,6 +3409,8 @@ mod tests {
             filters: vec![filter],
             config_dir: Some(PathBuf::from("bench/repos/discourse")),
             sub_config_dirs: Vec::new(),
+            universal_cop_indices: Vec::new(),
+            pattern_cop_indices: Vec::new(),
         };
         let path = Path::new("bench/repos/discourse/spec/requests/api/invites_spec.rb");
         assert!(
@@ -3323,6 +3429,8 @@ mod tests {
             filters: vec![filter],
             config_dir: None,
             sub_config_dirs: Vec::new(),
+            universal_cop_indices: Vec::new(),
+            pattern_cop_indices: Vec::new(),
         };
         assert!(filter_set.is_cop_match(0, Path::new("app/models/user.rb")));
         assert!(!filter_set.is_cop_match(0, Path::new("vendor/gems/foo.rb")));
@@ -3337,6 +3445,8 @@ mod tests {
             filters: vec![filter],
             config_dir: None,
             sub_config_dirs: Vec::new(),
+            universal_cop_indices: Vec::new(),
+            pattern_cop_indices: Vec::new(),
         };
         assert!(!filter_set.is_cop_match(0, Path::new("anything.rb")));
     }

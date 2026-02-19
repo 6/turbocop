@@ -440,54 +440,80 @@ fn lint_source_inner(
     let mut ast_cop_indices: Vec<(usize, Option<usize>)> = Vec::new();
     let mut override_configs: Vec<CopConfig> = Vec::new();
 
-    for (i, cop) in registry.cops().iter().enumerate() {
-        let name = cop.name();
+    // Find which override directory (if any) applies to this file — once per file
+    // instead of per-cop. Most files aren't in override directories, so this is None.
+    let override_dir = if has_dir_overrides {
+        config.find_override_dir_for_file(&source.path)
+    } else {
+        None
+    };
 
-        // Skip RedundantCopDisableDirective in the normal cop loop — it's handled
-        // in post-processing below.
+    let cops = registry.cops();
+    let has_only = !args.only.is_empty();
+
+    // Pass 1: Universal cops — enabled, no Include/Exclude patterns.
+    // These always match any .rb file, so skip is_cop_match entirely.
+    for &i in cop_filters.universal_cop_indices() {
+        let cop = &cops[i];
+        let name = cop.name();
         if name == REDUNDANT_DISABLE_COP {
             continue;
         }
-
-        // Filter by --only / --except
-        if !args.only.is_empty() && !args.only.iter().any(|o| o == name) {
+        if has_only && !args.only.iter().any(|o| o == name) {
             continue;
         }
         if args.except.iter().any(|e| e == name) {
             continue;
         }
 
-        // Use pre-compiled cop filter (checks enabled state + include/exclude globs).
-        // is_cop_match relativizes path against config_dir so relative patterns
-        // (e.g., `lib/mastodon/cli/*.rb`) work when running from outside the project root.
-        if !cop_filters.is_cop_match(i, &source.path) {
-            continue;
-        }
-
-        // Use pre-computed base config; only apply dir overrides when they exist.
-        let override_idx = if has_dir_overrides {
-            config
-                .apply_dir_override(&base_configs[i], name, &source.path)
-                .map(|merged| {
-                    let idx = override_configs.len();
-                    override_configs.push(merged);
-                    idx
-                })
-        } else {
-            None
-        };
-
+        let override_idx = override_dir.and_then(|dir| {
+            ResolvedConfig::apply_override_from_dir(&base_configs[i], name, dir).map(|merged| {
+                let idx = override_configs.len();
+                override_configs.push(merged);
+                idx
+            })
+        });
         let cop_config = match override_idx {
             Some(idx) => &override_configs[idx],
             None => &base_configs[i],
         };
-
-        // Line-based checks
         cop.check_lines(source, cop_config, &mut diagnostics);
-
-        // Source-based checks (raw byte scanning with CodeMap)
         cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics);
+        ast_cop_indices.push((i, override_idx));
+    }
 
+    // Pass 2: Pattern cops — enabled, but have Include/Exclude patterns.
+    // These need per-file glob matching via is_cop_match.
+    for &i in cop_filters.pattern_cop_indices() {
+        let cop = &cops[i];
+        let name = cop.name();
+        if name == REDUNDANT_DISABLE_COP {
+            continue;
+        }
+        if has_only && !args.only.iter().any(|o| o == name) {
+            continue;
+        }
+        if args.except.iter().any(|e| e == name) {
+            continue;
+        }
+
+        if !cop_filters.is_cop_match(i, &source.path) {
+            continue;
+        }
+
+        let override_idx = override_dir.and_then(|dir| {
+            ResolvedConfig::apply_override_from_dir(&base_configs[i], name, dir).map(|merged| {
+                let idx = override_configs.len();
+                override_configs.push(merged);
+                idx
+            })
+        });
+        let cop_config = match override_idx {
+            Some(idx) => &override_configs[idx],
+            None => &base_configs[i],
+        };
+        cop.check_lines(source, cop_config, &mut diagnostics);
+        cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics);
         ast_cop_indices.push((i, override_idx));
     }
 
