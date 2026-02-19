@@ -251,6 +251,42 @@ fn build_rblint() {
     assert!(status.success(), "cargo build --release failed");
 }
 
+// --- Init lockfiles ---
+
+fn init_lockfiles() {
+    let rblint = rblint_binary();
+    if !rblint.exists() {
+        eprintln!("rblint binary not found. Build first.");
+        return;
+    }
+
+    for repo in REPOS {
+        let repo_dir = repos_dir().join(repo.name);
+        if !repo_dir.exists() {
+            continue;
+        }
+
+        eprintln!("Generating .rblint.lock for {}...", repo.name);
+        let start = Instant::now();
+        let output = Command::new(rblint.as_os_str())
+            .args(["--init", repo_dir.to_str().unwrap()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .expect("failed to run rblint --init");
+
+        if output.status.success() {
+            eprintln!(
+                "  OK ({:.1}s)",
+                start.elapsed().as_secs_f64()
+            );
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            eprintln!("  Failed: {}", stderr.trim());
+        }
+    }
+}
+
 // --- Bench ---
 
 #[derive(serde::Deserialize)]
@@ -895,6 +931,7 @@ fn main() {
         }
         "bench" => {
             build_rblint();
+            init_lockfiles();
             let bench = run_bench(&args);
             let md = generate_report(&bench, &HashMap::new(), &args);
             fs::write(&output_path, &md).unwrap();
@@ -902,6 +939,7 @@ fn main() {
         }
         "conform" => {
             build_rblint();
+            init_lockfiles();
             let conform = run_conform();
             // Write structured JSON for coverage_table to consume
             let json_path = project_root().join("bench/conform.json");
@@ -925,6 +963,7 @@ fn main() {
         "all" => {
             setup_repos();
             build_rblint();
+            init_lockfiles();
             let bench = run_bench(&args);
             let conform = run_conform();
             let json_path = project_root().join("bench/conform.json");
