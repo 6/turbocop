@@ -20,11 +20,12 @@ impl Cop for InPatternThen {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check for `in` pattern nodes in case-in expressions
         let in_node = match node.as_in_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Get the source between pattern and body
@@ -43,16 +44,15 @@ impl Cop for InPatternThen {
                 let semi_offset = pattern_end + between.iter().position(|&b| b == b';').unwrap();
                 let (line, column) = source.offset_to_line_col(semi_offset);
                 let pattern_src = String::from_utf8_lossy(pattern.location().as_slice());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Do not use `in {}`. Use `in {} then` instead.", pattern_src, pattern_src),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

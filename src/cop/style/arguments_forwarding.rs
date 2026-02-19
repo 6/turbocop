@@ -22,7 +22,8 @@ impl Cop for ArgumentsForwarding {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_only_rest = config.get_bool("AllowOnlyRestArgument", true);
         let _use_anonymous = config.get_bool("UseAnonymousForwarding", true);
         let redundant_rest = config.get_string_array("RedundantRestArgumentNames")
@@ -39,24 +40,24 @@ impl Cop for ArgumentsForwarding {
             .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
             .unwrap_or(3.4);
         if ruby_version < 2.7 {
-            return Vec::new();
+            return;
         }
 
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params = match def_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check for ... forwarding parameter already being used
         if params.keyword_rest().is_some() {
             if let Some(kw_rest) = params.keyword_rest() {
                 if kw_rest.as_forwarding_parameter_node().is_some() {
-                    return Vec::new(); // Already using ...
+                    return; // Already using ...
                 }
             }
         }
@@ -66,7 +67,7 @@ impl Cop for ArgumentsForwarding {
         let has_block = params.block().is_some();
 
         if !has_rest || !has_block {
-            return Vec::new();
+            return;
         }
 
         // Must not have regular positional params, optional params, or keyword params
@@ -75,39 +76,39 @@ impl Cop for ArgumentsForwarding {
             || !params.keywords().is_empty()
             || params.posts().iter().next().is_some()
         {
-            return Vec::new();
+            return;
         }
 
         // Get the rest and block parameter names
         if let Some(rest) = params.rest() {
             if let Some(rest_param) = rest.as_rest_parameter_node() {
                 if rest_param.name().is_none() {
-                    return Vec::new();
+                    return;
                 }
             } else {
-                return Vec::new();
+                return;
             }
         } else {
-            return Vec::new();
+            return;
         }
 
         let block_name = if let Some(block_param) = params.block() {
             match block_param.name() {
                 Some(n) => n.as_slice().to_vec(),
-                None => return Vec::new(),
+                None => return,
             }
         } else {
-            return Vec::new();
+            return;
         };
 
         let rest_name = if let Some(rest) = params.rest() {
             if let Some(rest_param) = rest.as_rest_parameter_node() {
                 rest_param.name().map(|n| n.as_slice().to_vec()).unwrap_or_default()
             } else {
-                return Vec::new();
+                return;
             }
         } else {
-            return Vec::new();
+            return;
         };
 
         // RuboCop checks if parameter names are "redundant" (i.e., in the
@@ -118,7 +119,7 @@ impl Cop for ArgumentsForwarding {
         if allow_only_rest {
             let block_name_str = String::from_utf8_lossy(&block_name).to_string();
             if !redundant_block.iter().any(|n| n == &block_name_str) {
-                return Vec::new();
+                return;
             }
         }
 
@@ -127,7 +128,7 @@ impl Cop for ArgumentsForwarding {
         if allow_only_rest {
             let rest_name_str = String::from_utf8_lossy(&rest_name).to_string();
             if !redundant_rest.iter().any(|n| n == &rest_name_str) {
-                return Vec::new();
+                return;
             }
         }
 
@@ -136,21 +137,21 @@ impl Cop for ArgumentsForwarding {
         // `new(*args).tap(&block)` would be incorrectly flagged.
         let body = match def_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         if !has_forwarding_call(&body, &rest_name, &block_name) {
-            return Vec::new();
+            return;
         }
 
         let loc = params.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use shorthand syntax `...` for arguments forwarding.".to_string(),
-        )]
+        ));
     }
 }
 

@@ -30,11 +30,12 @@ impl Cop for MultipleDescribes {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Only check ProgramNode (root)
         let program = match node.as_program_node() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = program.statements();
@@ -56,11 +57,10 @@ impl Cop for MultipleDescribes {
         }
 
         if example_groups.len() <= 1 {
-            return Vec::new();
+            return;
         }
 
         // Flag all except the last one (RuboCop flags all except the last)
-        let mut diagnostics = Vec::new();
         for &(line, col) in &example_groups[..example_groups.len() - 1] {
             diagnostics.push(self.diagnostic(
                 source,
@@ -70,7 +70,6 @@ impl Cop for MultipleDescribes {
             ));
         }
 
-        diagnostics
     }
 }
 

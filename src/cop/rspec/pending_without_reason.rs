@@ -35,10 +35,11 @@ impl Cop for PendingWithoutReason {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -57,12 +58,12 @@ impl Cop for PendingWithoutReason {
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 let label = std::str::from_utf8(method_name).unwrap_or("skip");
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Give the reason for {label}."),
-                )];
+                ));
             }
         }
 
@@ -74,12 +75,12 @@ impl Cop for PendingWithoutReason {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             let label = std::str::from_utf8(method_name).unwrap_or("skip");
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Give the reason for {label}."),
-            )];
+            ));
         }
 
         // `pending` or `skip` without arguments (no reason string)
@@ -91,12 +92,12 @@ impl Cop for PendingWithoutReason {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             let label = std::str::from_utf8(method_name).unwrap_or("skip");
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Give the reason for {label}."),
-            )];
+            ));
         }
 
         // Check metadata: :skip, :pending, skip: true, pending: true (without reason string)
@@ -109,12 +110,12 @@ impl Cop for PendingWithoutReason {
                         let loc = call.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
                         let label = std::str::from_utf8(val).unwrap_or("skip");
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             format!("Give the reason for {label}."),
-                        )];
+                        ));
                     }
                 }
                 // skip: true or pending: true (not a string reason)
@@ -131,12 +132,12 @@ impl Cop for PendingWithoutReason {
                                         let (line, column) =
                                             source.offset_to_line_col(loc.start_offset());
                                         let label = std::str::from_utf8(key).unwrap_or("skip");
-                                        return vec![self.diagnostic(
+                                        diagnostics.push(self.diagnostic(
                                             source,
                                             line,
                                             column,
                                             format!("Give the reason for {label}."),
-                                        )];
+                                        ));
                                     }
                                 }
                             }
@@ -146,7 +147,6 @@ impl Cop for PendingWithoutReason {
             }
         }
 
-        Vec::new()
     }
 }
 

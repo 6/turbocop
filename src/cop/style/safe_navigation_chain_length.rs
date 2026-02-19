@@ -20,23 +20,24 @@ impl Cop for SafeNavigationChainLength {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let max = config.get_usize("Max", 2);
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must use safe navigation (&.)
         if !is_safe_nav(&call) {
-            return Vec::new();
+            return;
         }
 
         // Count the chain length
         let chain_len = count_safe_nav_chain(node);
         if chain_len <= max {
-            return Vec::new();
+            return;
         }
 
         // Only report on the outermost call in the chain
@@ -46,7 +47,7 @@ impl Cop for SafeNavigationChainLength {
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
@@ -54,7 +55,7 @@ impl Cop for SafeNavigationChainLength {
                 "Do not chain more than {} safe navigation operators. (found {})",
                 max, chain_len
             ),
-        )]
+        ));
     }
 }
 

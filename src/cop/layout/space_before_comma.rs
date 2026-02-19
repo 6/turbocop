@@ -16,9 +16,9 @@ impl Cop for SpaceBeforeComma {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let bytes = source.as_bytes();
-        let mut diagnostics = Vec::new();
         for (i, &byte) in bytes.iter().enumerate() {
             if byte == b',' && i > 0 && bytes[i - 1] == b' ' && code_map.is_code(i) {
                 let (line, column) = source.offset_to_line_col(i - 1);
@@ -30,7 +30,6 @@ impl Cop for SpaceBeforeComma {
                 ));
             }
         }
-        diagnostics
     }
 }
 

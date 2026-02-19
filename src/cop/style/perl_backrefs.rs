@@ -20,18 +20,19 @@ impl Cop for PerlBackrefs {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check for numbered backreferences: $1, $2, ..., $9
         if let Some(back_ref) = node.as_numbered_reference_read_node() {
             let num = back_ref.number();
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Prefer `Regexp.last_match({num})` over `${num}`."),
-            )];
+            ));
         }
 
         // Check for special backreferences: $&, $`, $', $+
@@ -45,18 +46,17 @@ impl Cop for PerlBackrefs {
                 b"$`" => ("Regexp.last_match.pre_match", "$`"),
                 b"$'" => ("Regexp.last_match.post_match", "$'"),
                 b"$+" => ("Regexp.last_match(-1)", "$+"),
-                _ => return Vec::new(),
+                _ => return,
             };
 
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Prefer `{replacement}` over `{var_display}`."),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

@@ -20,52 +20,53 @@ impl Cop for SpaceBeforeBrackets {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if method_name != b"[]" && method_name != b"[]=" {
-            return Vec::new();
+            return;
         }
 
         // Skip desugared calls like `collection.[](key)` — these have a dot
         if call.call_operator_loc().is_some() {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let receiver_end = receiver.location().end_offset();
         let selector_start = match call.opening_loc() {
             Some(loc) => loc.start_offset(),
-            None => return Vec::new(),
+            None => return,
         };
 
         // No space between receiver and `[`
         if receiver_end >= selector_start {
-            return Vec::new();
+            return;
         }
 
         // Check that the gap is only whitespace (spaces/tabs)
         let bytes = source.as_bytes();
         let gap = &bytes[receiver_end..selector_start];
         if !gap.iter().all(|&b| b == b' ' || b == b'\t') {
-            return Vec::new();
+            return;
         }
 
         let (line, col) = source.offset_to_line_col(receiver_end);
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             col,
             "Remove the space before the opening brackets.".to_string(),
-        )]
+        ));
     }
 }
 

@@ -22,9 +22,9 @@ impl Cop for MissingCopEnableDirective {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let max_range = get_max_range_size(config);
-        let mut diagnostics = Vec::new();
         // Track open disables: cop_name -> (line_number, column)
         let mut open_disables: HashMap<String, (usize, usize)> = HashMap::new();
         let lines: Vec<&[u8]> = source.lines().collect();
@@ -112,7 +112,6 @@ impl Cop for MissingCopEnableDirective {
 
         // Sort by line number for deterministic output
         diagnostics.sort_by_key(|d| d.location.line);
-        diagnostics
     }
 }
 

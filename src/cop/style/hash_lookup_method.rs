@@ -20,10 +20,11 @@ impl Cop for HashLookupMethod {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let style = config.get_str("EnforcedStyle", "brackets");
@@ -40,12 +41,12 @@ impl Cop for HashLookupMethod {
                             if call.receiver().is_some() {
                                 let loc = call.message_loc().unwrap_or_else(|| call.location());
                                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                return vec![self.diagnostic(
+                                diagnostics.push(self.diagnostic(
                                     source,
                                     line,
                                     column,
                                     "Use `[]` instead of `fetch`.".to_string(),
-                                )];
+                                ));
                             }
                         }
                     }
@@ -59,12 +60,12 @@ impl Cop for HashLookupMethod {
                         if arg_list.len() == 1 && call.receiver().is_some() {
                             let loc = call.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            return vec![self.diagnostic(
+                            diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 "Use `fetch` instead of `[]`.".to_string(),
-                            )];
+                            ));
                         }
                     }
                 }
@@ -72,7 +73,6 @@ impl Cop for HashLookupMethod {
             _ => {}
         }
 
-        Vec::new()
     }
 }
 

@@ -31,11 +31,12 @@ impl Cop for SubjectStub {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for top-level describe/context blocks and track subject names
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -50,26 +51,24 @@ impl Cop for SubjectStub {
 
         if !is_rspec_describe && !(call.receiver().is_none() && is_rspec_example_group(method_name))
         {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
         let mut subject_names: Vec<Vec<u8>> = Vec::new();
         // Always include "subject" as a subject name
         subject_names.push(b"subject".to_vec());
 
-        collect_subject_stub_offenses(source, block_node, &mut subject_names, &mut diagnostics, self);
+        collect_subject_stub_offenses(source, block_node, &mut subject_names, diagnostics, self);
 
-        diagnostics
     }
 }
 

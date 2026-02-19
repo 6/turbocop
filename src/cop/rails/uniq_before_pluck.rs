@@ -25,15 +25,16 @@ impl Cop for UniqBeforePluck {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let chain = match util::as_method_chain(node) {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // outer is `uniq`, inner is `pluck`
         if chain.outer_method != b"uniq" || chain.inner_method != b"pluck" {
-            return Vec::new();
+            return;
         }
 
         let style = config.get_str("EnforcedStyle", "conservative");
@@ -46,18 +47,18 @@ impl Cop for UniqBeforePluck {
                 None => false,
             };
             if !is_const {
-                return Vec::new();
+                return;
             }
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `distinct` before `pluck`.".to_string(),
-        )]
+        ));
     }
 }
 

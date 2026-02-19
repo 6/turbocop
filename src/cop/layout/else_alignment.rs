@@ -20,22 +20,23 @@ impl Cop for ElseAlignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let if_node = match node.as_if_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be a keyword if (not ternary)
         let if_kw_loc = match if_node.if_keyword_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Only check top-level `if`, not `elsif` (which is also an IfNode)
         // An elsif has its keyword as "elsif", not "if"
         if if_kw_loc.as_slice() != b"if" && if_kw_loc.as_slice() != b"unless" {
-            return Vec::new();
+            return;
         }
 
         let (_, if_col) = source.offset_to_line_col(if_kw_loc.start_offset());
@@ -49,7 +50,6 @@ impl Cop for ElseAlignment {
             if_col
         };
 
-        let mut diagnostics = Vec::new();
         let mut current = if_node.subsequent();
 
         while let Some(subsequent) = current {
@@ -87,7 +87,6 @@ impl Cop for ElseAlignment {
             }
         }
 
-        diagnostics
     }
 }
 

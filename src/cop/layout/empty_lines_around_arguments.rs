@@ -21,20 +21,21 @@ impl Cop for EmptyLinesAroundArguments {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
         if args_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Check if the entire send node is single-line (not just the args)
@@ -42,7 +43,7 @@ impl Cop for EmptyLinesAroundArguments {
         let call_end = call.location().end_offset().saturating_sub(1);
         let (call_end_line, _) = source.offset_to_line_col(call_end);
         if call_start_line == call_end_line {
-            return Vec::new();
+            return;
         }
 
         // Skip if receiver and method call are on different lines
@@ -53,14 +54,13 @@ impl Cop for EmptyLinesAroundArguments {
                 let (recv_end_line, _) = source.offset_to_line_col(recv_end);
                 let (msg_line, _) = source.offset_to_line_col(msg_loc.start_offset());
                 if recv_end_line != msg_line {
-                    return Vec::new();
+                    return;
                 }
             }
         }
 
         let lines: Vec<&[u8]> = source.lines().collect();
         let bytes = source.as_bytes();
-        let mut diagnostics = Vec::new();
 
         // RuboCop's approach: for each argument's start position and the closing
         // paren, look backward through whitespace. If there are blank lines
@@ -76,7 +76,7 @@ impl Cop for EmptyLinesAroundArguments {
                 bytes,
                 &lines,
                 arg.location().start_offset(),
-                &mut diagnostics,
+                diagnostics,
                 self,
             );
         }
@@ -89,13 +89,12 @@ impl Cop for EmptyLinesAroundArguments {
                     bytes,
                     &lines,
                     close_loc.start_offset(),
-                    &mut diagnostics,
+                    diagnostics,
                     self,
                 );
             }
         }
 
-        diagnostics
     }
 }
 

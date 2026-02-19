@@ -79,22 +79,23 @@ impl Cop for InverseMethods {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_bytes = call.name().as_slice();
 
         // Pattern: !receiver.method - the call is `!` with the inner being a method call
         if method_bytes != b"!" {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Try to get the inner call - either directly from receiver or by unwrapping parens
@@ -103,22 +104,22 @@ impl Cop for InverseMethods {
         } else if let Some(parens) = receiver.as_parentheses_node() {
             let body = match parens.body() {
                 Some(b) => b,
-                None => return Vec::new(),
+                None => return,
             };
             let stmts = match body.as_statements_node() {
                 Some(s) => s,
-                None => return Vec::new(),
+                None => return,
             };
             let stmts_list: Vec<_> = stmts.body().iter().collect();
             if stmts_list.len() != 1 {
-                return Vec::new();
+                return;
             }
             match stmts_list[0].as_call_node() {
                 Some(c) => c,
-                None => return Vec::new(),
+                None => return,
             }
         } else {
-            return Vec::new();
+            return;
         };
 
         let inner_method = inner_call.name().as_slice();
@@ -129,12 +130,12 @@ impl Cop for InverseMethods {
             let inner_name = std::str::from_utf8(inner_method).unwrap_or("method");
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Use `{}` instead of inverting `{}`.", inv, inner_name),
-            )];
+            ));
         }
 
         // Check InverseBlocks (block methods: !foo.select { } -> foo.reject { })
@@ -144,16 +145,15 @@ impl Cop for InverseMethods {
                 let inner_name = std::str::from_utf8(inner_method).unwrap_or("method");
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Use `{}` instead of inverting `{}`.", inv, inner_name),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

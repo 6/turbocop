@@ -37,7 +37,8 @@ impl Cop for LiteralAsCondition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Try IfNode
         if let Some(if_node) = node.as_if_node() {
             let predicate = if_node.predicate();
@@ -47,12 +48,12 @@ impl Cop for LiteralAsCondition {
                     let literal_text =
                         std::str::from_utf8(predicate.location().as_slice()).unwrap_or("literal");
                     let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         format!("Literal `{literal_text}` appeared as a condition."),
-                    )];
+                    ));
                 }
             }
         }
@@ -65,12 +66,12 @@ impl Cop for LiteralAsCondition {
                 let literal_text =
                     std::str::from_utf8(predicate.location().as_slice()).unwrap_or("literal");
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Literal `{literal_text}` appeared as a condition."),
-                )];
+                ));
             }
         }
 
@@ -82,16 +83,15 @@ impl Cop for LiteralAsCondition {
                 let literal_text =
                     std::str::from_utf8(predicate.location().as_slice()).unwrap_or("literal");
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Literal `{literal_text}` appeared as a condition."),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

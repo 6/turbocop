@@ -20,28 +20,29 @@ impl Cop for MinMaxComparison {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Looking for: a > b ? a : b  (max)  or  a < b ? a : b  (min), etc.
         let ternary = match node.as_if_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be a ternary (has if_keyword "?" syntax) -- check for consequent and alternative
         let consequent = match ternary.statements() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
         let alternative = match ternary.subsequent() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be a ternary expression.
         // In Prism, ternary (a ? b : c) has if_keyword_loc() == None.
         // Regular if/unless has if_keyword_loc() == Some("if"/"unless").
         if ternary.if_keyword_loc().is_some() {
-            return Vec::new();
+            return;
         }
 
         // The condition must be a comparison: a > b, a >= b, a < b, a <= b
@@ -51,49 +52,49 @@ impl Cop for MinMaxComparison {
 
         let cmp_call = match condition.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let op = cmp_call.name();
         let op_bytes = op.as_slice();
         if op_bytes != b">" && op_bytes != b">=" && op_bytes != b"<" && op_bytes != b"<=" {
-            return Vec::new();
+            return;
         }
 
         let cmp_lhs = match cmp_call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let cmp_args = match cmp_call.arguments() {
             Some(args) => args,
-            None => return Vec::new(),
+            None => return,
         };
         let cmp_arg_list: Vec<_> = cmp_args.arguments().iter().collect();
         if cmp_arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
         let cmp_rhs = &cmp_arg_list[0];
 
         // Get consequent and alternative expressions
         let cons_stmts: Vec<_> = consequent.body().iter().collect();
         if cons_stmts.len() != 1 {
-            return Vec::new();
+            return;
         }
         let cons_expr = &cons_stmts[0];
 
         // alternative is an ElseNode
         let else_node = match alternative.as_else_node() {
             Some(e) => e,
-            None => return Vec::new(),
+            None => return,
         };
         let alt_stmts = match else_node.statements() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
         let alt_body: Vec<_> = alt_stmts.body().iter().collect();
         if alt_body.len() != 1 {
-            return Vec::new();
+            return;
         }
         let alt_expr = &alt_body[0];
 
@@ -112,7 +113,7 @@ impl Cop for MinMaxComparison {
                 } else if lhs_src == alt_src && rhs_src == cons_src {
                     "min"
                 } else {
-                    return Vec::new();
+                    return;
                 }
             }
             // a < b ? a : b  => min  |  a < b ? b : a  => max
@@ -122,20 +123,20 @@ impl Cop for MinMaxComparison {
                 } else if lhs_src == alt_src && rhs_src == cons_src {
                     "max"
                 } else {
-                    return Vec::new();
+                    return;
                 }
             }
-            _ => return Vec::new(),
+            _ => return,
         };
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `[{lhs_src}, {rhs_src}].{suggestion}` instead."),
-        )]
+        ));
     }
 }
 

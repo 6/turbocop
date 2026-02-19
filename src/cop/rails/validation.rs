@@ -40,10 +40,11 @@ impl Cop for Validation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         for &(old_name, replacement) in OLD_VALIDATORS {
@@ -51,18 +52,17 @@ impl Cop for Validation {
                 let loc = call.message_loc().unwrap_or(call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 let old_str = String::from_utf8_lossy(old_name);
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!(
                         "Use `validates :attr, {replacement}` instead of `{old_str}`."
                     ),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

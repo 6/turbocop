@@ -18,7 +18,8 @@ impl Cop for FirstHashElementIndentation {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "special_inside_parentheses");
         let width = config.get_usize("IndentationWidth", 2);
         let mut visitor = HashIndentVisitor {
@@ -31,7 +32,7 @@ impl Cop for FirstHashElementIndentation {
             parent_pair_col: None,
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

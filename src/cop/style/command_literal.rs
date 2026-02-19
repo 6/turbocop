@@ -20,7 +20,8 @@ impl Cop for CommandLiteral {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "backticks");
         let allow_inner_backticks = config.get_bool("AllowInnerBackticks", false);
 
@@ -30,12 +31,12 @@ impl Cop for CommandLiteral {
         } else if let Some(x) = node.as_interpolated_x_string_node() {
             (Some(x.opening_loc()), x.location(), x.location().as_slice().to_vec())
         } else {
-            return Vec::new();
+            return;
         };
 
         let opening = match opening_loc {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let opening_bytes = opening.as_slice();
@@ -64,49 +65,48 @@ impl Cop for CommandLiteral {
                 // Flag %x usage unless it contains backticks (and AllowInnerBackticks is false)
                 if !is_backtick && !disallowed_backtick {
                     let (line, column) = source.offset_to_line_col(node_loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use backticks around command string.".to_string(),
-                    )];
+                    ));
                 }
             }
             "percent_x" => {
                 // Flag backtick usage
                 if is_backtick {
                     let (line, column) = source.offset_to_line_col(node_loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use `%x` around command string.".to_string(),
-                    )];
+                    ));
                 }
             }
             "mixed" => {
                 if is_backtick && (is_multiline || disallowed_backtick) {
                     let (line, column) = source.offset_to_line_col(node_loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use `%x` around command string.".to_string(),
-                    )];
+                    ));
                 } else if !is_backtick && !is_multiline && !disallowed_backtick {
                     let (line, column) = source.offset_to_line_col(node_loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use backticks around command string.".to_string(),
-                    )];
+                    ));
                 }
             }
             _ => {}
         }
 
-        Vec::new()
     }
 }
 

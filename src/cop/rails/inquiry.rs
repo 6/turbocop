@@ -24,19 +24,20 @@ impl Cop for Inquiry {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"inquiry" {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // RuboCop only flags inquiry when the receiver is a string literal or array literal.
@@ -45,17 +46,17 @@ impl Cop for Inquiry {
             || receiver.as_interpolated_string_node().is_some()
             || receiver.as_array_node().is_some();
         if !is_string_or_array {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Avoid `String#inquiry`. Use direct comparison or predicate methods.".to_string(),
-        )]
+        ));
     }
 }
 

@@ -24,35 +24,36 @@ impl Cop for BigDecimalWithNumericArgument {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"BigDecimal" {
-            return Vec::new();
+            return;
         }
 
         // BigDecimal() is a Kernel method, so no receiver
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let arguments = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = arguments.arguments();
         if args.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Check if first argument is an IntegerNode or FloatNode
         let first_arg = match args.iter().next() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let is_numeric = matches!(
             first_arg,
@@ -60,12 +61,12 @@ impl Cop for BigDecimalWithNumericArgument {
         );
 
         if !is_numeric {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, "Use a string argument to `BigDecimal` instead of a numeric argument.".to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, "Use a string argument to `BigDecimal` instead of a numeric argument.".to_string()));
     }
 }
 

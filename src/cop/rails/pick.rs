@@ -20,28 +20,29 @@ impl Cop for Pick {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let chain = match as_method_chain(node) {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if chain.outer_method != b"first" {
-            return Vec::new();
+            return;
         }
 
         if chain.inner_method != b"pluck" {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `pick` instead of `pluck.first`.".to_string(),
-        )]
+        ));
     }
 }
 

@@ -31,13 +31,14 @@ impl Cop for ReturnFromStub {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Config: EnforcedStyle — "and_return" (default) or "block"
         let enforced_style = config.get_str("EnforcedStyle", "and_return");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -52,51 +53,51 @@ impl Cop for ReturnFromStub {
                             if !arg_list.is_empty() && arg_list.iter().all(|a| is_static_value(a)) {
                                 let loc = call.location();
                                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                return vec![self.diagnostic(
+                                diagnostics.push(self.diagnostic(
                                     source,
                                     line,
                                     column,
                                     "Use a block for static values.".to_string(),
-                                )];
+                                ));
                             }
                         }
                     }
                 }
             }
-            return Vec::new();
+            return;
         }
 
         // Default "and_return" style: flag block-style stubs returning static values
         // We need `.to` or `.not_to`
         if method_name != b"to" && method_name != b"not_to" && method_name != b"to_not" {
-            return Vec::new();
+            return;
         }
 
         // Check receiver is allow/expect
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
         let recv_call = match receiver.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         let recv_name = recv_call.name().as_slice();
         if recv_name != b"allow" && recv_name != b"expect" {
-            return Vec::new();
+            return;
         }
         if recv_call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Get the argument chain (receive(:y) or receive(:y).with(...))
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Find the `receive` call in the argument chain and check for a block on it
@@ -109,10 +110,10 @@ impl Cop for ReturnFromStub {
         } else if let Some(b) = block_on_to {
             match b.as_block_node() {
                 Some(bn) => bn,
-                None => return Vec::new(),
+                None => return,
             }
         } else {
-            return Vec::new();
+            return;
         };
 
         // If block has parameters, it's a dynamic block
@@ -121,7 +122,7 @@ impl Cop for ReturnFromStub {
                 if let Some(p) = bp.parameters() {
                     let req: Vec<_> = p.requireds().iter().collect();
                     if !req.is_empty() {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
@@ -132,38 +133,39 @@ impl Cop for ReturnFromStub {
             None => {
                 let loc = block_node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use `and_return` for static values.".to_string(),
-                )];
+                ));
+                return;
             }
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmt_list: Vec<_> = stmts.body().iter().collect();
         if stmt_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let all_static = stmt_list.iter().all(|s| is_static_value(s));
         if !all_static {
-            return Vec::new();
+            return;
         }
 
         let loc = block_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `and_return` for static values.".to_string(),
-        )]
+        ));
     }
 }
 

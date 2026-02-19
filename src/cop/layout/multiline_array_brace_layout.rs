@@ -20,31 +20,32 @@ impl Cop for MultilineArrayBraceLayout {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "symmetrical");
 
         let array = match node.as_array_node() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let opening = match array.opening_loc() {
             Some(loc) => loc,
-            None => return Vec::new(), // Implicit array
+            None => return, // Implicit array
         };
         let closing = match array.closing_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Only check bracket arrays
         if opening.as_slice() != b"[" || closing.as_slice() != b"]" {
-            return Vec::new();
+            return;
         }
 
         let elements = array.elements();
         if elements.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let (open_line, _) = source.offset_to_line_col(opening.start_offset());
@@ -60,7 +61,7 @@ impl Cop for MultilineArrayBraceLayout {
 
         // Only check multiline arrays
         if open_line == close_line {
-            return Vec::new();
+            return;
         }
 
         let open_same_as_first = open_line == first_elem_line;
@@ -70,48 +71,47 @@ impl Cop for MultilineArrayBraceLayout {
             "symmetrical" => {
                 // Opening and closing should be symmetric
                 if open_same_as_first && !close_same_as_last {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         close_line,
                         close_col,
                         "The closing array brace must be on the same line as the last array element when the opening brace is on the same line as the first array element.".to_string(),
-                    )];
+                    ));
                 }
                 if !open_same_as_first && close_same_as_last {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         close_line,
                         close_col,
                         "The closing array brace must be on the line after the last array element when the opening brace is on a separate line from the first array element.".to_string(),
-                    )];
+                    ));
                 }
             }
             "new_line" => {
                 if close_same_as_last {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         close_line,
                         close_col,
                         "The closing array brace must be on the line after the last array element."
                             .to_string(),
-                    )];
+                    ));
                 }
             }
             "same_line" => {
                 if !close_same_as_last {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         close_line,
                         close_col,
                         "The closing array brace must be on the same line as the last array element."
                             .to_string(),
-                    )];
+                    ));
                 }
             }
             _ => {}
         }
 
-        Vec::new()
     }
 }
 

@@ -20,7 +20,8 @@ impl Cop for HashAlignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // AllowMultipleStyles: when true (default), accept any consistent style per-hash.
         // Our implementation already checks per-hash consistency so this is a no-op at true.
         let allow_multiple = config.get_bool("AllowMultipleStyles", true);
@@ -40,19 +41,17 @@ impl Cop for HashAlignment {
         } else if let Some(kw_hash_node) = node.as_keyword_hash_node() {
             kw_hash_node.elements()
         } else {
-            return Vec::new();
+            return;
         };
         if elements.len() < 2 {
-            return Vec::new();
+            return;
         }
 
         let first = match elements.iter().next() {
             Some(e) => e,
-            None => return Vec::new(),
+            None => return,
         };
         let (first_line, first_col) = source.offset_to_line_col(first.location().start_offset());
-
-        let mut diagnostics = Vec::new();
 
         let mut last_checked_line = first_line;
 
@@ -79,7 +78,6 @@ impl Cop for HashAlignment {
             }
         }
 
-        diagnostics
     }
 }
 

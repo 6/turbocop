@@ -9,7 +9,7 @@ impl Cop for FrozenStringLiteralComment {
         "Style/FrozenStringLiteralComment"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let enforced_style = config.get_str("EnforcedStyle", "always");
         let lines: Vec<&[u8]> = source.lines().collect();
 
@@ -17,17 +17,17 @@ impl Cop for FrozenStringLiteralComment {
             // Flag the presence of frozen_string_literal comment as unnecessary
             for (i, line) in lines.iter().enumerate() {
                 if is_frozen_string_literal_comment(line) {
-                    return vec![self.diagnostic(source, i + 1, 0, "Unnecessary frozen string literal comment.".to_string())];
+                    diagnostics.push(self.diagnostic(source, i + 1, 0, "Unnecessary frozen string literal comment.".to_string()));
                 }
             }
-            return Vec::new();
+            return;
         }
 
         // Skip empty files — RuboCop returns early when there are no tokens.
         // Lint/EmptyFile handles these instead.
         let has_content = lines.iter().any(|l| !l.iter().all(|&b| b == b' ' || b == b'\t' || b == b'\r'));
         if !has_content {
-            return Vec::new();
+            return;
         }
 
         let mut idx = 0;
@@ -52,10 +52,10 @@ impl Cop for FrozenStringLiteralComment {
                 if enforced_style == "always_true" {
                     // Must be set to true specifically
                     if !is_frozen_string_literal_true(lines[idx]) {
-                        return vec![self.diagnostic(source, idx + 1, 0, "Frozen string literal comment must be set to `true`.".to_string())];
+                        diagnostics.push(self.diagnostic(source, idx + 1, 0, "Frozen string literal comment must be set to `true`.".to_string()));
                     }
                 }
-                return Vec::new();
+                return;
             }
             idx += 1;
         }
@@ -67,7 +67,7 @@ impl Cop for FrozenStringLiteralComment {
         } else {
             "Missing frozen string literal comment."
         };
-        vec![self.diagnostic(source, 1, 0, msg.to_string())]
+        diagnostics.push(self.diagnostic(source, 1, 0, msg.to_string()));
     }
 }
 
@@ -134,7 +134,8 @@ mod tests {
     #[test]
     fn missing_comment() {
         let source = SourceFile::from_bytes("test.rb", b"puts 'hello'\n".to_vec());
-        let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &CopConfig::default(), &mut diags);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].location.line, 1);
         assert_eq!(diags[0].location.column, 0);
@@ -147,7 +148,8 @@ mod tests {
             "test.rb",
             b"# frozen_string_literal: true\nputs 'hello'\n".to_vec(),
         );
-        let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty());
     }
 
@@ -157,7 +159,8 @@ mod tests {
             "test.rb",
             b"# frozen_string_literal: false\nputs 'hello'\n".to_vec(),
         );
-        let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty());
     }
 
@@ -167,7 +170,8 @@ mod tests {
             "test.rb",
             b"#!/usr/bin/env ruby\n# frozen_string_literal: true\nputs 'hello'\n".to_vec(),
         );
-        let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty());
     }
 
@@ -177,7 +181,8 @@ mod tests {
             "test.rb",
             b"#!/usr/bin/env ruby\nputs 'hello'\n".to_vec(),
         );
-        let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &CopConfig::default(), &mut diags);
         assert_eq!(diags.len(), 1);
     }
 
@@ -187,7 +192,8 @@ mod tests {
             "test.rb",
             b"# encoding: utf-8\n# frozen_string_literal: true\nputs 'hello'\n".to_vec(),
         );
-        let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty());
     }
 
@@ -198,7 +204,8 @@ mod tests {
             b"#!/usr/bin/env ruby\n# encoding: utf-8\n# frozen_string_literal: true\nputs 'hello'\n"
                 .to_vec(),
         );
-        let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty());
     }
 
@@ -206,7 +213,8 @@ mod tests {
     fn empty_file() {
         // Empty files should not be flagged — Lint/EmptyFile handles them
         let source = SourceFile::from_bytes("test.rb", b"".to_vec());
-        let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty(), "Empty files should not be flagged");
     }
 
@@ -216,7 +224,8 @@ mod tests {
             "test.rb",
             b"# -*- coding: utf-8 -*-\n# frozen_string_literal: true\nputs 'hello'\n".to_vec(),
         );
-        let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty());
     }
 
@@ -227,7 +236,8 @@ mod tests {
             "test.rb",
             b"# -*- encoding : utf-8 -*-\n# frozen_string_literal: true\nputs 'hello'\n".to_vec(),
         );
-        let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty(), "Should recognize encoding comment with spaces around colon");
     }
 
@@ -245,7 +255,8 @@ mod tests {
             "test.rb",
             b"# frozen_string_literal: true\nputs 'hello'\n".to_vec(),
         );
-        let diags = FrozenStringLiteralComment.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &config, &mut diags);
         assert_eq!(diags.len(), 1);
         assert!(diags[0].message.contains("Unnecessary"));
     }
@@ -264,7 +275,8 @@ mod tests {
             "test.rb",
             b"puts 'hello'\n".to_vec(),
         );
-        let diags = FrozenStringLiteralComment.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &config, &mut diags);
         assert!(diags.is_empty(), "Should not flag missing comment with 'never' style");
     }
 
@@ -282,7 +294,8 @@ mod tests {
             "test.rb",
             b"# frozen_string_literal: false\nputs 'hello'\n".to_vec(),
         );
-        let diags = FrozenStringLiteralComment.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &config, &mut diags);
         assert_eq!(diags.len(), 1);
         assert!(diags[0].message.contains("must be set to `true`"));
     }
@@ -301,7 +314,8 @@ mod tests {
             "test.rb",
             b"# frozen_string_literal: true\nputs 'hello'\n".to_vec(),
         );
-        let diags = FrozenStringLiteralComment.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &config, &mut diags);
         assert!(diags.is_empty(), "Should allow true with always_true style");
     }
 
@@ -311,7 +325,8 @@ mod tests {
             "test.rb",
             b"  # frozen_string_literal: true\nputs 'hello'\n".to_vec(),
         );
-        let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty(), "Should recognize frozen_string_literal with leading whitespace");
     }
 
@@ -322,7 +337,8 @@ mod tests {
             "test.rb",
             b"# typed: true\n# frozen_string_literal: true\nputs 'hello'\n".to_vec(),
         );
-        let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty(), "Should find frozen_string_literal after # typed: true");
     }
 
@@ -332,7 +348,8 @@ mod tests {
             "test.rb",
             b"#!/usr/bin/env ruby\n# typed: strict\n# frozen_string_literal: true\nputs 'hello'\n".to_vec(),
         );
-        let diags = FrozenStringLiteralComment.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FrozenStringLiteralComment.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty(), "Should find frozen_string_literal after shebang + typed comment");
     }
 }

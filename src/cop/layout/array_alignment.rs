@@ -30,22 +30,23 @@ impl Cop for ArrayAlignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "with_first_element");
         let indent_width = config.get_usize("IndentationWidth", 2);
         let array_node = match node.as_array_node() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let elements = array_node.elements();
         if elements.len() < 2 {
-            return Vec::new();
+            return;
         }
 
         let first = match elements.iter().next() {
             Some(e) => e,
-            None => return Vec::new(),
+            None => return,
         };
         let (first_line, first_col) = source.offset_to_line_col(first.location().start_offset());
 
@@ -60,7 +61,6 @@ impl Cop for ArrayAlignment {
             _ => first_col, // "with_first_element" (default)
         };
 
-        let mut diagnostics = Vec::new();
         let mut last_checked_line = first_line;
 
         for elem in elements.iter().skip(1) {
@@ -88,7 +88,6 @@ impl Cop for ArrayAlignment {
             }
         }
 
-        diagnostics
     }
 }
 

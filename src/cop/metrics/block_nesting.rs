@@ -17,7 +17,8 @@ impl Cop for BlockNesting {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let max = config.get_usize("Max", 3);
         let _count_blocks = config.get_bool("CountBlocks", false);
         let _count_modifier_forms = config.get_bool("CountModifierForms", false);
@@ -30,7 +31,7 @@ impl Cop for BlockNesting {
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 
     fn diagnostic(

@@ -31,19 +31,20 @@ impl Cop for DeprecatedConstants {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Handle ConstantReadNode (bare constants like NIL, TRUE, FALSE)
         if let Some(const_read) = node.as_constant_read_node() {
             let name = const_read.name().as_slice();
             let name_str = match std::str::from_utf8(name) {
                 Ok(s) => s,
-                Err(_) => return Vec::new(),
+                Err(_) => return,
             };
 
             if let Some(msg) = deprecated_message(name_str, config) {
                 let loc = const_read.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(source, line, column, msg)];
+                diagnostics.push(self.diagnostic(source, line, column, msg));
             }
         }
 
@@ -53,16 +54,15 @@ impl Cop for DeprecatedConstants {
             let full_name = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
             let name_str = match std::str::from_utf8(full_name) {
                 Ok(s) => s,
-                Err(_) => return Vec::new(),
+                Err(_) => return,
             };
 
             if let Some(msg) = deprecated_message(name_str, config) {
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(source, line, column, msg)];
+                diagnostics.push(self.diagnostic(source, line, column, msg));
             }
         }
 
-        Vec::new()
     }
 }
 

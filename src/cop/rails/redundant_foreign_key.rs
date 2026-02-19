@@ -25,34 +25,35 @@ impl Cop for RedundantForeignKey {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
         if call.name().as_slice() != b"belongs_to" {
-            return Vec::new();
+            return;
         }
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         // First argument should be a symbol (association name)
         let first_arg = match args.arguments().iter().next() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let assoc_name = match first_arg.as_symbol_node() {
             Some(s) => s.unescaped().to_vec(),
-            None => return Vec::new(),
+            None => return,
         };
         // Check for foreign_key keyword arg
         let fk_value = match keyword_arg_value(&call, b"foreign_key") {
             Some(v) => v,
-            None => return Vec::new(),
+            None => return,
         };
         // foreign_key can be a symbol or string
         let fk_name = if let Some(sym) = fk_value.as_symbol_node() {
@@ -60,7 +61,7 @@ impl Cop for RedundantForeignKey {
         } else if let Some(s) = fk_value.as_string_node() {
             s.unescaped().to_vec()
         } else {
-            return Vec::new();
+            return;
         };
         // Build expected default: "{assoc_name}_id"
         let mut expected = assoc_name;
@@ -68,14 +69,13 @@ impl Cop for RedundantForeignKey {
         if fk_name == expected {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Redundant `foreign_key` -- it matches the default.".to_string(),
-            )];
+            ));
         }
-        Vec::new()
     }
 }
 

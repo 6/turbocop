@@ -15,17 +15,23 @@ pub struct CopWalker<'a, 'pr> {
 
 impl<'pr> Visit<'pr> for CopWalker<'_, 'pr> {
     fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
-        let results =
-            self.cop
-                .check_node(self.source, &node, self.parse_result, self.cop_config);
-        self.diagnostics.extend(results);
+        self.cop.check_node(
+            self.source,
+            &node,
+            self.parse_result,
+            self.cop_config,
+            &mut self.diagnostics,
+        );
     }
 
     fn visit_leaf_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
-        let results =
-            self.cop
-                .check_node(self.source, &node, self.parse_result, self.cop_config);
-        self.diagnostics.extend(results);
+        self.cop.check_node(
+            self.source,
+            &node,
+            self.parse_result,
+            self.cop_config,
+            &mut self.diagnostics,
+        );
     }
 }
 
@@ -77,14 +83,12 @@ impl<'a, 'pr> BatchedCopWalker<'a, 'pr> {
         let tag = node_type_tag(node) as usize;
 
         for &(cop, cop_config) in &self.universal_cops {
-            let results = cop.check_node(self.source, node, self.parse_result, cop_config);
-            self.diagnostics.extend(results);
+            cop.check_node(self.source, node, self.parse_result, cop_config, &mut self.diagnostics);
         }
 
         if let Some(cops) = self.dispatch_table.get(tag) {
             for &(cop, cop_config) in cops {
-                let results = cop.check_node(self.source, node, self.parse_result, cop_config);
-                self.diagnostics.extend(results);
+                cop.check_node(self.source, node, self.parse_result, cop_config, &mut self.diagnostics);
             }
         }
     }

@@ -114,7 +114,8 @@ impl Cop for FormatStringToken {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "annotated");
         let max_unannotated = config.get_usize("MaxUnannotatedPlaceholdersAllowed", 1);
         let mode = config.get_str("Mode", "aggressive");
@@ -146,7 +147,7 @@ impl Cop for FormatStringToken {
 
         // Second pass: check strings
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

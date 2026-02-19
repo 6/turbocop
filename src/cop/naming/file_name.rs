@@ -96,7 +96,7 @@ impl Cop for FileName {
         "Naming/FileName"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let expect_matching_definition = config.get_bool("ExpectMatchingDefinition", false);
         let check_def_path_hierarchy = config.get_bool("CheckDefinitionPathHierarchy", true);
         let check_def_path_roots = config.get_string_array("CheckDefinitionPathHierarchyRoots");
@@ -107,42 +107,42 @@ impl Cop for FileName {
         let path = Path::new(source.path_str());
         let file_stem = match path.file_stem().and_then(|s| s.to_str()) {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // IgnoreExecutableScripts: skip files with shebang (#!) on first line
         if ignore_executable_scripts {
             let bytes = source.as_bytes();
             if bytes.starts_with(b"#!") {
-                return Vec::new();
+                return;
             }
         }
 
         // Allow well-known Ruby files
         if ALLOWED_NAMES.contains(&file_stem) {
-            return Vec::new();
+            return;
         }
 
         // Also allow if the full filename (no extension) is in the allowed list
         let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
         if ALLOWED_NAMES.contains(&file_name) {
-            return Vec::new();
+            return;
         }
 
         // Regex: if a custom regex is provided, use it instead of snake_case check
         if !regex_pattern.is_empty() {
             if let Ok(re) = regex::Regex::new(regex_pattern) {
                 if re.is_match(file_stem) {
-                    return Vec::new();
+                    return;
                 }
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     1,
                     0,
                     format!(
                         "The name of this source file (`{file_stem}`) should match the configured Regex."
                     ),
-                )];
+                ));
             }
         }
 
@@ -158,14 +158,14 @@ impl Cop for FileName {
         // Check snake_case on each dot-separated segment individually.
         let all_segments_snake = check_name.split('.').all(|seg| is_snake_case(seg.as_bytes()));
         if !all_segments_snake {
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 1,
                 0,
                 format!(
                     "The name of this source file (`{file_stem}`) should use snake_case."
                 ),
-            )];
+            ));
         }
 
         // ExpectMatchingDefinition: require that the file defines a class/module matching the filename
@@ -180,18 +180,17 @@ impl Cop for FileName {
 
             if !has_matching_definition(source_text, &expected_namespace) {
                 let namespace_str = expected_namespace.join("::");
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     1,
                     0,
                     format!(
                         "`{file_stem}` should define a class or module called `{namespace_str}`."
                     ),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 
@@ -210,7 +209,8 @@ mod tests {
     #[test]
     fn offense_bad_filename() {
         let source = SourceFile::from_bytes("BadFile.rb", b"x = 1\n".to_vec());
-        let diags = FileName.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FileName.check_lines(&source, &CopConfig::default(), &mut diags);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].cop_name, "Naming/FileName");
         assert!(diags[0].message.contains("BadFile"));
@@ -219,42 +219,48 @@ mod tests {
     #[test]
     fn offense_camel_case_filename() {
         let source = SourceFile::from_bytes("MyClass.rb", b"x = 1\n".to_vec());
-        let diags = FileName.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FileName.check_lines(&source, &CopConfig::default(), &mut diags);
         assert_eq!(diags.len(), 1);
     }
 
     #[test]
     fn no_offense_good_filename() {
         let source = SourceFile::from_bytes("good_file.rb", b"x = 1\n".to_vec());
-        let diags = FileName.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FileName.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty());
     }
 
     #[test]
     fn no_offense_gemfile() {
         let source = SourceFile::from_bytes("Gemfile", b"source 'https://rubygems.org'\n".to_vec());
-        let diags = FileName.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FileName.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty());
     }
 
     #[test]
     fn no_offense_rakefile() {
         let source = SourceFile::from_bytes("Rakefile", b"task :default\n".to_vec());
-        let diags = FileName.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FileName.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty());
     }
 
     #[test]
     fn no_offense_test_rb() {
         let source = SourceFile::from_bytes("test.rb", b"x = 1\n".to_vec());
-        let diags = FileName.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FileName.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty());
     }
 
     #[test]
     fn config_ignore_executable_scripts() {
         let source = SourceFile::from_bytes("MyScript", b"#!/usr/bin/env ruby\nputs 'hi'\n".to_vec());
-        let diags = FileName.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        FileName.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty(), "Should skip executable scripts with shebang");
     }
 
@@ -268,7 +274,8 @@ mod tests {
             ..CopConfig::default()
         };
         let source = SourceFile::from_bytes("MyScript.rb", b"#!/usr/bin/env ruby\nputs 'hi'\n".to_vec());
-        let diags = FileName.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        FileName.check_lines(&source, &config, &mut diags);
         assert!(!diags.is_empty(), "Should flag non-snake_case even with shebang when IgnoreExecutableScripts:false");
     }
 
@@ -282,7 +289,8 @@ mod tests {
             ..CopConfig::default()
         };
         let source = SourceFile::from_bytes("good_file.rb", b"x = 1\n".to_vec());
-        let diags = FileName.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        FileName.check_lines(&source, &config, &mut diags);
         assert!(diags.is_empty(), "Should pass custom regex check");
     }
 
@@ -298,7 +306,8 @@ mod tests {
             ..CopConfig::default()
         };
         let source = SourceFile::from_bytes("my_HTML_parser.rb", b"x = 1\n".to_vec());
-        let diags = FileName.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        FileName.check_lines(&source, &config, &mut diags);
         assert!(diags.is_empty(), "Should allow AllowedAcronyms in filename");
     }
 
@@ -312,7 +321,8 @@ mod tests {
             ..CopConfig::default()
         };
         let source = SourceFile::from_bytes("my_class.rb", b"x = 1\n".to_vec());
-        let diags = FileName.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        FileName.check_lines(&source, &config, &mut diags);
         assert!(!diags.is_empty(), "ExpectMatchingDefinition should flag file without matching class");
         assert!(diags[0].message.contains("MyClass"));
     }
@@ -327,7 +337,8 @@ mod tests {
             ..CopConfig::default()
         };
         let source = SourceFile::from_bytes("my_class.rb", b"class MyClass\nend\n".to_vec());
-        let diags = FileName.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        FileName.check_lines(&source, &config, &mut diags);
         assert!(diags.is_empty(), "ExpectMatchingDefinition should accept matching class");
     }
 
@@ -345,7 +356,8 @@ mod tests {
             "lib/my_gem/my_class.rb",
             b"class MyGem::MyClass\nend\n".to_vec(),
         );
-        let diags = FileName.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        FileName.check_lines(&source, &config, &mut diags);
         assert!(diags.is_empty(), "Should accept matching namespaced class");
     }
 
@@ -363,7 +375,8 @@ mod tests {
             "lib/my_gem/my_class.rb",
             b"class MyClass\nend\n".to_vec(),
         );
-        let diags = FileName.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        FileName.check_lines(&source, &config, &mut diags);
         assert!(diags.is_empty(), "Without hierarchy check, just the class name should match");
     }
 }

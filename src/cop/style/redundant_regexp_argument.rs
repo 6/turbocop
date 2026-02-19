@@ -32,42 +32,43 @@ impl Cop for RedundantRegexpArgument {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = call.name().as_slice();
         if !TARGET_METHODS.iter().any(|m| *m == name) {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // First argument must be a simple regexp literal
         let regex = match arg_list[0].as_regular_expression_node() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if the regex is deterministic (no special regex chars)
         let content = regex.content_loc().as_slice();
         if !is_deterministic_regexp(content) {
-            return Vec::new();
+            return;
         }
 
         // Skip single space regexps: / / is idiomatic
         if content == b" " {
-            return Vec::new();
+            return;
         }
 
         // Check for flags by looking at the closing loc
@@ -76,17 +77,17 @@ impl Cop for RedundantRegexpArgument {
         let close_bytes = closing.as_slice();
         // Closing should just be "/" with no trailing flags
         if close_bytes.len() > 1 {
-            return Vec::new();
+            return;
         }
 
         let loc = arg_list[0].location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use string `\"` instead of regexp `/` as the argument.".to_string(),
-        )]
+        ));
     }
 }
 

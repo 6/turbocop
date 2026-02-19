@@ -20,16 +20,17 @@ impl Cop for SpaceAfterMethodName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have parenthesized parameters
         let lparen = match def_node.lparen_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if there's a space between the method name and the opening paren
@@ -41,16 +42,15 @@ impl Cop for SpaceAfterMethodName {
             let between = &source.as_bytes()[name_end..lparen_start];
             if between.iter().any(|&b| b == b' ' || b == b'\t') {
                 let (line, column) = source.offset_to_line_col(name_end);
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Do not put a space between a method name and the opening parenthesis.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

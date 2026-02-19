@@ -25,18 +25,19 @@ impl Cop for RenderPlainText {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let content_type_compat = config.get_bool("ContentTypeCompatibility", true);
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         if call.name().as_slice() != b"render" {
-            return Vec::new();
+            return;
         }
         if keyword_arg_value(&call, b"text").is_none() {
-            return Vec::new();
+            return;
         }
 
         // ContentTypeCompatibility: when true, only flag if content_type: 'text/plain' is present
@@ -50,27 +51,27 @@ impl Cop for RenderPlainText {
                     // Only flag if content_type is 'text/plain'
                     if let Some(s) = v.as_string_node() {
                         if s.unescaped() != b"text/plain" {
-                            return Vec::new();
+                            return;
                         }
                     } else {
-                        return Vec::new();
+                        return;
                     }
                 }
                 None => {
                     // No content_type specified; with compat mode, don't flag
-                    return Vec::new();
+                    return;
                 }
             }
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `render plain:` instead of `render text:`.".to_string(),
-        )]
+        ));
     }
 }
 

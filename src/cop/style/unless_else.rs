@@ -20,26 +20,27 @@ impl Cop for UnlessElse {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let unless_node = match node.as_unless_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have an else clause
         if unless_node.else_clause().is_none() {
-            return Vec::new();
+            return;
         }
 
         let kw_loc = unless_node.keyword_loc();
         let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Do not use `unless` with `else`. Rewrite these with the positive case first."
                 .to_string(),
-        )]
+        ));
     }
 }
 

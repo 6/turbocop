@@ -81,19 +81,20 @@ impl Cop for NilLambda {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check lambda node: `-> { nil }`
         if let Some(lambda) = node.as_lambda_node() {
             if let Some(body) = lambda.body() {
                 if Self::check_block_body(&body) {
                     let loc = lambda.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use an empty lambda instead of always returning nil.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
@@ -108,12 +109,12 @@ impl Cop for NilLambda {
                                 // Report on the whole expression including the block
                                 let loc = node.location();
                                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                return vec![self.diagnostic(
+                                diagnostics.push(self.diagnostic(
                                     source,
                                     line,
                                     column,
                                     format!("Use an empty {} instead of always returning nil.", type_name),
-                                )];
+                                ));
                             }
                         }
                     }
@@ -121,7 +122,6 @@ impl Cop for NilLambda {
             }
         }
 
-        Vec::new()
     }
 }
 

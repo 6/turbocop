@@ -20,7 +20,8 @@ impl Cop for BlockParameterName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let min_length = config.get_usize("MinNameLength", 1);
         let _allow_numbers = config.get_bool("AllowNamesEndingInNumbers", true);
         let _allowed_names = config.get_string_array("AllowedNames");
@@ -28,41 +29,38 @@ impl Cop for BlockParameterName {
 
         let block = match node.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params = match block.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_params = match params.as_block_parameters_node() {
             Some(bp) => bp,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params_node = match block_params.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
-
-        let mut diagnostics = Vec::new();
 
         for param in params_node.requireds().iter() {
             if let Some(req) = param.as_required_parameter_node() {
                 let name = req.name().as_slice();
-                check_param_name(self, source, name, &req.location(), min_length, config, &mut diagnostics);
+                check_param_name(self, source, name, &req.location(), min_length, config, diagnostics);
             }
         }
 
         for param in params_node.optionals().iter() {
             if let Some(opt) = param.as_optional_parameter_node() {
                 let name = opt.name().as_slice();
-                check_param_name(self, source, name, &opt.location(), min_length, config, &mut diagnostics);
+                check_param_name(self, source, name, &opt.location(), min_length, config, diagnostics);
             }
         }
 
-        diagnostics
     }
 }
 

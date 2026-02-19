@@ -20,7 +20,8 @@ impl Cop for ShadowedArgument {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let _ignore_implicit = config.get_bool("IgnoreImplicitReferences", false);
         let mut visitor = ShadowedArgVisitor {
             cop: self,
@@ -28,7 +29,7 @@ impl Cop for ShadowedArgument {
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

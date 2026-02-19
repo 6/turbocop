@@ -20,10 +20,11 @@ impl Cop for RedundantArrayConstructor {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_bytes = call.name().as_slice();
@@ -39,16 +40,16 @@ impl Cop for RedundantArrayConstructor {
                         if arg_list.len() == 1 && arg_list[0].as_array_node().is_some() {
                             let loc = call.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            return vec![self.diagnostic(
+                            diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 "Remove the redundant `Array` constructor.".to_string(),
-                            )];
+                            ));
                         }
                     }
                 }
-                return Vec::new();
+                return;
             }
         };
 
@@ -61,7 +62,7 @@ impl Cop for RedundantArrayConstructor {
         };
 
         if !is_array {
-            return Vec::new();
+            return;
         }
 
         if method_bytes == b"new" {
@@ -72,27 +73,26 @@ impl Cop for RedundantArrayConstructor {
                     let _msg_loc = call.message_loc().unwrap_or_else(|| call.location());
                     let recv_start = receiver.location().start_offset();
                     let (line, column) = source.offset_to_line_col(recv_start);
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Remove the redundant `Array` constructor.".to_string(),
-                    )];
+                    ));
                 }
             }
         } else if method_bytes == b"[]" {
             // Array[...] - any usage is redundant
             let recv_start = receiver.location().start_offset();
             let (line, column) = source.offset_to_line_col(recv_start);
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Remove the redundant `Array` constructor.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

@@ -24,27 +24,28 @@ impl Cop for RequireParentheses {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be a predicate method (name ends with ?)
         let name = call.name();
         if !name.as_slice().ends_with(b"?") {
-            return Vec::new();
+            return;
         }
 
         // Must have arguments
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must NOT have parentheses
         if call.opening_loc().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Check if any argument is an AndNode or OrNode (but not `and`/`or` keywords,
@@ -54,18 +55,18 @@ impl Cop for RequireParentheses {
         });
 
         if !has_boolean_arg {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use parentheses in the method call to avoid confusion about precedence."
                 .to_string(),
-        )]
+        ));
     }
 }
 

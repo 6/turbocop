@@ -29,29 +29,30 @@ impl Cop for AddColumnIndex {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"add_column" {
-            return Vec::new();
+            return;
         }
 
         // Check if there's an `index` keyword argument
         if keyword_arg_value(&call, b"index").is_none() {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "`add_column` does not accept an `index` key, use `add_index` instead.".to_string(),
-        )]
+        ));
     }
 }
 

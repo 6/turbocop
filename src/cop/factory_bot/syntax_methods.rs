@@ -27,7 +27,8 @@ impl Cop for SyntaxMethods {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let mut visitor = SyntaxMethodsVisitor {
             cop: self,
             source,
@@ -35,7 +36,7 @@ impl Cop for SyntaxMethods {
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

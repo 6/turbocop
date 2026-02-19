@@ -42,30 +42,31 @@ impl Cop for EnvironmentComparison {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method = call.name().as_slice();
         if method != b"==" && method != b"!=" {
-            return Vec::new();
+            return;
         }
 
         let recv = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         // Check if either side is Rails.env
@@ -75,17 +76,17 @@ impl Cop for EnvironmentComparison {
         let is_comparison = is_rails_env(&recv_node) || is_rails_env(arg_node);
 
         if !is_comparison {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `Rails.env.production?` instead of comparing `Rails.env`.".to_string(),
-        )]
+        ));
     }
 }
 

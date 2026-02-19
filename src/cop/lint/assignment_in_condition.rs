@@ -24,7 +24,8 @@ impl Cop for AssignmentInCondition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_safe = config.get_bool("AllowSafeAssignment", true);
 
         let predicate = if let Some(if_node) = node.as_if_node() {
@@ -41,7 +42,7 @@ impl Cop for AssignmentInCondition {
 
         let predicate = match predicate {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if the predicate is an assignment
@@ -52,7 +53,7 @@ impl Cop for AssignmentInCondition {
             || predicate.as_constant_write_node().is_some();
 
         if !is_assignment {
-            return Vec::new();
+            return;
         }
 
         // AllowSafeAssignment: if the assignment is wrapped in parens, allow it
@@ -73,19 +74,19 @@ impl Cop for AssignmentInCondition {
                     pos -= 1;
                 }
                 if bytes[pos] == b'(' {
-                    return Vec::new(); // Safe assignment: if (x = 1)
+                    return; // Safe assignment: if (x = 1)
                 }
             }
         }
 
         let loc = predicate.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Assignment in condition detected. Did you mean `==`?".to_string(),
-        )]
+        ));
     }
 }
 

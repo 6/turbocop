@@ -20,27 +20,28 @@ impl Cop for FirstParameterIndentation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "consistent");
         let _indent_width = config.get_usize("IndentationWidth", 2);
 
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         let lparen_loc = match def_node.lparen_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
         let rparen_loc = match def_node.rparen_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params = match def_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let (open_line, open_col) = source.offset_to_line_col(lparen_loc.start_offset());
@@ -48,7 +49,7 @@ impl Cop for FirstParameterIndentation {
 
         // Only check multiline parameter lists
         if open_line == close_line {
-            return Vec::new();
+            return;
         }
 
         // Find the first parameter
@@ -63,14 +64,14 @@ impl Cop for FirstParameterIndentation {
         } else if let Some(rest) = params.rest() {
             rest.location().start_offset()
         } else {
-            return Vec::new();
+            return;
         };
 
         let (first_line, first_col) = source.offset_to_line_col(first_offset);
 
         // Skip if first param is on the same line as the parenthesis
         if first_line == open_line {
-            return Vec::new();
+            return;
         }
 
         let def_kw_loc = def_node.def_keyword_loc();
@@ -95,7 +96,7 @@ impl Cop for FirstParameterIndentation {
         };
 
         if first_col != expected {
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 first_line,
                 first_col,
@@ -104,10 +105,9 @@ impl Cop for FirstParameterIndentation {
                     expected,
                     first_col
                 ),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

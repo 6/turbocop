@@ -24,10 +24,10 @@ impl Cop for SpaceAroundKeyword {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let bytes = source.as_bytes();
         let len = bytes.len();
-        let mut diagnostics = Vec::new();
 
         for &kw in KEYWORDS {
             let kw_len = kw.len();
@@ -65,7 +65,6 @@ impl Cop for SpaceAroundKeyword {
             }
         }
 
-        diagnostics
     }
 }
 

@@ -56,22 +56,23 @@ impl Cop for EvalWithLocation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name();
         let method_bytes = method_name.as_slice();
 
         if !Self::is_eval_method(method_bytes) {
-            return Vec::new();
+            return;
         }
 
         // Check if it has a block - if so, skip (block form doesn't need file/line)
         if call.block().is_some() {
-            return Vec::new();
+            return;
         }
 
         let receiver = call.receiver();
@@ -86,7 +87,7 @@ impl Cop for EvalWithLocation {
                         && cp.name().map_or(false, |n| n.as_slice() == b"Kernel")
                 });
                 if !is_kernel && !is_scoped_kernel {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -104,14 +105,15 @@ impl Cop for EvalWithLocation {
                 } else {
                     format!("Pass `__FILE__` and `__LINE__` to `{}`.", method_str)
                 };
-                return vec![self.diagnostic(source, line, column, msg)];
+                diagnostics.push(self.diagnostic(source, line, column, msg));
+                return;
             }
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
 
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // First arg must be a string-like expression (code to eval)
@@ -119,7 +121,7 @@ impl Cop for EvalWithLocation {
 
         // If first arg is not a string/heredoc, it might be a variable - skip
         if !Self::is_string_arg(first_arg) {
-            return Vec::new();
+            return;
         }
 
         let needs_binding = Self::requires_binding(method_bytes);
@@ -137,10 +139,9 @@ impl Cop for EvalWithLocation {
             } else {
                 format!("Pass `__FILE__` and `__LINE__` to `{}`.", method_str)
             };
-            return vec![self.diagnostic(source, line, column, msg)];
+            diagnostics.push(self.diagnostic(source, line, column, msg));
         }
 
-        Vec::new()
     }
 }
 

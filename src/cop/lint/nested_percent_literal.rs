@@ -29,16 +29,17 @@ impl Cop for NestedPercentLiteral {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let array_node = match node.as_array_node() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if this is a %w or %i literal
         let open_loc = match array_node.opening_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let open_src = open_loc.as_slice();
@@ -48,7 +49,7 @@ impl Cop for NestedPercentLiteral {
             || open_src.starts_with(b"%I");
 
         if !is_percent_literal {
-            return Vec::new();
+            return;
         }
 
         // Check if any element contains a percent literal prefix
@@ -65,17 +66,16 @@ impl Cop for NestedPercentLiteral {
                 {
                     let loc = array_node.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Within percent literals, nested percent literals do not function and may be unwanted in the result.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

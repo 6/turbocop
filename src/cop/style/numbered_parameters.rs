@@ -20,23 +20,24 @@ impl Cop for NumberedParameters {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "allow_single_line");
 
         // Check for blocks that use numbered parameters
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // In Prism, blocks with numbered params have parameters() set to a
@@ -47,22 +48,22 @@ impl Cop for NumberedParameters {
         // strings, or variable names like _1_foo.
         let params = match block_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         if params.as_numbered_parameters_node().is_none() {
-            return Vec::new();
+            return;
         }
 
         if style == "disallow" {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Avoid using numbered parameters.".to_string(),
-            )];
+            ));
         }
 
         if style == "allow_single_line" {
@@ -73,16 +74,15 @@ impl Cop for NumberedParameters {
             if start_line != end_line {
                 let loc = node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Avoid using numbered parameters for multi-line blocks.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

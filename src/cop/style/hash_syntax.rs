@@ -20,7 +20,8 @@ impl Cop for HashSyntax {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Handle both explicit hashes `{ k: v }` and implicit keyword hashes `foo(k: v)`
         let elements: Vec<ruby_prism::Node<'_>> =
             if let Some(hash_node) = node.as_hash_node() {
@@ -28,7 +29,7 @@ impl Cop for HashSyntax {
             } else if let Some(kw_hash) = node.as_keyword_hash_node() {
                 kw_hash.elements().iter().collect()
             } else {
-                return Vec::new();
+                return;
             };
 
         let enforced_style = config.get_str("EnforcedStyle", "ruby19");
@@ -42,7 +43,8 @@ impl Cop for HashSyntax {
             let mut shorthand_diags = Vec::new();
             check_shorthand_syntax(self, source, &elements, enforced_shorthand, &mut shorthand_diags);
             if !shorthand_diags.is_empty() {
-                return shorthand_diags;
+                diagnostics.extend(shorthand_diags);
+                return;
             }
         }
 
@@ -58,7 +60,7 @@ impl Cop for HashSyntax {
                         }
                     });
                     if has_symbol_value {
-                        return Vec::new();
+                        return;
                     }
                 }
 
@@ -88,7 +90,7 @@ impl Cop for HashSyntax {
                 });
 
                 if has_unconvertible {
-                    return Vec::new();
+                    return;
                 }
 
                 let mut diags = Vec::new();
@@ -113,7 +115,7 @@ impl Cop for HashSyntax {
                         }
                     }
                 }
-                diags
+                diagnostics.extend(diags);
             }
             "hash_rockets" => {
                 let mut diags = Vec::new();
@@ -139,7 +141,7 @@ impl Cop for HashSyntax {
                         }
                     }
                 }
-                diags
+                diagnostics.extend(diags);
             }
             "no_mixed_keys" => {
                 // All keys must use the same syntax
@@ -162,16 +164,16 @@ impl Cop for HashSyntax {
                 }
                 if has_ruby19 && has_rockets {
                     let (line, column) = source.offset_to_line_col(node.location().start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Don't mix styles in the same hash.".to_string(),
-                    )];
+                    ));
                 }
-                Vec::new()
+
             }
-            _ => Vec::new(),
+            _ => {}
         }
     }
 }

@@ -22,7 +22,8 @@ impl Cop for AccessModifierDeclarations {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "group");
         let allow_modifiers_on_symbols = config.get_bool("AllowModifiersOnSymbols", true);
         let allow_modifiers_on_attrs = config.get_bool("AllowModifiersOnAttrs", true);
@@ -30,27 +31,27 @@ impl Cop for AccessModifierDeclarations {
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
         if !ACCESS_MODIFIERS.contains(&method_name) {
-            return Vec::new();
+            return;
         }
 
         // Skip if no receiver (must be bare access modifier call)
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(), // Group-style modifier with no args is fine
+            None => return, // Group-style modifier with no args is fine
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Check if the argument is a symbol
@@ -58,7 +59,7 @@ impl Cop for AccessModifierDeclarations {
         let is_symbol_arg = first_arg.as_symbol_node().is_some();
 
         if is_symbol_arg && allow_modifiers_on_symbols {
-            return Vec::new();
+            return;
         }
 
         // Check for attr_* calls
@@ -66,7 +67,7 @@ impl Cop for AccessModifierDeclarations {
             if let Some(inner_call) = first_arg.as_call_node() {
                 let inner_name = std::str::from_utf8(inner_call.name().as_slice()).unwrap_or("");
                 if matches!(inner_name, "attr_reader" | "attr_writer" | "attr_accessor" | "attr") {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -76,7 +77,7 @@ impl Cop for AccessModifierDeclarations {
             if let Some(inner_call) = first_arg.as_call_node() {
                 let inner_name = std::str::from_utf8(inner_call.name().as_slice()).unwrap_or("");
                 if inner_name == "alias_method" {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -87,13 +88,13 @@ impl Cop for AccessModifierDeclarations {
                 // If we see a bare modifier without args inside a class, it's group style
                 // This is only triggered for group-style, which is bare modifier without args
                 // Since we already checked args exist, this is inline-style with args = OK
-                Vec::new()
+
             }
             "group" => {
                 // Group style: access modifiers should not be inlined with method definitions
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
@@ -101,9 +102,9 @@ impl Cop for AccessModifierDeclarations {
                         "`{}` should not be inlined in method definitions.",
                         method_name
                     ),
-                )]
+                ));
             }
-            _ => Vec::new(),
+            _ => {}
         }
     }
 }

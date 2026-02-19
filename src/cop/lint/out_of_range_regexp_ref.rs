@@ -21,7 +21,8 @@ impl Cop for OutOfRangeRegexpRef {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let mut visitor = RegexpRefVisitor {
             cop: self,
             source,
@@ -29,7 +30,7 @@ impl Cop for OutOfRangeRegexpRef {
             current_capture_count: None,
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

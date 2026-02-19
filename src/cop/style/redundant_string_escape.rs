@@ -29,26 +29,26 @@ impl Cop for RedundantStringEscape {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Only check double-quoted strings
         let (opening_loc, content_loc) = if let Some(s) = node.as_string_node() {
             match (s.opening_loc(), s.content_loc()) {
                 (Some(o), l) => (o, l),
-                _ => return Vec::new(),
+                _ => return,
             }
         } else {
-            return Vec::new();
+            return;
         };
 
         let open_bytes = opening_loc.as_slice();
         // Must be a double-quoted string
         if open_bytes != b"\"" {
-            return Vec::new();
+            return;
         }
 
         let content = content_loc.as_slice();
         let content_start = content_loc.start_offset();
-        let mut diagnostics = Vec::new();
         let mut i = 0;
 
         while i < content.len() {
@@ -70,7 +70,6 @@ impl Cop for RedundantStringEscape {
             }
         }
 
-        diagnostics
     }
 }
 

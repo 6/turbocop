@@ -33,10 +33,11 @@ impl Cop for AfterCommitOverride {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let class_node = match node.as_class_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let calls = class_body_calls(&class_node);
@@ -61,7 +62,6 @@ impl Cop for AfterCommitOverride {
 
         // Group by callback name and flag duplicates
         let mut seen: std::collections::HashMap<Vec<u8>, bool> = std::collections::HashMap::new();
-        let mut diagnostics = Vec::new();
 
         for call in &after_commit_calls {
             let args = call.arguments().unwrap();
@@ -87,7 +87,6 @@ impl Cop for AfterCommitOverride {
             }
         }
 
-        diagnostics
     }
 }
 

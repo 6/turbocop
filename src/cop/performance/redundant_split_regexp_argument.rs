@@ -42,49 +42,50 @@ impl Cop for RedundantSplitRegexpArgument {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"split" {
-            return Vec::new();
+            return;
         }
 
         // Must have a receiver
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         let arguments = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = arguments.arguments();
         if args.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Check if first argument is a RegularExpressionNode with simple literal content
         let first_arg = match args.iter().next() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let regex_node = match first_arg.as_regular_expression_node() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let content = regex_node.content_loc().as_slice();
         if !is_simple_literal_regex(content) {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, "Use string as argument instead of regexp.".to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, "Use string as argument instead of regexp.".to_string()));
     }
 }
 

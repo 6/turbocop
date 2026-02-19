@@ -32,23 +32,24 @@ impl Cop for BinaryOperatorParameterName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Skip singleton methods (def self.foo, def obj.foo) — RuboCop only
         // handles :def, not :defs
         if def_node.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let method_name = def_node.name().as_slice();
 
         // Skip excluded operators
         if EXCLUDED_OPERATORS.iter().any(|&op| op == method_name) {
-            return Vec::new();
+            return;
         }
 
         // Check if this is a binary operator or operator-like method
@@ -57,18 +58,18 @@ impl Cop for BinaryOperatorParameterName {
             let name_str = std::str::from_utf8(method_name).unwrap_or("");
             let is_op = !name_str.is_empty() && !name_str.starts_with(|c: char| c.is_alphanumeric() || c == '_');
             if !is_op {
-                return Vec::new();
+                return;
             }
         }
 
         let params = match def_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let requireds = params.requireds();
         if requireds.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let first_param = &requireds.iter().next().unwrap();
@@ -79,18 +80,17 @@ impl Cop for BinaryOperatorParameterName {
                 let loc = req.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 let op_str = std::str::from_utf8(method_name).unwrap_or("");
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!(
                         "When defining the `{op_str}` operator, name its argument `other`."
                     ),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

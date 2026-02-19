@@ -13,8 +13,7 @@ impl Cop for AddRuntimeDependency {
         &["**/*.gemspec"]
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         for (line_idx, line) in source.lines().enumerate() {
             let line_str = match std::str::from_utf8(line) {
                 Ok(s) => s,
@@ -30,7 +29,6 @@ impl Cop for AddRuntimeDependency {
                 ));
             }
         }
-        diagnostics
     }
 }
 

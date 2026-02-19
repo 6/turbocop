@@ -52,10 +52,11 @@ impl Cop for SelfAssignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let write_name = match Self::get_write_name(node) {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Get the value being assigned
@@ -66,7 +67,7 @@ impl Cop for SelfAssignment {
         } else if let Some(cv) = node.as_class_variable_write_node() {
             cv.value()
         } else {
-            return Vec::new();
+            return;
         };
 
         // Check for `x = x op y` pattern
@@ -75,17 +76,17 @@ impl Cop for SelfAssignment {
             let method_bytes = method_name.as_slice();
 
             if !SELF_ASSIGN_OPS.contains(&method_bytes) {
-                return Vec::new();
+                return;
             }
 
             // Must have exactly one argument
             if let Some(args) = call.arguments() {
                 let arg_list: Vec<_> = args.arguments().iter().collect();
                 if arg_list.len() != 1 {
-                    return Vec::new();
+                    return;
                 }
             } else {
-                return Vec::new();
+                return;
             }
 
             // Receiver must be the same variable
@@ -95,12 +96,12 @@ impl Cop for SelfAssignment {
                         let op = std::str::from_utf8(method_bytes).unwrap_or("+");
                         let loc = node.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             format!("Use self-assignment shorthand `{}=`.", op),
-                        )];
+                        ));
                     }
                 }
             }
@@ -115,17 +116,16 @@ impl Cop for SelfAssignment {
                     let op = std::str::from_utf8(op_loc.as_slice()).unwrap_or("&&");
                     let loc = node.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         format!("Use self-assignment shorthand `{}=`.", op),
-                    )];
+                    ));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

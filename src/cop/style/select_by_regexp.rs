@@ -94,11 +94,12 @@ impl Cop for SelectByRegexp {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // We check the CallNode; its block() gives us the BlockNode
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name();
@@ -106,88 +107,88 @@ impl Cop for SelectByRegexp {
 
         // Must be select, filter, find_all, or reject
         if !matches!(method_bytes, b"select" | b"filter" | b"find_all" | b"reject") {
-            return Vec::new();
+            return;
         }
 
         // Must not be called on a hash-like receiver
         if let Some(receiver) = call.receiver() {
             if Self::is_hash_receiver(&receiver) {
-                return Vec::new();
+                return;
             }
         }
 
         // Must have a block
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Get block parameters - must have exactly one
         let block_params = match block_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_params_node = match block_params.as_block_parameters_node() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let inner_params = match block_params_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let requireds: Vec<_> = inner_params.requireds().into_iter().collect();
         if requireds.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let block_arg_name = match requireds[0].as_required_parameter_node() {
             Some(req) => req.name().as_slice().to_vec(),
-            None => return Vec::new(),
+            None => return,
         };
 
         // Block body must be a single expression that matches regexp
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         if let Some(stmts) = body.as_statements_node() {
             let body_nodes: Vec<_> = stmts.body().into_iter().collect();
             if body_nodes.len() != 1 {
-                return Vec::new();
+                return;
             }
 
             if !Self::check_block_body(&body_nodes[0], &block_arg_name) {
-                return Vec::new();
+                return;
             }
         } else {
-            return Vec::new();
+            return;
         }
 
         let replacement = match method_bytes {
             b"select" | b"filter" | b"find_all" => "grep",
             b"reject" => "grep_v",
-            _ => return Vec::new(),
+            _ => return,
         };
 
         let method_str = std::str::from_utf8(method_bytes).unwrap_or("select");
         // Report on the whole call including block
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Prefer `{}` to `{}` with a regexp match.", replacement, method_str),
-        )]
+        ));
     }
 }
 

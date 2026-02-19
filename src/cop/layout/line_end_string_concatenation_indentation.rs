@@ -17,7 +17,8 @@ impl Cop for LineEndStringConcatenationIndentation {
         parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "aligned");
         let indent_width = config.get_usize("IndentationWidth", 2);
 
@@ -31,7 +32,7 @@ impl Cop for LineEndStringConcatenationIndentation {
             direct_parent_type: ParentType::TopLevel,
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

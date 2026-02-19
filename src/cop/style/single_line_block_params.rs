@@ -20,12 +20,13 @@ impl Cop for SingleLineBlockParams {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let _methods = config.get_string_array("Methods");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -34,44 +35,44 @@ impl Cop for SingleLineBlockParams {
         let expected_params: &[&[u8]] = if method_name == b"reduce" || method_name == b"inject" {
             &[b"acc", b"elem"]
         } else {
-            return Vec::new();
+            return;
         };
 
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params = match block_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_params = match params.as_block_parameters_node() {
             Some(bp) => bp,
-            None => return Vec::new(),
+            None => return,
         };
 
         let param_node = match block_params.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let requireds: Vec<_> = param_node.requireds().iter().collect();
         if requireds.len() != expected_params.len() {
-            return Vec::new();
+            return;
         }
 
         // Check if block is on a single line
         let (start_line, _) = source.offset_to_line_col(block_node.location().start_offset());
         let (end_line, _) = source.offset_to_line_col(block_node.location().end_offset());
         if start_line != end_line {
-            return Vec::new();
+            return;
         }
 
         // Check if the parameter names match
@@ -80,7 +81,7 @@ impl Cop for SingleLineBlockParams {
                 if rp.name().as_slice() != expected_params[i] {
                     let loc = block_params.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
@@ -90,12 +91,12 @@ impl Cop for SingleLineBlockParams {
                             String::from_utf8_lossy(expected_params[0]),
                             String::from_utf8_lossy(expected_params[1]),
                         ),
-                    )];
+                    ));
+                    return;
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

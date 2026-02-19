@@ -20,10 +20,11 @@ impl Cop for EnvHome {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name();
@@ -31,13 +32,13 @@ impl Cop for EnvHome {
 
         // Must be [] or fetch
         if method_bytes != b"[]" && method_bytes != b"fetch" {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be ENV constant
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let is_env = receiver
@@ -49,18 +50,18 @@ impl Cop for EnvHome {
             });
 
         if !is_env {
-            return Vec::new();
+            return;
         }
 
         // First argument must be string "HOME"
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let first_arg = &arg_list[0];
@@ -69,24 +70,24 @@ impl Cop for EnvHome {
         });
 
         if !is_home {
-            return Vec::new();
+            return;
         }
 
         // For fetch, second arg must be nil or absent
         if method_bytes == b"fetch" && arg_list.len() == 2 {
             if arg_list[1].as_nil_node().is_none() {
-                return Vec::new();
+                return;
             }
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `Dir.home` instead.".to_string(),
-        )]
+        ));
     }
 }
 

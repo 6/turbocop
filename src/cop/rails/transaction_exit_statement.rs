@@ -56,12 +56,13 @@ impl Cop for TransactionExitStatement {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let transaction_methods = config.get_string_array("TransactionMethods");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         let method_name = call.name().as_slice();
         let is_transaction = if let Some(ref methods) = transaction_methods {
@@ -71,37 +72,33 @@ impl Cop for TransactionExitStatement {
             method_name == b"transaction"
         };
         if !is_transaction {
-            return Vec::new();
+            return;
         }
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let mut finder = ExitFinder { found: vec![] };
         finder.visit(&body);
 
-        finder
-            .found
-            .iter()
-            .map(|&(offset, statement)| {
-                let (line, column) = source.offset_to_line_col(offset);
-                self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    format!("Do not use `{statement}` inside a transaction block."),
-                )
-            })
-            .collect()
+        for &(offset, statement) in &finder.found {
+            let (line, column) = source.offset_to_line_col(offset);
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                format!("Do not use `{statement}` inside a transaction block."),
+            ));
+        }
     }
 }
 

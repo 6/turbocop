@@ -20,17 +20,17 @@ impl Cop for EmptyStringInsideInterpolation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "trailing_conditional");
 
         // Look for interpolated strings containing ternaries with empty string branches
         let interp_string = if let Some(n) = node.as_interpolated_string_node() {
             n
         } else {
-            return Vec::new();
+            return;
         };
 
-        let mut diagnostics = Vec::new();
 
         for part in interp_string.parts().iter() {
             if let Some(embedded) = part.as_embedded_statements_node() {
@@ -116,7 +116,6 @@ impl Cop for EmptyStringInsideInterpolation {
             }
         }
 
-        diagnostics
     }
 }
 

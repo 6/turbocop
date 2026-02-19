@@ -21,18 +21,19 @@ impl Cop for ParameterAlignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "with_first_parameter");
         let _indent_width = config.get_usize("IndentationWidth", 2);
 
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params = match def_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let requireds: Vec<_> = params.requireds().iter().collect();
@@ -48,13 +49,12 @@ impl Cop for ParameterAlignment {
         }
 
         if all_params.len() < 2 {
-            return Vec::new();
+            return;
         }
 
         let first_param = &all_params[0];
         let (first_line, first_col) = source.offset_to_line_col(first_param.location().start_offset());
 
-        let mut diagnostics = Vec::new();
 
         let base_col = match style {
             "with_fixed_indentation" => {
@@ -90,7 +90,6 @@ impl Cop for ParameterAlignment {
             }
         }
 
-        diagnostics
     }
 }
 

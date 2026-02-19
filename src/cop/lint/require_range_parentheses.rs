@@ -20,7 +20,8 @@ impl Cop for RequireRangeParentheses {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let mut visitor = RangeVisitor {
             cop: self,
             source,
@@ -28,7 +29,7 @@ impl Cop for RequireRangeParentheses {
             in_parens: false,
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

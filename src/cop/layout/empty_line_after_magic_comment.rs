@@ -37,7 +37,7 @@ impl Cop for EmptyLineAfterMagicComment {
         "Layout/EmptyLineAfterMagicComment"
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let lines: Vec<&[u8]> = source.lines().collect();
         let mut last_magic_line = None;
 
@@ -59,28 +59,27 @@ impl Cop for EmptyLineAfterMagicComment {
 
         let last_magic_idx = match last_magic_line {
             Some(idx) => idx,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if the line after the last magic comment is blank
         let next_idx = last_magic_idx + 1;
         if next_idx >= lines.len() {
-            return Vec::new();
+            return;
         }
 
         let next_line = lines[next_idx];
         let is_blank = next_line.iter().all(|&b| b == b' ' || b == b'\t' || b == b'\r');
 
         if !is_blank {
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 next_idx + 1, // 1-indexed
                 0,
                 "Add an empty line after magic comments.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

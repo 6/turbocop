@@ -26,10 +26,11 @@ impl Cop for UnifiedInteger {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let name = match constant_name(node) {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let message = if name == b"Fixnum" {
@@ -37,12 +38,12 @@ impl Cop for UnifiedInteger {
         } else if name == b"Bignum" {
             "Use `Integer` instead of `Bignum`."
         } else {
-            return Vec::new();
+            return;
         };
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, message.to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, message.to_string()));
     }
 }
 

@@ -26,7 +26,8 @@ impl Cop for UselessNumericOperation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check for binary operator calls: x + 0, x - 0, x * 1, x / 1, x ** 1
         // RuboCop only matches `(call (call nil? $_) $_ (int $_))`, meaning the
         // receiver must be a bare method call (no receiver of its own). This
@@ -38,7 +39,7 @@ impl Cop for UselessNumericOperation {
             // Check receiver exists and is a bare method call (no receiver of its own)
             let recv = match call.receiver() {
                 Some(r) => r,
-                None => return Vec::new(),
+                None => return,
             };
 
             // RuboCop's pattern: (call (call nil? $_) $_ (int $_))
@@ -48,17 +49,17 @@ impl Cop for UselessNumericOperation {
                 None => false,
             };
             if !is_bare_method_call {
-                return Vec::new();
+                return;
             }
 
             let arguments = match call.arguments() {
                 Some(a) => a,
-                None => return Vec::new(),
+                None => return,
             };
 
             let args = arguments.arguments();
             if args.len() != 1 {
-                return Vec::new();
+                return;
             }
 
             let arg = args.iter().next().unwrap();
@@ -72,7 +73,7 @@ impl Cop for UselessNumericOperation {
             if is_useless {
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(source, line, column, MSG.to_string())];
+                diagnostics.push(self.diagnostic(source, line, column, MSG.to_string()));
             }
         }
 
@@ -90,7 +91,7 @@ impl Cop for UselessNumericOperation {
             if is_useless {
                 let loc = op_assign.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(source, line, column, MSG.to_string())];
+                diagnostics.push(self.diagnostic(source, line, column, MSG.to_string()));
             }
         }
 
@@ -108,7 +109,7 @@ impl Cop for UselessNumericOperation {
             if is_useless {
                 let loc = op_assign.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(source, line, column, MSG.to_string())];
+                diagnostics.push(self.diagnostic(source, line, column, MSG.to_string()));
             }
         }
 
@@ -126,7 +127,7 @@ impl Cop for UselessNumericOperation {
             if is_useless {
                 let loc = op_assign.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(source, line, column, MSG.to_string())];
+                diagnostics.push(self.diagnostic(source, line, column, MSG.to_string()));
             }
         }
 
@@ -144,11 +145,10 @@ impl Cop for UselessNumericOperation {
             if is_useless {
                 let loc = op_assign.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(source, line, column, MSG.to_string())];
+                diagnostics.push(self.diagnostic(source, line, column, MSG.to_string()));
             }
         }
 
-        Vec::new()
     }
 }
 

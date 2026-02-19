@@ -20,12 +20,13 @@ impl Cop for ObjectThen {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "then");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name();
@@ -33,7 +34,7 @@ impl Cop for ObjectThen {
 
         // Check if this is yield_self or then
         if !matches!(method_bytes, b"yield_self" | b"then") {
-            return Vec::new();
+            return;
         }
 
         // Must have a block or a block_pass argument
@@ -45,36 +46,35 @@ impl Cop for ObjectThen {
         };
 
         if !has_block && !has_block_pass {
-            return Vec::new();
+            return;
         }
 
         if enforced_style == "then" && method_bytes == b"yield_self" {
             let msg_loc = match call.message_loc() {
                 Some(l) => l,
-                None => return Vec::new(),
+                None => return,
             };
             let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Prefer `then` over `yield_self`.".to_string(),
-            )];
+            ));
         } else if enforced_style == "yield_self" && method_bytes == b"then" {
             let msg_loc = match call.message_loc() {
                 Some(l) => l,
-                None => return Vec::new(),
+                None => return,
             };
             let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Prefer `yield_self` over `then`.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

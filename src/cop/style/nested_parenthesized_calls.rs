@@ -20,26 +20,26 @@ impl Cop for NestedParenthesizedCalls {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allowed_methods = config.get_string_array("AllowedMethods");
 
         // Looking for outer_method(inner_method arg) where inner_method has no parens
         let outer_call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Outer call must have parentheses
         if outer_call.opening_loc().is_none() {
-            return Vec::new();
+            return;
         }
 
         let args = match outer_call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
 
         for arg in args.arguments().iter() {
             let inner_call = match arg.as_call_node() {
@@ -92,7 +92,6 @@ impl Cop for NestedParenthesizedCalls {
             ));
         }
 
-        diagnostics
     }
 }
 

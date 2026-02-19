@@ -20,16 +20,17 @@ impl Cop for TrailingBodyOnMethodDefinition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         if let Some(def_node) = node.as_def_node() {
             // Skip endless methods (def foo = ...)
             if def_node.equal_loc().is_some() {
-                return Vec::new();
+                return;
             }
 
             let body = match def_node.body() {
                 Some(b) => b,
-                None => return Vec::new(),
+                None => return,
             };
 
             // Method must be multiline (def on different line than end)
@@ -37,11 +38,11 @@ impl Cop for TrailingBodyOnMethodDefinition {
             let (def_line, _) = source.offset_to_line_col(def_loc.start_offset());
             let end_loc = match def_node.end_keyword_loc() {
                 Some(loc) => loc,
-                None => return Vec::new(),
+                None => return,
             };
             let (end_line, _) = source.offset_to_line_col(end_loc.start_offset());
             if def_line == end_line {
-                return Vec::new();
+                return;
             }
 
             // When body is a BeginNode (implicit begin wrapping rescue/ensure),
@@ -59,7 +60,7 @@ impl Cop for TrailingBodyOnMethodDefinition {
                             let loc = rescue.location();
                             source.offset_to_line_col(loc.start_offset())
                         } else {
-                            return Vec::new();
+                            return;
                         }
                     }
                 } else {
@@ -68,7 +69,7 @@ impl Cop for TrailingBodyOnMethodDefinition {
                         let loc = rescue.location();
                         source.offset_to_line_col(loc.start_offset())
                     } else {
-                        return Vec::new();
+                        return;
                     }
                 }
             } else {
@@ -77,17 +78,16 @@ impl Cop for TrailingBodyOnMethodDefinition {
             };
 
             if def_line == body_line {
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     body_line,
                     body_column,
                     "Place the first line of a multi-line method definition's body on its own line."
                         .to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

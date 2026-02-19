@@ -52,10 +52,11 @@ impl Cop for ActiveRecordCallbacksOrder {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let class = match node.as_class_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let calls = class_body_calls(&class);
@@ -80,7 +81,6 @@ impl Cop for ActiveRecordCallbacksOrder {
             }
         }
 
-        let mut diagnostics = Vec::new();
         let mut prev_idx: isize = -1;
         let mut prev_name: &[u8] = b"";
 
@@ -101,7 +101,6 @@ impl Cop for ActiveRecordCallbacksOrder {
             prev_name = name;
         }
 
-        diagnostics
     }
 }
 

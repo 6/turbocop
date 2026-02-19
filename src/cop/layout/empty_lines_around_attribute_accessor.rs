@@ -30,28 +30,29 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let _allow_alias_syntax = config.get_bool("AllowAliasSyntax", true);
         let _allowed_methods = config.get_string_array("AllowedMethods");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be a bare call (no receiver)
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let method_name = call.name().as_slice();
         if !ATTRIBUTE_METHODS.iter().any(|&m| m == method_name) {
-            return Vec::new();
+            return;
         }
 
         // Must have arguments (e.g., `attr_reader :foo`)
         if call.arguments().is_none() {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
@@ -60,14 +61,14 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
 
         // Check if the next line exists and is not empty
         if last_line >= lines.len() {
-            return Vec::new(); // End of file
+            return; // End of file
         }
 
         let next_line = lines[last_line]; // 0-indexed: last_line (1-based) maps to lines[last_line] for next
 
         // If next line is blank, no offense
         if is_blank_line(next_line) {
-            return Vec::new();
+            return;
         }
 
         // If next line is end of class/module, no offense
@@ -84,13 +85,13 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
                 || after_end[0] == b'\r'
                 || after_end[0] == b'#'
             {
-                return Vec::new();
+                return;
             }
         }
 
         // If next line is another attribute accessor, no offense
         if is_attr_method_line(&next_trimmed) {
-            return Vec::new();
+            return;
         }
 
         // If next line is a comment, look past comments to see if the next code line
@@ -114,7 +115,7 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
                     continue; // skip comments
                 }
                 if is_attr_method_line(&line_trimmed) {
-                    return Vec::new();
+                    return;
                 }
                 break;
             }
@@ -136,23 +137,23 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
                 if after.is_none()
                     || matches!(after, Some(b' ') | Some(b'(') | Some(b'\n') | Some(b'\r'))
                 {
-                    return Vec::new();
+                    return;
                 }
             }
         }
 
         // Check if next line is an alias
         if _allow_alias_syntax && next_trimmed.starts_with(b"alias ") {
-            return Vec::new();
+            return;
         }
 
         let (line, col) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             col,
             "Add an empty line after attribute accessor.".to_string(),
-        )]
+        ));
     }
 }
 

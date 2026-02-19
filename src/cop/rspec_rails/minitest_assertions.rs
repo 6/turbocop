@@ -73,25 +73,26 @@ impl Cop for MinitestAssertions {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method = call.name().as_slice();
         if !ASSERTION_METHODS.iter().any(|m| *m == method) {
-            return Vec::new();
+            return;
         }
 
         // Must be a bare call (no receiver)
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
@@ -102,7 +103,7 @@ impl Cop for MinitestAssertions {
             // Two-arg assertions: assert_equal(expected, actual [, msg])
             b"assert_equal" | b"assert_not_equal" | b"refute_equal" => {
                 if arg_list.len() < 2 {
-                    return Vec::new();
+                    return;
                 }
                 let expected = source_text(source, &arg_list[0]);
                 let actual = source_text(source, &arg_list[1]);
@@ -112,7 +113,7 @@ impl Cop for MinitestAssertions {
             // Two-arg: assert_kind_of(klass, actual [, msg])
             b"assert_kind_of" | b"assert_not_kind_of" | b"refute_kind_of" => {
                 if arg_list.len() < 2 {
-                    return Vec::new();
+                    return;
                 }
                 let expected = source_text(source, &arg_list[0]);
                 let actual = source_text(source, &arg_list[1]);
@@ -122,7 +123,7 @@ impl Cop for MinitestAssertions {
             // Two-arg: assert_instance_of(klass, actual [, msg])
             b"assert_instance_of" | b"assert_not_instance_of" | b"refute_instance_of" => {
                 if arg_list.len() < 2 {
-                    return Vec::new();
+                    return;
                 }
                 let expected = source_text(source, &arg_list[0]);
                 let actual = source_text(source, &arg_list[1]);
@@ -132,7 +133,7 @@ impl Cop for MinitestAssertions {
             // Two-arg: assert_includes(collection, member [, msg])
             b"assert_includes" | b"assert_not_includes" | b"refute_includes" => {
                 if arg_list.len() < 2 {
-                    return Vec::new();
+                    return;
                 }
                 let collection = source_text(source, &arg_list[0]);
                 let member = source_text(source, &arg_list[1]);
@@ -142,7 +143,7 @@ impl Cop for MinitestAssertions {
             // assert_in_delta(expected, actual [, delta [, msg]])
             b"assert_in_delta" | b"assert_not_in_delta" | b"refute_in_delta" => {
                 if arg_list.len() < 2 {
-                    return Vec::new();
+                    return;
                 }
                 let expected = source_text(source, &arg_list[0]);
                 let actual = source_text(source, &arg_list[1]);
@@ -157,7 +158,7 @@ impl Cop for MinitestAssertions {
             // Two-arg: assert_match(pattern, actual [, msg])
             b"assert_match" | b"refute_match" => {
                 if arg_list.len() < 2 {
-                    return Vec::new();
+                    return;
                 }
                 let pattern = source_text(source, &arg_list[0]);
                 let actual = source_text(source, &arg_list[1]);
@@ -167,7 +168,7 @@ impl Cop for MinitestAssertions {
             // One-arg: assert_nil(actual [, msg])
             b"assert_nil" | b"assert_not_nil" | b"refute_nil" => {
                 if arg_list.is_empty() {
-                    return Vec::new();
+                    return;
                 }
                 let actual = source_text(source, &arg_list[0]);
                 format!("expect({actual}).{runner} eq(nil)")
@@ -176,7 +177,7 @@ impl Cop for MinitestAssertions {
             // One-arg: assert_empty(actual [, msg])
             b"assert_empty" | b"assert_not_empty" | b"refute_empty" => {
                 if arg_list.is_empty() {
-                    return Vec::new();
+                    return;
                 }
                 let actual = source_text(source, &arg_list[0]);
                 format!("expect({actual}).{runner} be_empty")
@@ -185,7 +186,7 @@ impl Cop for MinitestAssertions {
             // One-arg: assert_true(actual [, msg])
             b"assert_true" => {
                 if arg_list.is_empty() {
-                    return Vec::new();
+                    return;
                 }
                 let actual = source_text(source, &arg_list[0]);
                 format!("expect({actual}).to be(true)")
@@ -194,7 +195,7 @@ impl Cop for MinitestAssertions {
             // One-arg: assert_false(actual [, msg])
             b"assert_false" => {
                 if arg_list.is_empty() {
-                    return Vec::new();
+                    return;
                 }
                 let actual = source_text(source, &arg_list[0]);
                 format!("expect({actual}).to be(false)")
@@ -203,17 +204,17 @@ impl Cop for MinitestAssertions {
             // Two-arg: assert_predicate(subject, predicate [, msg])
             b"assert_predicate" | b"assert_not_predicate" | b"refute_predicate" => {
                 if arg_list.len() < 2 {
-                    return Vec::new();
+                    return;
                 }
                 // The predicate must be a symbol ending in ?
                 let pred_sym = match arg_list[1].as_symbol_node() {
                     Some(s) => s,
-                    None => return Vec::new(),
+                    None => return,
                 };
                 let pred_name = pred_sym.unescaped();
                 let pred_str = std::str::from_utf8(pred_name.as_ref()).unwrap_or("");
                 if !pred_str.ends_with('?') {
-                    return Vec::new();
+                    return;
                 }
                 let actual = source_text(source, &arg_list[0]);
                 let be_method = &pred_str[..pred_str.len() - 1]; // strip trailing ?
@@ -223,23 +224,23 @@ impl Cop for MinitestAssertions {
             // One-arg: assert_response(expected [, msg])
             b"assert_response" => {
                 if arg_list.is_empty() {
-                    return Vec::new();
+                    return;
                 }
                 let expected = source_text(source, &arg_list[0]);
                 format!("expect(response).to have_http_status({expected})")
             }
 
-            _ => return Vec::new(),
+            _ => return,
         };
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `{preferred}`."),
-        )]
+        ));
     }
 }
 

@@ -24,16 +24,16 @@ impl Cop for EmptyInPattern {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let _allow_comments = config.get_bool("AllowComments", true);
 
         // CaseMatchNode represents `case ... in ... end` (pattern matching)
         let case_match = match node.as_case_match_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
 
         for condition in case_match.conditions().iter() {
             if let Some(in_node) = condition.as_in_node() {
@@ -56,7 +56,6 @@ impl Cop for EmptyInPattern {
             }
         }
 
-        diagnostics
     }
 }
 

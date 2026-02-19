@@ -24,24 +24,25 @@ impl Cop for RedundantReceiverInWithOptions {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"with_options" {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Get the block parameter name (e.g., |assoc|)
@@ -73,12 +74,12 @@ impl Cop for RedundantReceiverInWithOptions {
         // We need to check for local variable reads of _1 or `it` used as receivers
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // If no block parameter, check if any nested blocks exist (which would
@@ -87,7 +88,8 @@ impl Cop for RedundantReceiverInWithOptions {
             // Check for numbered block parameter usage (_1)
             // or `it` usage (Ruby 3.4+)
             // For no block params, check if statements use _1/it as receiver
-            return self.check_numbered_params(source, &stmts);
+            diagnostics.extend(self.check_numbered_params(source, &stmts));
+            return;
         }
 
         let param_bytes = param_name.unwrap();
@@ -105,21 +107,19 @@ impl Cop for RedundantReceiverInWithOptions {
         // and no nested blocks allowed anywhere in the body.
         // Also check that no node anywhere uses a different receiver.
         if !self.all_sends_use_param(source, &body_stmts, &param_bytes) {
-            return Vec::new();
+            return;
         }
 
         // Second pass: collect offenses for all statements with redundant receiver
-        let mut diagnostics = Vec::new();
         for stmt in &body_stmts {
             self.check_stmt_for_redundant_receiver(
                 source,
                 stmt,
                 &param_bytes,
-                &mut diagnostics,
+                diagnostics,
             );
         }
 
-        diagnostics
     }
 }
 

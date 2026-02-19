@@ -30,7 +30,8 @@ impl Cop for MessageExpectation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Config: EnforcedStyle — "allow" (default) or "expect"
         let enforced_style = config.get_str("EnforcedStyle", "allow");
 
@@ -39,22 +40,22 @@ impl Cop for MessageExpectation {
         // We flag the `expect(...)` part.
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if method_name != b"to" && method_name != b"not_to" && method_name != b"to_not" {
-            return Vec::new();
+            return;
         }
 
         // Check the argument is `receive` or similar
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let first_arg = &arg_list[0];
@@ -82,50 +83,50 @@ impl Cop for MessageExpectation {
         };
 
         if receive_call.is_none() {
-            return Vec::new();
+            return;
         }
 
         // Check that the receiver of `.to` is `expect(...)` (not `allow(...)`)
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
         let recv_call = match receiver.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_name = recv_call.name().as_slice();
         if recv_call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         if enforced_style == "expect" {
             // "expect" style: flag `allow(...).to receive(...)`, prefer `expect`
             if recv_name != b"allow" {
-                return Vec::new();
+                return;
             }
             let loc = recv_call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Prefer `expect` for setting message expectations.".to_string(),
-            )]
+            ));
         } else {
             // Default "allow" style: flag `expect(...).to receive(...)`, prefer `allow`
             if recv_name != b"expect" {
-                return Vec::new();
+                return;
             }
             let loc = recv_call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Prefer `allow` for setting message expectations.".to_string(),
-            )]
+            ));
         }
     }
 }

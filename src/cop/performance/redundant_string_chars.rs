@@ -20,19 +20,20 @@ impl Cop for RedundantStringChars {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let chain = match as_method_chain(node) {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if chain.inner_method != b"chars" {
-            return Vec::new();
+            return;
         }
 
         // The inner call must have a receiver (str.chars)
         if chain.inner_call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         // outer method must be `first`, `last`, or `[]`
@@ -40,12 +41,12 @@ impl Cop for RedundantStringChars {
             && chain.outer_method != b"last"
             && chain.outer_method != b"[]"
         {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, "Use `[]` instead of `chars.first`.".to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, "Use `[]` instead of `chars.first`.".to_string()));
     }
 }
 

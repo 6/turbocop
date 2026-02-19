@@ -34,14 +34,15 @@ impl Cop for ResponseParsedBody {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"parse" {
-            return Vec::new();
+            return;
         }
 
         // Must have exactly 1 argument (response.body) — no keyword args or extra args.
@@ -50,50 +51,50 @@ impl Cop for ResponseParsedBody {
         // If there are additional arguments (e.g., symbolize_names: true), it does NOT match.
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let arg_call = match arg_list[0].as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         if arg_call.name().as_slice() != b"body" {
-            return Vec::new();
+            return;
         }
 
         // The receiver of .body should be `response`
         let body_recv = match arg_call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
         let body_recv_call = match body_recv.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         if body_recv_call.name().as_slice() != b"response" {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be constant `JSON` or `Nokogiri::HTML`/`Nokogiri::HTML5`
         let recv = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check for JSON.parse(response.body)
         if util::constant_name(&recv) == Some(b"JSON") {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Prefer `response.parsed_body` to `JSON.parse(response.body)`.".to_string(),
-            )];
+            ));
         }
 
         // Check for Nokogiri::HTML.parse(response.body) / Nokogiri::HTML5.parse(response.body)
@@ -106,19 +107,18 @@ impl Cop for ResponseParsedBody {
                             let const_name = std::str::from_utf8(name_bytes).unwrap_or("HTML");
                             let loc = node.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            return vec![self.diagnostic(
+                            diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 format!("Prefer `response.parsed_body` to `Nokogiri::{const_name}.parse(response.body)`."),
-                            )];
+                            ));
                         }
                     }
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

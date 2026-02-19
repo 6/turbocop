@@ -30,7 +30,8 @@ impl Cop for IndexedLet {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Config: Max — maximum allowed group size (default 1)
         let max = config.get_usize("Max", 1);
         // Config: AllowedIdentifiers — identifiers to ignore
@@ -42,7 +43,7 @@ impl Cop for IndexedLet {
         // base name and flag groups with more than Max entries.
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -53,24 +54,24 @@ impl Cop for IndexedLet {
             is_rspec_example_group(method_name)
         };
         if !is_group {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => match b.as_block_node() {
                 Some(bn) => bn,
-                None => return Vec::new(),
+                None => return,
             },
-            None => return Vec::new(),
+            None => return,
         };
 
         let body = match block.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Collect indexed lets at this level (direct children only)
@@ -159,7 +160,6 @@ impl Cop for IndexedLet {
             groups.entry(&info.base_name).or_default().push(info);
         }
 
-        let mut diagnostics = Vec::new();
         for (_base, lets) in &groups {
             if lets.len() > max {
                 for let_info in lets {
@@ -176,7 +176,6 @@ impl Cop for IndexedLet {
             }
         }
 
-        diagnostics
     }
 }
 

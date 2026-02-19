@@ -38,34 +38,35 @@ impl Cop for HttpStatusNameConsistency {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"have_http_status" {
-            return Vec::new();
+            return;
         }
 
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let arg = &arg_list[0];
         let sym = match arg.as_symbol_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let sym_name = sym.unescaped();
@@ -74,15 +75,14 @@ impl Cop for HttpStatusNameConsistency {
         if let Some(preferred) = preferred_status(&sym_name) {
             let loc = arg.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Prefer `:{preferred}` over `:{current}`."),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

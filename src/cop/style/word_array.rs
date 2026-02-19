@@ -20,20 +20,21 @@ impl Cop for WordArray {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let array_node = match node.as_array_node() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have `[` opening (not %w or %W)
         let opening = match array_node.opening_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         if opening.as_slice() != b"[" {
-            return Vec::new();
+            return;
         }
 
         let elements = array_node.elements();
@@ -46,39 +47,39 @@ impl Cop for WordArray {
 
         // "brackets" style: never flag bracket arrays
         if enforced_style == "brackets" {
-            return Vec::new();
+            return;
         }
 
         if elements.len() < min_size {
-            return Vec::new();
+            return;
         }
 
         // All elements must be simple string nodes
         for elem in elements.iter() {
             let string_node = match elem.as_string_node() {
                 Some(s) => s,
-                None => return Vec::new(),
+                None => return,
             };
 
             // Must have an opening quote (not a bare string)
             if string_node.opening_loc().is_none() {
-                return Vec::new();
+                return;
             }
 
             // Content must not be empty (empty strings can't be in %w)
             let content = string_node.content_loc().as_slice();
             if content.is_empty() {
-                return Vec::new();
+                return;
             }
 
             // Content must not contain spaces
             if content.contains(&b' ') {
-                return Vec::new();
+                return;
             }
 
             // Must not have escape sequences (backslash in content)
             if content.contains(&b'\\') {
-                return Vec::new();
+                return;
             }
 
             // WordRegex: if set, check that content matches (simple contains check)
@@ -88,14 +89,14 @@ impl Cop for WordArray {
                 // only flag if content matches basic word chars
                 if word_regex.contains("\\A") || word_regex.contains("\\w") {
                     if !content_str.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
         }
 
         let (line, column) = source.offset_to_line_col(opening.start_offset());
-        vec![self.diagnostic(source, line, column, "Use `%w` or `%W` for an array of words.".to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, "Use `%w` or `%W` for an array of words.".to_string()));
     }
 }
 

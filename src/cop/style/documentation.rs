@@ -187,13 +187,14 @@ impl Cop for Documentation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allowed_constants = config.get_string_array("AllowedConstants").unwrap_or_default();
 
         if let Some(class_node) = node.as_class_node() {
             let name = extract_short_name(&class_node.constant_path());
             if allowed_constants.iter().any(|c| c == &name) {
-                return Vec::new();
+                return;
             }
             let kw_loc = class_node.class_keyword_loc();
             let start = kw_loc.start_offset();
@@ -201,23 +202,23 @@ impl Cop for Documentation {
             // Check :nodoc:
             let (has_nodoc, _has_nodoc_all) = check_nodoc(source, start);
             if has_nodoc {
-                return Vec::new();
+                return;
             }
 
             // Check if namespace-only (body has only other classes, modules, constants, includes)
             if is_namespace_only(&class_node.body(), true) {
-                return Vec::new();
+                return;
             }
 
             // Check for documentation comment
             if !has_documentation_comment(source, start) {
                 let (line, column) = source.offset_to_line_col(start);
-                return vec![self.diagnostic(source, line, column, "Missing top-level documentation comment for `class`.".to_string())];
+                diagnostics.push(self.diagnostic(source, line, column, "Missing top-level documentation comment for `class`.".to_string()));
             }
         } else if let Some(module_node) = node.as_module_node() {
             let name = extract_short_name(&module_node.constant_path());
             if allowed_constants.iter().any(|c| c == &name) {
-                return Vec::new();
+                return;
             }
             let kw_loc = module_node.module_keyword_loc();
             let start = kw_loc.start_offset();
@@ -225,22 +226,21 @@ impl Cop for Documentation {
             // Check :nodoc:
             let (has_nodoc, _has_nodoc_all) = check_nodoc(source, start);
             if has_nodoc {
-                return Vec::new();
+                return;
             }
 
             // Check if namespace-only
             if is_namespace_only(&module_node.body(), false) {
-                return Vec::new();
+                return;
             }
 
             // Check for documentation comment
             if !has_documentation_comment(source, start) {
                 let (line, column) = source.offset_to_line_col(start);
-                return vec![self.diagnostic(source, line, column, "Missing top-level documentation comment for `module`.".to_string())];
+                diagnostics.push(self.diagnostic(source, line, column, "Missing top-level documentation comment for `module`.".to_string()));
             }
         }
 
-        Vec::new()
     }
 }
 

@@ -21,19 +21,20 @@ impl Cop for TrailingCommaInHashLiteral {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Note: keyword_hash_node (keyword args like `foo(a: 1)`) intentionally not
         // handled — this cop only applies to trailing commas in hash literals.
         let hash_node = match node.as_hash_node() {
             Some(h) => h,
-            None => return Vec::new(),
+            None => return,
         };
 
         let closing_loc = hash_node.closing_loc();
         let elements = hash_node.elements();
         let last_elem = match elements.last() {
             Some(e) => e,
-            None => return Vec::new(),
+            None => return,
         };
 
         let last_end = last_elem.location().end_offset();
@@ -51,12 +52,12 @@ impl Cop for TrailingCommaInHashLiteral {
                 // Require trailing comma in multiline; no opinion on single-line
                 if is_multiline && !has_comma {
                     let (line, column) = source.offset_to_line_col(last_end);
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Put a comma after the last item of a multiline hash.".to_string(),
-                    )];
+                    ));
                 }
             }
             _ => {
@@ -68,18 +69,17 @@ impl Cop for TrailingCommaInHashLiteral {
                     {
                         let abs_offset = last_end + comma_offset;
                         let (line, column) = source.offset_to_line_col(abs_offset);
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Avoid comma after the last item of a hash.".to_string(),
-                        )];
+                        ));
                     }
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

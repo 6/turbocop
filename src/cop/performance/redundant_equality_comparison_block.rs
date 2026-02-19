@@ -28,58 +28,59 @@ impl Cop for RedundantEqualityComparisonBlock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_regexp_match = config.get_bool("AllowRegexpMatch", true);
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if !FLAGGED_METHODS.iter().any(|m| *m == method_name) {
-            return Vec::new();
+            return;
         }
 
         // Must have a receiver
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Must have a block
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have exactly 1 block parameter
         let params = match block_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_params = match params.as_block_parameters_node() {
             Some(bp) => bp,
-            None => return Vec::new(),
+            None => return,
         };
 
         let param_list = match block_params.parameters() {
             Some(pl) => pl,
-            None => return Vec::new(),
+            None => return,
         };
 
         let requireds: Vec<_> = param_list.requireds().iter().collect();
         if requireds.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let param = match requireds[0].as_required_parameter_node() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let param_name = param.name().as_slice();
@@ -87,22 +88,22 @@ impl Cop for RedundantEqualityComparisonBlock {
         // Body should be a single equality comparison: x == value or value == x
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let statements = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts: Vec<_> = statements.body().iter().collect();
         if stmts.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let eq_call = match stmts[0].as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let eq_method = eq_call.name().as_slice();
@@ -110,23 +111,23 @@ impl Cop for RedundantEqualityComparisonBlock {
         let is_regexp = eq_method == b"=~" || eq_method == b"match?";
 
         if !is_equality && !(is_regexp && !allow_regexp_match) {
-            return Vec::new();
+            return;
         }
 
         // Check that one side of the comparison is the block parameter
         let recv = match eq_call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = match eq_call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_nodes: Vec<_> = args.arguments().iter().collect();
         if arg_nodes.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let recv_is_param = recv
@@ -138,7 +139,7 @@ impl Cop for RedundantEqualityComparisonBlock {
             .is_some_and(|lv| lv.name().as_slice() == param_name);
 
         if !recv_is_param && !arg_is_param {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
@@ -148,7 +149,7 @@ impl Cop for RedundantEqualityComparisonBlock {
         } else {
             "Use `grep` or `===` comparison instead of block with `==`."
         };
-        vec![self.diagnostic(source, line, column, msg.to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, msg.to_string()));
     }
 }
 

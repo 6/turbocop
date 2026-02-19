@@ -20,7 +20,8 @@ impl Cop for PercentQLiterals {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "lower_case_q");
 
         // Check for %Q or %q string nodes using the opening_loc, which
@@ -35,7 +36,7 @@ impl Cop for PercentQLiterals {
 
         let opening = match opening_bytes {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         if style == "lower_case_q" {
@@ -45,12 +46,12 @@ impl Cop for PercentQLiterals {
                     // StringNode means no interpolation -> should use %q
                     let loc = node.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use `%q` instead of `%Q`.".to_string(),
-                    )];
+                    ));
                 }
             }
         } else if style == "upper_case_q" {
@@ -58,16 +59,15 @@ impl Cop for PercentQLiterals {
             if opening.starts_with(b"%q") {
                 let loc = node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use `%Q` instead of `%q`.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

@@ -29,31 +29,32 @@ impl Cop for InstanceSpy {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Detect `instance_double(Foo).as_null_object` and suggest `instance_spy`
         // BUT only when `have_received` is used in the same file, because
         // instance_spy is only meaningful when message expectations are verified.
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"as_null_object" {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_call = match receiver.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if recv_call.name().as_slice() != b"instance_double" || recv_call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Only flag if `have_received` appears somewhere in the source file.
@@ -61,17 +62,17 @@ impl Cop for InstanceSpy {
         // and `instance_spy` would not be appropriate.
         let bytes = source.as_bytes();
         if !has_pattern_in_bytes(bytes, b"have_received") {
-            return Vec::new();
+            return;
         }
 
         let loc = recv_call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `instance_spy` when you check your double with `have_received`.".to_string(),
-        )]
+        ));
     }
 }
 

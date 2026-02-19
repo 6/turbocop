@@ -20,31 +20,31 @@ impl Cop for DataInheritance {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let class_node = match node.as_class_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have a superclass
         let superclass = match class_node.superclass() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if superclass is Data.define(...)
         if is_data_define(&superclass) {
             let loc = superclass.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Don't extend an instance initialized by `Data.define`. Use a block to customize the class.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

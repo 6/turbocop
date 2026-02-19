@@ -81,21 +81,22 @@ impl Cop for PluralizationGrammar {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if !is_duration_method(method_name) {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be a numeric literal
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let number = if let Some(int_node) = receiver.as_integer_node() {
@@ -121,12 +122,12 @@ impl Cop for PluralizationGrammar {
                 }
             })
         } else {
-            return Vec::new();
+            return;
         };
 
         let number = match number {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let is_singular_number = number.abs() == 1;
@@ -137,22 +138,22 @@ impl Cop for PluralizationGrammar {
             || (!is_singular_number && !is_plural_method);
 
         if !should_flag {
-            return Vec::new();
+            return;
         }
 
         let correct = match correct_method(method_name) {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Prefer `{number}.{correct}`."),
-        )]
+        ));
     }
 }
 

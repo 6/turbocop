@@ -20,29 +20,30 @@ impl Cop for FirstHashElementLineBreak {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let _allow_multiline_final = config.get_bool("AllowMultilineFinalElement", false);
 
         // Skip keyword hashes (no braces)
         if node.as_keyword_hash_node().is_some() {
-            return Vec::new();
+            return;
         }
 
         let hash = match node.as_hash_node() {
             Some(h) => h,
-            None => return Vec::new(),
+            None => return,
         };
 
         let opening = hash.opening_loc();
         let closing = hash.closing_loc();
 
         if opening.as_slice() != b"{" || closing.as_slice() != b"}" {
-            return Vec::new();
+            return;
         }
 
         let elements: Vec<ruby_prism::Node<'_>> = hash.elements().iter().collect();
         if elements.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let (open_line, _) = source.offset_to_line_col(opening.start_offset());
@@ -50,22 +51,21 @@ impl Cop for FirstHashElementLineBreak {
 
         // Only check multiline hashes
         if open_line == close_line {
-            return Vec::new();
+            return;
         }
 
         let first = &elements[0];
         let (first_line, first_col) = source.offset_to_line_col(first.location().start_offset());
 
         if first_line == open_line {
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 first_line,
                 first_col,
                 "Add a line break before the first element of a multi-line hash.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

@@ -20,12 +20,13 @@ impl Cop for SpaceBeforeBlockBraces {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "space");
         let empty_style = config.get_str("EnforcedStyleForEmptyBraces", "space");
         let block = match node.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let opening = block.opening_loc();
@@ -33,7 +34,7 @@ impl Cop for SpaceBeforeBlockBraces {
 
         // Only check { blocks, not do...end
         if opening.as_slice() != b"{" {
-            return Vec::new();
+            return;
         }
 
         let bytes = source.as_bytes();
@@ -49,28 +50,30 @@ impl Cop for SpaceBeforeBlockBraces {
             "no_space" => {
                 if before > 0 && bytes[before - 1] == b' ' {
                     let (line, column) = source.offset_to_line_col(before - 1);
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Space detected to the left of {.".to_string(),
-                    )];
+                    ));
+                    return;
                 }
             }
             _ => {
                 // "space" (default)
                 if before > 0 && bytes[before - 1] != b' ' {
                     let (line, column) = source.offset_to_line_col(before);
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Space missing to the left of {.".to_string(),
-                    )];
+                    ));
+                    return;
                 }
             }
         }
-        Vec::new()
+
     }
 }
 

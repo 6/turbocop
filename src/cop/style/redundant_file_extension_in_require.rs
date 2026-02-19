@@ -20,35 +20,36 @@ impl Cop for RedundantFileExtensionInRequire {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be require or require_relative without a receiver
         let method_name = call.name();
         let method_bytes = method_name.as_slice();
         if !matches!(method_bytes, b"require" | b"require_relative") {
-            return Vec::new();
+            return;
         }
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Must have exactly one string argument
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let str_node = match arg_list[0].as_string_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let content = str_node.content_loc().as_slice();
@@ -57,15 +58,14 @@ impl Cop for RedundantFileExtensionInRequire {
             let content_loc = str_node.content_loc();
             let ext_start = content_loc.start_offset() + content.len() - 3;
             let (line, column) = source.offset_to_line_col(ext_start);
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Redundant `.rb` file extension detected.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

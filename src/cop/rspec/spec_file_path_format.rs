@@ -29,7 +29,8 @@ impl Cop for SpecFilePathFormat {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Config: CustomTransform — hash of class name to file path overrides (complex; pass-through)
         let custom_transform = config.get_string_hash("CustomTransform").unwrap_or_default();
         // Config: IgnoreMethods — when true, skip method description part in path matching
@@ -44,7 +45,7 @@ impl Cop for SpecFilePathFormat {
         // Only check ProgramNode (root) so we examine top-level describes
         let program = match node.as_program_node() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = program.statements();
@@ -68,18 +69,18 @@ impl Cop for SpecFilePathFormat {
 
         // If multiple top-level describes, skip (ambiguous)
         if describes.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let call = &describes[0];
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // First arg must be a constant (class name)
@@ -93,7 +94,7 @@ impl Cop for SpecFilePathFormat {
             // Strip leading ::
             s.trim_start_matches("::").to_string()
         } else {
-            return Vec::new();
+            return;
         };
 
         // CustomTransform: override class name → path segment mappings
@@ -132,7 +133,7 @@ impl Cop for SpecFilePathFormat {
                                         String::new()
                                     };
                                     if actual_value == *expected_value {
-                                        return Vec::new();
+                                        return;
                                     }
                                 }
                             }
@@ -178,15 +179,14 @@ impl Cop for SpecFilePathFormat {
         if !path_matches(&normalized, &expected_path, method_part.as_deref()) {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Spec path should end with `{expected_suffix}`."),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

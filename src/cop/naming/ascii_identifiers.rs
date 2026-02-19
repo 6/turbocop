@@ -21,7 +21,8 @@ impl Cop for AsciiIdentifiers {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // AsciiConstants: when true (default), also flag non-ASCII constants
         let ascii_constants = config.get_bool("AsciiConstants", true);
 
@@ -30,12 +31,12 @@ impl Cop for AsciiIdentifiers {
             if !is_ascii_name(method_name) {
                 let loc = def_node.name_loc();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use only ascii symbols in identifiers.".to_string(),
-                )];
+                ));
             }
         }
 
@@ -44,12 +45,12 @@ impl Cop for AsciiIdentifiers {
             if !is_ascii_name(var_name) {
                 let loc = write_node.name_loc();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use only ascii symbols in identifiers.".to_string(),
-                )];
+                ));
             }
         }
 
@@ -60,17 +61,16 @@ impl Cop for AsciiIdentifiers {
                 if !is_ascii_name(const_name) {
                     let loc = const_write.name_loc();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use only ascii symbols in constants.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

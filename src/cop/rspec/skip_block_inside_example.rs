@@ -31,33 +31,32 @@ impl Cop for SkipBlockInsideExample {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for example blocks (it, specify, etc.) and then find `skip` with a block inside
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         if !is_rspec_example(call.name().as_slice()) {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
-        find_skip_with_block(source, block_node, &mut diagnostics, self);
-        diagnostics
+        find_skip_with_block(source, block_node, diagnostics, self);
     }
 }
 

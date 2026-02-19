@@ -29,12 +29,13 @@ impl Cop for NotToNot {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "not_to");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -42,19 +43,19 @@ impl Cop for NotToNot {
         if enforced_style == "not_to" {
             // Flag `to_not`
             if method_name != b"to_not" {
-                return Vec::new();
+                return;
             }
         } else {
             // Flag `not_to`
             if method_name != b"not_to" {
-                return Vec::new();
+                return;
             }
         }
 
         // Verify receiver is an expect call
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // The receiver should be an expect(...) call or an expect block
@@ -65,7 +66,7 @@ impl Cop for NotToNot {
         };
 
         if !is_expect_receiver {
-            return Vec::new();
+            return;
         }
 
         let loc = call.message_loc().unwrap_or(call.location());
@@ -77,12 +78,12 @@ impl Cop for NotToNot {
             ("to_not", "not_to")
         };
 
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Prefer `{preferred}` over `{flagged}`."),
-        )]
+        ));
     }
 }
 

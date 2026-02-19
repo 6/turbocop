@@ -25,26 +25,27 @@ impl Cop for FlatMap {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enabled_for_flatten_without_params =
             config.get_bool("EnabledForFlattenWithoutParams", true);
         let chain = match as_method_chain(node) {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if chain.outer_method != b"flatten" {
-            return Vec::new();
+            return;
         }
 
         // EnabledForFlattenWithoutParams: when false, only flag flatten with args (e.g., flatten(1))
         if !enabled_for_flatten_without_params {
             let outer_call = match node.as_call_node() {
                 Some(c) => c,
-                None => return Vec::new(),
+                None => return,
             };
             if outer_call.arguments().is_none() {
-                return Vec::new();
+                return;
             }
         }
 
@@ -54,17 +55,17 @@ impl Cop for FlatMap {
         } else if inner == b"collect" {
             "collect"
         } else {
-            return Vec::new();
+            return;
         };
 
         // The inner call should have a block
         if chain.inner_call.block().is_none() {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, format!("Use `flat_map` instead of `{inner_name}...flatten`."))]
+        diagnostics.push(self.diagnostic(source, line, column, format!("Use `flat_map` instead of `{inner_name}...flatten`.")));
     }
 }
 

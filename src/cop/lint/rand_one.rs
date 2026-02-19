@@ -25,50 +25,51 @@ impl Cop for RandOne {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"rand" {
-            return Vec::new();
+            return;
         }
 
         // Must be receiverless or Kernel.rand
         if let Some(recv) = call.receiver() {
             match constant_name(&recv) {
                 Some(name) if name == b"Kernel" => {}
-                _ => return Vec::new(),
+                _ => return,
             }
         }
 
         let arguments = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = arguments.arguments();
         if args.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let first_arg = args.iter().next().unwrap();
         let is_one = is_one_value(&first_arg, source);
         if !is_one {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
         let call_src = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
         let call_str = std::str::from_utf8(call_src).unwrap_or("rand(1)");
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("`{call_str}` always returns `0`. Perhaps you meant `rand(2)` or `rand`?"),
-        )]
+        ));
     }
 }
 

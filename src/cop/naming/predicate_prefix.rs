@@ -74,15 +74,16 @@ impl Cop for PredicatePrefix {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Handle regular def nodes
         if let Some(def_node) = node.as_def_node() {
             let method_name = def_node.name().as_slice();
             let name_str = match std::str::from_utf8(method_name) {
                 Ok(s) => s,
-                Err(_) => return Vec::new(),
+                Err(_) => return,
             };
-            return self.check_method_name(source, name_str, def_node.name_loc().start_offset(), config);
+            diagnostics.extend(self.check_method_name(source, name_str, def_node.name_loc().start_offset(), config));
         }
 
         // Handle MethodDefinitionMacros (e.g. define_method(:is_even))
@@ -99,38 +100,38 @@ impl Cop for PredicatePrefix {
             let call_name = call_node.name().as_slice();
             let call_name_str = match std::str::from_utf8(call_name) {
                 Ok(s) => s,
-                Err(_) => return Vec::new(),
+                Err(_) => return,
             };
 
             if !macros.iter().any(|m| m == call_name_str) {
-                return Vec::new();
+                return;
             }
 
             // First argument should be a symbol literal with the method name
             let args = match call_node.arguments() {
                 Some(a) => a,
-                None => return Vec::new(),
+                None => return,
             };
             let args_list: Vec<_> = args.arguments().iter().collect();
             if args_list.is_empty() {
-                return Vec::new();
+                return;
             }
             if let Some(sym) = args_list[0].as_symbol_node() {
                 let sym_bytes = sym.unescaped();
                 let sym_str = match std::str::from_utf8(&sym_bytes) {
                     Ok(s) => s,
-                    Err(_) => return Vec::new(),
+                    Err(_) => return,
                 };
-                return self.check_method_name(
+                diagnostics.extend(self.check_method_name(
                     source,
                     sym_str,
                     sym.location().start_offset(),
                     config,
-                );
+                ));
+                return;
             }
         }
 
-        Vec::new()
     }
 }
 

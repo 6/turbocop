@@ -29,13 +29,14 @@ impl Cop for NegationBeValid {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "not_to");
 
         // Look for runner calls: to/not_to/to_not
         let runner_call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let runner_name = runner_call.name().as_slice();
@@ -43,46 +44,46 @@ impl Cop for NegationBeValid {
         let is_not_to = runner_name == b"not_to" || runner_name == b"to_not";
 
         if !is_to && !is_not_to {
-            return Vec::new();
+            return;
         }
 
         // Verify receiver is expect(...)
         let recv = match runner_call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
         let expect_call = match recv.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         if expect_call.name().as_slice() != b"expect" || expect_call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Get the matcher argument
         let args = match runner_call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let matcher = match arg_list[0].as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let matcher_name = matcher.name().as_slice();
 
         // Must be be_valid or be_invalid, with no receiver (bare matcher call)
         if matcher_name != b"be_valid" && matcher_name != b"be_invalid" {
-            return Vec::new();
+            return;
         }
 
         if matcher.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         match enforced_style {
@@ -92,12 +93,12 @@ impl Cop for NegationBeValid {
                     let runner_loc =
                         runner_call.message_loc().unwrap_or(runner_call.location());
                     let (line, column) = source.offset_to_line_col(runner_loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use `expect(...).not_to be_valid`.".to_string(),
-                    )];
+                    ));
                 }
             }
             "be_invalid" => {
@@ -106,18 +107,17 @@ impl Cop for NegationBeValid {
                     let runner_loc =
                         runner_call.message_loc().unwrap_or(runner_call.location());
                     let (line, column) = source.offset_to_line_col(runner_loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use `expect(...).to be_invalid`.".to_string(),
-                    )];
+                    ));
                 }
             }
             _ => {}
         }
 
-        Vec::new()
     }
 }
 

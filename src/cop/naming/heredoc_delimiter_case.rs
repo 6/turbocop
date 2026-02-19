@@ -20,7 +20,8 @@ impl Cop for HeredocDelimiterCase {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "uppercase");
 
         // Check InterpolatedStringNode (heredocs with interpolation)
@@ -28,15 +29,15 @@ impl Cop for HeredocDelimiterCase {
         let (opening_loc, _) = if let Some(interp) = node.as_interpolated_string_node() {
             match interp.opening_loc() {
                 Some(loc) => (loc, true),
-                None => return Vec::new(),
+                None => return,
             }
         } else if let Some(s) = node.as_string_node() {
             match s.opening_loc() {
                 Some(loc) => (loc, false),
-                None => return Vec::new(),
+                None => return,
             }
         } else {
-            return Vec::new();
+            return;
         };
 
         let bytes = source.as_bytes();
@@ -44,7 +45,7 @@ impl Cop for HeredocDelimiterCase {
 
         // Must be a heredoc (starts with <<)
         if !opening.starts_with(b"<<") {
-            return Vec::new();
+            return;
         }
 
         // Extract delimiter name (skip <<, ~, -, and quotes)
@@ -70,7 +71,7 @@ impl Cop for HeredocDelimiterCase {
         };
 
         if delimiter.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let is_uppercase = delimiter.iter().all(|&b| b.is_ascii_uppercase() || b == b'_' || b.is_ascii_digit());
@@ -93,15 +94,14 @@ impl Cop for HeredocDelimiterCase {
                     - if opening.ends_with(b"'") || opening.ends_with(b"\"") || opening.ends_with(b"`") { 1 } else { 0 }
             };
             let (line, column) = source.offset_to_line_col(delimiter_offset);
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Use {enforced_style} heredoc delimiters."),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

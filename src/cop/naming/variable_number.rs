@@ -25,7 +25,8 @@ impl Cop for VariableNumber {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "normalcase");
         let check_method_names = config.get_bool("CheckMethodNames", true);
         let check_symbols = config.get_bool("CheckSymbols", true);
@@ -44,7 +45,7 @@ impl Cop for VariableNumber {
             let name_str = std::str::from_utf8(name).unwrap_or("");
             if !is_allowed(name_str, &allowed_ids, &allowed_pats) {
                 if let Some(diag) = check_number_style(self, source, name_str, &lvar.name_loc(), enforced_style, "variable") {
-                    return vec![diag];
+                    diagnostics.push(diag);
                 }
             }
         }
@@ -57,7 +58,7 @@ impl Cop for VariableNumber {
             let bare = name_str.trim_start_matches('@');
             if !is_allowed(bare, &allowed_ids, &allowed_pats) {
                 if let Some(diag) = check_number_style(self, source, bare, &ivar.name_loc(), enforced_style, "variable") {
-                    return vec![diag];
+                    diagnostics.push(diag);
                 }
             }
         }
@@ -69,7 +70,7 @@ impl Cop for VariableNumber {
             let bare = name_str.trim_start_matches('@');
             if !is_allowed(bare, &allowed_ids, &allowed_pats) {
                 if let Some(diag) = check_number_style(self, source, bare, &cvar.name_loc(), enforced_style, "variable") {
-                    return vec![diag];
+                    diagnostics.push(diag);
                 }
             }
         }
@@ -81,7 +82,7 @@ impl Cop for VariableNumber {
             let bare = name_str.trim_start_matches('$');
             if !is_allowed(bare, &allowed_ids, &allowed_pats) {
                 if let Some(diag) = check_number_style(self, source, bare, &gvar.name_loc(), enforced_style, "variable") {
-                    return vec![diag];
+                    diagnostics.push(diag);
                 }
             }
         }
@@ -93,7 +94,7 @@ impl Cop for VariableNumber {
                 let name_str = std::str::from_utf8(name).unwrap_or("");
                 if !is_allowed(name_str, &allowed_ids, &allowed_pats) {
                     if let Some(diag) = check_number_style(self, source, name_str, &def_node.name_loc(), enforced_style, "method name") {
-                        return vec![diag];
+                        diagnostics.push(diag);
                     }
                 }
             }
@@ -106,7 +107,7 @@ impl Cop for VariableNumber {
                 let name_str = std::str::from_utf8(&name).unwrap_or("");
                 if !is_allowed(name_str, &allowed_ids, &allowed_pats) {
                     if let Some(diag) = check_number_style(self, source, name_str, &sym.value_loc().unwrap_or(sym.location()), enforced_style, "symbol") {
-                        return vec![diag];
+                        diagnostics.push(diag);
                     }
                 }
             }
@@ -118,7 +119,7 @@ impl Cop for VariableNumber {
             let name_str = std::str::from_utf8(name).unwrap_or("");
             if !is_allowed(name_str, &allowed_ids, &allowed_pats) {
                 if let Some(diag) = check_number_style(self, source, name_str, &param.location(), enforced_style, "variable") {
-                    return vec![diag];
+                    diagnostics.push(diag);
                 }
             }
         }
@@ -127,7 +128,7 @@ impl Cop for VariableNumber {
             let name_str = std::str::from_utf8(name).unwrap_or("");
             if !is_allowed(name_str, &allowed_ids, &allowed_pats) {
                 if let Some(diag) = check_number_style(self, source, name_str, &param.name_loc(), enforced_style, "variable") {
-                    return vec![diag];
+                    diagnostics.push(diag);
                 }
             }
         }
@@ -137,7 +138,7 @@ impl Cop for VariableNumber {
             let bare = name_str.trim_end_matches(':');
             if !is_allowed(bare, &allowed_ids, &allowed_pats) {
                 if let Some(diag) = check_number_style(self, source, bare, &param.name_loc(), enforced_style, "variable") {
-                    return vec![diag];
+                    diagnostics.push(diag);
                 }
             }
         }
@@ -147,12 +148,11 @@ impl Cop for VariableNumber {
             let bare = name_str.trim_end_matches(':');
             if !is_allowed(bare, &allowed_ids, &allowed_pats) {
                 if let Some(diag) = check_number_style(self, source, bare, &param.name_loc(), enforced_style, "variable") {
-                    return vec![diag];
+                    diagnostics.push(diag);
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

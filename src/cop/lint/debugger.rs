@@ -111,10 +111,11 @@ impl Cop for Debugger {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -137,12 +138,12 @@ impl Cop for Debugger {
                             let source_text =
                                 std::str::from_utf8(loc.as_slice()).unwrap_or("require");
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            return vec![self.diagnostic(
+                            diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 format!("Remove debugger entry point `{source_text}`."),
-                            )];
+                            ));
                         }
                     }
                 }
@@ -161,16 +162,15 @@ impl Cop for Debugger {
                 let loc = call.location();
                 let source_text = std::str::from_utf8(loc.as_slice()).unwrap_or("debugger");
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Remove debugger entry point `{source_text}`."),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

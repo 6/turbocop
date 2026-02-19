@@ -20,25 +20,26 @@ impl Cop for PreferredHashMethods {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have exactly one argument
         if let Some(args) = call.arguments() {
             let arg_list: Vec<_> = args.arguments().iter().collect();
             if arg_list.len() != 1 {
-                return Vec::new();
+                return;
             }
         } else {
-            return Vec::new();
+            return;
         }
 
         // Must have a receiver
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         let method_name = call.name();
@@ -52,12 +53,12 @@ impl Cop for PreferredHashMethods {
                 let current = std::str::from_utf8(method_bytes).unwrap_or("");
                 let msg_loc = call.message_loc().unwrap();
                 let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Use `Hash#{}` instead of `Hash#{}`.", prefer, current),
-                )];
+                ));
             }
         } else if enforced_style == "verbose" {
             // Flag key? and value?
@@ -66,16 +67,15 @@ impl Cop for PreferredHashMethods {
                 let current = std::str::from_utf8(method_bytes).unwrap_or("");
                 let msg_loc = call.message_loc().unwrap();
                 let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Use `Hash#{}` instead of `Hash#{}`.", prefer, current),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

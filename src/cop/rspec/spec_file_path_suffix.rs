@@ -29,11 +29,12 @@ impl Cop for SpecFilePathSuffix {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Only check ProgramNode (root)
         let program = match node.as_program_node() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = program.statements();
@@ -59,21 +60,21 @@ impl Cop for SpecFilePathSuffix {
         });
 
         if !has_example_group {
-            return Vec::new();
+            return;
         }
 
         let path = source.path_str();
         if path.ends_with("_spec.rb") {
-            return Vec::new();
+            return;
         }
 
         // File-level offense — report at line 1, column 0
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             1,
             0,
             "Spec path should end with `_spec.rb`.".to_string(),
-        )]
+        ));
     }
 }
 

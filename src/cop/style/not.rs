@@ -20,34 +20,35 @@ impl Cop for Not {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call_node = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // `not x` parses as a CallNode with name `!` in Prism
         if call_node.name().as_slice() != b"!" {
-            return Vec::new();
+            return;
         }
 
         // Distinguish `not` from `!` by checking the source text at the message_loc
         let msg_loc = match call_node.message_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         if msg_loc.as_slice() != b"not" {
-            return Vec::new();
+            return;
         }
 
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `!` instead of `not`.".to_string(),
-        )]
+        ));
     }
 }
 

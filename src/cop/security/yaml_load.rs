@@ -24,7 +24,8 @@ impl Cop for YamlLoad {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // RuboCop: maximum_target_ruby_version 3.0
         // In Ruby 3.1+ (Psych 4), YAML.load uses safe_load by default.
         let ruby_version = config
@@ -33,35 +34,35 @@ impl Cop for YamlLoad {
             .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
             .unwrap_or(2.7);
         if ruby_version > 3.0 {
-            return Vec::new();
+            return;
         }
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"load" {
-            return Vec::new();
+            return;
         }
 
         let recv = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let is_yaml = is_yaml_or_psych(source, &recv);
         if !is_yaml {
-            return Vec::new();
+            return;
         }
 
         let msg_loc = call.message_loc().unwrap();
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Prefer `YAML.safe_load` over `YAML.load`.".to_string(),
-        )]
+        ));
     }
 }
 

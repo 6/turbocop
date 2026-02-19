@@ -167,47 +167,51 @@ impl Cop for IndentationConsistency {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "normal");
         let indented = style == "indented_internal_methods";
 
         if let Some(class_node) = node.as_class_node() {
-            return self.check_body_consistency(
+            diagnostics.extend(self.check_body_consistency(
                 source,
                 class_node.class_keyword_loc().start_offset(),
                 class_node.body(),
                 indented,
-            );
+            ));
+            return;
         }
 
         if let Some(module_node) = node.as_module_node() {
-            return self.check_body_consistency(
+            diagnostics.extend(self.check_body_consistency(
                 source,
                 module_node.module_keyword_loc().start_offset(),
                 module_node.body(),
                 indented,
-            );
+            ));
+            return;
         }
 
         if let Some(def_node) = node.as_def_node() {
-            return self.check_body_consistency(
+            diagnostics.extend(self.check_body_consistency(
                 source,
                 def_node.def_keyword_loc().start_offset(),
                 def_node.body(),
                 false, // indented_internal_methods only applies to class/module bodies
-            );
+            ));
+            return;
         }
 
         if let Some(block_node) = node.as_block_node() {
-            return self.check_body_consistency(
+            diagnostics.extend(self.check_body_consistency(
                 source,
                 block_node.opening_loc().start_offset(),
                 block_node.body(),
                 indented, // indented_internal_methods applies to block bodies too (class_methods do, etc.)
-            );
+            ));
+            return;
         }
 
-        Vec::new()
     }
 }
 

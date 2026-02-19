@@ -31,25 +31,26 @@ impl Cop for ContextWording {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method = call.name().as_slice();
         if method != b"context" && method != b"shared_context" {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Extract description text from string or interpolated string
@@ -58,7 +59,7 @@ impl Cop for ContextWording {
             let content = s.unescaped();
             content_str = match std::str::from_utf8(&content) {
                 Ok(s) => s.to_string(),
-                Err(_) => return Vec::new(),
+                Err(_) => return,
             };
         } else if let Some(interp) = arg_list[0].as_interpolated_string_node() {
             // For interpolated strings, extract leading text before first interpolation
@@ -68,16 +69,16 @@ impl Cop for ContextWording {
                     let text = s.unescaped();
                     content_str = match std::str::from_utf8(&text) {
                         Ok(s) => s.to_string(),
-                        Err(_) => return Vec::new(),
+                        Err(_) => return,
                     };
                 } else {
-                    return Vec::new();
+                    return;
                 }
             } else {
-                return Vec::new();
+                return;
             }
         } else {
-            return Vec::new();
+            return;
         };
 
         // Config: AllowedPatterns — regex patterns to skip
@@ -88,7 +89,7 @@ impl Cop for ContextWording {
             for pat in patterns {
                 if let Ok(re) = regex::Regex::new(pat) {
                     if re.is_match(&content_str) {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
@@ -111,7 +112,7 @@ impl Cop for ContextWording {
                     || after.starts_with(',')
                     || after.starts_with('\n')
                 {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -120,7 +121,7 @@ impl Cop for ContextWording {
             prefixes.iter().map(|p| format!("/^{p}\\b/")).collect();
         let loc = arg_list[0].location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
@@ -128,7 +129,7 @@ impl Cop for ContextWording {
                 "Context description should match {}.",
                 prefix_display.join(", ")
             ),
-        )]
+        ));
     }
 }
 

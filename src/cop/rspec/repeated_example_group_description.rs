@@ -31,34 +31,35 @@ impl Cop for RepeatedExampleGroupDescription {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check top-level siblings or siblings inside an example group
         let stmts: Vec<ruby_prism::Node<'_>> = if let Some(program) = node.as_program_node() {
             program.statements().body().iter().collect()
         } else if let Some(call) = node.as_call_node() {
             let name = call.name().as_slice();
             if !is_parent_group(name) {
-                return Vec::new();
+                return;
             }
             let block = match call.block() {
                 Some(b) => b,
-                None => return Vec::new(),
+                None => return,
             };
             let block_node = match block.as_block_node() {
                 Some(b) => b,
-                None => return Vec::new(),
+                None => return,
             };
             let body = match block_node.body() {
                 Some(b) => b,
-                None => return Vec::new(),
+                None => return,
             };
             let inner_stmts = match body.as_statements_node() {
                 Some(s) => s,
-                None => return Vec::new(),
+                None => return,
             };
             inner_stmts.body().iter().collect()
         } else {
-            return Vec::new();
+            return;
         };
 
         // desc_signature -> list of (line, col, group_type_name)
@@ -86,7 +87,6 @@ impl Cop for RepeatedExampleGroupDescription {
             desc_map.entry(desc_sig).or_default().push((line, col, name.to_vec()));
         }
 
-        let mut diagnostics = Vec::new();
         for (_sig, locs) in &desc_map {
             if locs.len() > 1 {
                 for (idx, (line, col, group_name)) in locs.iter().enumerate() {
@@ -108,7 +108,6 @@ impl Cop for RepeatedExampleGroupDescription {
             }
         }
 
-        diagnostics
     }
 }
 

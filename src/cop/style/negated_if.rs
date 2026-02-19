@@ -20,27 +20,28 @@ impl Cop for NegatedIf {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "both");
         let if_node = match node.as_if_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have an `if` keyword (not ternary)
         let if_kw_loc = match if_node.if_keyword_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must actually be `if`, not `unless`
         if if_kw_loc.as_slice() != b"if" {
-            return Vec::new();
+            return;
         }
 
         // Must not have an else clause
         if if_node.subsequent().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Detect modifier (postfix) form: `do_something if condition`
@@ -49,8 +50,8 @@ impl Cop for NegatedIf {
 
         // EnforcedStyle filtering
         match enforced_style {
-            "prefix" if is_modifier => return Vec::new(),
-            "postfix" if !is_modifier => return Vec::new(),
+            "prefix" if is_modifier => return,
+            "postfix" if !is_modifier => return,
             _ => {} // "both" checks all forms
         }
 
@@ -59,11 +60,10 @@ impl Cop for NegatedIf {
         if let Some(call) = predicate.as_call_node() {
             if call.name().as_slice() == b"!" {
                 let (line, column) = source.offset_to_line_col(if_kw_loc.start_offset());
-                return vec![self.diagnostic(source, line, column, "Favor `unless` over `if` for negative conditions.".to_string())];
+                diagnostics.push(self.diagnostic(source, line, column, "Favor `unless` over `if` for negative conditions.".to_string()));
             }
         }
 
-        Vec::new()
     }
 }
 

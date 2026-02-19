@@ -22,12 +22,13 @@ impl Cop for UnlessLogicalOperators {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "forbid_mixed_logical_operators");
 
         let unless_node = match node.as_unless_node() {
             Some(u) => u,
-            None => return Vec::new(),
+            None => return,
         };
 
         let predicate = unless_node.predicate();
@@ -37,29 +38,28 @@ impl Cop for UnlessLogicalOperators {
                 // Flag any logical operators in unless conditions
                 if contains_logical_operator(&predicate) {
                     let (line, column) = source.offset_to_line_col(unless_node.keyword_loc().start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Do not use logical operators in `unless` conditions.".to_string(),
-                    )];
+                    ));
                 }
             }
             "forbid_mixed_logical_operators" | _ => {
                 // Flag mixed logical operators (both && and ||)
                 if contains_mixed_logical_operators(&predicate) {
                     let (line, column) = source.offset_to_line_col(unless_node.keyword_loc().start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Do not use mixed logical operators in `unless` conditions.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

@@ -30,10 +30,11 @@ impl Cop for HttpStatusNameConsistency {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method = call.name().as_slice();
@@ -42,26 +43,24 @@ impl Cop for HttpStatusNameConsistency {
             method,
             b"render" | b"redirect_to" | b"head" | b"assert_response" | b"assert_redirected_to"
         ) {
-            return Vec::new();
+            return;
         }
 
         // Must be receiverless
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Look for deprecated status symbols in arguments
-        let mut diagnostics = Vec::new();
         for arg in args.arguments().iter() {
-            self.check_for_deprecated_status(source, &arg, &mut diagnostics);
+            self.check_for_deprecated_status(source, &arg, diagnostics);
         }
 
-        diagnostics
     }
 }
 

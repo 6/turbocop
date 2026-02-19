@@ -22,7 +22,7 @@ impl Cop for InclusiveLanguage {
         "Naming/InclusiveLanguage"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let check_identifiers = config.get_bool("CheckIdentifiers", true);
         let check_constants = config.get_bool("CheckConstants", true);
         let check_variables = config.get_bool("CheckVariables", true);
@@ -34,10 +34,9 @@ impl Cop for InclusiveLanguage {
         // Build flagged terms from config or use defaults
         let terms = build_flagged_terms(config);
         if terms.is_empty() {
-            return Vec::new();
+            return;
         }
 
-        let mut diagnostics = Vec::new();
 
         // Check filepath
         if check_filepaths {
@@ -116,7 +115,6 @@ impl Cop for InclusiveLanguage {
             }
         }
 
-        diagnostics
     }
 }
 
@@ -358,12 +356,14 @@ mod tests {
 
         // "accept " at start of line — should match
         let source = SourceFile::from_bytes("test.rb", b"accept all the things\n".to_vec());
-        let diags = InclusiveLanguage.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        InclusiveLanguage.check_lines(&source, &config, &mut diags);
         assert_eq!(diags.len(), 1, "Should flag 'accept ' at start of line");
 
         // "accept" in middle of line — should NOT match (regex has \\A anchor)
         let source2 = SourceFile::from_bytes("test.rb", b"we accept the terms\n".to_vec());
-        let diags2 = InclusiveLanguage.check_lines(&source2, &config);
+        let mut diags2 = Vec::new();
+        InclusiveLanguage.check_lines(&source2, &config, &mut diags2);
         assert!(diags2.is_empty(), "Should NOT flag 'accept' in middle of line with \\A regex");
     }
 
@@ -398,12 +398,14 @@ mod tests {
 
         // "registers offense" without ( or s — should match
         let source = SourceFile::from_bytes("test.rb", b"it registers offense when called\n".to_vec());
-        let diags = InclusiveLanguage.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        InclusiveLanguage.check_lines(&source, &config, &mut diags);
         assert_eq!(diags.len(), 1, "Should flag 'registers offense' without exclusion suffix");
 
         // "registers offenses" — should NOT match (negative lookahead excludes 's')
         let source2 = SourceFile::from_bytes("test.rb", b"it registers offenses when called\n".to_vec());
-        let diags2 = InclusiveLanguage.check_lines(&source2, &config);
+        let mut diags2 = Vec::new();
+        InclusiveLanguage.check_lines(&source2, &config, &mut diags2);
         assert!(diags2.is_empty(), "Should NOT flag 'registers offenses' (excluded by lookahead)");
     }
 }

@@ -27,28 +27,29 @@ impl Cop for RedundantTypeConversion {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
 
         // Must have no arguments
         if call.arguments().is_some() {
-            return Vec::new();
+            return;
         }
 
         // For to_h and to_set, skip if there's a block — the block transforms
         // the elements, so it's a different operation.
         if (method_name == b"to_h" || method_name == b"to_set") && call.block().is_some() {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let is_redundant = match method_name {
@@ -103,18 +104,18 @@ impl Cop for RedundantTypeConversion {
         };
 
         if !is_redundant {
-            return Vec::new();
+            return;
         }
 
         let method_str = std::str::from_utf8(method_name).unwrap_or("to_s");
         let msg_loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Redundant `{}` detected.", method_str),
-        )]
+        ));
     }
 }
 

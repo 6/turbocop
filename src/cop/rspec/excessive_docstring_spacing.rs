@@ -29,10 +29,11 @@ impl Cop for ExcessiveDocstringSpacing {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -43,25 +44,25 @@ impl Cop for ExcessiveDocstringSpacing {
             || method_name == b"its";
 
         if !is_rspec {
-            return Vec::new();
+            return;
         }
 
         // Must be receiverless or RSpec.describe / ::RSpec.describe
         if let Some(recv) = call.receiver() {
             if util::constant_name(&recv).map_or(true, |n| n != b"RSpec") {
-                return Vec::new();
+                return;
             }
         }
 
         // Get first argument — must be a string
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let first_arg = &arg_list[0];
@@ -72,7 +73,7 @@ impl Cop for ExcessiveDocstringSpacing {
             if let Some(open_loc) = s.opening_loc() {
                 let open = &source.as_bytes()[open_loc.start_offset()..open_loc.end_offset()];
                 if open.starts_with(b"<<") {
-                    return Vec::new();
+                    return;
                 }
             }
             s.unescaped().to_vec()
@@ -91,7 +92,7 @@ impl Cop for ExcessiveDocstringSpacing {
                         let raw = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
                         // Can't reliably extract content; skip
                         if raw.len() < 2 {
-                            return Vec::new();
+                            return;
                         }
                         // For mixed interpolation in concat, just grab each part's source
                         for inner_part in s.parts().iter() {
@@ -117,17 +118,17 @@ impl Cop for ExcessiveDocstringSpacing {
                     let inner = &raw[1..raw.len() - 1];
                     inner.to_vec()
                 } else {
-                    return Vec::new();
+                    return;
                 }
             }
         } else {
-            return Vec::new();
+            return;
         };
 
         // Check for excessive whitespace: leading, trailing, or multiple consecutive spaces
         let content_str = match std::str::from_utf8(&string_content) {
             Ok(s) => s,
-            Err(_) => return Vec::new(),
+            Err(_) => return,
         };
 
         let has_leading_space = content_str.starts_with(' ') || content_str.starts_with('\u{3000}') || content_str.starts_with('\u{00a0}');
@@ -159,17 +160,17 @@ impl Cop for ExcessiveDocstringSpacing {
         };
 
         if !has_leading_space && !has_trailing_space && !has_multiple_spaces {
-            return Vec::new();
+            return;
         }
 
         let loc = first_arg.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Excessive whitespace.".to_string(),
-        )]
+        ));
     }
 }
 

@@ -30,29 +30,30 @@ impl Cop for IncludeExamples {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let name = call.name().as_slice();
         if name != b"include_examples" {
-            return Vec::new();
+            return;
         }
 
         let loc = call.message_loc().unwrap_or(call.location());
         let (line, col) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             col,
             "Prefer `it_behaves_like` over `include_examples`.".to_string(),
-        )]
+        ));
     }
 }
 

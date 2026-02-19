@@ -73,10 +73,11 @@ impl Cop for OutputSafety {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = call.name().as_slice();
@@ -84,68 +85,68 @@ impl Cop for OutputSafety {
         if name == b"html_safe" {
             let receiver = match call.receiver() {
                 Some(r) => r,
-                None => return Vec::new(),
+                None => return,
             };
 
             // No arguments allowed for html_safe
             if call.arguments().is_some() {
-                return Vec::new();
+                return;
             }
 
             // Exempt non-interpolated string literals
             if is_non_interpolated_string(&receiver) {
-                return Vec::new();
+                return;
             }
 
             // Exempt i18n method calls in the receiver chain
             if contains_i18n_call(&receiver) {
-                return Vec::new();
+                return;
             }
         } else if name == b"raw" {
             // raw() must be called without a receiver (command style)
             if call.receiver().is_some() {
-                return Vec::new();
+                return;
             }
             // Must have exactly one argument
             let args = match call.arguments() {
                 Some(a) => a,
-                None => return Vec::new(),
+                None => return,
             };
             let arg_list: Vec<_> = args.arguments().iter().collect();
             if arg_list.len() != 1 {
-                return Vec::new();
+                return;
             }
             // Exempt raw(t(...)) / raw(I18n.t(...)) etc.
             if contains_i18n_call(&arg_list[0]) {
-                return Vec::new();
+                return;
             }
         } else if name == b"safe_concat" {
             if call.receiver().is_none() {
-                return Vec::new();
+                return;
             }
             // Must have exactly one argument
             let args = match call.arguments() {
                 Some(a) => a,
-                None => return Vec::new(),
+                None => return,
             };
             let arg_list: Vec<_> = args.arguments().iter().collect();
             if arg_list.len() != 1 {
-                return Vec::new();
+                return;
             }
         } else {
-            return Vec::new();
+            return;
         }
 
         // Use message_loc to point to the method name (html_safe/raw/safe_concat)
         // instead of the entire call expression, matching RuboCop's `node.loc.selector`.
         let loc = call.message_loc().unwrap_or(node.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Tagging a string as html safe may be a security risk.".to_string(),
-        )]
+        ));
     }
 }
 

@@ -26,7 +26,8 @@ impl Cop for DescribedClass {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let skip_blocks = config.get_bool("SkipBlocks", false);
         let enforced_style = config.get_str("EnforcedStyle", "described_class");
         let _only_static = config.get_bool("OnlyStaticConstants", true);
@@ -42,7 +43,7 @@ impl Cop for DescribedClass {
             in_scope_change: false,
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

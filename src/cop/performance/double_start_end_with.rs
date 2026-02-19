@@ -24,22 +24,23 @@ impl Cop for DoubleStartEndWith {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let include_as_aliases = config.get_bool("IncludeActiveSupportAliases", false);
 
         let or_node = match node.as_or_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let left_call = match or_node.left().as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let right_call = match or_node.right().as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let left_name = left_call.name().as_slice();
@@ -47,14 +48,14 @@ impl Cop for DoubleStartEndWith {
 
         // Both sides must use the same method: start_with? or end_with?
         if left_name != right_name {
-            return Vec::new();
+            return;
         }
 
         let is_target = left_name == b"start_with?" || left_name == b"end_with?"
             || (include_as_aliases
                 && (left_name == b"starts_with?" || left_name == b"ends_with?"));
         if !is_target {
-            return Vec::new();
+            return;
         }
 
         let method_display = if left_name == b"start_with?" {
@@ -65,9 +66,9 @@ impl Cop for DoubleStartEndWith {
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, format!(
+        diagnostics.push(self.diagnostic(source, line, column, format!(
             "Use `{method_display}` with multiple arguments instead of chaining `||`."
-        ))]
+        )));
     }
 }
 

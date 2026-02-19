@@ -34,27 +34,28 @@ impl Cop for NumberConversion {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         let conversion = match CONVERSION_METHODS.iter().find(|(m, _)| *m == method_name) {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have a receiver
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must not have arguments
         if call.arguments().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Skip if receiver is numeric (already a number)
@@ -63,27 +64,27 @@ impl Cop for NumberConversion {
             || receiver.as_rational_node().is_some()
             || receiver.as_imaginary_node().is_some()
         {
-            return Vec::new();
+            return;
         }
 
         // Skip if receiver itself is a conversion method
         if let Some(recv_call) = receiver.as_call_node() {
             let recv_method = recv_call.name().as_slice();
             if CONVERSION_METHODS.iter().any(|(m, _)| *m == recv_method) {
-                return Vec::new();
+                return;
             }
             // Skip allowed methods from config
             let allowed = config.get_string_array("AllowedMethods").unwrap_or_default();
             let allowed_patterns = config.get_string_array("AllowedPatterns").unwrap_or_default();
             if let Ok(name) = std::str::from_utf8(recv_method) {
                 if allowed.iter().any(|a| a == name) {
-                    return Vec::new();
+                    return;
                 }
                 // Skip if receiver method matches any AllowedPatterns (regex)
                 for pattern in &allowed_patterns {
                     if let Ok(re) = regex::Regex::new(pattern) {
                         if re.is_match(name) {
-                            return Vec::new();
+                            return;
                         }
                     }
                 }
@@ -95,13 +96,13 @@ impl Cop for NumberConversion {
             vec!["Time".to_string(), "DateTime".to_string()]
         });
         if is_ignored_class(&receiver, &ignored_classes) {
-            return Vec::new();
+            return;
         }
 
         // Safe navigation check: &.to_i is fine
         if let Some(op) = call.call_operator_loc() {
             if op.as_slice() == b"&." {
-                return Vec::new();
+                return;
             }
         }
 
@@ -111,7 +112,7 @@ impl Cop for NumberConversion {
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
@@ -119,7 +120,7 @@ impl Cop for NumberConversion {
                 "Replace unsafe number conversion with number class parsing, instead of using `{}.{}`, use stricter `{}`.",
                 recv_src, method_str, corrected
             ),
-        )]
+        ));
     }
 }
 

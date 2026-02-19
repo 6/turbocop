@@ -24,23 +24,23 @@ impl Cop for ImplicitStringConcatenation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let interp = match node.as_interpolated_string_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Skip if this has an opening_loc (heredoc or actual interpolated string literal)
         if interp.opening_loc().is_some() {
-            return Vec::new();
+            return;
         }
 
         let parts = interp.parts();
         if parts.len() < 2 {
-            return Vec::new();
+            return;
         }
 
-        let mut diagnostics = Vec::new();
 
         // Check consecutive string parts that are on the same line
         let mut prev: Option<ruby_prism::Node<'_>> = None;
@@ -87,7 +87,6 @@ impl Cop for ImplicitStringConcatenation {
             prev = Some(part);
         }
 
-        diagnostics
     }
 }
 

@@ -48,15 +48,16 @@ impl Cop for NestedTernaryOperator {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let if_node = match node.as_if_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be a ternary
         if !is_ternary(&if_node) {
-            return Vec::new();
+            return;
         }
 
         let mut offenses = Vec::new();
@@ -107,7 +108,7 @@ impl Cop for NestedTernaryOperator {
             }
         }
 
-        offenses
+        diagnostics.extend(offenses);
     }
 }
 

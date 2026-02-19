@@ -20,8 +20,8 @@ impl Cop for TripleQuotes {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let mut byte_offset: usize = 0;
 
         for (i, line) in source.lines().enumerate() {
@@ -62,7 +62,6 @@ impl Cop for TripleQuotes {
             byte_offset += line_len;
         }
 
-        diagnostics
     }
 }
 

@@ -24,21 +24,22 @@ impl Cop for ArelStar {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be `[]` method
         if call.name().as_slice() != b"[]" {
-            return Vec::new();
+            return;
         }
 
         // Receiver must exist (arel_table call or constant)
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if receiver is an arel_table call or a constant
@@ -49,34 +50,34 @@ impl Cop for ArelStar {
         };
 
         if !is_arel_table {
-            return Vec::new();
+            return;
         }
 
         // Argument must be a string "*"
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
         let str_node = match arg_list[0].as_string_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
         if str_node.unescaped() != b"*" {
-            return Vec::new();
+            return;
         }
 
         let loc = str_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `Arel.star` instead of `\"*\"` for expanded column lists.".to_string(),
-        )]
+        ));
     }
 }
 

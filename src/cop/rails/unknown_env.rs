@@ -28,7 +28,8 @@ impl Cop for UnknownEnv {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let configured_envs = config.get_string_array("Environments");
 
         // Looking for Rails.env.staging? pattern (3-method chain or 2-method chain)
@@ -36,27 +37,27 @@ impl Cop for UnknownEnv {
         // Then the predicate call on it: Rails.env.staging?
         let chain = match as_method_chain(node) {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // outer_method should end with ?
         if !chain.outer_method.ends_with(b"?") {
-            return Vec::new();
+            return;
         }
 
         // inner should be `env` called on `Rails`
         if chain.inner_method != b"env" {
-            return Vec::new();
+            return;
         }
 
         let inner_recv = match chain.inner_call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Handle both ConstantReadNode (Rails) and ConstantPathNode (::Rails)
         if util::constant_name(&inner_recv) != Some(b"Rails") {
-            return Vec::new();
+            return;
         }
 
         // Check if the method is a known env (configured or default)
@@ -66,10 +67,10 @@ impl Cop for UnknownEnv {
             let env_name = &chain.outer_method[..chain.outer_method.len() - 1];
             let env_str = std::str::from_utf8(env_name).unwrap_or("");
             if envs.iter().any(|e| e == env_str) || env_str == "local" {
-                return Vec::new();
+                return;
             }
         } else if KNOWN_ENVS.contains(&chain.outer_method) {
-            return Vec::new();
+            return;
         }
 
         // Extract env name (strip trailing ?)
@@ -78,12 +79,12 @@ impl Cop for UnknownEnv {
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Unknown environment `{env_str}`."),
-        )]
+        ));
     }
 }
 

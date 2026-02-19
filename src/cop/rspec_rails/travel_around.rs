@@ -31,15 +31,16 @@ impl Cop for TravelAround {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // We look for `around` blocks and then check their body for travel patterns.
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"around" || call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Check for around(:all) or around(:suite) - those are exempt
@@ -48,7 +49,7 @@ impl Cop for TravelAround {
                 if let Some(sym) = arg.as_symbol_node() {
                     let sym_name = sym.unescaped();
                     if sym_name == b"all" || sym_name == b"suite" {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
@@ -56,25 +57,24 @@ impl Cop for TravelAround {
 
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
 
         for stmt in stmts.body().iter() {
             if let Some(travel_call) = stmt.as_call_node() {
@@ -129,7 +129,6 @@ impl Cop for TravelAround {
             }
         }
 
-        diagnostics
     }
 }
 

@@ -20,30 +20,31 @@ impl Cop for MultilineMethodArgumentLineBreaks {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let _allow_multiline_final = config.get_bool("AllowMultilineFinalElement", false);
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let open_loc = match call.opening_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
         let close_loc = match call.closing_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         if open_loc.as_slice() != b"(" || close_loc.as_slice() != b")" {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let (open_line, _) = source.offset_to_line_col(open_loc.start_offset());
@@ -51,15 +52,14 @@ impl Cop for MultilineMethodArgumentLineBreaks {
 
         // Only check multiline calls
         if open_line == close_line {
-            return Vec::new();
+            return;
         }
 
         let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
         if arg_list.len() < 2 {
-            return Vec::new();
+            return;
         }
 
-        let mut diagnostics = Vec::new();
 
         for i in 1..arg_list.len() {
             let prev = &arg_list[i - 1];
@@ -81,7 +81,6 @@ impl Cop for MultilineMethodArgumentLineBreaks {
             }
         }
 
-        diagnostics
     }
 }
 

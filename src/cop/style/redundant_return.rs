@@ -20,26 +20,27 @@ impl Cop for RedundantReturn {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_multiple = config.get_bool("AllowMultipleReturnValues", false);
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body = match def_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let statements = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let last = match statements.body().last() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         if let Some(ret_node) = last.as_return_node() {
@@ -47,15 +48,14 @@ impl Cop for RedundantReturn {
             if allow_multiple {
                 let arg_count = ret_node.arguments().map_or(0, |a| a.arguments().len());
                 if arg_count > 1 {
-                    return Vec::new();
+                    return;
                 }
             }
             let loc = last.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(source, line, column, "Redundant `return` detected.".to_string())];
+            diagnostics.push(self.diagnostic(source, line, column, "Redundant `return` detected.".to_string()));
         }
 
-        Vec::new()
     }
 }
 

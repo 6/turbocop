@@ -24,20 +24,21 @@ impl Cop for Presence {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         if let Some(if_node) = node.as_if_node() {
             // Skip elsif nodes
             let is_elsif = if_node
                 .if_keyword_loc()
                 .is_some_and(|kw| kw.as_slice() == b"elsif");
             if is_elsif {
-                return Vec::new();
+                return;
             }
 
             let predicate = if_node.predicate();
             let (receiver_text, is_present) = match extract_presence_check(source, &predicate) {
                 Some(r) => r,
-                None => return Vec::new(),
+                None => return,
             };
 
             let then_clause = if_node.statements();
@@ -48,7 +49,7 @@ impl Cop for Presence {
             let then_text = then_node.as_ref().map(|n| node_text(source, n));
             let then_text = match &then_text {
                 Some(t) => t.as_str(),
-                None => return Vec::new(),
+                None => return,
             };
 
             // Extract else single expr or "nil"
@@ -56,14 +57,14 @@ impl Cop for Presence {
             let else_text_owned = match &else_node {
                 ElseNodeResult::Absent => "nil".to_string(),
                 ElseNodeResult::Single(n) => node_text(source, n),
-                ElseNodeResult::Multi => return Vec::new(),
+                ElseNodeResult::Multi => return,
             };
             let else_text = else_text_owned.as_str();
 
             let else_is_ignored =
                 is_else_ignored_from_subsequent(&else_clause);
 
-            return check_presence_patterns(
+            diagnostics.extend(check_presence_patterns(
                 self,
                 source,
                 node,
@@ -78,7 +79,8 @@ impl Cop for Presence {
                     ElseNodeResult::Single(n) => Some(n),
                     _ => None,
                 },
-            );
+            ));
+            return;
         }
 
         if let Some(unless_node) = node.as_unless_node() {
@@ -86,7 +88,7 @@ impl Cop for Presence {
             let (receiver_text, is_present_raw) =
                 match extract_presence_check(source, &predicate) {
                     Some(r) => r,
-                    None => return Vec::new(),
+                    None => return,
                 };
             // `unless` flips: `unless present?` == `if blank?`
             let is_present = !is_present_raw;
@@ -98,21 +100,21 @@ impl Cop for Presence {
             let then_text = then_node.as_ref().map(|n| node_text(source, n));
             let then_text = match &then_text {
                 Some(t) => t.as_str(),
-                None => return Vec::new(),
+                None => return,
             };
 
             let else_node_result = extract_else_node_from_else_clause(&else_clause);
             let else_text_owned = match &else_node_result {
                 ElseNodeResult::Absent => "nil".to_string(),
                 ElseNodeResult::Single(n) => node_text(source, n),
-                ElseNodeResult::Multi => return Vec::new(),
+                ElseNodeResult::Multi => return,
             };
             let else_text = else_text_owned.as_str();
 
             let else_is_ignored =
                 is_else_ignored_from_else_node(&else_clause);
 
-            return check_presence_patterns(
+            diagnostics.extend(check_presence_patterns(
                 self,
                 source,
                 node,
@@ -127,10 +129,10 @@ impl Cop for Presence {
                     ElseNodeResult::Single(n) => Some(n),
                     _ => None,
                 },
-            );
+            ));
+            return;
         }
 
-        Vec::new()
     }
 }
 

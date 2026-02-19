@@ -29,11 +29,12 @@ impl Cop for ExpectOutput {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Only process at program level to walk the full AST with context
         let program = match node.as_program_node() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let mut visitor = ExpectOutputVisitor {
@@ -42,7 +43,7 @@ impl Cop for ExpectOutput {
             in_example_scope: false,
         };
         visitor.visit(&program.statements().body().iter().collect::<Vec<_>>()[..]);
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

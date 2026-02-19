@@ -9,8 +9,7 @@ impl Cop for AmbiguousEndlessMethodDefinition {
         "Style/AmbiguousEndlessMethodDefinition"
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
 
         let low_precedence_ops = [" and ", " or ", " if ", " unless ", " while ", " until "];
 
@@ -71,7 +70,6 @@ impl Cop for AmbiguousEndlessMethodDefinition {
             }
         }
 
-        diagnostics
     }
 }
 

@@ -15,8 +15,8 @@ impl Cop for LineEndConcatenation {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let lines: Vec<&str> = source.lines()
             .filter_map(|l| std::str::from_utf8(l).ok())
             .collect();
@@ -121,7 +121,6 @@ impl Cop for LineEndConcatenation {
             ));
         }
 
-        diagnostics
     }
 }
 

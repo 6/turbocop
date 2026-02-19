@@ -24,10 +24,11 @@ impl Cop for FormatParameterMismatch {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -36,15 +37,16 @@ impl Cop for FormatParameterMismatch {
         if (method_name == b"format" || method_name == b"sprintf")
             && is_format_call(&call)
         {
-            return check_format_sprintf(self, source, &call, method_name);
+            diagnostics.extend(check_format_sprintf(self, source, &call, method_name));
+            return;
         }
 
         // Check for String#% operator
         if method_name == b"%" && call.receiver().is_some() {
-            return check_string_percent(self, source, &call);
+            diagnostics.extend(check_string_percent(self, source, &call));
+            return;
         }
 
-        Vec::new()
     }
 }
 

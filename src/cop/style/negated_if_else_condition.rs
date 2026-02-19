@@ -38,12 +38,13 @@ impl Cop for NegatedIfElseCondition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check if-else with negated condition
         if let Some(if_node) = node.as_if_node() {
             // Must have both branches (if + else, not just if)
             if if_node.statements().is_none() || if_node.subsequent().is_none() {
-                return Vec::new();
+                return;
             }
 
             // Determine if ternary (no if_keyword_loc in Prism) or regular if
@@ -54,7 +55,7 @@ impl Cop for NegatedIfElseCondition {
                 let kw_bytes = kw.as_slice();
                 // Must be `if`, not `unless` or `elsif`
                 if kw_bytes == b"unless" || kw_bytes == b"elsif" {
-                    return Vec::new();
+                    return;
                 }
             }
 
@@ -63,11 +64,11 @@ impl Cop for NegatedIfElseCondition {
             if let Some(sub) = if_node.subsequent() {
                 // If the subsequent is an IfNode, it's an elsif chain - skip
                 if sub.as_if_node().is_some() {
-                    return Vec::new();
+                    return;
                 }
                 // Must be an ElseNode for simple if-else
                 if sub.as_else_node().is_none() {
-                    return Vec::new();
+                    return;
                 }
             }
 
@@ -80,11 +81,10 @@ impl Cop for NegatedIfElseCondition {
                 } else {
                     "Invert the negated condition and swap the if-else branches."
                 };
-                return vec![self.diagnostic(source, line, column, msg.to_string())];
+                diagnostics.push(self.diagnostic(source, line, column, msg.to_string()));
             }
         }
 
-        Vec::new()
     }
 }
 

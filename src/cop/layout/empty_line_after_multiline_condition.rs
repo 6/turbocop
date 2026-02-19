@@ -21,42 +21,42 @@ impl Cop for EmptyLineAfterMultilineCondition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check if/unless nodes
         if let Some(if_node) = node.as_if_node() {
             let kw_loc = match if_node.if_keyword_loc() {
                 Some(loc) => loc,
-                None => return Vec::new(),
+                None => return,
             };
             let kw_slice = kw_loc.as_slice();
             if kw_slice != b"if" && kw_slice != b"unless" {
-                return Vec::new();
+                return;
             }
             let predicate = if_node.predicate();
-            return self.check_multiline_condition(source, &kw_loc, &predicate);
+            diagnostics.extend(self.check_multiline_condition(source, &kw_loc, &predicate));
         }
 
         // Check while nodes
         if let Some(while_node) = node.as_while_node() {
             let kw_loc = while_node.keyword_loc();
             if kw_loc.as_slice() != b"while" {
-                return Vec::new();
+                return;
             }
             let predicate = while_node.predicate();
-            return self.check_multiline_condition(source, &kw_loc, &predicate);
+            diagnostics.extend(self.check_multiline_condition(source, &kw_loc, &predicate));
         }
 
         // Check until nodes
         if let Some(until_node) = node.as_until_node() {
             let kw_loc = until_node.keyword_loc();
             if kw_loc.as_slice() != b"until" {
-                return Vec::new();
+                return;
             }
             let predicate = until_node.predicate();
-            return self.check_multiline_condition(source, &kw_loc, &predicate);
+            diagnostics.extend(self.check_multiline_condition(source, &kw_loc, &predicate));
         }
 
-        Vec::new()
     }
 }
 

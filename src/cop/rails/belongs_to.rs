@@ -25,20 +25,21 @@ impl Cop for BelongsTo {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.receiver().is_some() || call.name().as_slice() != b"belongs_to" {
-            return Vec::new();
+            return;
         }
 
         // Check for `required:` keyword argument
         let required_value = match keyword_arg_value(&call, b"required") {
             Some(v) => v,
-            None => return Vec::new(),
+            None => return,
         };
 
         let message = if required_value.as_true_node().is_some() {
@@ -46,12 +47,12 @@ impl Cop for BelongsTo {
         } else if required_value.as_false_node().is_some() {
             "You specified `required: false`, in Rails > 5.0 the required option is deprecated and you want to use `optional: true`."
         } else {
-            return Vec::new();
+            return;
         };
 
         let loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, message.to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, message.to_string()));
     }
 }
 

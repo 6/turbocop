@@ -20,10 +20,11 @@ impl Cop for SpaceAroundEqualsInParameterDefault {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let opt = match node.as_optional_parameter_node() {
             Some(o) => o,
-            None => return Vec::new(),
+            None => return,
         };
 
         let enforced = config.get_str("EnforcedStyle", "space");
@@ -40,28 +41,27 @@ impl Cop for SpaceAroundEqualsInParameterDefault {
             "space" => {
                 if !space_before || !space_after {
                     let (line, column) = source.offset_to_line_col(op_start);
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Surrounding space missing for operator `=`.".to_string(),
-                    )];
+                    ));
                 }
             }
             "no_space" => {
                 if space_before || space_after {
                     let (line, column) = source.offset_to_line_col(op_start);
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Surrounding space detected for operator `=`.".to_string(),
-                    )];
+                    ));
                 }
             }
             _ => {}
         }
-        Vec::new()
     }
 }
 

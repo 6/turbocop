@@ -73,17 +73,18 @@ impl Cop for TernaryParentheses {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "require_no_parentheses");
         let allow_safe = config.get_bool("AllowSafeAssignment", true);
         let if_node = match node.as_if_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Ternary has no if_keyword_loc
         if if_node.if_keyword_loc().is_some() {
-            return Vec::new();
+            return;
         }
 
         let predicate = if_node.predicate();
@@ -93,7 +94,7 @@ impl Cop for TernaryParentheses {
         if allow_safe && is_parenthesized {
             if let Some(paren) = predicate.as_parentheses_node() {
                 if is_ternary_safe_assignment(&paren) {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -103,7 +104,7 @@ impl Cop for TernaryParentheses {
                 if !is_parenthesized {
                     let loc = predicate.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(source, line, column, "Use parentheses for ternary conditions.".to_string())];
+                    diagnostics.push(self.diagnostic(source, line, column, "Use parentheses for ternary conditions.".to_string()));
                 }
             }
             "require_parentheses_when_complex" => {
@@ -111,12 +112,12 @@ impl Cop for TernaryParentheses {
                 if is_complex && !is_parenthesized {
                     let loc = predicate.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(source, line, column, "Use parentheses for ternary expressions with complex conditions.".to_string())];
+                    diagnostics.push(self.diagnostic(source, line, column, "Use parentheses for ternary expressions with complex conditions.".to_string()));
                 } else if !is_complex && is_parenthesized {
                     let paren = predicate.as_parentheses_node().unwrap();
                     let open_loc = paren.opening_loc();
                     let (line, column) = source.offset_to_line_col(open_loc.start_offset());
-                    return vec![self.diagnostic(source, line, column, "Only use parentheses for ternary expressions with complex conditions.".to_string())];
+                    diagnostics.push(self.diagnostic(source, line, column, "Only use parentheses for ternary expressions with complex conditions.".to_string()));
                 }
             }
             _ => {
@@ -125,12 +126,11 @@ impl Cop for TernaryParentheses {
                     let paren = predicate.as_parentheses_node().unwrap();
                     let open_loc = paren.opening_loc();
                     let (line, column) = source.offset_to_line_col(open_loc.start_offset());
-                    return vec![self.diagnostic(source, line, column, "Ternary conditions should not be wrapped in parentheses.".to_string())];
+                    diagnostics.push(self.diagnostic(source, line, column, "Ternary conditions should not be wrapped in parentheses.".to_string()));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

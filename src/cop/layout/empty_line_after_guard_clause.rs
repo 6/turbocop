@@ -24,56 +24,57 @@ impl Cop for EmptyLineAfterGuardClause {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Extract body statements, the overall location, and whether it's block form.
         // We handle both modifier and block-form if/unless.
         let (body_stmts, loc, end_keyword_loc) = if let Some(if_node) = node.as_if_node() {
             // Skip elsif nodes
             if let Some(kw) = if_node.if_keyword_loc() {
                 if kw.as_slice() == b"elsif" {
-                    return Vec::new();
+                    return;
                 }
             }
             // Skip ternaries
             if if_node.if_keyword_loc().is_none() {
-                return Vec::new();
+                return;
             }
             // Skip if/else or if/elsif forms — only simple if/unless (no else branch)
             if if_node.subsequent().is_some() {
-                return Vec::new();
+                return;
             }
             match if_node.statements() {
                 Some(s) => (s, if_node.location(), if_node.end_keyword_loc()),
-                None => return Vec::new(),
+                None => return,
             }
         } else if let Some(unless_node) = node.as_unless_node() {
             // Skip unless/else forms
             if unless_node.else_clause().is_some() {
-                return Vec::new();
+                return;
             }
             match unless_node.statements() {
                 Some(s) => (s, unless_node.location(), unless_node.end_keyword_loc()),
-                None => return Vec::new(),
+                None => return,
             }
         } else {
-            return Vec::new();
+            return;
         };
 
         let is_modifier = end_keyword_loc.is_none();
 
         let stmts: Vec<_> = body_stmts.body().iter().collect();
         if stmts.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let first_stmt = &stmts[0];
         if !is_guard_stmt(first_stmt) {
-            return Vec::new();
+            return;
         }
 
         // For block form, the body must be a single guard statement
         if !is_modifier && stmts.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let lines: Vec<&[u8]> = source.lines().collect();
@@ -104,7 +105,7 @@ impl Cop for EmptyLineAfterGuardClause {
                 let rest = &cur_line[after_pos..];
                 if let Some(idx) = rest.iter().position(|&b| b != b' ' && b != b'\t') {
                     if rest[idx] != b'#' {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
@@ -112,41 +113,41 @@ impl Cop for EmptyLineAfterGuardClause {
 
         // Check if next line exists
         if if_end_line >= lines.len() {
-            return Vec::new();
+            return;
         }
 
         // Find the next meaningful code line, skipping comment lines.
         // A blank line means the guard is properly followed by whitespace (no offense).
         if let Some(code_content) = find_next_code_line(&lines, if_end_line) {
             if is_scope_close_or_clause_keyword(code_content) {
-                return Vec::new();
+                return;
             }
             if is_guard_line(code_content) {
-                return Vec::new();
+                return;
             }
             if is_multiline_guard_block(code_content, &lines, if_end_line) {
-                return Vec::new();
+                return;
             }
         } else {
             // No more code lines (only comments/blanks until EOF)
-            return Vec::new();
+            return;
         }
 
         // Check for rubocop directive or nocov comments followed by blank line
         let next_line = lines[if_end_line];
         if is_rubocop_directive_or_nocov(next_line) {
             if if_end_line + 1 >= lines.len() || util::is_blank_line(lines[if_end_line + 1]) {
-                return Vec::new();
+                return;
             }
         }
 
         let (line, col) = source.offset_to_line_col(offense_offset);
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             col,
             "Add empty line after guard clause.".to_string(),
-        )]
+        ));
     }
 }
 

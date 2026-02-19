@@ -56,10 +56,11 @@ impl Cop for StringInclude {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = call.name().as_slice();
@@ -68,15 +69,15 @@ impl Cop for StringInclude {
             // str.match?(/regex/) or /regex/.match?(str) or str.match(/regex/) or /regex/.match(str)
             b"match?" | b"match" => {
                 if call.receiver().is_none() {
-                    return Vec::new();
+                    return;
                 }
                 let arguments = match call.arguments() {
                     Some(a) => a,
-                    None => return Vec::new(),
+                    None => return,
                 };
                 let first_arg = match arguments.arguments().iter().next() {
                     Some(a) => a,
-                    None => return Vec::new(),
+                    None => return,
                 };
                 let recv = call.receiver().unwrap();
 
@@ -88,7 +89,7 @@ impl Cop for StringInclude {
             b"===" => {
                 let recv = match call.receiver() {
                     Some(r) => r,
-                    None => return Vec::new(),
+                    None => return,
                 };
                 is_simple_regex_node(&recv)
             }
@@ -97,29 +98,29 @@ impl Cop for StringInclude {
             b"=~" | b"!~" => {
                 let recv = match call.receiver() {
                     Some(r) => r,
-                    None => return Vec::new(),
+                    None => return,
                 };
                 let arguments = match call.arguments() {
                     Some(a) => a,
-                    None => return Vec::new(),
+                    None => return,
                 };
                 let first_arg = match arguments.arguments().iter().next() {
                     Some(a) => a,
-                    None => return Vec::new(),
+                    None => return,
                 };
                 is_simple_regex_node(&recv) || is_simple_regex_node(&first_arg)
             }
 
-            _ => return Vec::new(),
+            _ => return,
         };
 
         if !is_match {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, "Use `String#include?` instead of a regex match with literal-only pattern.".to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, "Use `String#include?` instead of a regex match with literal-only pattern.".to_string()));
     }
 }
 

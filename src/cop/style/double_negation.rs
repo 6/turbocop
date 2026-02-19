@@ -20,45 +20,46 @@ impl Cop for DoubleNegation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "allowed_in_returns");
 
         let call_node = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be the `!` method
         if call_node.name().as_slice() != b"!" {
-            return Vec::new();
+            return;
         }
 
         // Check the message_loc to ensure it's `!` not `not`
         if let Some(msg_loc) = call_node.message_loc() {
             if msg_loc.as_slice() == b"not" {
-                return Vec::new();
+                return;
             }
         }
 
         // Receiver must also be a `!` call
         let receiver = match call_node.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let inner_call = match receiver.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if inner_call.name().as_slice() != b"!" {
-            return Vec::new();
+            return;
         }
 
         // Verify inner is also `!` not `not`
         if let Some(msg_loc) = inner_call.message_loc() {
             if msg_loc.as_slice() == b"not" {
-                return Vec::new();
+                return;
             }
         }
 
@@ -77,7 +78,7 @@ impl Cop for DoubleNegation {
                 let prefix = &src[..start];
                 let trimmed = prefix.trim_ascii_end();
                 if trimmed.ends_with(b"return") {
-                    return Vec::new();
+                    return;
                 }
             }
 
@@ -107,19 +108,19 @@ impl Cop for DoubleNegation {
                     && (trimmed_after.len() == 3
                         || !trimmed_after[3..4].iter().all(|&b: &u8| b.is_ascii_alphanumeric() || b == b'_'))
                 {
-                    return Vec::new();
+                    return;
                 }
             }
         }
 
         let loc = call_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Avoid the use of double negation (`!!`).".to_string(),
-        )]
+        ));
     }
 }
 

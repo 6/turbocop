@@ -18,7 +18,8 @@ impl Cop for RedundantInterpolation {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let mut visitor = RedundantInterpVisitor {
             cop: self,
             source,
@@ -27,7 +28,7 @@ impl Cop for RedundantInterpolation {
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

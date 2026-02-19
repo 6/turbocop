@@ -20,7 +20,8 @@ impl Cop for MultilineMemoization {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "keyword");
 
         // Extract (location, value) from any kind of ||= node
@@ -35,7 +36,7 @@ impl Cop for MultilineMemoization {
         } else if let Some(n) = node.as_constant_or_write_node() {
             (n.location(), n.value())
         } else {
-            return Vec::new();
+            return;
         };
 
         // Check if the value spans multiple lines
@@ -45,7 +46,7 @@ impl Cop for MultilineMemoization {
 
         if assign_line == value_end_line {
             // Single line - not a multiline memoization
-            return Vec::new();
+            return;
         }
 
         // It's multiline. Check the wrapping style.
@@ -53,27 +54,26 @@ impl Cop for MultilineMemoization {
             // keyword style: should use begin..end, not parentheses
             if value.as_parentheses_node().is_some() {
                 let (line, column) = source.offset_to_line_col(assign_loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Wrap multiline memoization blocks in `begin` and `end`.".to_string(),
-                )];
+                ));
             }
         } else if enforced_style == "braces" {
             // braces style: should use parentheses, not begin..end
             if value.as_begin_node().is_some() {
                 let (line, column) = source.offset_to_line_col(assign_loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Wrap multiline memoization blocks in `(` and `)`.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

@@ -20,32 +20,33 @@ impl Cop for SingleLineDoEndBlock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let block = match node.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if it uses do...end
         let open_loc = block.opening_loc();
         if open_loc.as_slice() != b"do" {
-            return Vec::new();
+            return;
         }
 
         // Check if block is on single line
         let (start_line, _) = source.offset_to_line_col(block.location().start_offset());
         let (end_line, _) = source.offset_to_line_col(block.location().end_offset());
         if start_line != end_line {
-            return Vec::new();
+            return;
         }
 
         let (line, column) = source.offset_to_line_col(open_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Prefer braces `{...}` over `do...end` for single-line blocks.".to_string(),
-        )]
+        ));
     }
 }
 

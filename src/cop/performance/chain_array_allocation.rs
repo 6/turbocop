@@ -23,23 +23,24 @@ impl Cop for ChainArrayAllocation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let chain = match as_method_chain(node) {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if !INNER_METHODS.contains(&chain.inner_method) {
-            return Vec::new();
+            return;
         }
 
         if !OUTER_METHODS.contains(&chain.outer_method) {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, "Avoid chaining array methods that allocate intermediate arrays.".to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, "Avoid chaining array methods that allocate intermediate arrays.".to_string()));
     }
 }
 

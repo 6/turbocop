@@ -98,7 +98,8 @@ impl Cop for MutableConstant {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let _enforced_style = config.get_str("EnforcedStyle", "literals");
 
         let frozen_strings = Self::has_frozen_string_literal_true(source);
@@ -106,27 +107,28 @@ impl Cop for MutableConstant {
         // Check ConstantWriteNode (CONST = value)
         if let Some(cw) = node.as_constant_write_node() {
             let value = cw.value();
-            return self.check_value(
+            diagnostics.extend(self.check_value(
                 source,
                 &value,
                 cw.name_loc().start_offset(),
                 frozen_strings,
-            );
+            ));
+            return;
         }
 
         // Check ConstantPathWriteNode (Module::CONST = value)
         if let Some(cpw) = node.as_constant_path_write_node() {
             let value = cpw.value();
             let target = cpw.target();
-            return self.check_value(
+            diagnostics.extend(self.check_value(
                 source,
                 &value,
                 target.location().start_offset(),
                 frozen_strings,
-            );
+            ));
+            return;
         }
 
-        Vec::new()
     }
 }
 

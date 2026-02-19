@@ -196,8 +196,12 @@ pub trait Cop: Send + Sync {
 
     /// Line-based check — runs before AST traversal.
     #[allow(unused_variables)]
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
-        Vec::new()
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
     }
 
     /// Source-based check — runs once per file with full parse context and CodeMap.
@@ -211,8 +215,8 @@ pub trait Cop: Send + Sync {
         parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
-        Vec::new()
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
     }
 
     /// Node types this cop handles in `check_node`.
@@ -230,8 +234,8 @@ pub trait Cop: Send + Sync {
         node: &ruby_prism::Node<'_>,
         parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
-        Vec::new()
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
     }
 }
 

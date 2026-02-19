@@ -28,22 +28,23 @@ impl Cop for Exit {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = call.name().as_slice();
         if !EXIT_METHODS.iter().any(|&m| m == name) {
-            return Vec::new();
+            return;
         }
 
         // Check argument count (must be 0 or 1)
         if let Some(args) = call.arguments() {
             let arg_list: Vec<_> = args.arguments().iter().collect();
             if arg_list.len() > 1 {
-                return Vec::new();
+                return;
             }
         }
 
@@ -56,7 +57,7 @@ impl Cop for Exit {
                     false
                 };
             if !is_allowed_receiver {
-                return Vec::new();
+                return;
             }
         }
 
@@ -64,12 +65,12 @@ impl Cop for Exit {
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Do not use `{name_str}` in Rails applications."),
-        )]
+        ));
     }
 }
 

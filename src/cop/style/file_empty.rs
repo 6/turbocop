@@ -37,10 +37,11 @@ impl Cop for FileEmpty {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_bytes = call.name().as_slice();
@@ -58,12 +59,12 @@ impl Cop for FileEmpty {
                         if arg_list.len() == 1 {
                             let arg_src = &source.as_bytes()[arg_list[0].location().start_offset()..arg_list[0].location().end_offset()];
                             let arg_str = String::from_utf8_lossy(arg_src);
-                            return vec![self.diagnostic(
+                            diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 format!("Use `{}.empty?({})` instead.", recv_str, arg_str),
-                            )];
+                            ));
                         }
                     }
                 }
@@ -93,12 +94,12 @@ impl Cop for FileEmpty {
                                                     if sa.len() == 1 {
                                                         let arg_src = &source.as_bytes()[sa[0].location().start_offset()..sa[0].location().end_offset()];
                                                         let arg_str = String::from_utf8_lossy(arg_src);
-                                                        return vec![self.diagnostic(
+                                                        diagnostics.push(self.diagnostic(
                                                             source,
                                                             line,
                                                             column,
                                                             format!("Use `{}.empty?({})` instead.", file_str, arg_str),
-                                                        )];
+                                                        ));
                                                     }
                                                 }
                                             }
@@ -112,7 +113,6 @@ impl Cop for FileEmpty {
             }
         }
 
-        Vec::new()
     }
 }
 

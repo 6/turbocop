@@ -21,7 +21,8 @@ impl Cop for ConstantVisibility {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let _ignore_pattern = config.get_str("IgnoreModuleContaining", "");
         let ignore_modules = config.get_bool("IgnoreModules", false);
 
@@ -30,21 +31,21 @@ impl Cop for ConstantVisibility {
             class_node.body()
         } else if let Some(module_node) = node.as_module_node() {
             if ignore_modules {
-                return Vec::new();
+                return;
             }
             module_node.body()
         } else {
-            return Vec::new();
+            return;
         };
 
         let body = match body {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Collect constant names that have visibility declarations
@@ -68,7 +69,6 @@ impl Cop for ConstantVisibility {
         }
 
         // Check for constant assignments without visibility
-        let mut diagnostics = Vec::new();
         for stmt in stmts.body().iter() {
             if let Some(const_write) = stmt.as_constant_write_node() {
                 let const_name = std::str::from_utf8(const_write.name().as_slice())
@@ -89,7 +89,6 @@ impl Cop for ConstantVisibility {
             }
         }
 
-        diagnostics
     }
 }
 

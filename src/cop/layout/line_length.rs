@@ -9,7 +9,7 @@ impl Cop for LineLength {
         "Layout/LineLength"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let max = config.get_usize("Max", 120);
         let allow_heredoc = config.get_bool("AllowHeredoc", true);
         let allow_uri = config.get_bool("AllowURI", true);
@@ -31,7 +31,6 @@ impl Cop for LineLength {
             .collect();
 
         let lines: Vec<&[u8]> = source.lines().collect();
-        let mut diagnostics = Vec::new();
         let mut heredoc_terminator: Option<Vec<u8>> = None;
 
         for (i, line) in lines.iter().enumerate() {
@@ -159,7 +158,6 @@ impl Cop for LineLength {
                 format!("Line is too long. [{}/{}]", char_len, max),
             ));
         }
-        diagnostics
     }
 }
 
@@ -354,7 +352,8 @@ mod tests {
             ..CopConfig::default()
         };
         let source = SourceFile::from_bytes("test.rb", b"short\nthis line is longer than ten\n".to_vec());
-        let diags = LineLength.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        LineLength.check_lines(&source, &config, &mut diags);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].location.line, 2);
         assert_eq!(diags[0].location.column, 10);
@@ -371,7 +370,8 @@ mod tests {
             ..CopConfig::default()
         };
         let source = SourceFile::from_bytes("test.rb", b"12345\n".to_vec());
-        let diags = LineLength.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        LineLength.check_lines(&source, &config, &mut diags);
         assert!(diags.is_empty());
     }
 
@@ -389,7 +389,8 @@ mod tests {
             "test.rb",
             b"x = <<~TXT\n  this is a very long line inside a heredoc\nTXT\n".to_vec(),
         );
-        let diags = LineLength.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        LineLength.check_lines(&source, &config, &mut diags);
         // Only the first line (x = <<~TXT) should be checked, heredoc body skipped
         assert!(diags.is_empty() || diags.iter().all(|d| d.location.line == 1));
     }
@@ -408,7 +409,8 @@ mod tests {
             "test.rb",
             b"x = <<~TXT\n  this is a very long line inside heredoc\nTXT\n".to_vec(),
         );
-        let diags = LineLength.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        LineLength.check_lines(&source, &config, &mut diags);
         assert!(diags.iter().any(|d| d.location.line == 2), "Should flag long heredoc lines when AllowHeredoc is false");
     }
 
@@ -426,7 +428,8 @@ mod tests {
             "test.rb",
             b"# https://example.com/very/long/path/to/something\n".to_vec(),
         );
-        let diags = LineLength.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        LineLength.check_lines(&source, &config, &mut diags);
         assert!(diags.is_empty(), "AllowURI should skip lines with long URIs");
     }
 
@@ -446,7 +449,8 @@ mod tests {
             "test.rb",
             b"# This is a very long comment line that exceeds the max\n".to_vec(),
         );
-        let diags = LineLength.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        LineLength.check_lines(&source, &config, &mut diags);
         assert!(diags.is_empty(), "AllowedPatterns should skip matching lines");
     }
 
@@ -464,7 +468,8 @@ mod tests {
             "test.rb",
             b"def foo(x) #: (Integer) -> String\nend\n".to_vec(),
         );
-        let diags = LineLength.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        LineLength.check_lines(&source, &config, &mut diags);
         assert!(diags.is_empty(), "AllowRBSInlineAnnotation should skip lines with RBS type annotations");
     }
 
@@ -482,7 +487,8 @@ mod tests {
             "test.rb",
             b"def foo(x) #: (Integer) -> String\nend\n".to_vec(),
         );
-        let diags = LineLength.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        LineLength.check_lines(&source, &config, &mut diags);
         assert!(!diags.is_empty(), "Should flag long RBS lines when AllowRBSInlineAnnotation is false");
     }
 
@@ -500,7 +506,8 @@ mod tests {
             "test.rb",
             b"x = 1 # rubocop:disable Layout/LineLength\n".to_vec(),
         );
-        let diags = LineLength.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        LineLength.check_lines(&source, &config, &mut diags);
         assert!(diags.is_empty(), "AllowCopDirectives should skip lines with rubocop directives");
     }
 
@@ -521,7 +528,8 @@ mod tests {
             "test.rb",
             b"x { https://example.com/long/path }\n".to_vec(),
         );
-        let diags = LineLength.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        LineLength.check_lines(&source, &config, &mut diags);
         assert!(diags.is_empty(), "AllowURI with YARD brace extension should skip lines where URI extends to end");
     }
 
@@ -540,7 +548,8 @@ mod tests {
             "test.rb",
             b"x = 'https://example.com' + more_stuff_here\n".to_vec(),
         );
-        let diags = LineLength.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        LineLength.check_lines(&source, &config, &mut diags);
         assert!(!diags.is_empty(), "AllowURI should flag when URI does not extend to end of line");
     }
 }

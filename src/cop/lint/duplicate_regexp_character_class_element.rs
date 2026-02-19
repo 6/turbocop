@@ -26,20 +26,19 @@ impl Cop for DuplicateRegexpCharacterClassElement {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let regexp = match node.as_regular_expression_node() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let content = regexp.unescaped();
         let content_str = match std::str::from_utf8(&content) {
             Ok(s) => s,
-            Err(_) => return Vec::new(),
+            Err(_) => return,
         };
 
-
-        let mut diagnostics = Vec::new();
         let bytes = source.as_bytes();
         let content_loc = regexp.content_loc();
         let content_start = content_loc.start_offset();
@@ -68,7 +67,7 @@ impl Cop for DuplicateRegexpCharacterClassElement {
                             start,
                             content_start,
                             bytes,
-                            &mut diagnostics,
+                            diagnostics,
                         );
                     }
                     i = j + 1;
@@ -80,7 +79,6 @@ impl Cop for DuplicateRegexpCharacterClassElement {
             }
         }
 
-        diagnostics
     }
 }
 

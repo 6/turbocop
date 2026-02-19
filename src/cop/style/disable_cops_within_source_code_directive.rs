@@ -9,9 +9,8 @@ impl Cop for DisableCopsWithinSourceCodeDirective {
         "Style/DisableCopsWithinSourceCodeDirective"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let allowed_cops = config.get_string_array("AllowedCops").unwrap_or_default();
-        let mut diagnostics = Vec::new();
 
         for (i, line) in source.lines().enumerate() {
             let line_str = match std::str::from_utf8(line) {
@@ -69,7 +68,6 @@ impl Cop for DisableCopsWithinSourceCodeDirective {
             }
         }
 
-        diagnostics
     }
 }
 

@@ -28,16 +28,17 @@ impl Cop for MigrationClassName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let class_node = match node.as_class_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if class inherits from ActiveRecord::Migration
         let superclass = match class_node.superclass() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let super_loc = superclass.location();
@@ -45,7 +46,7 @@ impl Cop for MigrationClassName {
 
         // Match ActiveRecord::Migration or ActiveRecord::Migration[x.y]
         if !super_bytes.starts_with(b"ActiveRecord::Migration") {
-            return Vec::new();
+            return;
         }
 
         // Get the class name
@@ -61,29 +62,28 @@ impl Cop for MigrationClassName {
             // Doesn't look like CamelCase — flag it
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Migration class name should be CamelCase and match the migration filename."
                     .to_string(),
-            )];
+            ));
         }
 
         // Check for underscores in the name (not CamelCase)
         if class_name.contains(&b'_') {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Migration class name should be CamelCase and match the migration filename."
                     .to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

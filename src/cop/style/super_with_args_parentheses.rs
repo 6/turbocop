@@ -20,30 +20,31 @@ impl Cop for SuperWithArgsParentheses {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let super_node = match node.as_super_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have arguments
         if super_node.arguments().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Check if parentheses are missing
         if super_node.lparen_loc().is_some() {
-            return Vec::new();
+            return;
         }
 
         let loc = super_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use parentheses for `super` with arguments.".to_string(),
-        )]
+        ));
     }
 }
 

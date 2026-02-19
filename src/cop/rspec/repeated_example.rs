@@ -31,32 +31,33 @@ impl Cop for RepeatedExample {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = call.name().as_slice();
         if !is_example_group(name) {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Collect examples: body_signature -> list of (line, col)
@@ -76,7 +77,6 @@ impl Cop for RepeatedExample {
             }
         }
 
-        let mut diagnostics = Vec::new();
         for (_sig, locs) in &body_map {
             if locs.len() > 1 {
                 for (idx, &(line, col)) in locs.iter().enumerate() {
@@ -93,7 +93,6 @@ impl Cop for RepeatedExample {
             }
         }
 
-        diagnostics
     }
 }
 

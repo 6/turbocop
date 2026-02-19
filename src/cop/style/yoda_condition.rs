@@ -30,11 +30,12 @@ impl Cop for YodaCondition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "forbid_for_all_comparison_operators");
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = call.name().as_slice();
@@ -43,29 +44,29 @@ impl Cop for YodaCondition {
         let is_comparison = is_equality || name == b"<" || name == b">" || name == b"<=" || name == b">=";
 
         if !is_comparison {
-            return Vec::new();
+            return;
         }
 
         // For *_equality_operators_only styles, skip non-equality operators
         let equality_only = enforced_style == "forbid_for_equality_operators_only"
             || enforced_style == "require_for_equality_operators_only";
         if equality_only && !is_equality {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let require_yoda = enforced_style == "require_for_all_comparison_operators"
@@ -76,18 +77,17 @@ impl Cop for YodaCondition {
             if !is_literal(&receiver) && is_literal(&arg_list[0]) {
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(source, line, column, "Prefer Yoda conditions.".to_string())];
+                diagnostics.push(self.diagnostic(source, line, column, "Prefer Yoda conditions.".to_string()));
             }
         } else {
             // Forbid Yoda: flag when literal is on the LEFT (Yoda)
             if is_literal(&receiver) && !is_literal(&arg_list[0]) {
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(source, line, column, "Prefer non-Yoda conditions.".to_string())];
+                diagnostics.push(self.diagnostic(source, line, column, "Prefer non-Yoda conditions.".to_string()));
             }
         }
 
-        Vec::new()
     }
 }
 

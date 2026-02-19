@@ -20,36 +20,36 @@ impl Cop for ArgumentAlignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "with_first_argument");
         let indent_width = config.get_usize("IndentationWidth", 2);
         let call_node = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // RuboCop skips []= calls (bracket assignment)
         if call_node.name().as_slice() == b"[]=" {
-            return Vec::new();
+            return;
         }
 
         let arguments = match call_node.arguments() {
             Some(args) => args,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list = arguments.arguments();
         if arg_list.len() < 2 {
-            return Vec::new();
+            return;
         }
 
         let first_arg = match arg_list.iter().next() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let (first_line, first_col) = source.offset_to_line_col(first_arg.location().start_offset());
 
-        let mut diagnostics = Vec::new();
         let mut checked_lines = std::collections::HashSet::new();
         checked_lines.insert(first_line);
 
@@ -88,7 +88,6 @@ impl Cop for ArgumentAlignment {
             }
         }
 
-        diagnostics
     }
 }
 

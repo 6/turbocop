@@ -17,7 +17,8 @@ impl Cop for OptionHash {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let suspicious_names = config
             .get_string_array("SuspiciousParamNames")
             .unwrap_or_else(|| vec![
@@ -36,7 +37,7 @@ impl Cop for OptionHash {
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

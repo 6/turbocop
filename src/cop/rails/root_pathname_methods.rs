@@ -64,10 +64,11 @@ impl Cop for RootPathnameMethods {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -75,7 +76,7 @@ impl Cop for RootPathnameMethods {
         // Receiver must be a known constant (File, Dir, FileTest, FileUtils, IO)
         let recv = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_name = util::constant_name(&recv);
@@ -88,18 +89,18 @@ impl Cop for RootPathnameMethods {
         };
 
         if !is_relevant {
-            return Vec::new();
+            return;
         }
 
         // First argument should be a Rails.root pathname:
         // Either `Rails.root.join(...)` or `Rails.root` directly
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let first_arg = &arg_list[0];
@@ -110,12 +111,12 @@ impl Cop for RootPathnameMethods {
             let recv_str = std::str::from_utf8(recv_name.unwrap_or(b"File")).unwrap_or("File");
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("`Rails.root` is a `Pathname`, so you can use `Rails.root.{method_str}` instead of `{recv_str}.{method_str}(Rails.root, ...)`.",),
-            )];
+            ));
         }
 
         // Check if first arg is Rails.root.join(...)
@@ -124,16 +125,15 @@ impl Cop for RootPathnameMethods {
                 let method_str = std::str::from_utf8(method_name).unwrap_or("method");
                 let loc = node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("`Rails.root` is a `Pathname`, so you can use `Rails.root.join(...).{method_str}` instead.",),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

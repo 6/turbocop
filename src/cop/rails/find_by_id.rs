@@ -54,10 +54,11 @@ impl Cop for FindById {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = call.name().as_slice();
@@ -67,14 +68,14 @@ impl Cop for FindById {
             if call.receiver().is_some() && call.arguments().is_some() {
                 let loc = call.message_loc().unwrap_or(call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use `find` instead of `find_by_id!`.".to_string(),
-                )];
+                ));
             }
-            return Vec::new();
+            return;
         }
 
         // Pattern 2: find_by!(id: value) — only when id is the sole argument
@@ -82,39 +83,38 @@ impl Cop for FindById {
             if call.receiver().is_some() && has_sole_id_keyword_arg(&call) {
                 let loc = call.message_loc().unwrap_or(call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use `find` instead of `find_by!`.".to_string(),
-                )];
+                ));
             }
-            return Vec::new();
+            return;
         }
 
         // Pattern 3: where(id: value).take!
         if name == b"take!" {
             let chain = match util::as_method_chain(node) {
                 Some(c) => c,
-                None => return Vec::new(),
+                None => return,
             };
             if chain.inner_method != b"where" {
-                return Vec::new();
+                return;
             }
             // Check that `where` has `id:` as the sole keyword arg
             if has_sole_id_keyword_arg(&chain.inner_call) {
                 let loc = chain.inner_call.message_loc().unwrap_or(chain.inner_call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use `find` instead of `where(id: ...).take!`.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

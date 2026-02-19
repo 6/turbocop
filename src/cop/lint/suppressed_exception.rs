@@ -24,18 +24,19 @@ impl Cop for SuppressedException {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // RescueNode is visited via visit_begin_node's specific method,
         // not via the generic visit() dispatch. So we match BeginNode
         // and check its rescue_clause.
         let begin_node = match node.as_begin_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let rescue_node = match begin_node.rescue_clause() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // AllowNil: when true, allow `rescue => e; nil; end`
@@ -53,11 +54,11 @@ impl Cop for SuppressedException {
                 if let Some(stmts) = &body_stmts {
                     let body_nodes: Vec<_> = stmts.body().iter().collect();
                     if body_nodes.len() == 1 && body_nodes[0].as_nil_node().is_some() {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
-            return Vec::new();
+            return;
         }
 
         // AllowComments: if true (default), skip rescue bodies that contain only comments
@@ -86,7 +87,7 @@ impl Cop for SuppressedException {
                         .map(|start| &line[start..])
                         .unwrap_or(&[]);
                     if trimmed.starts_with(b"#") {
-                        return Vec::new(); // Has a comment, allow it
+                        return; // Has a comment, allow it
                     }
                 }
             }
@@ -94,12 +95,12 @@ impl Cop for SuppressedException {
 
         let kw_loc = rescue_node.keyword_loc();
         let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Do not suppress exceptions.".to_string(),
-        )]
+        ));
     }
 }
 

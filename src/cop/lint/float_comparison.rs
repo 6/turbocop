@@ -24,38 +24,39 @@ impl Cop for FloatComparison {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method = call.name().as_slice();
         let is_equality = matches!(method, b"==" | b"!=" | b"eql?" | b"equal?");
         if !is_equality {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arguments = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = arguments.arguments();
         if args.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let first_arg = args.iter().next().unwrap();
 
         // Skip safe comparisons: comparing to 0.0 or nil
         if is_literal_safe(&receiver) || is_literal_safe(&first_arg) {
-            return Vec::new();
+            return;
         }
 
         if is_float(&receiver) || is_float(&first_arg) {
@@ -66,10 +67,9 @@ impl Cop for FloatComparison {
             } else {
                 "Avoid equality comparisons of floats as they are unreliable."
             };
-            return vec![self.diagnostic(source, line, column, msg.to_string())];
+            diagnostics.push(self.diagnostic(source, line, column, msg.to_string()));
         }
 
-        Vec::new()
     }
 }
 

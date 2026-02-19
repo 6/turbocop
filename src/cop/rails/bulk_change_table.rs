@@ -169,7 +169,8 @@ impl Cop for BulkChangeTable {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // RuboCop only fires when the database adapter is known to support bulk ALTER.
         // The `Database` config key can be "mysql" or "postgresql". When not set, rubocop
         // tries to parse config/database.yml (which often fails due to ERB), then
@@ -177,30 +178,29 @@ impl Cop for BulkChangeTable {
         // We replicate this: only fire when Database is explicitly configured.
         let database = config.get_str("Database", "");
         if database != "mysql" && database != "postgresql" {
-            return Vec::new();
+            return;
         }
 
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         let def_name = def_node.name().as_slice();
         if def_name != b"change" && def_name != b"up" && def_name != b"down" {
-            return Vec::new();
+            return;
         }
 
         let body = match def_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
 
         // Check for change_table without bulk: true that has multiple transformations
         for stmt in stmts.body().iter() {
@@ -283,7 +283,6 @@ impl Cop for BulkChangeTable {
             }
         }
 
-        diagnostics
     }
 }
 

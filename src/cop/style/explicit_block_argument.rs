@@ -20,67 +20,68 @@ impl Cop for ExplicitBlockArgument {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for block nodes where the body is just `yield` with the same args
         let block_node = match node.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have a body
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body_nodes: Vec<_> = stmts.body().into_iter().collect();
         if body_nodes.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         // Check if the single statement is a yield
         let yield_node = match body_nodes[0].as_yield_node() {
             Some(y) => y,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check that the block has parameters and the yield passes them through
         let block_params = match block_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         // For simplicity, check that the yield args match the block params
         let param_node = match block_params.as_block_parameters_node() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params = match param_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let required_params: Vec<_> = params.requireds().into_iter().collect();
         if required_params.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let yield_args = match yield_node.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let yield_arg_list: Vec<_> = yield_args.arguments().into_iter().collect();
 
         // Simple check: same number of args as block params
         if yield_arg_list.len() != required_params.len() {
-            return Vec::new();
+            return;
         }
 
         // Check that each yield arg is a local variable read matching the block param
@@ -88,17 +89,17 @@ impl Cop for ExplicitBlockArgument {
             let param_name = if let Some(rp) = param.as_required_parameter_node() {
                 rp.name()
             } else {
-                return Vec::new();
+                return;
             };
 
             let arg_name = if let Some(lv) = arg.as_local_variable_read_node() {
                 lv.name()
             } else {
-                return Vec::new();
+                return;
             };
 
             if param_name.as_slice() != arg_name.as_slice() {
-                return Vec::new();
+                return;
             }
         }
 
@@ -106,12 +107,12 @@ impl Cop for ExplicitBlockArgument {
         let loc = block_node.location();
         // Report at the call node that has the block
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Consider using explicit block argument in the surrounding method's signature over `yield`.".to_string(),
-        )]
+        ));
     }
 }
 

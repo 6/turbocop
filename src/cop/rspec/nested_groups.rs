@@ -31,11 +31,12 @@ impl Cop for NestedGroups {
         node: &ruby_prism::Node<'_>,
         parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Only trigger on top-level RSpec.describe or top-level describe
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -48,21 +49,20 @@ impl Cop for NestedGroups {
         };
 
         if !is_top_level {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => match b.as_block_node() {
                 Some(bn) => bn,
-                None => return Vec::new(),
+                None => return,
             },
-            None => return Vec::new(),
+            None => return,
         };
 
         let max = config.get_usize("Max", 3);
         // Config: AllowedGroups — group method names exempt from nesting count
         let allowed_groups = config.get_string_array("AllowedGroups").unwrap_or_default();
-        let mut diagnostics = Vec::new();
 
         // Walk the block body looking for nested groups
         if let Some(body) = block.body() {
@@ -70,7 +70,7 @@ impl Cop for NestedGroups {
                 source,
                 max,
                 depth: 1, // The top-level describe is depth 1
-                diagnostics: &mut diagnostics,
+                diagnostics: diagnostics,
                 cop: self,
                 parse_result,
                 allowed_groups: &allowed_groups,
@@ -78,7 +78,6 @@ impl Cop for NestedGroups {
             visitor.visit(&body);
         }
 
-        diagnostics
     }
 }
 

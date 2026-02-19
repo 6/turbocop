@@ -20,26 +20,27 @@ impl Cop for FirstMethodParameterLineBreak {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let _allow_multiline_final = config.get_bool("AllowMultilineFinalElement", false);
 
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         let lparen_loc = match def_node.lparen_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
         let rparen_loc = match def_node.rparen_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params = match def_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let (open_line, _) = source.offset_to_line_col(lparen_loc.start_offset());
@@ -47,7 +48,7 @@ impl Cop for FirstMethodParameterLineBreak {
 
         // Only check multiline parameter lists
         if open_line == close_line {
-            return Vec::new();
+            return;
         }
 
         // Find the first parameter
@@ -62,21 +63,20 @@ impl Cop for FirstMethodParameterLineBreak {
         } else if let Some(rest) = params.rest() {
             rest.location().start_offset()
         } else {
-            return Vec::new();
+            return;
         };
 
         let (first_line, first_col) = source.offset_to_line_col(first_offset);
 
         if first_line == open_line {
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 first_line,
                 first_col,
                 "Add a line break before the first parameter of a multi-line method parameter definition.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

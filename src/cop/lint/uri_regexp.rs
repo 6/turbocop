@@ -26,38 +26,39 @@ impl Cop for UriRegexp {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"regexp" {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_name = match constant_name(&receiver) {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         if recv_name != b"URI" {
-            return Vec::new();
+            return;
         }
 
         let msg_loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "`URI.regexp` is obsolete and should not be used.".to_string(),
-        )]
+        ));
     }
 }
 

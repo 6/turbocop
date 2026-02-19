@@ -29,28 +29,29 @@ impl Cop for Dialect {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have a block to be an RSpec DSL call
         if call.block().is_none() {
-            return Vec::new();
+            return;
         }
 
         let method_name = call.name().as_slice();
         let method_str = match std::str::from_utf8(method_name) {
             Ok(s) => s,
-            Err(_) => return Vec::new(),
+            Err(_) => return,
         };
 
         // Read PreferredMethods from config. RuboCop default is empty — no aliases
         // are enforced unless explicitly configured.
         let preferred = match config.options.get("PreferredMethods") {
             Some(serde_yml::Value::Mapping(map)) => map,
-            _ => return Vec::new(),
+            _ => return,
         };
 
         // Check if this method is a non-preferred alias
@@ -58,9 +59,9 @@ impl Cop for Dialect {
             match preferred.get(&serde_yml::Value::String(method_str.to_string())) {
                 Some(v) => match v.as_str() {
                     Some(s) => s.trim_start_matches(':'),
-                    None => return Vec::new(),
+                    None => return,
                 },
-                None => return Vec::new(),
+                None => return,
             };
 
         // Must be receiverless or RSpec.method / ::RSpec.method
@@ -73,17 +74,17 @@ impl Cop for Dialect {
         };
 
         if !is_rspec_call {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Prefer `{preferred_name}` over `{method_str}`."),
-        )]
+        ));
     }
 }
 

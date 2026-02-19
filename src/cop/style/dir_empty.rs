@@ -31,10 +31,11 @@ impl Cop for DirEmpty {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
@@ -50,12 +51,12 @@ impl Cop for DirEmpty {
                             if is_dir_const(&recv_recv) {
                                 let loc = node.location();
                                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                return vec![self.diagnostic(
+                                diagnostics.push(self.diagnostic(
                                     source,
                                     line,
                                     column,
                                     "Use `Dir.empty?('path/to/dir')` instead.".to_string(),
-                                )];
+                                ));
                             }
                         }
                     }
@@ -78,12 +79,12 @@ impl Cop for DirEmpty {
                                         if is_dir_const(&dir_recv) {
                                             let loc = node.location();
                                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                            return vec![self.diagnostic(
+                                            diagnostics.push(self.diagnostic(
                                                 source,
                                                 line,
                                                 column,
                                                 "Use `Dir.empty?('path/to/dir')` instead.".to_string(),
-                                            )];
+                                            ));
                                         }
                                     }
                                 }
@@ -94,7 +95,6 @@ impl Cop for DirEmpty {
             }
         }
 
-        Vec::new()
     }
 }
 

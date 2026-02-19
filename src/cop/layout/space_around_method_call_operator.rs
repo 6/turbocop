@@ -20,8 +20,8 @@ impl Cop for SpaceAroundMethodCallOperator {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
 
         // Handle CallNode (method calls with . or &.)
         if let Some(call) = node.as_call_node() {
@@ -106,7 +106,6 @@ impl Cop for SpaceAroundMethodCallOperator {
             }
         }
 
-        diagnostics
     }
 }
 

@@ -17,9 +17,8 @@ impl Cop for InsecureProtocolSource {
         &["**/*.gemfile", "**/Gemfile", "**/gems.rb"]
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let allow_http = config.get_bool("AllowHttpProtocol", true);
-        let mut diagnostics = Vec::new();
 
         for (i, line) in source.lines().enumerate() {
             let line_str = std::str::from_utf8(line).unwrap_or("");
@@ -81,7 +80,6 @@ impl Cop for InsecureProtocolSource {
                 }
             }
         }
-        diagnostics
     }
 }
 

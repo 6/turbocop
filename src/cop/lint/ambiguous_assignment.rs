@@ -31,7 +31,8 @@ impl Cop for AmbiguousAssignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check variable assignment node types
         let (operator_loc, value) = if let Some(n) = node.as_local_variable_write_node() {
             (n.operator_loc(), n.value())
@@ -46,7 +47,7 @@ impl Cop for AmbiguousAssignment {
         } else if let Some(n) = node.as_constant_path_write_node() {
             (n.operator_loc(), n.value().into())
         } else {
-            return Vec::new();
+            return;
         };
 
         // RuboCop takes: range from (operator.end_pos - 1) to (rhs.begin_pos + 1)
@@ -65,14 +66,14 @@ impl Cop for AmbiguousAssignment {
         let value_start = value.location().start_offset();
 
         if eq_end == 0 || value_start >= src.len() {
-            return Vec::new();
+            return;
         }
 
         let range_start = eq_end - 1; // Last char of operator (the `=`)
         let range_end = value_start + 1; // First char of rhs + 1
 
         if range_end > src.len() || range_start >= range_end {
-            return Vec::new();
+            return;
         }
 
         let range_source = &src[range_start..range_end];
@@ -80,16 +81,15 @@ impl Cop for AmbiguousAssignment {
         for &(mistake, correction) in MISTAKES {
             if range_source == mistake {
                 let (line, column) = source.offset_to_line_col(range_start);
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Suspicious assignment detected. Did you mean `{correction}`?"),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

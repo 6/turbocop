@@ -20,15 +20,16 @@ impl Cop for LambdaCall {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have a receiver
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         let enforced_style = config.get_str("EnforcedStyle", "call");
@@ -40,7 +41,7 @@ impl Cop for LambdaCall {
                 // with name "call" but the method_name position is at the dot.
                 let name = call.name();
                 if name.as_slice() != b"call" {
-                    return Vec::new();
+                    return;
                 }
 
                 // Check if this is an implicit call (lambda.() syntax)
@@ -51,57 +52,58 @@ impl Cop for LambdaCall {
                         // No message_loc means implicit call like foo.()
                         let loc = node.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Prefer the use of `lambda.call(...)` over `lambda.(...)`.".to_string(),
-                        )];
+                        ));
+                        return;
                     }
                 };
 
                 // If the message_loc source IS "call", this is already explicit style
                 if msg_loc.as_slice() == b"call" {
-                    return Vec::new();
+                    return;
                 }
 
                 // Otherwise it's implicit
                 let loc = node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Prefer the use of `lambda.call(...)` over `lambda.(...)`.".to_string(),
-                )]
+                ));
             }
             "braces" => {
                 // Detect lambda.call() (explicit call)
                 let name = call.name();
                 if name.as_slice() != b"call" {
-                    return Vec::new();
+                    return;
                 }
 
                 // Check if this is an explicit call
                 let msg_loc = match call.message_loc() {
                     Some(loc) => loc,
-                    None => return Vec::new(), // Already implicit
+                    None => return, // Already implicit
                 };
 
                 if msg_loc.as_slice() != b"call" {
-                    return Vec::new();
+                    return;
                 }
 
                 let loc = node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Prefer the use of `lambda.(...)` over `lambda.call(...)`.".to_string(),
-                )]
+                ));
             }
-            _ => Vec::new(),
+            _ => {}
         }
     }
 }

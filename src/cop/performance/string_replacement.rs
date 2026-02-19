@@ -24,59 +24,60 @@ impl Cop for StringReplacement {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"gsub" {
-            return Vec::new();
+            return;
         }
 
         // Must have a receiver (str.gsub)
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         let arguments = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = arguments.arguments();
         if args.len() != 2 {
-            return Vec::new();
+            return;
         }
 
         let mut args_iter = args.iter();
         let first_node = match args_iter.next() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let second_node = match args_iter.next() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let first = match first_node.as_string_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let second = match second_node.as_string_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Both must be single-character strings
         if first.unescaped().len() != 1 || second.unescaped().len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, "Use `tr` instead of `gsub` when replacing single characters.".to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, "Use `tr` instead of `gsub` when replacing single characters.".to_string()));
     }
 }
 

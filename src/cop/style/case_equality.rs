@@ -20,29 +20,30 @@ impl Cop for CaseEquality {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_on_constant = config.get_bool("AllowOnConstant", false);
         let allow_on_self_class = config.get_bool("AllowOnSelfClass", false);
 
         let call_node = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call_node.name().as_slice() != b"===" {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call_node.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Skip regexp receivers (Performance/RegexpMatch handles those)
         if receiver.as_regular_expression_node().is_some()
             || receiver.as_interpolated_regular_expression_node().is_some()
         {
-            return Vec::new();
+            return;
         }
 
         // AllowOnConstant
@@ -50,7 +51,7 @@ impl Cop for CaseEquality {
             && (receiver.as_constant_read_node().is_some()
                 || receiver.as_constant_path_node().is_some())
         {
-            return Vec::new();
+            return;
         }
 
         // AllowOnSelfClass: self.class === something
@@ -59,7 +60,7 @@ impl Cop for CaseEquality {
                 if recv_call.name().as_slice() == b"class" {
                     if let Some(inner_recv) = recv_call.receiver() {
                         if inner_recv.as_self_node().is_some() {
-                            return Vec::new();
+                            return;
                         }
                     }
                 }
@@ -68,12 +69,12 @@ impl Cop for CaseEquality {
 
         let msg_loc = call_node.message_loc().unwrap_or_else(|| call_node.location());
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Avoid the use of the case equality operator `===`.".to_string(),
-        )]
+        ));
     }
 }
 

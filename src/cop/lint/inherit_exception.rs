@@ -25,7 +25,8 @@ impl Cop for InheritException {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "standard_error");
         let _supported = config.get_string_array("SupportedStyles");
 
@@ -38,45 +39,45 @@ impl Cop for InheritException {
         if let Some(class_node) = node.as_class_node() {
             let parent = match class_node.superclass() {
                 Some(p) => p,
-                None => return Vec::new(),
+                None => return,
             };
 
             if is_exception(&parent) {
                 let loc = parent.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Inherit from `{prefer}` instead of `Exception`."),
-                )];
+                ));
             }
-            return Vec::new();
+            return;
         }
 
         // Check Class.new(Exception)
         if let Some(call) = node.as_call_node() {
             if call.name().as_slice() != b"new" {
-                return Vec::new();
+                return;
             }
 
             let receiver = match call.receiver() {
                 Some(r) => r,
-                None => return Vec::new(),
+                None => return,
             };
 
             let recv_name = match constant_name(&receiver) {
                 Some(n) => n,
-                None => return Vec::new(),
+                None => return,
             };
 
             if recv_name != b"Class" {
-                return Vec::new();
+                return;
             }
 
             let arguments = match call.arguments() {
                 Some(a) => a,
-                None => return Vec::new(),
+                None => return,
             };
 
             let args = arguments.arguments();
@@ -84,17 +85,16 @@ impl Cop for InheritException {
                 if is_exception(&first_arg) {
                     let loc = first_arg.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         format!("Inherit from `{prefer}` instead of `Exception`."),
-                    )];
+                    ));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

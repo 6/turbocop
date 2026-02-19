@@ -20,15 +20,16 @@ impl Cop for RedundantFormat {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_bytes = call.name().as_slice();
         if method_bytes != b"format" && method_bytes != b"sprintf" {
-            return Vec::new();
+            return;
         }
 
         // Must be called without a receiver, or on Kernel/::Kernel
@@ -41,19 +42,19 @@ impl Cop for RedundantFormat {
                 false
             };
             if !is_kernel {
-                return Vec::new();
+                return;
             }
         }
 
         // Must have exactly one argument
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let arg = &arg_list[0];
@@ -62,22 +63,21 @@ impl Cop for RedundantFormat {
         if arg.as_string_node().is_some() || arg.as_interpolated_string_node().is_some() {
             // Check it's not a splat
             if arg.as_splat_node().is_some() {
-                return Vec::new();
+                return;
             }
 
             let method_str = std::str::from_utf8(method_bytes).unwrap_or("format");
             let arg_src = std::str::from_utf8(arg.location().as_slice()).unwrap_or("");
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Use `{arg_src}` directly instead of `{method_str}`."),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

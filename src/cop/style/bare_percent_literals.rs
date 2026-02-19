@@ -20,7 +20,8 @@ impl Cop for BarePercentLiterals {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "bare_percent");
 
         // Check both StringNode and InterpolatedStringNode
@@ -29,12 +30,12 @@ impl Cop for BarePercentLiterals {
         } else if let Some(s) = node.as_interpolated_string_node() {
             (s.opening_loc(), s.location())
         } else {
-            return Vec::new();
+            return;
         };
 
         let opening = match opening_loc {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let opening_bytes = opening.as_slice();
@@ -44,12 +45,12 @@ impl Cop for BarePercentLiterals {
                 // Flag %Q usage
                 if opening_bytes.starts_with(b"%Q") {
                     let (line, column) = source.offset_to_line_col(node_loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use `%` instead of `%Q`.".to_string(),
-                    )];
+                    ));
                 }
             }
             "percent_q" => {
@@ -61,18 +62,17 @@ impl Cop for BarePercentLiterals {
                     && !opening_bytes[1].is_ascii_alphabetic()
                 {
                     let (line, column) = source.offset_to_line_col(node_loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use `%Q` instead of `%`.".to_string(),
-                    )];
+                    ));
                 }
             }
             _ => {}
         }
 
-        Vec::new()
     }
 }
 

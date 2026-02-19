@@ -49,7 +49,8 @@ impl Cop for TrivialAccessors {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let exact_name_match = config.get_bool("ExactNameMatch", true);
         let allow_predicates = config.get_bool("AllowPredicates", true);
         let allow_dsl_writers = config.get_bool("AllowDSLWriters", true);
@@ -68,7 +69,7 @@ impl Cop for TrivialAccessors {
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

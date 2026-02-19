@@ -20,7 +20,8 @@ impl Cop for EmptyElse {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "both");
         let _allow_comments = config.get_bool("AllowComments", false);
 
@@ -32,31 +33,30 @@ impl Cop for EmptyElse {
             // Only process if this is the top-level if (has `if` keyword, not elsif)
             let kw_loc = match if_node.if_keyword_loc() {
                 Some(loc) => loc,
-                None => return Vec::new(),
+                None => return,
             };
             if kw_loc.as_slice() != b"if" {
-                return Vec::new();
+                return;
             }
 
             // Walk the chain to find the else
-            return self.check_if_chain_for_else(source, &if_node, check_empty, check_nil);
+            diagnostics.extend(self.check_if_chain_for_else(source, &if_node, check_empty, check_nil));
         }
 
         if let Some(unless_node) = node.as_unless_node() {
             if let Some(else_clause) = unless_node.else_clause() {
-                return self.check_else_node(source, &else_clause, check_empty, check_nil);
+                diagnostics.extend(self.check_else_node(source, &else_clause, check_empty, check_nil));
             }
-            return Vec::new();
+            return;
         }
 
         if let Some(case_node) = node.as_case_node() {
             if let Some(else_clause) = case_node.else_clause() {
-                return self.check_else_node(source, &else_clause, check_empty, check_nil);
+                diagnostics.extend(self.check_else_node(source, &else_clause, check_empty, check_nil));
             }
-            return Vec::new();
+            return;
         }
 
-        Vec::new()
     }
 }
 

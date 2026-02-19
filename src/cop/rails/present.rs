@@ -24,7 +24,8 @@ impl Cop for Present {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let not_nil_and_not_empty = config.get_bool("NotNilAndNotEmpty", true);
         let not_blank = config.get_bool("NotBlank", true);
         let unless_blank = config.get_bool("UnlessBlank", true);
@@ -32,53 +33,53 @@ impl Cop for Present {
         // Check for `unless foo.blank?` => `if foo.present?` (UnlessBlank)
         if unless_blank {
             if let Some(diag) = self.check_unless_blank(source, node) {
-                return vec![diag];
+                diagnostics.push(diag);
             }
         }
 
         // Check for `!nil? && !empty?` => `present?` (NotNilAndNotEmpty)
         if not_nil_and_not_empty {
             if let Some(diag) = self.check_not_nil_and_not_empty(source, node) {
-                return vec![diag];
+                diagnostics.push(diag);
             }
         }
 
         // Check for `!blank?` => `present?` (NotBlank)
         if !not_blank {
-            return Vec::new();
+            return;
         }
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"!" {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let inner_call = match receiver.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if inner_call.name().as_slice() != b"blank?" {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `present?` instead of `!blank?`.".to_string(),
-        )]
+        ));
     }
 }
 

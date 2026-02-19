@@ -20,31 +20,32 @@ impl Cop for HashTransformValues {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for CallNode `each_with_object({})` with a block
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"each_with_object" {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check that the argument is an empty hash
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
@@ -52,7 +53,7 @@ impl Cop for HashTransformValues {
             || (arg_list[0].as_hash_node().is_none()
                 && arg_list[0].as_keyword_hash_node().is_none())
         {
-            return Vec::new();
+            return;
         }
 
         if let Some(hash) = arg_list[0].as_hash_node() {
@@ -63,24 +64,24 @@ impl Cop for HashTransformValues {
                 .copied()
                 .collect();
             if !trimmed.is_empty() {
-                return Vec::new();
+                return;
             }
         }
 
         // Check body: should be h[k] = something(v)
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body_nodes: Vec<_> = stmts.body().iter().collect();
         if body_nodes.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         // Check for h[k] = transform(v) pattern
@@ -107,26 +108,25 @@ impl Cop for HashTransformValues {
                                         ..value_loc.start_offset()
                                             + value_loc.as_slice().len()];
                                 if contains_identifier(value_src, key_name.as_slice()) {
-                                    return Vec::new();
+                                    return;
                                 }
                             }
 
                             let loc = call.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            return vec![self.diagnostic(
+                            diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 "Prefer `transform_values` over `each_with_object`."
                                     .to_string(),
-                            )];
+                            ));
                         }
                     }
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

@@ -24,26 +24,27 @@ impl Cop for RedundantMerge {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let max_kv_pairs = config.get_usize("MaxKeyValuePairs", 2);
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"merge!" {
-            return Vec::new();
+            return;
         }
 
         // Must have a receiver (hash.merge!)
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         let arguments = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = arguments.arguments();
@@ -55,13 +56,13 @@ impl Cop for RedundantMerge {
             if first.as_keyword_hash_node().is_some() {
                 let kw = first.as_keyword_hash_node().unwrap();
                 if kw.elements().iter().any(|e| e.as_assoc_splat_node().is_some()) {
-                    return Vec::new();
+                    return;
                 }
                 kw.elements().len()
             } else if first.as_hash_node().is_some() {
                 let hash = first.as_hash_node().unwrap();
                 if hash.elements().iter().any(|e| e.as_assoc_splat_node().is_some()) {
-                    return Vec::new();
+                    return;
                 }
                 hash.elements().len()
             } else {
@@ -72,7 +73,7 @@ impl Cop for RedundantMerge {
         };
 
         if kv_count == 0 || kv_count > max_kv_pairs {
-            return Vec::new();
+            return;
         }
 
         // RuboCop: when pairs > 1, only flag if receiver is "pure" (a simple
@@ -81,7 +82,7 @@ impl Cop for RedundantMerge {
         if kv_count > 1 {
             let is_pure = receiver.as_local_variable_read_node().is_some();
             if !is_pure {
-                return Vec::new();
+                return;
             }
         }
 
@@ -109,7 +110,7 @@ impl Cop for RedundantMerge {
                 let prev = if i > 0 { before_call[i - 1] } else { 0 };
                 let next = if i + 1 < before_call.len() { before_call[i + 1] } else { 0 };
                 if prev != b'=' && prev != b'!' && prev != b'>' && prev != b'<' && next != b'=' {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -124,7 +125,7 @@ impl Cop for RedundantMerge {
             let next = bytes[pos];
             // Result is chained, used as sub-expression, or otherwise consumed
             if next == b'.' || next == b')' || next == b']' || next == b'&' {
-                return Vec::new();
+                return;
             }
         }
         // Check if merge! is the last expression in a block (its return value
@@ -145,7 +146,7 @@ impl Cop for RedundantMerge {
                     continue;
                 }
                 if nt.starts_with(b"end") || nt.starts_with(b"}") {
-                    return Vec::new();
+                    return;
                 }
                 break;
             }
@@ -158,7 +159,7 @@ impl Cop for RedundantMerge {
         } else {
             format!("Use `[]=` instead of `merge!` with {kv_count} key-value pairs.")
         };
-        vec![self.diagnostic(source, line, column, msg)]
+        diagnostics.push(self.diagnostic(source, line, column, msg));
     }
 }
 

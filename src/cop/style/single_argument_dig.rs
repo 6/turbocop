@@ -20,39 +20,40 @@ impl Cop for SingleArgumentDig {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be a call to .dig
         if call.name().as_slice() != b"dig" {
-            return Vec::new();
+            return;
         }
 
         // Must have a receiver (not safe navigation)
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Skip safe navigation calls (foo&.dig)
         if let Some(op_loc) = call.call_operator_loc() {
             if op_loc.as_slice() == b"&." {
-                return Vec::new();
+                return;
             }
         }
 
         // Must have exactly one argument
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         // Skip block_pass, splat, and hash arguments
@@ -62,7 +63,7 @@ impl Cop for SingleArgumentDig {
             || arg.as_keyword_hash_node().is_some()
             || arg.as_hash_node().is_some()
         {
-            return Vec::new();
+            return;
         }
 
         let recv_src = std::str::from_utf8(receiver.location().as_slice()).unwrap_or("hash");
@@ -70,12 +71,12 @@ impl Cop for SingleArgumentDig {
         let original = std::str::from_utf8(node.location().as_slice()).unwrap_or("");
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `{}[{}]` instead of `{}`.", recv_src, arg_src, original),
-        )]
+        ));
     }
 }
 

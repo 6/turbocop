@@ -27,7 +27,8 @@ impl Cop for Next {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "skip_modifier_ifs");
         let min_body_length = config.get_usize("MinBodyLength", 3);
         let _allow_consecutive = config.get_bool("AllowConsecutiveConditionals", false);
@@ -39,7 +40,7 @@ impl Cop for Next {
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

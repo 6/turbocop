@@ -29,10 +29,11 @@ impl Cop for MessageChain {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -42,30 +43,29 @@ impl Cop for MessageChain {
             let loc = call.location();
             let msg_loc = call.message_loc().unwrap_or(loc);
             let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Avoid stubbing using `receive_message_chain`.".to_string(),
-            )];
+            ));
         }
 
         // Check for old `stub_chain` syntax (has receiver)
         if method_name == b"stub_chain" && call.receiver().is_some() {
             let msg_loc = match call.message_loc() {
                 Some(l) => l,
-                None => return Vec::new(),
+                None => return,
             };
             let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Avoid stubbing using `stub_chain`.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

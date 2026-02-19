@@ -20,13 +20,14 @@ impl Cop for ComparableBetween {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check for `x >= min && x <= max` pattern
         if let Some(and_node) = node.as_and_node() {
-            return check_between(self, source, &and_node.left(), &and_node.right());
+            diagnostics.extend(check_between(self, source, &and_node.left(), &and_node.right()));
+            return;
         }
 
-        Vec::new()
     }
 }
 

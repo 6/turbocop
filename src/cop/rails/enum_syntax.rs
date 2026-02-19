@@ -24,7 +24,8 @@ impl Cop for EnumSyntax {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // minimum_target_rails_version 7.0
         // New enum syntax `enum :status, { ... }` was introduced in Rails 7.0.
         let rails_version = config
@@ -33,30 +34,30 @@ impl Cop for EnumSyntax {
             .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
             .unwrap_or(5.0);
         if rails_version < 7.0 {
-            return Vec::new();
+            return;
         }
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         if call.name().as_slice() != b"enum" {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Old syntax: enum status: { active: 0 }
@@ -65,7 +66,7 @@ impl Cop for EnumSyntax {
         // The first argument is a SymbolNode
         if arg_list[0].as_symbol_node().is_some() {
             // Already using new syntax
-            return Vec::new();
+            return;
         }
 
         // Check if first arg is a keyword hash with a symbol key mapped to a hash value
@@ -76,18 +77,17 @@ impl Cop for EnumSyntax {
                         // This is old syntax: enum status: { ... } or enum status: [...]
                         let loc = node.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Use Rails 7+ enum syntax: `enum :status, { active: 0 }`.".to_string(),
-                        )];
+                        ));
                     }
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

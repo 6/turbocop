@@ -24,7 +24,8 @@ impl Cop for SafeNavigationWithEmpty {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for `foo&.empty?` used inside a conditional (if/unless).
         // RuboCop's pattern: (if (csend (send ...) :empty?) ...)
         // We check IfNode whose condition is a &.empty? call.
@@ -39,43 +40,43 @@ impl Cop for SafeNavigationWithEmpty {
 
         let predicate = match if_node {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if the condition is a &.empty? call
         let call = match predicate.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be calling `empty?`
         if call.name().as_slice() != b"empty?" {
-            return Vec::new();
+            return;
         }
 
         // Must use safe navigation operator (&.)
         let call_op = match call.call_operator_loc() {
             Some(op) => op,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call_op.as_slice() != b"&." {
-            return Vec::new();
+            return;
         }
 
         // Must have a receiver
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Avoid calling `empty?` with the safe navigation operator in conditionals.".to_string(),
-        )]
+        ));
     }
 }
 

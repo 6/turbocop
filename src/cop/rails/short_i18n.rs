@@ -25,12 +25,13 @@ impl Cop for ShortI18n {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "conservative");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -39,7 +40,7 @@ impl Cop for ShortI18n {
         } else if method_name == b"localize" {
             "Use `I18n.l` instead of `I18n.localize`."
         } else {
-            return Vec::new();
+            return;
         };
 
         match call.receiver() {
@@ -47,21 +48,21 @@ impl Cop for ShortI18n {
                 // Receiver must be I18n
                 // Handle both ConstantReadNode (I18n) and ConstantPathNode (::I18n)
                 if util::constant_name(&recv) != Some(b"I18n") {
-                    return Vec::new();
+                    return;
                 }
             }
             None => {
                 // Bare translate/localize without receiver:
                 // only flag in aggressive mode
                 if style != "aggressive" {
-                    return Vec::new();
+                    return;
                 }
             }
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, message.to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, message.to_string()));
     }
 }
 

@@ -38,20 +38,21 @@ impl Cop for RedundantActiveRecordAllMethod {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allowed_receivers = config.get_string_array("AllowedReceivers");
 
         let chain = match as_method_chain(node) {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if chain.inner_method != b"all" {
-            return Vec::new();
+            return;
         }
 
         if !REDUNDANT_AFTER_ALL.contains(&chain.outer_method) {
-            return Vec::new();
+            return;
         }
 
         // Skip when a possible Enumerable block method is called with a block
@@ -59,15 +60,15 @@ impl Cop for RedundantActiveRecordAllMethod {
         if POSSIBLE_ENUMERABLE_BLOCK_METHODS.contains(&chain.outer_method) {
             let outer_call = match node.as_call_node() {
                 Some(c) => c,
-                None => return Vec::new(),
+                None => return,
             };
             if outer_call.block().is_some() {
-                return Vec::new();
+                return;
             }
             // Also check for block pass: all.select(&:active?)
             if let Some(args) = outer_call.arguments() {
                 if args.arguments().iter().any(|a| a.as_block_argument_node().is_some()) {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -77,19 +78,19 @@ impl Cop for RedundantActiveRecordAllMethod {
             if let Some(recv) = chain.inner_call.receiver() {
                 let recv_str = std::str::from_utf8(recv.location().as_slice()).unwrap_or("");
                 if receivers.iter().any(|r| r == recv_str) {
-                    return Vec::new();
+                    return;
                 }
             }
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Redundant `all` detected. Remove `all` from the chain.".to_string(),
-        )]
+        ));
     }
 }
 

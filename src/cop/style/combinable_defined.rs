@@ -20,16 +20,18 @@ impl Cop for CombinableDefined {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check for `defined?(Foo) && defined?(Foo::Bar)` or `defined?(Foo) and defined?(Foo::Bar)`
         let call = match node.as_call_node() {
             Some(c) => c,
             None => {
                 // Also check AndNode
                 if let Some(and_node) = node.as_and_node() {
-                    return check_and(self, source, &and_node.left(), &and_node.right());
+                    diagnostics.extend(check_and(self, source, &and_node.left(), &and_node.right()));
+                    return;
                 }
-                return Vec::new();
+                return;
             }
         };
 
@@ -40,13 +42,13 @@ impl Cop for CombinableDefined {
                 if let Some(args) = call.arguments() {
                     let arg_list: Vec<_> = args.arguments().iter().collect();
                     if arg_list.len() == 1 {
-                        return check_and(self, source, &receiver, &arg_list[0]);
+                        diagnostics.extend(check_and(self, source, &receiver, &arg_list[0]));
+                        return;
                     }
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

@@ -20,27 +20,28 @@ impl Cop for FirstArrayElementLineBreak {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let _allow_implicit = config.get_bool("AllowImplicitArrayLiterals", false);
         let _allow_multiline_final = config.get_bool("AllowMultilineFinalElement", false);
 
         let array = match node.as_array_node() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let opening = match array.opening_loc() {
             Some(loc) => loc,
-            None => return Vec::new(), // Implicit array
+            None => return, // Implicit array
         };
         let closing = match array.closing_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let elements: Vec<ruby_prism::Node<'_>> = array.elements().iter().collect();
         if elements.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let (open_line, _) = source.offset_to_line_col(opening.start_offset());
@@ -48,7 +49,7 @@ impl Cop for FirstArrayElementLineBreak {
 
         // Only check multiline arrays
         if open_line == close_line {
-            return Vec::new();
+            return;
         }
 
         // First element should be on a new line
@@ -56,15 +57,14 @@ impl Cop for FirstArrayElementLineBreak {
         let (first_line, first_col) = source.offset_to_line_col(first.location().start_offset());
 
         if first_line == open_line {
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 first_line,
                 first_col,
                 "Add a line break before the first element of a multi-line array.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

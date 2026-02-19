@@ -31,7 +31,8 @@ impl Cop for PredicateMatcher {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Config: Strict — when false, also match be(true)/be(false) in addition to be_truthy/be_falsey
         let strict = config.get_bool("Strict", true);
         // Config: EnforcedStyle — "inflected" (default) or "explicit"
@@ -41,114 +42,114 @@ impl Cop for PredicateMatcher {
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if method_name != b"to" && method_name != b"not_to" && method_name != b"to_not" {
-            return Vec::new();
+            return;
         }
 
         if enforced_style == "explicit" {
             // Explicit style: flag `expect(foo).to be_valid` → prefer explicit predicate
             let args = match call.arguments() {
                 Some(a) => a,
-                None => return Vec::new(),
+                None => return,
             };
             let arg_list: Vec<_> = args.arguments().iter().collect();
             if arg_list.is_empty() {
-                return Vec::new();
+                return;
             }
             let matcher = &arg_list[0];
             let matcher_call = match matcher.as_call_node() {
                 Some(c) => c,
-                None => return Vec::new(),
+                None => return,
             };
             if matcher_call.receiver().is_some() {
-                return Vec::new();
+                return;
             }
             let matcher_name = matcher_call.name().as_slice();
             let matcher_str = std::str::from_utf8(matcher_name).unwrap_or("");
             // Check for be_xxx or have_xxx pattern
             if !(matcher_str.starts_with("be_") || matcher_str.starts_with("have_")) {
-                return Vec::new();
+                return;
             }
             // AllowedExplicitMatchers: skip matchers in the allowlist
             if allowed_explicit.iter().any(|m| m == matcher_str) {
-                return Vec::new();
+                return;
             }
             let predicate = matcher_to_predicate(matcher_str);
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Prefer using `{predicate}` over `{matcher_str}` matcher."),
-            )];
+            ));
         }
 
         // Inflected style (default): flag `expect(foo.predicate?).to be_truthy/be_falsey`
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let matcher = &arg_list[0];
         if !is_boolean_matcher(matcher, strict) {
-            return Vec::new();
+            return;
         }
 
         // The receiver should be `expect(foo.predicate?)`
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
         let expect_call = match receiver.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         if expect_call.name().as_slice() != b"expect" || expect_call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Get the argument to expect — should be a predicate call (ends with ?)
         let expect_args = match expect_call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let expect_arg_list: Vec<_> = expect_args.arguments().iter().collect();
         if expect_arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let actual = &expect_arg_list[0];
         let predicate_call = match actual.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // The predicate call must have an explicit receiver (e.g., `foo.valid?`).
         // Bare method calls like `enabled?('x')` are NOT predicates on an object
         // and should not be flagged. This matches RuboCop's `(send !nil? ...)` pattern.
         if predicate_call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         let pred_name = predicate_call.name().as_slice();
         if !pred_name.ends_with(b"?") {
-            return Vec::new();
+            return;
         }
 
         // Skip respond_to? with more than 1 argument (second arg is include_all)
         if pred_name == b"respond_to?" {
             if let Some(args) = predicate_call.arguments() {
                 if args.arguments().iter().count() > 1 {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -159,12 +160,12 @@ impl Cop for PredicateMatcher {
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Prefer using `{suggested}` matcher over `{pred_str}`."),
-        )]
+        ));
     }
 }
 

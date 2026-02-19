@@ -20,18 +20,19 @@ impl Cop for YodaExpression {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let supported_operators = config.get_string_array("SupportedOperators");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = call.name().as_slice();
         let name_str = match std::str::from_utf8(name) {
             Ok(s) => s,
-            Err(_) => return Vec::new(),
+            Err(_) => return,
         };
 
         // Check if operator is in supported list (default: *, +, &, |, ^)
@@ -42,22 +43,22 @@ impl Cop for YodaExpression {
         };
 
         if !is_supported {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         // Check if LHS is a literal and RHS is not
@@ -67,15 +68,14 @@ impl Cop for YodaExpression {
         if lhs_literal && !rhs_literal {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Prefer placing the expression on the left side of the operator.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

@@ -39,11 +39,11 @@ impl Cop for CommentIndentation {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_for_alignment = config.get_bool("AllowForAlignment", false);
         let indent_width = config.get_usize("IndentationWidth", 2);
         let lines: Vec<&[u8]> = source.lines().collect();
-        let mut diagnostics = Vec::new();
 
         // Build set of byte offsets where real Ruby comments start.
         // This lets us distinguish actual comments from `#` inside strings/regex/heredocs.
@@ -167,7 +167,6 @@ impl Cop for CommentIndentation {
             }
         }
 
-        diagnostics
     }
 }
 

@@ -20,25 +20,26 @@ impl Cop for ColonMethodCall {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call_node = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have a receiver
         if call_node.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Must use :: as the call operator
         let call_op_loc = match call_node.call_operator_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call_op_loc.as_slice() != b"::" {
-            return Vec::new();
+            return;
         }
 
         // The method name must start with a lowercase letter or underscore
@@ -46,13 +47,13 @@ impl Cop for ColonMethodCall {
         let method_name = call_node.name();
         let name_bytes = method_name.as_slice();
         if name_bytes.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let first = name_bytes[0];
         // Skip if it starts with uppercase (constant access like Foo::Bar)
         if first.is_ascii_uppercase() {
-            return Vec::new();
+            return;
         }
 
         // Skip Java-style names (e.g., Java::int, Java::com)
@@ -60,25 +61,25 @@ impl Cop for ColonMethodCall {
         if let Some(receiver) = call_node.receiver() {
             if let Some(cr) = receiver.as_constant_read_node() {
                 if cr.name().as_slice() == b"Java" {
-                    return Vec::new();
+                    return;
                 }
             }
             // Also handle qualified constants (e.g., SomeModule::Java::method)
             if let Some(cp) = receiver.as_constant_path_node() {
                 let cp_src = cp.location().as_slice();
                 if cp_src.ends_with(b"Java") {
-                    return Vec::new();
+                    return;
                 }
             }
         }
 
         let (line, column) = source.offset_to_line_col(call_op_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Do not use `::` for method calls.".to_string(),
-        )]
+        ));
     }
 }
 

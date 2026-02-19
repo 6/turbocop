@@ -25,28 +25,29 @@ impl Cop for OrderById {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"order" {
-            return Vec::new();
+            return;
         }
 
         // Must have a receiver
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let is_order_by_id = if let Some(sym) = arg_list[0].as_symbol_node() {
@@ -62,21 +63,21 @@ impl Cop for OrderById {
             // Also check: order(primary_key) - call to primary_key method
             if let Some(pk_call) = arg_list[0].as_call_node() {
                 if pk_call.name().as_slice() != b"primary_key" {
-                    return Vec::new();
+                    return;
                 }
             } else {
-                return Vec::new();
+                return;
             }
         }
 
         let msg_loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Do not use the `id` column for ordering. Use a timestamp column to order chronologically.".to_string(),
-        )]
+        ));
     }
 }
 

@@ -25,24 +25,25 @@ impl Cop for HasAndBelongsToMany {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if !is_dsl_call(&call, b"has_and_belongs_to_many") {
-            return Vec::new();
+            return;
         }
 
         let loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `has_many :through` instead of `has_and_belongs_to_many`.".to_string(),
-        )]
+        ));
     }
 }
 

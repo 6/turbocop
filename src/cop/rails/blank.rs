@@ -24,7 +24,8 @@ impl Cop for Blank {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Sub-cop toggles
         let nil_or_empty = config.get_bool("NilOrEmpty", true);
         let not_present = config.get_bool("NotPresent", true);
@@ -32,42 +33,42 @@ impl Cop for Blank {
         let _ = (nil_or_empty, unless_present); // reserved for future sub-cop checks
 
         if !not_present {
-            return Vec::new();
+            return;
         }
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Looking for `!` operator (negation)
         if call.name().as_slice() != b"!" {
-            return Vec::new();
+            return;
         }
 
         // The receiver should be a `present?` call
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let inner_call = match receiver.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if inner_call.name().as_slice() != b"present?" {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `blank?` instead of `!present?`.".to_string(),
-        )]
+        ));
     }
 }
 

@@ -97,30 +97,31 @@ impl Cop for CreateTableWithTimestamps {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Start from CallNode `create_table`, then access its block
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"create_table" {
-            return Vec::new();
+            return;
         }
 
         // Skip `create_table :x, id: false` — join tables don't need timestamps
         if has_id_false(&call) {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Walk block body looking for timestamps call
@@ -130,12 +131,13 @@ impl Cop for CreateTableWithTimestamps {
                 // Empty block -- flag it
                 let loc = node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Add `t.timestamps` to `create_table` block.".to_string(),
-                )];
+                ));
+                return;
             }
         };
 
@@ -143,17 +145,17 @@ impl Cop for CreateTableWithTimestamps {
         finder.visit(&body);
 
         if finder.found {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Add `t.timestamps` to `create_table` block.".to_string(),
-        )]
+        ));
     }
 }
 

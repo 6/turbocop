@@ -30,12 +30,13 @@ impl Cop for Yield {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for receive(:method) { |&block| block.call ... }
         // The node structure: CallNode(receive) with a BlockNode
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // The call could be `receive(:foo)` or `receive(:foo).with(...)` etc.
@@ -43,97 +44,97 @@ impl Cop for Yield {
         let block = match call.block() {
             Some(b) => match b.as_block_node() {
                 Some(bn) => bn,
-                None => return Vec::new(),
+                None => return,
             },
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if the block has a block parameter (&block)
         let params = match block.parameters() {
             Some(p) => match p.as_block_parameters_node() {
                 Some(bp) => bp,
-                None => return Vec::new(),
+                None => return,
             },
-            None => return Vec::new(),
+            None => return,
         };
 
         let inner_params = match params.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have a block parameter (&block)
         let block_param = match inner_params.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_param_name = block_param.name();
         let block_param_bytes = match block_param_name {
             Some(n) => n.as_slice().to_vec(),
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check that the body is only block.call statements
         let body = match block.body() {
             Some(b) => match b.as_statements_node() {
                 Some(s) => s,
-                None => return Vec::new(),
+                None => return,
             },
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts: Vec<_> = body.body().iter().collect();
         if stmts.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Every statement must be `block.call` or `block.call(args)`
         for stmt in &stmts {
             let stmt_call = match stmt.as_call_node() {
                 Some(c) => c,
-                None => return Vec::new(),
+                None => return,
             };
 
             if stmt_call.name().as_slice() != b"call" {
-                return Vec::new();
+                return;
             }
 
             // Receiver must be the block parameter
             let recv = match stmt_call.receiver() {
                 Some(r) => r,
-                None => return Vec::new(),
+                None => return,
             };
 
             if let Some(recv_call) = recv.as_call_node() {
                 if recv_call.name().as_slice() != block_param_bytes.as_slice() {
-                    return Vec::new();
+                    return;
                 }
                 if recv_call.receiver().is_some() {
-                    return Vec::new();
+                    return;
                 }
             } else if let Some(local) = recv.as_local_variable_read_node() {
                 if local.name().as_slice() != block_param_bytes.as_slice() {
-                    return Vec::new();
+                    return;
                 }
             } else {
-                return Vec::new();
+                return;
             }
         }
 
         // Check that the outer call chain includes `receive`
         if !call_chain_includes_receive(call) {
-            return Vec::new();
+            return;
         }
 
         let loc = block.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `.and_yield`.".to_string(),
-        )]
+        ));
     }
 }
 

@@ -25,38 +25,39 @@ impl Cop for BigDecimalNew {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"new" {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = match constant_name(&receiver) {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         if name != b"BigDecimal" {
-            return Vec::new();
+            return;
         }
 
         let loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "`BigDecimal.new()` is deprecated. Use `BigDecimal()` instead.".to_string(),
-        )]
+        ));
     }
 }
 

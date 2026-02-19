@@ -24,25 +24,26 @@ impl Cop for MarshalLoad {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method = call.name().as_slice();
         if method != b"load" && method != b"restore" {
-            return Vec::new();
+            return;
         }
 
         let recv = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let is_marshal = is_constant_named(&recv, b"Marshal");
         if !is_marshal {
-            return Vec::new();
+            return;
         }
 
         // Exclude the "deep copy hack" pattern: Marshal.load(Marshal.dump(...))
@@ -53,7 +54,7 @@ impl Cop for MarshalLoad {
                     if inner_call.name().as_slice() == b"dump" {
                         if let Some(inner_recv) = inner_call.receiver() {
                             if is_constant_named(&inner_recv, b"Marshal") {
-                                return Vec::new();
+                                return;
                             }
                         }
                     }
@@ -63,12 +64,12 @@ impl Cop for MarshalLoad {
 
         let msg_loc = call.message_loc().unwrap();
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Avoid using `Marshal.load`.".to_string(),
-        )]
+        ));
     }
 }
 

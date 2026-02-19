@@ -29,10 +29,11 @@ impl Cop for AnyInstance {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -44,27 +45,26 @@ impl Cop for AnyInstance {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             let label = std::str::from_utf8(method_name).unwrap_or("allow_any_instance_of");
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Avoid stubbing using `{label}`."),
-            )];
+            ));
         }
 
         // Check for old syntax: `Object.any_instance`
         if method_name == b"any_instance" && call.receiver().is_some() {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Avoid stubbing using `any_instance`.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

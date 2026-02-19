@@ -20,27 +20,28 @@ impl Cop for SpaceAfterColon {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let assoc = match node.as_assoc_node() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Skip value-omission shorthand hash syntax (Ruby 3.1+): { url:, driver: }
         // In Prism, when value is omitted, the value node is an ImplicitNode.
         if assoc.value().as_implicit_node().is_some() {
-            return Vec::new();
+            return;
         }
 
         let key = assoc.key();
         let sym = match key.as_symbol_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let colon_loc = match sym.closing_loc() {
             Some(loc) if loc.as_slice() == b":" => loc,
-            _ => return Vec::new(),
+            _ => return,
         };
 
         let bytes = source.as_bytes();
@@ -50,15 +51,14 @@ impl Cop for SpaceAfterColon {
             Some(b) if b.is_ascii_whitespace() => {}
             _ => {
                 let (line, column) = source.offset_to_line_col(colon_loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Space missing after colon.".to_string(),
-                )];
+                ));
             }
         }
-        Vec::new()
     }
 }
 

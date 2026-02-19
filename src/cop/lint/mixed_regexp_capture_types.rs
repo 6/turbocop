@@ -24,18 +24,19 @@ impl Cop for MixedRegexpCaptureTypes {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check RegularExpressionNode for mixed capture types
         let regexp = match node.as_regular_expression_node() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Get the regexp content (unescaped source between delimiters)
         let content = regexp.unescaped();
         let content_str = match std::str::from_utf8(&content) {
             Ok(s) => s,
-            Err(_) => return Vec::new(),
+            Err(_) => return,
         };
 
         // Skip regexps with interpolation (they have EmbeddedStatementsNode children)
@@ -43,21 +44,21 @@ impl Cop for MixedRegexpCaptureTypes {
         let raw_src = &source.as_bytes()
             [regexp.location().start_offset()..regexp.location().end_offset()];
         if raw_src.windows(2).any(|w| w == b"#{") {
-            return Vec::new();
+            return;
         }
 
         if has_mixed_captures(content_str) {
             let loc = regexp.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Do not mix named captures and numbered captures in a Regexp literal.".to_string(),
-            )];
+            ));
+            return;
         }
 
-        Vec::new()
     }
 }
 

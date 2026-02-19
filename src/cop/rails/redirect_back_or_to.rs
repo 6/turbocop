@@ -25,7 +25,8 @@ impl Cop for RedirectBackOrTo {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // minimum_target_rails_version 7.0
         // redirect_back_or_to was introduced in Rails 7.0; skip for older versions.
         let rails_version = config
@@ -34,32 +35,32 @@ impl Cop for RedirectBackOrTo {
             .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
             .unwrap_or(5.0);
         if rails_version < 7.0 {
-            return Vec::new();
+            return;
         }
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be receiverless `redirect_back`
         if call.receiver().is_some() || call.name().as_slice() != b"redirect_back" {
-            return Vec::new();
+            return;
         }
 
         // Must have `fallback_location:` keyword argument
         if keyword_arg_value(&call, b"fallback_location").is_none() {
-            return Vec::new();
+            return;
         }
 
         let loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `redirect_back_or_to` instead of `redirect_back` with `:fallback_location` keyword argument.".to_string(),
-        )]
+        ));
     }
 }
 

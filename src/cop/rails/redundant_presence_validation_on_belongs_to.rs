@@ -25,10 +25,11 @@ impl Cop for RedundantPresenceValidationOnBelongsTo {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let class = match node.as_class_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let calls = class_body_calls(&class);
@@ -48,7 +49,7 @@ impl Cop for RedundantPresenceValidationOnBelongsTo {
         }
 
         if belongs_to_names.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Build both direct name and foreign key name matches
@@ -62,7 +63,6 @@ impl Cop for RedundantPresenceValidationOnBelongsTo {
         }
 
         // Check validates calls for presence on belongs_to associations
-        let mut diagnostics = Vec::new();
         for call in &calls {
             if !is_dsl_call(call, b"validates") {
                 continue;
@@ -95,7 +95,6 @@ impl Cop for RedundantPresenceValidationOnBelongsTo {
             }
         }
 
-        diagnostics
     }
 }
 

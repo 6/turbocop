@@ -24,14 +24,15 @@ impl Cop for Eval {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"eval" {
-            return Vec::new();
+            return;
         }
 
         // Allow: no receiver (bare eval) or receiver is Kernel
@@ -54,17 +55,17 @@ impl Cop for Eval {
         };
 
         if !allowed {
-            return Vec::new();
+            return;
         }
 
         let msg_loc = call.message_loc().unwrap();
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "The use of `eval` is a serious security risk.".to_string(),
-        )]
+        ));
     }
 }
 

@@ -104,10 +104,11 @@ impl Cop for ShadowedException {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let begin_node = match node.as_begin_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let mut rescue_opt = begin_node.rescue_clause();
@@ -130,7 +131,7 @@ impl Cop for ShadowedException {
         }
 
         if all_clauses.len() < 2 && all_clauses.iter().all(|(excs, _)| excs.len() <= 1) {
-            return Vec::new();
+            return;
         }
 
         let groups: Vec<&Vec<String>> = all_clauses.iter().map(|(excs, _)| excs).collect();
@@ -146,7 +147,7 @@ impl Cop for ShadowedException {
         });
 
         if !has_multi_level && all_sorted {
-            return Vec::new();
+            return;
         }
 
         // Find the first offending rescue clause (matching RuboCop's find_shadowing_rescue)
@@ -159,12 +160,12 @@ impl Cop for ShadowedException {
             };
             if contains_multiple_levels(&group) {
                 let (line, column) = source.offset_to_line_col(*offset);
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Do not shadow rescued Exceptions.".to_string(),
-                )];
+                ));
             }
         }
 
@@ -180,16 +181,15 @@ impl Cop for ShadowedException {
         for i in 0..resolved_groups.len().saturating_sub(1) {
             if !groups_sorted(&resolved_groups[i], &resolved_groups[i + 1]) {
                 let (line, column) = source.offset_to_line_col(all_clauses[i].1);
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Do not shadow rescued Exceptions.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

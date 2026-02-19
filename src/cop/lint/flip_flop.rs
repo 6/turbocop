@@ -24,20 +24,21 @@ impl Cop for FlipFlop {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let flip_flop = match node.as_flip_flop_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let loc = flip_flop.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Avoid the use of flip-flop operators.".to_string(),
-        )]
+        ));
     }
 }
 

@@ -20,31 +20,32 @@ impl Cop for ArrayFirstLast {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
         if method_name != "[]" {
-            return Vec::new();
+            return;
         }
 
         // Must have a receiver
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Must have exactly one argument
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         // Check if this is an assignment (arr[0] = 1), skip those
@@ -61,24 +62,23 @@ impl Cop for ArrayFirstLast {
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
 
                 if v == 0 {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use `first`.".to_string(),
-                    )];
+                    ));
                 } else if v == -1 {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use `last`.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

@@ -24,15 +24,16 @@ impl Cop for UselessSetterCall {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body = match def_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Get the last expression in the method body
@@ -46,13 +47,13 @@ impl Cop for UselessSetterCall {
         };
         let last_expr = match body_stmts.last() {
             Some(e) => e,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if the last expression is a setter call on a local variable
         let call = match last_expr.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be a setter method (name ends with `=`)
@@ -64,18 +65,18 @@ impl Cop for UselessSetterCall {
             || method_name == b">="
             || method_name == b"[]="
         {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be a local variable
         let recv = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let lv = match recv.as_local_variable_read_node() {
             Some(lv) => lv,
-            None => return Vec::new(),
+            None => return,
         };
 
         let var_name_bytes = lv.name().as_slice();
@@ -92,18 +93,18 @@ impl Cop for UselessSetterCall {
                     .is_some_and(|op| op.name().as_slice() == var_name_bytes)
             });
             if is_param {
-                return Vec::new();
+                return;
             }
         }
 
         let loc = last_expr.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Useless setter call to local variable `{var_name}`."),
-        )]
+        ));
     }
 }
 

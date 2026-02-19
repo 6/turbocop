@@ -29,20 +29,21 @@ impl Cop for EmptyLineAfterExampleGroup {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if call.receiver().is_some() || !is_rspec_example_group(method_name) {
-            return Vec::new();
+            return;
         }
 
         // Must have a block (multi-line group)
         if call.block().is_none() {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
@@ -58,12 +59,12 @@ impl Cop for EmptyLineAfterExampleGroup {
         let mut check_line = end_line + 1;
         loop {
             if check_line > total_lines {
-                return Vec::new(); // End of file
+                return; // End of file
             }
             match line_at(source, check_line) {
                 Some(line) => {
                     if is_blank_line(line) {
-                        return Vec::new(); // Found blank line — OK
+                        return; // Found blank line — OK
                     }
                     let trimmed_start = line.iter().position(|&b| b != b' ' && b != b'\t');
                     if let Some(start) = trimmed_start {
@@ -74,7 +75,7 @@ impl Cop for EmptyLineAfterExampleGroup {
                             continue;
                         }
                         if rest.starts_with(b"end") && (rest.len() == 3 || !rest[3].is_ascii_alphanumeric()) {
-                            return Vec::new(); // Next meaningful line is `end` — OK
+                            return; // Next meaningful line is `end` — OK
                         }
                         // Control flow keywords that are part of the enclosing
                         // construct (if/unless/case/begin) — not a new statement
@@ -85,12 +86,12 @@ impl Cop for EmptyLineAfterExampleGroup {
                             || starts_with_keyword(rest, b"when")
                             || starts_with_keyword(rest, b"in")
                         {
-                            return Vec::new();
+                            return;
                         }
                     }
                     break; // Found a non-blank, non-comment, non-end line — offense
                 }
-                None => return Vec::new(),
+                None => return,
             }
         }
 
@@ -102,12 +103,12 @@ impl Cop for EmptyLineAfterExampleGroup {
             0
         };
 
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             end_line,
             report_col,
             format!("Add an empty line after `{method_str}`."),
-        )]
+        ));
     }
 }
 

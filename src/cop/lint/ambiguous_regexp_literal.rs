@@ -24,17 +24,18 @@ impl Cop for AmbiguousRegexpLiteral {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for CallNode without parentheses where the first argument is a
         // RegularExpressionNode or a MatchWriteNode wrapping one.
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must not have parentheses
         if call.opening_loc().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Skip operator method calls (=~, ==, etc.) — they are never ambiguous
@@ -46,17 +47,17 @@ impl Cop for AmbiguousRegexpLiteral {
                 | b"&" | b"|" | b"^" | b"~" | b"<<" | b">>"
                 | b"[]" | b"[]=" | b"=~" | b"!~"
         ) {
-            return Vec::new();
+            return;
         }
 
         let arguments = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = arguments.arguments();
         if args.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let first_arg = args.iter().next().unwrap();
@@ -82,13 +83,13 @@ impl Cop for AmbiguousRegexpLiteral {
 
         let regexp_start = match regexp_offset {
             Some(o) => o,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Only `/.../ ` syntax is ambiguous. `%r{...}`, `%r(...)`, `%r/.../` etc.
         // are never ambiguous because they can't be confused with division.
         if source.as_bytes().get(regexp_start) != Some(&b'/') {
-            return Vec::new();
+            return;
         }
 
         // Check there's a space between the method name and the `/`
@@ -97,27 +98,27 @@ impl Cop for AmbiguousRegexpLiteral {
         // the method name and the `/`.
         let msg_loc = match call.message_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
         let msg_end = msg_loc.end_offset();
 
         // There must be at least one space between method name end and regexp start
         if regexp_start <= msg_end {
-            return Vec::new();
+            return;
         }
 
         let between = &source.as_bytes()[msg_end..regexp_start];
         if !between.iter().all(|&b| b == b' ' || b == b'\t') {
-            return Vec::new();
+            return;
         }
 
         let (line, column) = source.offset_to_line_col(regexp_start);
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Ambiguous regexp literal. Parenthesize the method arguments if it's surely a regexp literal, or add a whitespace to the right of the `/` if it should be a division.".to_string(),
-        )]
+        ));
     }
 }
 

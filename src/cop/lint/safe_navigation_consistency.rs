@@ -26,27 +26,29 @@ impl Cop for SafeNavigationConsistency {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allowed_methods = config
             .get_string_array("AllowedMethods")
             .unwrap_or_else(|| DEFAULT_ALLOWED_METHODS.iter().map(|s| s.to_string()).collect());
 
         // Check for `&&` and `||` operators (AndNode and OrNode)
         if let Some(and_node) = node.as_and_node() {
-            return check_logical_op(
+            diagnostics.extend(check_logical_op(
                 self, source, &and_node.left(), &and_node.right(),
                 true, &allowed_methods,
-            );
+            ));
+            return;
         }
 
         if let Some(or_node) = node.as_or_node() {
-            return check_logical_op(
+            diagnostics.extend(check_logical_op(
                 self, source, &or_node.left(), &or_node.right(),
                 false, &allowed_methods,
-            );
+            ));
+            return;
         }
 
-        Vec::new()
     }
 }
 

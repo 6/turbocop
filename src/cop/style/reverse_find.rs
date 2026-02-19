@@ -20,7 +20,8 @@ impl Cop for ReverseFind {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // rfind is only available in Ruby >= 4.0
         let ruby_version = config
             .options
@@ -32,54 +33,54 @@ impl Cop for ReverseFind {
             })
             .unwrap_or(2.7);
         if ruby_version < 4.0 {
-            return Vec::new();
+            return;
         }
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be `.find` or `.detect`
         let name = call.name().as_slice();
         if name != b"find" && name != b"detect" {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be a `.reverse` call
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_call = match receiver.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_method = recv_call.name().as_slice();
         if recv_method != b"reverse" && recv_method != b"reverse_each" {
-            return Vec::new();
+            return;
         }
 
         // `.reverse`/`.reverse_each` must have no arguments
         if recv_call.arguments().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Must have a block or block argument
         if call.block().is_none() {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `rfind` instead of `reverse.find`.".to_string(),
-        )]
+        ));
     }
 }
 

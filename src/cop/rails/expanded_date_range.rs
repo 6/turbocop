@@ -24,48 +24,49 @@ impl Cop for ExpandedDateRange {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let range = match node.as_range_node() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let left = match range.left() {
             Some(l) => l,
-            None => return Vec::new(),
+            None => return,
         };
 
         let right = match range.right() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Left should be a call to .beginning_of_day
         let left_call = match left.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         if left_call.name().as_slice() != b"beginning_of_day" {
-            return Vec::new();
+            return;
         }
 
         // Right should be a call to .end_of_day
         let right_call = match right.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         if right_call.name().as_slice() != b"end_of_day" {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `all_day` instead of explicit date range expansion.".to_string(),
-        )]
+        ));
     }
 }
 

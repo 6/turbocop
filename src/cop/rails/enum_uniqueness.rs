@@ -98,23 +98,24 @@ impl Cop for EnumUniqueness {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         if call.name().as_slice() != b"enum" {
-            return Vec::new();
+            return;
         }
 
         let duplicates = find_duplicate_values(source, &call);
 
-        duplicates
+        diagnostics.extend(duplicates
             .into_iter()
             .map(|(_line, _col, val)| {
                 // Report at the call location for simplicity
@@ -126,8 +127,7 @@ impl Cop for EnumUniqueness {
                     column,
                     format!("Duplicate enum value `{val}` detected."),
                 )
-            })
-            .collect()
+            }));
     }
 }
 

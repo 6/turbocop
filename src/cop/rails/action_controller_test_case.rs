@@ -25,30 +25,30 @@ impl Cop for ActionControllerTestCase {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let class = match node.as_class_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let parent = match parent_class_name(source, &class) {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         if parent == b"ActionController::TestCase" {
             let loc = class.class_keyword_loc();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Use `ActionDispatch::IntegrationTest` instead of `ActionController::TestCase`."
                     .to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

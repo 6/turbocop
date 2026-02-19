@@ -29,20 +29,21 @@ impl Cop for ConsistentParenthesesStyle {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
         if !FACTORY_BOT_METHODS.contains(&method_name) {
-            return Vec::new();
+            return;
         }
 
         let explicit_only = config.get_bool("ExplicitOnly", false);
         if !is_factory_call(call.receiver(), explicit_only) {
-            return Vec::new();
+            return;
         }
 
         let style = config.get_str("EnforcedStyle", "require_parentheses");
@@ -50,12 +51,12 @@ impl Cop for ConsistentParenthesesStyle {
         // Must have arguments
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // First argument must be a symbol, string, send, or local variable
@@ -66,12 +67,12 @@ impl Cop for ConsistentParenthesesStyle {
             || first_arg.as_local_variable_read_node().is_some();
 
         if !valid_first_arg {
-            return Vec::new();
+            return;
         }
 
         // `generate` with more than 1 argument is excluded
         if method_name == "generate" && arg_list.len() > 1 {
-            return Vec::new();
+            return;
         }
 
         let has_parens = call.opening_loc().is_some();
@@ -79,12 +80,12 @@ impl Cop for ConsistentParenthesesStyle {
         if style == "require_parentheses" && !has_parens {
             let msg_loc = call.message_loc().unwrap_or(call.location());
             let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Prefer method call with parentheses".to_string(),
-            )];
+            ));
         }
 
         if style == "omit_parentheses" && has_parens {
@@ -98,25 +99,24 @@ impl Cop for ConsistentParenthesesStyle {
 
             if call_line != arg_line {
                 // Multi-line: create(\n  :user\n) — don't flag
-                return Vec::new();
+                return;
             }
 
             // Check for hash value omission (Ruby 3.1+ `name:` shorthand)
             if has_value_omission_hash(&arg_list) {
-                return Vec::new();
+                return;
             }
 
             let msg_loc = call.message_loc().unwrap_or(call.location());
             let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Prefer method call without parentheses".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

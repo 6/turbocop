@@ -29,42 +29,43 @@ impl Cop for ContainExactly {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Detect `contain_exactly(*array)` where ALL arguments are splats.
         // Suggest `match_array` instead.
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"contain_exactly" || call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(), // No args = empty, handled by BeEmpty
+            None => return, // No args = empty, handled by BeEmpty
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // All arguments must be splat nodes
         let all_splats = arg_list.iter().all(|arg| arg.as_splat_node().is_some());
         if !all_splats {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Prefer `match_array` when matching array values.".to_string(),
-        )]
+        ));
     }
 }
 

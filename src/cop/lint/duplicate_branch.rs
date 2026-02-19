@@ -28,22 +28,24 @@ impl Cop for DuplicateBranch {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let _ignore_literal = config.get_bool("IgnoreLiteralBranches", false);
         let _ignore_constant = config.get_bool("IgnoreConstantBranches", false);
         let _ignore_dup_else = config.get_bool("IgnoreDuplicateElseBranch", false);
 
         // Check if/elsif/else chains
         if let Some(if_node) = node.as_if_node() {
-            return check_if_branches(self, source, &if_node);
+            diagnostics.extend(check_if_branches(self, source, &if_node));
+            return;
         }
 
         // Check case/when statements
         if let Some(case_node) = node.as_case_node() {
-            return check_case_branches(self, source, &case_node);
+            diagnostics.extend(check_case_branches(self, source, &case_node));
+            return;
         }
 
-        Vec::new()
     }
 }
 

@@ -16,16 +16,17 @@ impl Cop for EmptyComment {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_border = config.get_bool("AllowBorderComment", true);
         let allow_margin = config.get_bool("AllowMarginComment", true);
 
         let lines: Vec<&[u8]> = source.lines().collect();
 
         if allow_margin {
-            check_with_grouping(&lines, allow_border, source, code_map, self)
+            diagnostics.extend(check_with_grouping(&lines, allow_border, source, code_map, self));
         } else {
-            check_without_grouping(&lines, allow_border, source, code_map, self)
+            diagnostics.extend(check_without_grouping(&lines, allow_border, source, code_map, self));
         }
     }
 }

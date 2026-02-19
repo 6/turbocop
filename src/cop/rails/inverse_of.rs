@@ -25,15 +25,15 @@ impl Cop for InverseOf {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let ignore_scopes = config.get_bool("IgnoreScopes", false);
 
         let class = match node.as_class_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
         let calls = class_body_calls(&class);
 
         for call in &calls {
@@ -77,7 +77,6 @@ impl Cop for InverseOf {
             }
         }
 
-        diagnostics
     }
 }
 

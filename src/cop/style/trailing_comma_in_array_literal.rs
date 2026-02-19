@@ -21,28 +21,29 @@ impl Cop for TrailingCommaInArrayLiteral {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let array_node = match node.as_array_node() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Skip %w(), %W(), %i(), %I() word/symbol arrays — they don't use commas
         if let Some(opening) = array_node.opening_loc() {
             if source.as_bytes().get(opening.start_offset()) == Some(&b'%') {
-                return Vec::new();
+                return;
             }
         }
 
         let closing_loc = match array_node.closing_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let elements: Vec<ruby_prism::Node<'_>> = array_node.elements().iter().collect();
         let last_elem = match elements.last() {
             Some(e) => e,
-            None => return Vec::new(),
+            None => return,
         };
 
         let last_end = last_elem.location().end_offset();
@@ -79,7 +80,7 @@ impl Cop for TrailingCommaInArrayLiteral {
         let open_line = if let Some(opening) = array_node.opening_loc() {
             source.offset_to_line_col(opening.start_offset()).0
         } else {
-            return Vec::new();
+            return;
         };
         let close_line = source.offset_to_line_col(closing_start).0;
         let is_multiline = if elements.len() == 1 {
@@ -103,21 +104,21 @@ impl Cop for TrailingCommaInArrayLiteral {
                     {
                         let abs_offset = last_end + comma_offset;
                         let (line, column) = source.offset_to_line_col(abs_offset);
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Avoid comma after the last item of an array, unless each item is on its own line.".to_string(),
-                        )];
+                        ));
                     }
                 } else if !has_comma && should_have {
                     let (line, column) = source.offset_to_line_col(last_end);
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Put a comma after the last item of a multiline array.".to_string(),
-                    )];
+                    ));
                 }
             }
             "consistent_comma" => {
@@ -129,21 +130,21 @@ impl Cop for TrailingCommaInArrayLiteral {
                     {
                         let abs_offset = last_end + comma_offset;
                         let (line, column) = source.offset_to_line_col(abs_offset);
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Avoid comma after the last item of an array, unless items are split onto multiple lines.".to_string(),
-                        )];
+                        ));
                     }
                 } else if !has_comma && is_multiline {
                     let (line, column) = source.offset_to_line_col(last_end);
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Put a comma after the last item of a multiline array.".to_string(),
-                    )];
+                    ));
                 }
             }
             _ => {
@@ -154,18 +155,17 @@ impl Cop for TrailingCommaInArrayLiteral {
                     {
                         let abs_offset = last_end + comma_offset;
                         let (line, column) = source.offset_to_line_col(abs_offset);
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Avoid comma after the last item of an array.".to_string(),
-                        )];
+                        ));
                     }
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

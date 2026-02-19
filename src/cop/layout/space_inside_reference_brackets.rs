@@ -20,21 +20,22 @@ impl Cop for SpaceInsideReferenceBrackets {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // This cop checks [] and []= method calls (reference brackets)
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if method_name != b"[]" && method_name != b"[]=" {
-            return Vec::new();
+            return;
         }
 
         // Must have a receiver (e.g., hash[:key], not standalone [])
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         let enforced_style = config.get_str("EnforcedStyle", "no_space");
@@ -47,17 +48,17 @@ impl Cop for SpaceInsideReferenceBrackets {
         // But for [] calls, we need to find the [ in the source
         let opening_loc = match call.opening_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let closing_loc = match call.closing_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Verify these are brackets
         if opening_loc.as_slice() != b"[" || closing_loc.as_slice() != b"]" {
-            return Vec::new();
+            return;
         }
 
         let open_end = opening_loc.end_offset();
@@ -67,10 +68,9 @@ impl Cop for SpaceInsideReferenceBrackets {
         let (open_line, _) = source.offset_to_line_col(opening_loc.start_offset());
         let (close_line, _) = source.offset_to_line_col(closing_loc.start_offset());
         if open_line != close_line {
-            return Vec::new();
+            return;
         }
 
-        let mut diagnostics = Vec::new();
 
         // Check for empty brackets
         let is_empty = close_start == open_end
@@ -105,7 +105,7 @@ impl Cop for SpaceInsideReferenceBrackets {
                 }
                 _ => {}
             }
-            return diagnostics;
+            return;
         }
 
         let space_after_open = bytes.get(open_end) == Some(&b' ');
@@ -155,7 +155,6 @@ impl Cop for SpaceInsideReferenceBrackets {
             _ => {}
         }
 
-        diagnostics
     }
 }
 

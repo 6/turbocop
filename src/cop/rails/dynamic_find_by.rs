@@ -24,7 +24,8 @@ impl Cop for DynamicFindBy {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // AllowedMethods (Whitelist is deprecated alias)
         let allowed = config.get_string_array("AllowedMethods");
         let whitelist = config.get_string_array("Whitelist");
@@ -32,26 +33,26 @@ impl Cop for DynamicFindBy {
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         let name = call.name().as_slice();
         if !name.starts_with(b"find_by_") {
-            return Vec::new();
+            return;
         }
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Skip if method is in AllowedMethods or Whitelist (deprecated alias)
         let name_str = std::str::from_utf8(name).unwrap_or("");
         if let Some(ref list) = allowed {
             if list.iter().any(|m| m == name_str) {
-                return Vec::new();
+                return;
             }
         }
         if let Some(ref list) = whitelist {
             if list.iter().any(|m| m == name_str) {
-                return Vec::new();
+                return;
             }
         }
 
@@ -61,7 +62,7 @@ impl Cop for DynamicFindBy {
                 let recv_bytes = recv.location().as_slice();
                 let recv_str = std::str::from_utf8(recv_bytes).unwrap_or("");
                 if receivers.iter().any(|r| r == recv_str) {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -74,7 +75,7 @@ impl Cop for DynamicFindBy {
             "Use `find_by({attr_str}: ...)` instead of `{}`.",
             std::str::from_utf8(name).unwrap_or("find_by_...")
         );
-        vec![self.diagnostic(source, line, column, msg)]
+        diagnostics.push(self.diagnostic(source, line, column, msg));
     }
 }
 

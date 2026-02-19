@@ -24,24 +24,25 @@ impl Cop for ScopeArgs {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
         if call.name().as_slice() != b"scope" {
-            return Vec::new();
+            return;
         }
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() < 2 {
-            return Vec::new();
+            return;
         }
         let second = &arg_list[1];
 
@@ -51,34 +52,34 @@ impl Cop for ScopeArgs {
         //   scope :something, where(something: true)
         let second_call = match second.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // If the call has a block attached, it's things like `Proc.new { }` or `proc { }` - not an offense
         if second_call.block().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Lambda literal is fine
         if second.as_lambda_node().is_some() {
-            return Vec::new();
+            return;
         }
 
         // proc/lambda calls without blocks are already method calls, but
         // `proc` and `lambda` called without a block is unusual; skip them
         let name = second_call.name().as_slice();
         if name == b"proc" || name == b"lambda" {
-            return Vec::new();
+            return;
         }
 
         let loc = second.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `lambda`/`proc` instead of a plain method call.".to_string(),
-        )]
+        ));
     }
 }
 

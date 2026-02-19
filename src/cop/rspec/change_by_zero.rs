@@ -30,13 +30,14 @@ impl Cop for ChangeByZero {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Config: NegatedMatcher — name of a custom negated matcher (e.g. "not_change")
         let negated_matcher = config.get_str("NegatedMatcher", "");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -57,14 +58,14 @@ impl Cop for ChangeByZero {
                                 let loc = inner.location();
                                 let (line, column) =
                                     source.offset_to_line_col(loc.start_offset());
-                                return vec![self.diagnostic(
+                                diagnostics.push(self.diagnostic(
                                     source,
                                     line,
                                     column,
                                     format!(
                                         "Prefer `{negated_matcher}` over `not_to change`."
                                     ),
-                                )];
+                                ));
                             }
                         }
                     }
@@ -74,18 +75,18 @@ impl Cop for ChangeByZero {
 
         // Look for `.by(0)` call
         if method_name != b"by" {
-            return Vec::new();
+            return;
         }
 
         // Must have argument of 0
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let is_zero = if let Some(int_node) = arg_list[0].as_integer_node() {
@@ -98,16 +99,16 @@ impl Cop for ChangeByZero {
         };
 
         if !is_zero {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be change/a_block_changing/changing
         let change_call = match call.receiver() {
             Some(recv) => match recv.as_call_node() {
                 Some(c) => c,
-                None => return Vec::new(),
+                None => return,
             },
-            None => return Vec::new(),
+            None => return,
         };
 
         let change_name = change_call.name().as_slice();
@@ -115,12 +116,12 @@ impl Cop for ChangeByZero {
             && change_name != b"a_block_changing"
             && change_name != b"changing"
         {
-            return Vec::new();
+            return;
         }
 
         // No receiver on the change call (or it could be chained from expect)
         if change_call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         // RuboCop's expect_change_with_block pattern requires the block body
@@ -153,7 +154,7 @@ impl Cop for ChangeByZero {
                     false
                 };
                 if !body_ok {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -166,7 +167,7 @@ impl Cop for ChangeByZero {
         } else {
             format!("Prefer `{negated_matcher}` over `to change.by(0)`.")
         };
-        vec![self.diagnostic(source, line, column, msg)]
+        diagnostics.push(self.diagnostic(source, line, column, msg));
     }
 }
 

@@ -20,15 +20,16 @@ impl Cop for TrailingBodyOnModule {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let module_node = match node.as_module_node() {
             Some(m) => m,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body = match module_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if module keyword line equals body start line
@@ -38,15 +39,14 @@ impl Cop for TrailingBodyOnModule {
         let (body_line, body_column) = source.offset_to_line_col(body_loc.start_offset());
 
         if mod_line == body_line {
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 body_line,
                 body_column,
                 "Place the first line of module body on its own line.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

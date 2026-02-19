@@ -26,10 +26,11 @@ impl Cop for OperatorMethodCall {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name();
@@ -37,34 +38,34 @@ impl Cop for OperatorMethodCall {
 
         // Must be an operator method
         if !OPERATOR_METHODS.iter().any(|&m| m == method_bytes) {
-            return Vec::new();
+            return;
         }
 
         // Must have a receiver
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Must have a dot call operator (redundant dot before operator)
         let call_op = match call.call_operator_loc() {
             Some(op) => op,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call_op.as_slice() != b"." {
-            return Vec::new();
+            return;
         }
 
         // Must have exactly one argument (binary operator)
         if let Some(args) = call.arguments() {
             let arg_list: Vec<_> = args.arguments().iter().collect();
             if arg_list.len() != 1 {
-                return Vec::new();
+                return;
             }
         } else {
             // Unary operator with dot is also wrong but less common
             // Only flag binary operators
-            return Vec::new();
+            return;
         }
 
         // Skip `foo.-(bar).baz` pattern: if the call is parenthesized and
@@ -83,18 +84,18 @@ impl Cop for OperatorMethodCall {
                     pos += 1;
                 }
                 if pos < src.len() && (src[pos] == b'.' || (pos + 1 < src.len() && src[pos] == b'&' && src[pos + 1] == b'.')) {
-                    return Vec::new();
+                    return;
                 }
             }
         }
 
         let (line, column) = source.offset_to_line_col(call_op.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Redundant dot detected.".to_string(),
-        )]
+        ));
     }
 }
 

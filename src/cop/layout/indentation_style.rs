@@ -16,11 +16,11 @@ impl Cop for IndentationStyle {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "spaces");
         let _indent_width = config.get_usize("IndentationWidth", 2);
 
-        let mut diagnostics = Vec::new();
         let mut offset = 0;
 
         for (i, line) in source.lines().enumerate() {
@@ -70,7 +70,6 @@ impl Cop for IndentationStyle {
             }
         }
 
-        diagnostics
     }
 }
 

@@ -21,7 +21,8 @@ impl Cop for ClassAndModuleCamelCase {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allowed_names = config.get_string_array("AllowedNames");
 
         if let Some(class_node) = node.as_class_node() {
@@ -32,12 +33,13 @@ impl Cop for ClassAndModuleCamelCase {
                     let name = self.extract_name(&constant_path);
                     if let Some(n) = name {
                         if allowed.iter().any(|a| a == n) {
-                            return Vec::new();
+                            return;
                         }
                     }
                 }
             }
-            return diags;
+            diagnostics.extend(diags);
+            return;
         }
 
         if let Some(module_node) = node.as_module_node() {
@@ -48,15 +50,15 @@ impl Cop for ClassAndModuleCamelCase {
                     let name = self.extract_name(&constant_path);
                     if let Some(n) = name {
                         if allowed.iter().any(|a| a == n) {
-                            return Vec::new();
+                            return;
                         }
                     }
                 }
             }
-            return diags;
+            diagnostics.extend(diags);
+            return;
         }
 
-        Vec::new()
     }
 }
 

@@ -24,7 +24,8 @@ impl Cop for RedundantTravelBack {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::cop::CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let mut visitor = TravelBackVisitor {
             cop: self,
             source,
@@ -32,7 +33,7 @@ impl Cop for RedundantTravelBack {
             in_teardown_or_after: false,
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

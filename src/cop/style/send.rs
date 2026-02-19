@@ -20,35 +20,36 @@ impl Cop for Send {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be `send` method
         if call.name().as_slice() != b"send" {
-            return Vec::new();
+            return;
         }
 
         // Must have arguments
         if call.arguments().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Must have a receiver (Foo.send, not bare send)
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         let msg_loc = call.message_loc().unwrap_or_else(|| call.location());
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Prefer `Object#__send__` or `Object#public_send` to `send`.".to_string(),
-        )]
+        ));
     }
 }
 

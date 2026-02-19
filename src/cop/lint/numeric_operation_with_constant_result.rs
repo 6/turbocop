@@ -26,32 +26,33 @@ impl Cop for NumericOperationWithConstantResult {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
 
         // Only check *, /, **
         if method_name != b"*" && method_name != b"/" && method_name != b"**" {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arguments = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args: Vec<_> = arguments.arguments().iter().collect();
         if args.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let rhs = &args[0];
@@ -67,17 +68,17 @@ impl Cop for NumericOperationWithConstantResult {
         };
 
         if !has_constant_result {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Numeric operation with a constant result detected.".to_string(),
-        )]
+        ));
     }
 }
 

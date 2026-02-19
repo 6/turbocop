@@ -26,17 +26,18 @@ impl Cop for ConstantResolution {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check for unqualified constant (no parent scope, just `Foo` not `::Foo`)
         // ConstantPathNode (qualified like Foo::Bar or ::Foo) is already resolved,
         // so we only flag simple ConstantReadNode references.
         if node.as_constant_path_node().is_some() {
-            return Vec::new();
+            return;
         }
 
         let const_node = match node.as_constant_read_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = std::str::from_utf8(const_node.name().as_slice()).unwrap_or("");
@@ -46,20 +47,20 @@ impl Cop for ConstantResolution {
         let ignore = config.get_string_array("Ignore").unwrap_or_default();
 
         if !only.is_empty() && !only.contains(&name.to_string()) {
-            return Vec::new();
+            return;
         }
         if ignore.contains(&name.to_string()) {
-            return Vec::new();
+            return;
         }
 
         let loc = const_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Fully qualify this constant to avoid possibly ambiguous resolution.".to_string(),
-        )]
+        ));
     }
 }
 

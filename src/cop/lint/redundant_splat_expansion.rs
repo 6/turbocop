@@ -24,17 +24,18 @@ impl Cop for RedundantSplatExpansion {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_percent = config.get_bool("AllowPercentLiteralArrayArgument", true);
 
         let splat = match node.as_splat_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let child = match splat.expression() {
             Some(e) => e,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if the splat is on a literal: array, string, integer, float
@@ -45,7 +46,7 @@ impl Cop for RedundantSplatExpansion {
             || child.as_interpolated_string_node().is_some();
 
         if !is_literal {
-            return Vec::new();
+            return;
         }
 
         // When AllowPercentLiteralArrayArgument is true (default), skip
@@ -62,7 +63,7 @@ impl Cop for RedundantSplatExpansion {
                         // RuboCop only skips when it's a method argument or part of
                         // an array, but we conservatively skip all percent literal
                         // splats when the config allows it.
-                        return Vec::new();
+                        return;
                     }
                 }
             }
@@ -70,12 +71,12 @@ impl Cop for RedundantSplatExpansion {
 
         let loc = splat.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Replace splat expansion with comma separated values.".to_string(),
-        )]
+        ));
     }
 }
 

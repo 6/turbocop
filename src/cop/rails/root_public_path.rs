@@ -25,65 +25,66 @@ impl Cop for RootPublicPath {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"join" {
-            return Vec::new();
+            return;
         }
 
         // Must have at least one argument, first must be a string starting with "public"
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
         let first_str = match arg_list[0].as_string_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
         let content = first_str.unescaped();
         // Match strings like "public", "public/file.pdf"
         if content != b"public" && !content.starts_with(b"public/") {
-            return Vec::new();
+            return;
         }
 
         // Receiver should be a call to `root`
         let recv = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
         let root_call = match recv.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         if root_call.name().as_slice() != b"root" {
-            return Vec::new();
+            return;
         }
 
         // root's receiver should be constant `Rails` or `::Rails`
         let rails_recv = match root_call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
         if util::constant_name(&rails_recv) != Some(b"Rails") {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `Rails.public_path`.".to_string(),
-        )]
+        ));
     }
 }
 

@@ -35,36 +35,37 @@ impl Cop for NonAtomicFileOperation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for if/unless nodes
         let (condition, body, has_else) = if let Some(if_node) = node.as_if_node() {
             (if_node.predicate(), if_node.statements(), if_node.subsequent().is_some())
         } else if let Some(unless_node) = node.as_unless_node() {
             (unless_node.predicate(), unless_node.statements(), unless_node.else_clause().is_some())
         } else {
-            return Vec::new();
+            return;
         };
 
         // Skip if there's an else branch
         if has_else {
-            return Vec::new();
+            return;
         }
 
         // Check if condition is a File.exist?/Dir.exist? call
         let condition_call = match condition.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let cond_method = condition_call.name().as_slice();
         if !EXIST_METHODS.iter().any(|m| *m == cond_method) {
-            return Vec::new();
+            return;
         }
 
         // Check receiver is File/Dir/FileTest/Shell
         let cond_recv = match condition_call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let is_exist_class = if let Some(cr) = cond_recv.as_constant_read_node() {
@@ -76,18 +77,18 @@ impl Cop for NonAtomicFileOperation {
         };
 
         if !is_exist_class {
-            return Vec::new();
+            return;
         }
 
         // Check body contains a file operation
         let body_stmts = match body {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts: Vec<_> = body_stmts.body().iter().collect();
         if stmts.is_empty() {
-            return Vec::new();
+            return;
         }
 
         for stmt in &stmts {
@@ -130,18 +131,17 @@ impl Cop for NonAtomicFileOperation {
 
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!(
                         "Use atomic file operation method `FileUtils.{replacement}`."
                     ),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

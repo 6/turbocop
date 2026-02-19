@@ -19,9 +19,9 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let lines: Vec<&[u8]> = source.lines().collect();
-        let mut diagnostics = Vec::new();
         let mut byte_offset: usize = 0;
 
         for (i, line) in lines.iter().enumerate() {
@@ -92,7 +92,6 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
             byte_offset += line_len;
         }
 
-        diagnostics
     }
 }
 

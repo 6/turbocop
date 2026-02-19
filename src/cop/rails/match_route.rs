@@ -29,15 +29,16 @@ impl Cop for MatchRoute {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be receiverless `match` call
         if call.receiver().is_some() || call.name().as_slice() != b"match" {
-            return Vec::new();
+            return;
         }
 
         // Check for `via:` option
@@ -63,27 +64,27 @@ impl Cop for MatchRoute {
                     } else if unescaped == b"delete" {
                         "delete"
                     } else if unescaped == b"all" {
-                        return Vec::new(); // via: :all is fine
+                        return; // via: :all is fine
                     } else {
-                        return Vec::new();
+                        return;
                     }
                 } else if val.as_array_node().is_some() {
                     // via: [:get, :post] - multiple methods is fine
-                    return Vec::new();
+                    return;
                 } else {
-                    return Vec::new();
+                    return;
                 }
             }
         };
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `{http_method}` instead of `match` to define a route."),
-        )]
+        ));
     }
 }
 

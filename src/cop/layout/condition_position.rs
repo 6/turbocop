@@ -20,11 +20,12 @@ impl Cop for ConditionPosition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         if let Some(if_node) = node.as_if_node() {
             let kw_loc = match if_node.if_keyword_loc() {
                 Some(loc) => loc,
-                None => return Vec::new(),
+                None => return,
             };
             let keyword = if kw_loc.as_slice() == b"if" {
                 "if"
@@ -38,24 +39,24 @@ impl Cop for ConditionPosition {
             // Skip modifier form (postfix if/unless) — no `end` keyword and
             // not an elsif (which also lacks end_keyword_loc).
             if if_node.end_keyword_loc().is_none() && keyword != "elsif" {
-                return Vec::new();
+                return;
             }
             let (kw_line, _) = source.offset_to_line_col(kw_loc.start_offset());
             let predicate = if_node.predicate();
             let (pred_line, pred_col) =
                 source.offset_to_line_col(predicate.location().start_offset());
             if pred_line != kw_line {
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     pred_line,
                     pred_col,
                     format!("Place the condition on the same line as `{keyword}`."),
-                )];
+                ));
             }
         } else if let Some(while_node) = node.as_while_node() {
             // Skip modifier form (postfix while) — no closing `end` keyword
             if while_node.closing_loc().is_none() {
-                return Vec::new();
+                return;
             }
             let kw_loc = while_node.keyword_loc();
             let (kw_line, _) = source.offset_to_line_col(kw_loc.start_offset());
@@ -63,17 +64,17 @@ impl Cop for ConditionPosition {
             let (pred_line, pred_col) =
                 source.offset_to_line_col(predicate.location().start_offset());
             if pred_line != kw_line {
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     pred_line,
                     pred_col,
                     "Place the condition on the same line as `while`.".to_string(),
-                )];
+                ));
             }
         } else if let Some(until_node) = node.as_until_node() {
             // Skip modifier form (postfix until) — no closing `end` keyword
             if until_node.closing_loc().is_none() {
-                return Vec::new();
+                return;
             }
             let kw_loc = until_node.keyword_loc();
             let (kw_line, _) = source.offset_to_line_col(kw_loc.start_offset());
@@ -81,16 +82,15 @@ impl Cop for ConditionPosition {
             let (pred_line, pred_col) =
                 source.offset_to_line_col(predicate.location().start_offset());
             if pred_line != kw_line {
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     pred_line,
                     pred_col,
                     "Place the condition on the same line as `until`.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

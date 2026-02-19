@@ -22,7 +22,8 @@ impl Cop for FixedSize {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let mut visitor = FixedSizeVisitor {
             cop: self,
             source,
@@ -31,7 +32,7 @@ impl Cop for FixedSize {
             in_block: false,
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

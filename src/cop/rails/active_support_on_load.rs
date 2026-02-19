@@ -64,30 +64,31 @@ impl Cop for ActiveSupportOnLoad {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if !PATCH_METHODS.contains(&method_name) {
-            return Vec::new();
+            return;
         }
 
         // Must have arguments
         if call.arguments().is_none() {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let hook = match match_framework_class(&receiver, source) {
             Some(h) => h,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_str = std::str::from_utf8(method_name).unwrap_or("include");
@@ -99,14 +100,14 @@ impl Cop for ActiveSupportOnLoad {
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!(
                 "Use `ActiveSupport.on_load(:{hook}) {{ {method_str} ... }}` instead of `{recv_text}.{method_str}(...)`."
             ),
-        )]
+        ));
     }
 }
 

@@ -16,10 +16,10 @@ impl Cop for EmptyLines {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let max = config.get_usize("Max", 1);
 
-        let mut diagnostics = Vec::new();
         let mut consecutive_blanks = 0;
         let mut byte_offset: usize = 0;
 
@@ -46,7 +46,6 @@ impl Cop for EmptyLines {
             }
             byte_offset += line_len;
         }
-        diagnostics
     }
 }
 

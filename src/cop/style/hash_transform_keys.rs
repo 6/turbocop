@@ -20,31 +20,32 @@ impl Cop for HashTransformKeys {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for CallNode `each_with_object({})` with a block
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"each_with_object" {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check that the argument to each_with_object is an empty hash
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
@@ -52,7 +53,7 @@ impl Cop for HashTransformKeys {
             || (arg_list[0].as_hash_node().is_none()
                 && arg_list[0].as_keyword_hash_node().is_none())
         {
-            return Vec::new();
+            return;
         }
 
         // Check empty hash by looking at source between { and }
@@ -64,7 +65,7 @@ impl Cop for HashTransformKeys {
                 .copied()
                 .collect();
             if !trimmed.is_empty() {
-                return Vec::new();
+                return;
             }
         }
 
@@ -73,42 +74,42 @@ impl Cop for HashTransformKeys {
         // Simple params like |klass, classes| indicate an array/enumerable, not a hash.
         let params = match block_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
         let block_params = match params.as_block_parameters_node() {
             Some(bp) => bp,
-            None => return Vec::new(),
+            None => return,
         };
         let bp_params = match block_params.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Need exactly 2 params: first must be destructured (mlhs), second is the hash accumulator
         let reqs: Vec<_> = bp_params.requireds().iter().collect();
         if reqs.len() != 2 {
-            return Vec::new();
+            return;
         }
         // First param must be destructured (MultiTargetNode)
         if reqs[0].as_multi_target_node().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Check body has a single statement that looks like h[expr] = v
         // where expr is NOT a simple variable (key is transformed)
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body_nodes: Vec<_> = stmts.body().iter().collect();
         if body_nodes.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         // Check for h[key_expr] = v pattern (CallNode with name []=)
@@ -119,24 +120,23 @@ impl Cop for HashTransformKeys {
                     if aargs.len() == 2 {
                         let key_is_simple = aargs[0].as_local_variable_read_node().is_some();
                         if key_is_simple {
-                            return Vec::new();
+                            return;
                         }
                         if aargs[1].as_local_variable_read_node().is_some() {
                             let loc = call.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            return vec![self.diagnostic(
+                            diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 "Prefer `transform_keys` over `each_with_object`.".to_string(),
-                            )];
+                            ));
                         }
                     }
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

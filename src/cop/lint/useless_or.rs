@@ -30,10 +30,11 @@ impl Cop for UselessOr {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let or_node = match node.as_or_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let lhs = or_node.left();
@@ -42,7 +43,7 @@ impl Cop for UselessOr {
             let rhs_src = node_source(source, &or_node.right());
             let loc = or_node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
@@ -50,10 +51,9 @@ impl Cop for UselessOr {
                     "`{}` will never evaluate because `{}` always returns a truthy value.",
                     rhs_src, lhs_src
                 ),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

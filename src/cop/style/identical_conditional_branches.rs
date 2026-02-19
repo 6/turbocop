@@ -82,38 +82,39 @@ impl Cop for IdenticalConditionalBranches {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         if let Some(if_node) = node.as_if_node() {
             // Must have an if keyword (skip ternaries)
             let kw_loc = match if_node.if_keyword_loc() {
                 Some(loc) => loc,
-                None => return Vec::new(),
+                None => return,
             };
 
             // Skip elsif nodes — RuboCop processes the full if/elsif/else chain
             // from the top-level if only
             if kw_loc.as_slice() == b"elsif" {
-                return Vec::new();
+                return;
             }
 
             let if_stmts = match if_node.statements() {
                 Some(s) => s,
-                None => return Vec::new(),
+                None => return,
             };
 
             let else_clause = match if_node.subsequent() {
                 Some(e) => e,
-                None => return Vec::new(),
+                None => return,
             };
 
             // Must be a direct else, not an elsif
             let else_stmts = if let Some(ec) = else_clause.as_else_node() {
                 match ec.statements() {
                     Some(s) => s,
-                    None => return Vec::new(),
+                    None => return,
                 }
             } else {
-                return Vec::new();
+                return;
             };
 
             if let (Some((if_last, if_line, if_col, if_heredoc)), Some((else_last, _, _, else_heredoc))) = (
@@ -123,20 +124,19 @@ impl Cop for IdenticalConditionalBranches {
                 // Skip comparison when heredocs are involved — the node source
                 // may not include the heredoc body, leading to false matches.
                 if if_heredoc || else_heredoc {
-                    return Vec::new();
+                    return;
                 }
                 if if_last == else_last && !if_last.is_empty() {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         if_line,
                         if_col,
                         format!("Move `{}` out of the conditional.", if_last),
-                    )];
+                    ));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

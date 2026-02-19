@@ -18,7 +18,8 @@ impl Cop for NestedFileDirname {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // minimum_target_ruby_version 3.1
         let ruby_ver = config
             .options
@@ -26,7 +27,7 @@ impl Cop for NestedFileDirname {
             .and_then(|v| v.as_f64())
             .unwrap_or(3.4);
         if ruby_ver < 3.1 {
-            return Vec::new();
+            return;
         }
 
         let mut visitor = DirnameVisitor {
@@ -35,7 +36,7 @@ impl Cop for NestedFileDirname {
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

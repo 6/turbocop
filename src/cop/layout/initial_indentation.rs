@@ -9,23 +9,22 @@ impl Cop for InitialIndentation {
         "Layout/InitialIndentation"
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         // Find the first non-empty line
         for (i, line) in source.lines().enumerate() {
             if line.is_empty() {
                 continue;
             }
             if line[0] == b' ' || line[0] == b'\t' {
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     i + 1,
                     0,
                     "Indentation of first line detected.".to_string(),
-                )];
+                ));
             }
             break;
         }
-        Vec::new()
     }
 }
 
@@ -44,7 +43,8 @@ mod tests {
     #[test]
     fn leading_blank_then_indented() {
         let source = SourceFile::from_bytes("test.rb", b"\n  x = 1\n".to_vec());
-        let diags = InitialIndentation.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        InitialIndentation.check_lines(&source, &CopConfig::default(), &mut diags);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].location.line, 2);
     }
@@ -52,14 +52,16 @@ mod tests {
     #[test]
     fn leading_blank_then_unindented() {
         let source = SourceFile::from_bytes("test.rb", b"\nx = 1\n".to_vec());
-        let diags = InitialIndentation.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        InitialIndentation.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty());
     }
 
     #[test]
     fn empty_file() {
         let source = SourceFile::from_bytes("test.rb", b"".to_vec());
-        let diags = InitialIndentation.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        InitialIndentation.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty());
     }
 }

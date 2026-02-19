@@ -20,7 +20,8 @@ impl Cop for ClassMethodsDefinitions {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "def_self");
 
         if enforced_style == "def_self" {
@@ -33,19 +34,18 @@ impl Cop for ClassMethodsDefinitions {
                         if has_public_defs(&body) {
                             let loc = sclass.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            return vec![self.diagnostic(
+                            diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 "Do not define public methods within class << self.".to_string(),
-                            )];
+                            ));
                         }
                     }
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

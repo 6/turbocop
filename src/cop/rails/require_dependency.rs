@@ -24,19 +24,20 @@ impl Cop for RequireDependency {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"require_dependency" {
-            return Vec::new();
+            return;
         }
 
         // Must have at least one argument
         if call.arguments().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Receiverless call or Kernel.require_dependency
@@ -58,17 +59,17 @@ impl Cop for RequireDependency {
         };
 
         if !is_valid_receiver {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Do not use `require_dependency` with Zeitwerk mode.".to_string(),
-        )]
+        ));
     }
 }
 

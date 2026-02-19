@@ -20,7 +20,8 @@ impl Cop for EmptyHeredoc {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check for heredoc string nodes with empty content
         if let Some(string_node) = node.as_string_node() {
             if let Some(opening) = string_node.opening_loc() {
@@ -33,13 +34,13 @@ impl Cop for EmptyHeredoc {
                         let loc = opening;
                         let (line, column) =
                             source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Use an empty string literal instead of heredoc."
                                 .to_string(),
-                        )];
+                        ));
                     }
                 }
             }
@@ -56,19 +57,18 @@ impl Cop for EmptyHeredoc {
                         let loc = opening;
                         let (line, column) =
                             source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Use an empty string literal instead of heredoc."
                                 .to_string(),
-                        )];
+                        ));
                     }
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

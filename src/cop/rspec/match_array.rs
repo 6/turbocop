@@ -29,36 +29,37 @@ impl Cop for MatchArray {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Detect `match_array([...])` with a non-empty array literal argument.
         // Suggest `contain_exactly` instead.
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"match_array" || call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let array_node = match arg_list[0].as_array_node() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Don't flag empty arrays (that's BeEmpty's job)
         if array_node.elements().iter().count() == 0 {
-            return Vec::new();
+            return;
         }
 
         // Don't flag percent literals (%w, %i, %W, %I) — RuboCop skips these
@@ -67,18 +68,18 @@ impl Cop for MatchArray {
         if let Some(open) = array_node.opening_loc() {
             let open_bytes = open.as_slice();
             if open_bytes.starts_with(b"%") {
-                return Vec::new();
+                return;
             }
         }
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Prefer `contain_exactly` when matching an array literal.".to_string(),
-        )]
+        ));
     }
 }
 

@@ -40,19 +40,20 @@ impl Cop for FindByOrAssignmentMemoization {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Looking for `@ivar ||= SomeModel.find_by(...)`
         // Prism represents `||=` as InstanceVariableOrWriteNode
         let or_write = match node.as_instance_variable_or_write_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let value = or_write.value();
 
         // The value should be a direct find_by call (not part of || or ternary)
         if !is_find_by_call(&value) {
-            return Vec::new();
+            return;
         }
 
         // RuboCop skips when the ||= is inside an if/unless (including modifiers).
@@ -72,18 +73,18 @@ impl Cop for FindByOrAssignmentMemoization {
                 || trimmed.starts_with(b"if\t")
                 || trimmed.starts_with(b"unless\t")
             {
-                return Vec::new();
+                return;
             }
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Avoid memoizing `find_by` results with `||=`.".to_string(),
-        )]
+        ));
     }
 }
 

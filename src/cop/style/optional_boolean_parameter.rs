@@ -23,10 +23,11 @@ impl Cop for OptionalBooleanParameter {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = def_node.name();
@@ -44,15 +45,14 @@ impl Cop for OptionalBooleanParameter {
             });
 
         if allowed_methods.iter().any(|m| m == method_name_str) {
-            return Vec::new();
+            return;
         }
 
         let params = match def_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
 
         for opt in params.optionals().iter() {
             if let Some(opt_param) = opt.as_optional_parameter_node() {
@@ -89,7 +89,6 @@ impl Cop for OptionalBooleanParameter {
             }
         }
 
-        diagnostics
     }
 }
 

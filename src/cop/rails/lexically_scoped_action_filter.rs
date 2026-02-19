@@ -38,19 +38,20 @@ impl Cop for LexicallyScopedActionFilter {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let class = match node.as_class_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body = match class.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Collect defined method names in this class
@@ -62,7 +63,6 @@ impl Cop for LexicallyScopedActionFilter {
         }
 
         let calls = class_body_calls(&class);
-        let mut diagnostics = Vec::new();
 
         for call in &calls {
             let is_filter = FILTER_METHODS.iter().any(|&m| is_dsl_call(call, m));
@@ -94,7 +94,6 @@ impl Cop for LexicallyScopedActionFilter {
             }
         }
 
-        diagnostics
     }
 }
 

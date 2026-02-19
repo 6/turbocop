@@ -28,13 +28,13 @@ impl Cop for MixedCaseRange {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check inclusive range (..)
         if let Some(range) = node.as_range_node() {
-            return self.check_range(source, range);
+            diagnostics.extend(self.check_range(source, range));
         }
 
-        Vec::new()
     }
 }
 

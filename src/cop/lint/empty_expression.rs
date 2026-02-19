@@ -24,24 +24,25 @@ impl Cop for EmptyExpression {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let parens = match node.as_parentheses_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         if parens.body().is_some() {
-            return Vec::new();
+            return;
         }
 
         let loc = parens.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Avoid empty expressions.".to_string(),
-        )]
+        ));
     }
 }
 

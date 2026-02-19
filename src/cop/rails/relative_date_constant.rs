@@ -39,13 +39,14 @@ impl Cop for RelativeDateConstant {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let value = if let Some(cw) = node.as_constant_write_node() {
             cw.value()
         } else if let Some(cpw) = node.as_constant_path_write_node() {
             cpw.value()
         } else {
-            return Vec::new();
+            return;
         };
 
         // Check if the value contains a relative date/time call
@@ -57,15 +58,14 @@ impl Cop for RelativeDateConstant {
         if finder.found {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Do not assign relative dates to constants.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

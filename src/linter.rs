@@ -416,10 +416,10 @@ fn lint_source_inner(
         };
 
         // Line-based checks
-        diagnostics.extend(cop.check_lines(source, cop_config));
+        cop.check_lines(source, cop_config, &mut diagnostics);
 
         // Source-based checks (raw byte scanning with CodeMap)
-        diagnostics.extend(cop.check_source(source, &parse_result, &code_map, cop_config));
+        cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics);
 
         ast_cop_indices.push((i, override_idx));
     }

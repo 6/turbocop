@@ -67,26 +67,27 @@ impl Cop for EachWithObject {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
         if method_name != "inject" && method_name != "reduce" {
-            return Vec::new();
+            return;
         }
 
         // Must have arguments (the initial value)
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         // Initial value must be a hash or array literal (mutable collection)
@@ -95,18 +96,18 @@ impl Cop for EachWithObject {
             || initial.as_keyword_hash_node().is_some()
             || initial.as_array_node().is_some();
         if !is_mutable {
-            return Vec::new();
+            return;
         }
 
         // Must have a block
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Block must have at least 2 parameters
@@ -115,17 +116,17 @@ impl Cop for EachWithObject {
                 if let Some(inner_params) = block_params.parameters() {
                     let requireds: Vec<_> = inner_params.requireds().iter().collect();
                     if requireds.len() < 2 {
-                        return Vec::new();
+                        return;
                     }
                 } else {
-                    return Vec::new();
+                    return;
                 }
             } else {
-                return Vec::new();
+                return;
             }
         } else {
             // No parameters at all - skip
-            return Vec::new();
+            return;
         }
 
         // The initial value must not be a basic literal (integer, float, string, symbol).
@@ -140,7 +141,7 @@ impl Cop for EachWithObject {
             || initial.as_true_node().is_some()
             || initial.as_false_node().is_some();
         if is_basic_literal {
-            return Vec::new();
+            return;
         }
 
         // Check that the block body's last expression returns the accumulator variable.
@@ -151,38 +152,38 @@ impl Cop for EachWithObject {
             let inner = bp.parameters().unwrap();
             let requireds: Vec<_> = inner.requireds().iter().collect();
             if requireds.len() < 2 {
-                return Vec::new();
+                return;
             }
             if let Some(rp) = requireds[0].as_required_parameter_node() {
                 rp.name().as_slice().to_vec()
             } else {
-                return Vec::new();
+                return;
             }
         };
 
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body_stmts: Vec<_> = stmts.body().iter().collect();
         if body_stmts.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Last expression must be a local variable read matching the accumulator
         let last = &body_stmts[body_stmts.len() - 1];
         if let Some(lv) = last.as_local_variable_read_node() {
             if lv.name().as_slice() != acc_name {
-                return Vec::new();
+                return;
             }
         } else {
-            return Vec::new();
+            return;
         }
 
         // If the accumulator variable is assigned to within the block body,
@@ -190,17 +191,17 @@ impl Cop for EachWithObject {
         // the object is passed by reference and reassignment (`acc = ...` or
         // `acc += ...`) wouldn't propagate back to the caller.
         if accumulator_reassigned_in_body(&body, &acc_name) {
-            return Vec::new();
+            return;
         }
 
         let loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `each_with_object` instead of `{}`.", method_name),
-        )]
+        ));
     }
 }
 

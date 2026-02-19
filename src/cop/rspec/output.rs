@@ -41,10 +41,11 @@ impl Cop for Output {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method = call.name().as_slice();
@@ -53,7 +54,7 @@ impl Cop for Output {
         if PRINT_METHODS.contains(&method) && call.receiver().is_none() {
             // Skip if it has a block (p { ... } is DSL usage like phlex)
             if call.block().is_some() {
-                return Vec::new();
+                return;
             }
 
             // For `p`, skip if there are keyword args or symbol proc args
@@ -63,10 +64,10 @@ impl Cop for Output {
                     let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
                     for arg in &arg_list {
                         if arg.as_keyword_hash_node().is_some() {
-                            return Vec::new();
+                            return;
                         }
                         if arg.as_block_argument_node().is_some() {
-                            return Vec::new();
+                            return;
                         }
                     }
                 }
@@ -74,12 +75,12 @@ impl Cop for Output {
 
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Do not write to stdout in specs.".to_string(),
-            )];
+            ));
         }
 
         // Case 2: $stdout.write, $stderr.syswrite, STDOUT.write, STDERR.write, etc.
@@ -102,22 +103,21 @@ impl Cop for Output {
                 if is_io_target {
                     // Skip if it has a block (write { ... })
                     if call.block().is_some() {
-                        return Vec::new();
+                        return;
                     }
 
                     let loc = call.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Do not write to stdout in specs.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

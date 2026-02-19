@@ -24,8 +24,8 @@ impl Cop for RedundantCopEnableDirective {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Track which cops/departments are currently disabled
         let mut disabled: HashSet<String> = HashSet::new();
 
@@ -106,7 +106,6 @@ impl Cop for RedundantCopEnableDirective {
             byte_offset += line.len() + 1;
         }
 
-        diagnostics
     }
 }
 

@@ -29,7 +29,8 @@ impl Cop for ImplicitBlockExpectation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Flag `is_expected` when sibling `subject` contains a lambda/proc
         // This is a simplified check: we flag `is_expected` inside example blocks
         // that are siblings of a subject with a lambda/proc body.
@@ -45,55 +46,54 @@ impl Cop for ImplicitBlockExpectation {
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Look for `.to` or `.not_to` or `.to_not` calls
         let method_name = call.name().as_slice();
         if method_name != b"to" && method_name != b"not_to" && method_name != b"to_not" {
-            return Vec::new();
+            return;
         }
 
         // Check if receiver is `is_expected`
         let recv = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_call = match recv.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if recv_call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         if recv_call.name().as_slice() != b"is_expected" {
-            return Vec::new();
+            return;
         }
 
         // Check if the matcher argument is a block-expecting matcher (change, raise_error, etc.)
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         for arg in args.arguments().iter() {
             if has_block_matcher(&arg) {
                 let loc = recv_call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Avoid implicit block expectations.".to_string(),
-                )];
+                ));
             }
             break;
         }
 
-        Vec::new()
     }
 }
 

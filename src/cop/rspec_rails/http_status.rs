@@ -166,41 +166,43 @@ impl Cop for HttpStatus {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "symbolic");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"have_http_status" {
-            return Vec::new();
+            return;
         }
 
         // No receiver (bare `have_http_status`)
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let arg = &arg_list[0];
 
-        match style {
+        let result = match style {
             "symbolic" => self.check_symbolic_style(source, &call, arg),
             "numeric" => self.check_numeric_style(source, &call, arg),
             "be_status" => self.check_be_status_style(source, &call, arg),
             _ => Vec::new(),
-        }
+        };
+        diagnostics.extend(result);
     }
 }
 

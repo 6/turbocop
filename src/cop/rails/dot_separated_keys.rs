@@ -25,22 +25,23 @@ impl Cop for DotSeparatedKeys {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if method_name != b"t" && method_name != b"translate" {
-            return Vec::new();
+            return;
         }
 
         // Receiver can be I18n or absent (Rails helper `t`)
         // Handle both ConstantReadNode (I18n) and ConstantPathNode (::I18n)
         if let Some(recv) = call.receiver() {
             if util::constant_name(&recv) != Some(b"I18n") {
-                return Vec::new();
+                return;
             }
         }
 
@@ -50,7 +51,7 @@ impl Cop for DotSeparatedKeys {
         // String scope values are already dot-separated notation.
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         for arg in args.arguments().iter() {
@@ -89,17 +90,16 @@ impl Cop for DotSeparatedKeys {
 
                     let loc = assoc.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use dot-separated keys instead of the `:scope` option.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

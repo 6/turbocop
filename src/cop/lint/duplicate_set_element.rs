@@ -27,17 +27,18 @@ impl Cop for DuplicateSetElement {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         let elements = extract_set_elements(&call, source, method_name);
         let elements = match elements {
             Some(e) => e,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Determine the class name for the message
@@ -52,7 +53,6 @@ impl Cop for DuplicateSetElement {
         };
 
         let mut seen = HashSet::new();
-        let mut diagnostics = Vec::new();
 
         for elem in &elements {
             // Only check literals, constants, and variables
@@ -75,7 +75,6 @@ impl Cop for DuplicateSetElement {
             }
         }
 
-        diagnostics
     }
 }
 

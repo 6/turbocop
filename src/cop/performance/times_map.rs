@@ -20,20 +20,21 @@ impl Cop for TimesMap {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let chain = match as_method_chain(node) {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if chain.inner_method != b"times" || (chain.outer_method != b"map" && chain.outer_method != b"collect") {
-            return Vec::new();
+            return;
         }
 
         let outer_name = std::str::from_utf8(chain.outer_method).unwrap_or("map");
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, format!("Use `Array.new` with a block instead of `times.{outer_name}`."))]
+        diagnostics.push(self.diagnostic(source, line, column, format!("Use `Array.new` with a block instead of `times.{outer_name}`.")));
     }
 }
 

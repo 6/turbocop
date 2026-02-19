@@ -20,18 +20,20 @@ impl Cop for WhileUntilDo {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check while ... do
         if let Some(while_node) = node.as_while_node() {
-            return check_loop(self, source, &while_node.location(), while_node.closing_loc(), "while");
+            diagnostics.extend(check_loop(self, source, &while_node.location(), while_node.closing_loc(), "while"));
+            return;
         }
 
         // Check until ... do
         if let Some(until_node) = node.as_until_node() {
-            return check_loop(self, source, &until_node.location(), until_node.closing_loc(), "until");
+            diagnostics.extend(check_loop(self, source, &until_node.location(), until_node.closing_loc(), "until"));
+            return;
         }
 
-        Vec::new()
     }
 }
 

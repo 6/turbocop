@@ -127,8 +127,9 @@ impl Cop for OrAssignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
-        Self::check_or_assign(self, source, node)
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        diagnostics.extend(Self::check_or_assign(self, source, node));
     }
 }
 

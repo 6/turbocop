@@ -54,33 +54,34 @@ impl Cop for NumberedParametersLimit {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let max = config.get_usize("Max", 1);
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // In Prism, blocks with numbered params have parameters() set to a
         // NumberedParametersNode. Check for it to confirm this is a numbered params block.
         let params = match block_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         if params.as_numbered_parameters_node().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Count unique numbered parameter references in the block body.
@@ -89,7 +90,7 @@ impl Cop for NumberedParametersLimit {
         // but `{ _1 + _2 }` has 2 unique params (offense with max=1).
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let unique_count = count_unique_numbered_params(&body);
@@ -97,15 +98,14 @@ impl Cop for NumberedParametersLimit {
         if unique_count > max {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Avoid using more than {max} numbered parameters; {unique_count} detected."),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

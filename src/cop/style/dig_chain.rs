@@ -20,32 +20,33 @@ impl Cop for DigChain {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
         if method_name != "dig" {
-            return Vec::new();
+            return;
         }
 
         // Must have arguments
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Check for hash/keyword hash args (not supported)
         for arg in &arg_list {
             if arg.as_hash_node().is_some() || arg.as_keyword_hash_node().is_some() {
-                return Vec::new();
+                return;
             }
         }
 
@@ -54,7 +55,7 @@ impl Cop for DigChain {
             Some(r) => r,
             None => {
                 // No receiver - check if receiver-less dig is chained
-                return Vec::new();
+                return;
             }
         };
 
@@ -65,16 +66,16 @@ impl Cop for DigChain {
                 if let Some(inner_args) = recv_call.arguments() {
                     let inner_list: Vec<_> = inner_args.arguments().iter().collect();
                     if inner_list.is_empty() {
-                        return Vec::new();
+                        return;
                     }
                     // Check for hash/keyword hash args in inner call
                     for arg in &inner_list {
                         if arg.as_hash_node().is_some() || arg.as_keyword_hash_node().is_some() {
-                            return Vec::new();
+                            return;
                         }
                     }
                 } else {
-                    return Vec::new();
+                    return;
                 }
 
                 // Only report if the receiver's receiver is NOT also a dig call.
@@ -84,23 +85,22 @@ impl Cop for DigChain {
                     if let Some(inner_recv_call) = inner_recv.as_call_node() {
                         let inner_recv_method = std::str::from_utf8(inner_recv_call.name().as_slice()).unwrap_or("");
                         if inner_recv_method == "dig" {
-                            return Vec::new(); // Let the innermost pair report
+                            return; // Let the innermost pair report
                         }
                     }
                 }
 
                 let loc = recv_call.message_loc().unwrap_or(recv_call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use `dig` with multiple parameters instead of chaining.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

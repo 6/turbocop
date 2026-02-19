@@ -20,23 +20,24 @@ impl Cop for ExponentialNotation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let float_node = match node.as_float_node() {
             Some(f) => f,
-            None => return Vec::new(),
+            None => return,
         };
 
         let loc = float_node.location();
         let src_bytes = loc.as_slice();
         let src_str = match std::str::from_utf8(src_bytes) {
             Ok(s) => s,
-            Err(_) => return Vec::new(),
+            Err(_) => return,
         };
 
         // Only care about exponential notation (contains 'e' or 'E')
         let lower = src_str.to_lowercase();
         if !lower.contains('e') {
-            return Vec::new();
+            return;
         }
 
         // Strip leading minus for mantissa analysis
@@ -44,7 +45,7 @@ impl Cop for ExponentialNotation {
 
         let parts: Vec<&str> = working.splitn(2, 'e').collect();
         if parts.len() != 2 {
-            return Vec::new();
+            return;
         }
 
         let mantissa_str = parts[0].replace('_', "");
@@ -52,12 +53,12 @@ impl Cop for ExponentialNotation {
 
         let mantissa: f64 = match mantissa_str.parse() {
             Ok(v) => v,
-            Err(_) => return Vec::new(),
+            Err(_) => return,
         };
 
         let exponent: i64 = match exponent_str.parse() {
             Ok(v) => v,
-            Err(_) => return Vec::new(),
+            Err(_) => return,
         };
 
         let style = config.get_str("EnforcedStyle", "scientific");
@@ -69,55 +70,55 @@ impl Cop for ExponentialNotation {
                 // Mantissa must be >= 1 and < 10
                 let abs_mantissa = mantissa.abs();
                 if abs_mantissa < 1.0 || abs_mantissa >= 10.0 {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use a mantissa >= 1 and < 10.".to_string(),
-                    )];
+                    ));
                 }
             }
             "engineering" => {
                 // Exponent must be divisible by 3, mantissa >= 0.1 and < 1000
                 let abs_mantissa = mantissa.abs();
                 if exponent % 3 != 0 || abs_mantissa < 0.1 || abs_mantissa >= 1000.0 {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use an exponent divisible by 3 and a mantissa >= 0.1 and < 1000.".to_string(),
-                    )];
+                    ));
                 }
             }
             "integral" => {
                 // Mantissa must be an integer without trailing zeros
                 let has_decimal = mantissa_str.contains('.');
                 let mantissa_int: i64 = if has_decimal {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use an integer as mantissa, without trailing zero.".to_string(),
-                    )];
+                    ));
+                    return;
                 } else {
                     match mantissa_str.parse() {
                         Ok(v) => v,
-                        Err(_) => return Vec::new(),
+                        Err(_) => return,
                     }
                 };
                 if mantissa_int != 0 && mantissa_int % 10 == 0 {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use an integer as mantissa, without trailing zero.".to_string(),
-                    )];
+                    ));
                 }
             }
             _ => {}
         }
 
-        Vec::new()
     }
 }
 

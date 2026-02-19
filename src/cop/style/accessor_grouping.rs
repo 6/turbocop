@@ -22,7 +22,8 @@ impl Cop for AccessorGrouping {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "grouped");
 
         // Only check class and module bodies
@@ -33,24 +34,24 @@ impl Cop for AccessorGrouping {
         } else if let Some(sclass) = node.as_singleton_class_node() {
             sclass.body()
         } else {
-            return Vec::new();
+            return;
         };
 
         let body = match body {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         if enforced_style == "grouped" {
-            return check_grouped(self, source, &stmts);
+            diagnostics.extend(check_grouped(self, source, &stmts));
+            return;
         }
 
-        Vec::new()
     }
 }
 

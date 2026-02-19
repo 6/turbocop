@@ -98,8 +98,7 @@ impl Cop for DuplicatedGroup {
         &["**/*.gemfile", "**/Gemfile", "**/gems.rb"]
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         // Maps group key -> first occurrence line (1-indexed)
         let mut seen: HashMap<String, usize> = HashMap::new();
 
@@ -124,7 +123,6 @@ impl Cop for DuplicatedGroup {
                 }
             }
         }
-        diagnostics
     }
 }
 

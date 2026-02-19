@@ -20,20 +20,21 @@ impl Cop for EndBlock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let post_exe = match node.as_post_execution_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let kw_loc = post_exe.keyword_loc();
         let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Avoid the use of `END` blocks. Use `Kernel#at_exit` instead.".to_string(),
-        )]
+        ));
     }
 }
 

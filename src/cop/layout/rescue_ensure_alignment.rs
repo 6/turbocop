@@ -20,13 +20,13 @@ impl Cop for RescueEnsureAlignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
 
         if let Some(begin_node) = node.as_begin_node() {
             let begin_kw_loc = match begin_node.begin_keyword_loc() {
                 Some(loc) => loc,
-                None => return Vec::new(),
+                None => return,
             };
             let (begin_line, begin_col) = source.offset_to_line_col(begin_kw_loc.start_offset());
 
@@ -100,7 +100,6 @@ impl Cop for RescueEnsureAlignment {
             }
         }
 
-        diagnostics
     }
 }
 

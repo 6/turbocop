@@ -56,10 +56,11 @@ impl Cop for InferredSpecType {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -73,28 +74,27 @@ impl Cop for InferredSpecType {
         };
 
         if !is_example_group {
-            return Vec::new();
+            return;
         }
 
         // Must have a block
         if call.block().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Look for `type:` keyword argument in the arguments
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Find a hash argument containing `type: :something`
         for arg in args.arguments().iter() {
             if let Some(diag) = self.check_hash_arg(source, &arg, config) {
-                return vec![diag];
+                diagnostics.push(diag);
             }
         }
 
-        Vec::new()
     }
 }
 

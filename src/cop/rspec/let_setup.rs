@@ -32,32 +32,33 @@ impl Cop for LetSetup {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = call.name().as_slice();
         if !is_example_group(name) {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Collect let! names and all identifiers used in the same scope
@@ -85,7 +86,6 @@ impl Cop for LetSetup {
             collector.visit(&stmt);
         }
 
-        let mut diagnostics = Vec::new();
         for (let_name, line, col) in &let_bang_decls {
             if !used_names.contains(let_name) {
                 diagnostics.push(self.diagnostic(
@@ -97,7 +97,6 @@ impl Cop for LetSetup {
             }
         }
 
-        diagnostics
     }
 }
 

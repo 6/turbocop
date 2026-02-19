@@ -24,50 +24,50 @@ impl Cop for PluckId {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // This cop is disabled by default in RuboCop (Enabled: false in vendor config).
         // Only fire when explicitly enabled in the project config.
         if config.enabled != EnabledState::True {
-            return Vec::new();
+            return;
         }
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"pluck" {
-            return Vec::new();
+            return;
         }
 
         // Must have a receiver (chained call)
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         if let Some(sym) = arg_list[0].as_symbol_node() {
             if sym.unescaped() == b"id" {
                 let loc = node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use `ids` instead of `pluck(:id)`.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

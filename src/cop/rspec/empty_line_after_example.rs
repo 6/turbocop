@@ -29,15 +29,16 @@ impl Cop for EmptyLineAfterExample {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if call.receiver().is_some() || !is_rspec_example(method_name) {
-            return Vec::new();
+            return;
         }
 
         // RuboCop's EmptyLineAfterExample uses `on_block` — it only fires on example
@@ -45,7 +46,7 @@ impl Cop for EmptyLineAfterExample {
         // inside a `before` block, or `scenario` used as a variable-like method from
         // `let(:scenario)`, are not example declarations and must be ignored.
         if call.block().is_none() {
-            return Vec::new();
+            return;
         }
 
         let allow_consecutive = config.get_bool("AllowConsecutiveOneLiners", true);
@@ -63,7 +64,7 @@ impl Cop for EmptyLineAfterExample {
         match next_content {
             Some(line) => {
                 if is_blank_line(line) {
-                    return Vec::new(); // already has blank line
+                    return; // already has blank line
                 }
 
                 // Determine the effective "check line" — skip past comments to find
@@ -74,10 +75,10 @@ impl Cop for EmptyLineAfterExample {
                     let mut scan = next_line + 1;
                     loop {
                         match line_at(source, scan) {
-                            Some(l) if is_blank_line(l) => return Vec::new(),
+                            Some(l) if is_blank_line(l) => return,
                             Some(l) if is_comment_line(l) => {}
                             Some(l) => break l,
-                            None => return Vec::new(), // end of file
+                            None => return, // end of file
                         }
                         scan += 1;
                     }
@@ -93,7 +94,7 @@ impl Cop for EmptyLineAfterExample {
                     if let Some(start) = trimmed {
                         let rest = &check_line[start..];
                         if starts_with_example_keyword(rest) && is_single_line_block(rest) {
-                            return Vec::new();
+                            return;
                         }
                     }
                 }
@@ -103,10 +104,10 @@ impl Cop for EmptyLineAfterExample {
                 // approximate by recognising `end`, `else`, `elsif`, `when`,
                 // `rescue`, `ensure`, and `in` (pattern matching).
                 if is_terminator_line(check_line) {
-                    return Vec::new();
+                    return;
                 }
             }
-            None => return Vec::new(), // end of file
+            None => return, // end of file
         }
 
         // Report on the end line of the example
@@ -123,12 +124,12 @@ impl Cop for EmptyLineAfterExample {
             }
         };
 
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             end_line,
             report_col_actual,
             format!("Add an empty line after `{method_str}`."),
-        )]
+        ));
     }
 }
 

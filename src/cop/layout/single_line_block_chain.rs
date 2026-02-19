@@ -20,26 +20,27 @@ impl Cop for SingleLineBlockChain {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // We are looking for: receiver.method where receiver is a single-line block
         // e.g. example.select { |item| item.cond? }.join('-')
         //
         // In Prism, this is a CallNode whose receiver is a BlockNode (or LambdaNode)
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have a dot/safe-nav operator (chained call)
         let dot_loc = match call.call_operator_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         // The receiver must be a call with a block (in Prism, blocks attach to CallNode via .block())
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let (block_open_line, block_close_line) = if let Some(recv_call) = receiver.as_call_node()
@@ -53,35 +54,35 @@ impl Cop for SingleLineBlockChain {
                         source.offset_to_line_col(block.closing_loc().start_offset()).0;
                     (open_line, close_line)
                 } else {
-                    return Vec::new();
+                    return;
                 }
             } else {
-                return Vec::new();
+                return;
             }
         } else if let Some(lambda) = receiver.as_lambda_node() {
             let open_line = source.offset_to_line_col(lambda.opening_loc().start_offset()).0;
             let close_line = source.offset_to_line_col(lambda.closing_loc().start_offset()).0;
             (open_line, close_line)
         } else {
-            return Vec::new();
+            return;
         };
 
         // Only flag single-line blocks
         if block_open_line != block_close_line {
-            return Vec::new();
+            return;
         }
 
         // The dot must be on the same line as the block closing delimiter
         let (dot_line, dot_col) = source.offset_to_line_col(dot_loc.start_offset());
         if dot_line != block_close_line {
-            return Vec::new();
+            return;
         }
 
         // If the method name is on a different line than the dot, it's already on a separate line
         if let Some(msg_loc) = call.message_loc() {
             let (msg_line, _) = source.offset_to_line_col(msg_loc.start_offset());
             if msg_line != dot_line {
-                return Vec::new();
+                return;
             }
         }
 
@@ -100,12 +101,12 @@ impl Cop for SingleLineBlockChain {
         // The offense spans from the dot to the end of the method name
         let _ = msg_end_col; // used for offset calculation in RuboCop, we just mark the dot
 
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             dot_line,
             dot_col,
             "Put method call on a separate line if chained to a single line block.".to_string(),
-        )]
+        ));
     }
 }
 

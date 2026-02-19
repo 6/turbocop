@@ -317,34 +317,34 @@ impl Cop for ReversibleMigration {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Only check class definitions that inherit from Migration
         let class_node = match node.as_class_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let superclass = match class_node.superclass() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
         let super_loc = superclass.location();
         let super_text = &source.as_bytes()[super_loc.start_offset()..super_loc.end_offset()];
         if !super_text.starts_with(b"ActiveRecord::Migration") {
-            return Vec::new();
+            return;
         }
 
         // Find the `change` method
         let body = match class_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
 
         for stmt in stmts.body().iter() {
             if let Some(def_node) = stmt.as_def_node() {
@@ -367,7 +367,6 @@ impl Cop for ReversibleMigration {
             }
         }
 
-        diagnostics
     }
 }
 

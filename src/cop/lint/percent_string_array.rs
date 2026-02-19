@@ -24,20 +24,21 @@ impl Cop for PercentStringArray {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let array_node = match node.as_array_node() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let open_loc = match array_node.opening_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let open_src = open_loc.as_slice();
         if !open_src.starts_with(b"%w") && !open_src.starts_with(b"%W") {
-            return Vec::new();
+            return;
         }
 
         // Check if any element has quotes or commas
@@ -61,16 +62,16 @@ impl Cop for PercentStringArray {
             if has_quotes_or_commas {
                 let loc = array_node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Within `%w`/`%W`, quotes and ',' are unnecessary and may be unwanted in the resulting strings.".to_string(),
-                )];
+                ));
+                return;
             }
         }
 
-        Vec::new()
     }
 }
 

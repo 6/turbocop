@@ -25,25 +25,26 @@ impl Cop for BlockLength {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // We check CallNode (not BlockNode) so we can read the method name
         // for AllowedMethods/AllowedPatterns filtering.
         let call_node = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_node = match call_node.block() {
             Some(b) => match b.as_block_node() {
                 Some(bn) => bn,
-                None => return Vec::new(), // Lambda literal etc
+                None => return, // Lambda literal etc
             },
-            None => return Vec::new(),
+            None => return,
         };
 
         // RuboCop skips class constructor blocks (Struct.new, Class.new, etc.)
         if is_class_constructor(&call_node) {
-            return Vec::new();
+            return;
         }
 
         let max = config.get_usize("Max", 25);
@@ -57,14 +58,14 @@ impl Cop for BlockLength {
 
         if let Some(allowed) = &allowed_methods {
             if allowed.iter().any(|m| m == method_name) {
-                return Vec::new();
+                return;
             }
         }
         if let Some(patterns) = &allowed_patterns {
             for pat in patterns {
                 if let Ok(re) = regex::Regex::new(pat) {
                     if re.is_match(method_name) {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
@@ -89,15 +90,14 @@ impl Cop for BlockLength {
 
         if count > max {
             let (line, column) = source.offset_to_line_col(start_offset);
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Block has too many lines. [{count}/{max}]"),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

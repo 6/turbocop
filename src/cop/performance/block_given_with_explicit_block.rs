@@ -26,26 +26,27 @@ impl Cop for BlockGivenWithExplicitBlock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if method has an explicit &block parameter
         let params = match def_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         if params.block().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Walk the body looking for `block_given?` calls
         let body = match def_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let mut finder = BlockGivenFinder {
@@ -53,13 +54,11 @@ impl Cop for BlockGivenWithExplicitBlock {
         };
         finder.visit(&body);
 
-        let mut diagnostics = Vec::new();
         for offset in finder.offsets {
             let (line, column) = source.offset_to_line_col(offset);
             diagnostics.push(self.diagnostic(source, line, column, "Check `block` instead of using `block_given?` with explicit `&block` parameter.".to_string()));
         }
 
-        diagnostics
     }
 }
 

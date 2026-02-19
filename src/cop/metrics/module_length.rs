@@ -66,15 +66,16 @@ impl Cop for ModuleLength {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let module_node = match node.as_module_node() {
             Some(m) => m,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Skip namespace modules (body is exactly one class or module)
         if is_namespace_module(&module_node) {
-            return Vec::new();
+            return;
         }
 
         let max = config.get_usize("Max", 100);
@@ -104,15 +105,14 @@ impl Cop for ModuleLength {
 
         if count > max {
             let (line, column) = source.offset_to_line_col(start_offset);
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Module has too many lines. [{count}/{max}]"),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

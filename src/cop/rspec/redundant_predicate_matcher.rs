@@ -45,41 +45,42 @@ impl Cop for RedundantPredicateMatcher {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if method_name != b"to" && method_name != b"not_to" && method_name != b"to_not" {
-            return Vec::new();
+            return;
         }
 
         // Get the matcher argument
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let matcher = &arg_list[0];
         let matcher_call = match matcher.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if matcher_call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let matcher_name = matcher_call.name().as_slice();
         let matcher_str = match std::str::from_utf8(matcher_name) {
             Ok(s) => s,
-            Err(_) => return Vec::new(),
+            Err(_) => return,
         };
 
         // Check if this is a redundant matcher
@@ -88,7 +89,7 @@ impl Cop for RedundantPredicateMatcher {
                 // Special case: be_all with a block is not redundant
                 if redundant == "be_all" {
                     if matcher_call.block().is_some() {
-                        return Vec::new();
+                        return;
                     }
                     // Also check if the argument is a non-send node (literal)
                     // be_all(false) or be_all(1) are not redundant
@@ -99,33 +100,32 @@ impl Cop for RedundantPredicateMatcher {
                             // If the arg is a simple call (a matcher), it's redundant
                             // If it's a literal, it's not
                             if arg.as_call_node().is_none() {
-                                return Vec::new();
+                                return;
                             }
                         } else {
-                            return Vec::new();
+                            return;
                         }
                     } else {
-                        return Vec::new();
+                        return;
                     }
                 }
 
                 // Special case: be_match without argument is not redundant
                 if redundant == "be_match" && matcher_call.arguments().is_none() {
-                    return Vec::new();
+                    return;
                 }
 
                 let loc = matcher_call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Use `{builtin}` instead of `{redundant}`."),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

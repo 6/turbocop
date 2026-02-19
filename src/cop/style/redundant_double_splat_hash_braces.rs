@@ -20,15 +20,16 @@ impl Cop for RedundantDoubleSplatHashBraces {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for **{key: val, ...} in keyword arguments (KeywordHashNode in method calls)
         // Only check KeywordHashNode (method call keyword args), not plain HashNode
         let keyword_hash = match node.as_keyword_hash_node() {
             Some(kh) => kh,
-            None => return Vec::new(),
+            None => return,
         };
 
-        self.check_hash_elements(source, keyword_hash.elements().iter())
+        diagnostics.extend(self.check_hash_elements(source, keyword_hash.elements().iter()));
     }
 }
 

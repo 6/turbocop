@@ -29,18 +29,19 @@ impl Cop for VariableName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Config: EnforcedStyle — "snake_case" (default) or "camelCase"
         let enforced_style = config.get_str("EnforcedStyle", "snake_case");
         // Config: AllowedPatterns — regex patterns to exclude
         let allowed_patterns = config.get_string_array("AllowedPatterns");
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let method_name = call.name().as_slice();
@@ -49,12 +50,12 @@ impl Cop for VariableName {
             && method_name != b"subject"
             && method_name != b"subject!"
         {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let check_style = |name_bytes: &[u8]| -> bool {
@@ -101,18 +102,17 @@ impl Cop for VariableName {
                 if !check_style(name) {
                     let loc = arg.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         format!("Use {style_name} for variable names."),
-                    )];
+                    ));
                 }
             }
             break;
         }
 
-        Vec::new()
     }
 }
 

@@ -24,20 +24,21 @@ impl Cop for PercentSymbolArray {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let array_node = match node.as_array_node() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let open_loc = match array_node.opening_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let open_src = open_loc.as_slice();
         if !open_src.starts_with(b"%i") && !open_src.starts_with(b"%I") {
-            return Vec::new();
+            return;
         }
 
         // Check if any element has colons or commas
@@ -54,16 +55,16 @@ impl Cop for PercentSymbolArray {
             if elem_src.starts_with(b":") || elem_src.ends_with(b",") {
                 let loc = array_node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Within `%i`/`%I`, ':' and ',' are unnecessary and may be unwanted in the resulting symbols.".to_string(),
-                )];
+                ));
+                return;
             }
         }
 
-        Vec::new()
     }
 }
 

@@ -105,7 +105,8 @@ impl Cop for MethodCallWithArgsParentheses {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let ignore_macros = config.get_bool("IgnoreMacros", true);
         let allowed_methods = config.get_string_array("AllowedMethods");
         let allowed_patterns = config.get_string_array("AllowedPatterns");
@@ -119,24 +120,24 @@ impl Cop for MethodCallWithArgsParentheses {
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = call.name().as_slice();
 
         // Skip operators and setters in both styles
         if is_operator(name) || is_setter(name) {
-            return Vec::new();
+            return;
         }
 
         // Skip methods in the built-in ignore list
         if IGNORED_METHODS.contains(&name) {
-            return Vec::new();
+            return;
         }
 
         // Must have arguments
         if call.arguments().is_none() {
-            return Vec::new();
+            return;
         }
 
         let name_str = std::str::from_utf8(name).unwrap_or("");
@@ -147,12 +148,12 @@ impl Cop for MethodCallWithArgsParentheses {
             "omit_parentheses" => {
                 // Flag calls WITH parens; various exceptions allow parens
                 if !has_parens {
-                    return Vec::new();
+                    return;
                 }
 
                 // AllowParenthesesInCamelCaseMethod: allow parens for CamelCase methods
                 if allow_camel && is_camel_case_method(name) {
-                    return Vec::new();
+                    return;
                 }
 
                 // AllowParenthesesInMultilineCall: allow parens for multiline calls
@@ -161,7 +162,7 @@ impl Cop for MethodCallWithArgsParentheses {
                     let (start_line, _) = source.offset_to_line_col(call_loc.start_offset());
                     let (end_line, _) = source.offset_to_line_col(call_loc.end_offset());
                     if start_line != end_line {
-                        return Vec::new();
+                        return;
                     }
                 }
 
@@ -169,7 +170,7 @@ impl Cop for MethodCallWithArgsParentheses {
                 if allow_chaining {
                     if let Some(receiver) = call.receiver() {
                         if receiver.as_call_node().is_some() {
-                            return Vec::new();
+                            return;
                         }
                     }
                 }
@@ -178,36 +179,36 @@ impl Cop for MethodCallWithArgsParentheses {
                 if allow_interp {
                     let call_start = call.location().start_offset();
                     if is_inside_string_interpolation(source, call_start) {
-                        return Vec::new();
+                        return;
                     }
                 }
 
                 let loc = call.message_loc().unwrap_or_else(|| call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Omit parentheses for method calls with arguments.".to_string(),
-                )]
+                ));
             }
             _ => {
                 // "require_parentheses" (default)
                 if has_parens {
-                    return Vec::new();
+                    return;
                 }
 
                 // AllowedMethods: exempt specific method names
                 if let Some(ref methods) = allowed_methods {
                     if methods.iter().any(|m| m == name_str) {
-                        return Vec::new();
+                        return;
                     }
                 }
 
                 // AllowedPatterns: exempt methods matching patterns
                 if let Some(ref patterns) = allowed_patterns {
                     if matches_any_pattern(name_str, patterns) {
-                        return Vec::new();
+                        return;
                     }
                 }
 
@@ -222,18 +223,18 @@ impl Cop for MethodCallWithArgsParentheses {
                         .is_some_and(|patterns| matches_any_pattern(name_str, patterns));
 
                     if !in_included && !in_included_patterns {
-                        return Vec::new();
+                        return;
                     }
                 }
 
                 let loc = call.message_loc().unwrap_or_else(|| call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use parentheses for method calls with arguments.".to_string(),
-                )]
+                ));
             }
         }
     }

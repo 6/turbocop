@@ -20,13 +20,14 @@ impl Cop for SpaceInsideStringInterpolation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "no_space");
 
         // EmbeddedStatementsNode represents `#{ ... }` inside strings
         let embedded = match node.as_embedded_statements_node() {
             Some(e) => e,
-            None => return Vec::new(),
+            None => return,
         };
 
         let open_loc = embedded.opening_loc();
@@ -37,7 +38,7 @@ impl Cop for SpaceInsideStringInterpolation {
 
         // Skip multiline interpolations
         if open_line != close_line {
-            return Vec::new();
+            return;
         }
 
         let bytes = source.as_bytes();
@@ -46,13 +47,12 @@ impl Cop for SpaceInsideStringInterpolation {
 
         // Skip empty interpolation
         if close_start <= open_end {
-            return Vec::new();
+            return;
         }
 
         let space_after_open = bytes.get(open_end) == Some(&b' ');
         let space_before_close = close_start > 0 && bytes.get(close_start - 1) == Some(&b' ');
 
-        let mut diagnostics = Vec::new();
 
         match style {
             "space" => {
@@ -99,7 +99,6 @@ impl Cop for SpaceInsideStringInterpolation {
             }
         }
 
-        diagnostics
     }
 }
 

@@ -37,32 +37,33 @@ impl Cop for RepeatedIncludeExample {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = call.name().as_slice();
         if !is_example_group(name) {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // signature -> list of (line, col)
@@ -90,7 +91,6 @@ impl Cop for RepeatedIncludeExample {
             }
         }
 
-        let mut diagnostics = Vec::new();
         for (sig_bytes, locs) in &include_map {
             if locs.len() > 1 {
                 // Extract the shared example name from the signature
@@ -110,7 +110,6 @@ impl Cop for RepeatedIncludeExample {
             }
         }
 
-        diagnostics
     }
 }
 

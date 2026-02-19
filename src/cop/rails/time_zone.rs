@@ -25,10 +25,11 @@ impl Cop for TimeZone {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method = call.name().as_slice();
@@ -40,16 +41,16 @@ impl Cop for TimeZone {
             b"now" | b"parse" | b"at" | b"new" | b"local"
         );
         if !is_unsafe_method {
-            return Vec::new();
+            return;
         }
 
         let recv = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
         // Handle both ConstantReadNode (Time) and ConstantPathNode (::Time)
         if util::constant_name(&recv) != Some(b"Time") {
-            return Vec::new();
+            return;
         }
 
         // RuboCop skips Time.parse/new/at when the first string argument already has
@@ -61,7 +62,7 @@ impl Cop for TimeZone {
                 if let Some(str_node) = arg.as_string_node() {
                     let content = str_node.unescaped().as_ref();
                     if has_timezone_specifier(content) {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
@@ -70,7 +71,7 @@ impl Cop for TimeZone {
         // Skip Time.new/at/now with `in:` keyword argument (timezone offset provided)
         if method == b"at" || method == b"now" || method == b"new" {
             if has_in_keyword_arg(&call) {
-                return Vec::new();
+                return;
             }
         }
         // Time.new with 7 arguments (last is timezone offset)
@@ -78,7 +79,7 @@ impl Cop for TimeZone {
             if let Some(args) = call.arguments() {
                 let arg_count = args.arguments().iter().count();
                 if arg_count == 7 {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -94,14 +95,14 @@ impl Cop for TimeZone {
                 // Check if a timezone-safe method follows
                 let rest = &bytes[end + 1..];
                 if starts_with_tz_safe_method(rest) {
-                    return Vec::new();
+                    return;
                 }
             }
         }
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
@@ -110,7 +111,7 @@ impl Cop for TimeZone {
                 String::from_utf8_lossy(method),
                 String::from_utf8_lossy(method)
             ),
-        )]
+        ));
     }
 }
 

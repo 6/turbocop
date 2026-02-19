@@ -24,10 +24,11 @@ impl Cop for SymbolConversion {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let _style = config.get_str("EnforcedStyle", "strict");
@@ -40,12 +41,12 @@ impl Cop for SymbolConversion {
                 if recv.as_symbol_node().is_some() && call.arguments().is_none() {
                     let loc = call.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Unnecessary symbol conversion detected.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
@@ -56,17 +57,16 @@ impl Cop for SymbolConversion {
                 if recv.as_string_node().is_some() && call.arguments().is_none() {
                     let loc = call.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Unnecessary symbol conversion detected.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

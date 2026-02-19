@@ -130,10 +130,11 @@ impl Cop for InvertibleUnlessCondition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let unless_node = match node.as_unless_node() {
             Some(u) => u,
-            None => return Vec::new(),
+            None => return,
         };
 
         let inverse_map = Self::build_inverse_map(config);
@@ -142,12 +143,12 @@ impl Cop for InvertibleUnlessCondition {
 
         // The entire condition must be invertible for us to report
         if !Self::is_fully_invertible(&predicate, &inverse_map) {
-            return Vec::new();
+            return;
         }
 
         // Check for begin-wrapped conditions — don't flag those
         if predicate.as_begin_node().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Build a descriptive message
@@ -159,29 +160,29 @@ impl Cop for InvertibleUnlessCondition {
                 let cond_src = String::from_utf8_lossy(predicate.location().as_slice());
                 let loc = unless_node.keyword_loc();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Prefer `if {}` over `unless {}`.", receiver_src, cond_src),
-                )];
+                ));
             }
             let name_bytes = call.name().as_slice();
             let name = std::str::from_utf8(name_bytes).unwrap_or("method");
             let inv = inverse_map.get(name_bytes).map(|s| s.as_str()).unwrap_or("?");
             (name.to_string(), inv.to_string())
         } else {
-            return Vec::new();
+            return;
         };
 
         let loc = unless_node.keyword_loc();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `if` with `{}` instead of `unless` with `{}`.", method_str.1, method_str.0),
-        )]
+        ));
     }
 }
 

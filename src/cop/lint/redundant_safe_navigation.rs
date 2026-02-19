@@ -37,21 +37,22 @@ impl Cop for RedundantSafeNavigation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must use safe navigation (&.)
         let op_loc = match call.call_operator_loc() {
             Some(loc) if loc.as_slice() == b"&." => loc,
-            _ => return Vec::new(),
+            _ => return,
         };
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let _method_name = call.name().as_slice();
@@ -59,46 +60,46 @@ impl Cop for RedundantSafeNavigation {
         // Case 1: Receiver is a constant in camel case (not all uppercase/snake case)
         if is_camel_case_const(&receiver) {
             let (line, column) = source.offset_to_line_col(op_loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Redundant safe navigation detected, use `.` instead.".to_string(),
-            )];
+            ));
         }
 
         // Case 2: Receiver is a literal (not nil)
         if is_non_nil_literal(&receiver) {
             let (line, column) = source.offset_to_line_col(op_loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Redundant safe navigation detected, use `.` instead.".to_string(),
-            )];
+            ));
         }
 
         // Case 3: Receiver is `self`
         if receiver.as_self_node().is_some() {
             let (line, column) = source.offset_to_line_col(op_loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Redundant safe navigation detected, use `.` instead.".to_string(),
-            )];
+            ));
         }
 
         // Case 4: Receiver is a guaranteed instance method call (to_s, to_i, etc.)
         // foo.to_s&.strip is redundant because to_s always returns a string
         if is_guaranteed_instance_receiver(&receiver) {
             let (line, column) = source.offset_to_line_col(op_loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Redundant safe navigation detected, use `.` instead.".to_string(),
-            )];
+            ));
         }
 
         // Case 5: AllowedMethods used in conditions
@@ -113,7 +114,6 @@ impl Cop for RedundantSafeNavigation {
         // For now, we only handle the simpler cases above.
         let _ = is_allowed;
 
-        Vec::new()
     }
 }
 

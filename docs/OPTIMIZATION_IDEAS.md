@@ -77,48 +77,31 @@ Only clone+merge when directory-specific overrides (nested `.rubocop.yml`) match
 
 ---
 
-## Optimization 2: Eliminate Per-Call Vec Allocation (MEDIUM IMPACT)
+## Optimization 2: Eliminate Per-Call Vec Allocation ✅ DONE
 
-**Status:** Not started
-**Expected impact:** 10-20% reduction in cop execution time
+**Status:** Implemented
+**Measured impact:** 3-14% wall-time improvement
 
 ### Problem
 
-Every `check_node` call returns `Vec<Diagnostic>`, even when empty (99%+ of calls):
-
-```rust
-fn check_node(&self, ...) -> Vec<Diagnostic> {
-    let node = match node.as_call_node() {
-        Some(n) => n,
-        None => return Vec::new(),  // Hot path: allocate + return empty Vec
-    };
-    // ...
-}
-```
-
+Every `check_node` call returned `Vec<Diagnostic>`, even when empty (99%+ of calls).
 While `Vec::new()` doesn't heap-allocate, the pattern still involves: construct Vec,
 return it across a vtable call, call `extend()` on the collector, drop the Vec.
 
 ### Solution
 
-Change the signature to push directly into a shared collector:
+Changed all three Cop trait methods (`check_node`, `check_lines`, `check_source`) to
+take `diagnostics: &mut Vec<Diagnostic>` and return `()`. Cops push directly into
+the shared collector instead of creating temporary Vecs.
 
-```rust
-fn check_node(
-    &self,
-    source: &SourceFile,
-    node: &ruby_prism::Node<'_>,
-    parse_result: &ruby_prism::ParseResult<'_>,
-    config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,  // push directly
-)
-```
+All 930+ cop implementations transformed (mechanical + manual fixes for edge cases).
+Regression test `no_cop_returns_vec_diagnostic` prevents new cops from using the old pattern.
 
-### Effort
-
-Medium — requires changing the Cop trait signature and all 745+129+41 implementations.
-Mechanical transformation: `vec![diagnostic]` → `diagnostics.push(diagnostic)`,
-`Vec::new()` → `()`.
+| Repo | Before | After | Change |
+|------|-------:|------:|-------:|
+| Discourse | 460ms | 425ms | -8% |
+| Rails | 411ms | 397ms | -3% |
+| Mastodon | 679ms | 581ms | -14% |
 
 ---
 

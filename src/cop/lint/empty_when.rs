@@ -24,10 +24,11 @@ impl Cop for EmptyWhen {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let when_node = match node.as_when_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body_empty = match when_node.statements() {
@@ -36,7 +37,7 @@ impl Cop for EmptyWhen {
         };
 
         if !body_empty {
-            return Vec::new();
+            return;
         }
 
         // AllowComments: when true, `when` bodies containing only comments are not offenses
@@ -67,7 +68,7 @@ impl Cop for EmptyWhen {
                         break;
                     }
                     if trimmed.starts_with(b"#") {
-                        return Vec::new();
+                        return;
                     }
                     // Non-comment content found — shouldn't happen for empty when
                     break;
@@ -77,12 +78,12 @@ impl Cop for EmptyWhen {
 
         let kw_loc = when_node.keyword_loc();
         let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Avoid empty `when` conditions.".to_string(),
-        )]
+        ));
     }
 }
 

@@ -20,17 +20,17 @@ impl Cop for RedundantRegexpCharacterClass {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let re = match node.as_regular_expression_node() {
             Some(re) => re,
-            None => return Vec::new(),
+            None => return,
         };
 
         let content_bytes: Vec<u8> = re.content_loc().as_slice().to_vec();
         let node_loc = node.location();
         let is_extended = re.is_extended();
 
-        let mut diagnostics = Vec::new();
         let full_bytes = &source.as_bytes()[node_loc.start_offset()..node_loc.end_offset()];
 
         // Find single-element character classes like [a], [\d], etc.
@@ -102,7 +102,6 @@ impl Cop for RedundantRegexpCharacterClass {
             }
         }
 
-        diagnostics
     }
 }
 

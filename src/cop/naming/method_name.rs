@@ -26,10 +26,11 @@ impl Cop for MethodName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         let enforced_style = config.get_str("EnforcedStyle", "snake_case");
@@ -42,7 +43,7 @@ impl Cop for MethodName {
 
         // Skip operator methods (e.g., +, -, [], <=>, ==)
         if is_operator_method(method_name) {
-            return Vec::new();
+            return;
         }
 
         let loc = def_node.name_loc();
@@ -51,12 +52,12 @@ impl Cop for MethodName {
         // ForbiddenIdentifiers: flag if method name is in the forbidden list
         if let Some(forbidden) = &forbidden_identifiers {
             if forbidden.iter().any(|f| f == method_name_str) {
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("`{method_name_str}` is forbidden, use another method name instead."),
-                )];
+                ));
             }
         }
 
@@ -65,12 +66,12 @@ impl Cop for MethodName {
             for pattern in patterns {
                 if let Ok(re) = regex::Regex::new(pattern) {
                     if re.is_match(method_name_str) {
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             format!("`{method_name_str}` is forbidden, use another method name instead."),
-                        )];
+                        ));
                     }
                 }
             }
@@ -79,7 +80,7 @@ impl Cop for MethodName {
         // AllowedPatterns: skip if method name matches any pattern
         if let Some(patterns) = &allowed_patterns {
             if patterns.iter().any(|p| method_name_str.contains(p.as_str())) {
-                return Vec::new();
+                return;
             }
         }
 
@@ -90,7 +91,7 @@ impl Cop for MethodName {
         };
 
         if style_ok {
-            return Vec::new();
+            return;
         }
 
         let style_msg = match enforced_style {
@@ -98,12 +99,12 @@ impl Cop for MethodName {
             _ => "snake_case",
         };
 
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use {style_msg} for method names."),
-        )]
+        ));
     }
 }
 

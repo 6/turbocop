@@ -27,46 +27,46 @@ impl Cop for ErbNewArguments {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"new" {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = match constant_name(&receiver) {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         if name != b"ERB" {
-            return Vec::new();
+            return;
         }
 
         let arguments = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args: Vec<_> = arguments.arguments().iter().collect();
 
         // ERB.new(str) or ERB.new(str, key: val) are fine
         if args.len() <= 1 {
-            return Vec::new();
+            return;
         }
         if args.len() == 2 && args[1].as_keyword_hash_node().is_some() {
-            return Vec::new();
+            return;
         }
 
-        let mut diagnostics = Vec::new();
 
         // Check args at positions 1, 2, 3 (safe_level, trim_mode, eoutvar)
         for (i, arg) in args.iter().enumerate().skip(1).take(3) {
@@ -97,7 +97,6 @@ impl Cop for ErbNewArguments {
             diagnostics.push(self.diagnostic(source, line, column, msg));
         }
 
-        diagnostics
     }
 }
 

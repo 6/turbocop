@@ -24,10 +24,11 @@ impl Cop for FloatOutOfRange {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let float_node = match node.as_float_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let loc = float_node.location();
@@ -37,20 +38,20 @@ impl Cop for FloatOutOfRange {
         let cleaned: Vec<u8> = src.iter().copied().filter(|&b| b != b'_').collect();
         let text = match std::str::from_utf8(&cleaned) {
             Ok(t) => t,
-            Err(_) => return Vec::new(),
+            Err(_) => return,
         };
 
         match text.parse::<f64>() {
             Ok(val) if val.is_infinite() => {
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Float out of range.".to_string(),
-                )]
+                ));
             }
-            _ => Vec::new(),
+            _ => {}
         }
     }
 }

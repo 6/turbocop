@@ -24,13 +24,13 @@ impl Cop for ConstantOverwrittenInRescue {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let begin_node = match node.as_begin_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
         let mut rescue_opt = begin_node.rescue_clause();
 
         while let Some(rescue_node) = rescue_opt {
@@ -77,7 +77,6 @@ impl Cop for ConstantOverwrittenInRescue {
             rescue_opt = rescue_node.subsequent();
         }
 
-        diagnostics
     }
 }
 

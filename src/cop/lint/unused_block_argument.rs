@@ -25,10 +25,11 @@ impl Cop for UnusedBlockArgument {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let block_node = match node.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let ignore_empty = config.get_bool("IgnoreEmptyBlocks", true);
@@ -38,25 +39,25 @@ impl Cop for UnusedBlockArgument {
             Some(b) => b,
             None => {
                 if ignore_empty {
-                    return Vec::new();
+                    return;
                 }
-                return Vec::new();
+                return;
             }
         };
 
         let block_params = match block_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params_node = match block_params.as_block_parameters_node() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params = match params_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Collect parameter info: (name_bytes, offset, is_keyword)
@@ -101,7 +102,7 @@ impl Cop for UnusedBlockArgument {
         }
 
         if param_info.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Find all local variable reads in the body
@@ -110,7 +111,6 @@ impl Cop for UnusedBlockArgument {
         };
         finder.visit(&body);
 
-        let mut diagnostics = Vec::new();
 
         for (name, offset, _is_keyword) in &param_info {
             // Skip arguments prefixed with _
@@ -136,7 +136,6 @@ impl Cop for UnusedBlockArgument {
             }
         }
 
-        diagnostics
     }
 }
 

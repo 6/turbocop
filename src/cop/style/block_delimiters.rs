@@ -17,7 +17,8 @@ impl Cop for BlockDelimiters {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "line_count_based");
         let _procedural_methods = config.get_string_array("ProceduralMethods");
         let _functional_methods = config.get_string_array("FunctionalMethods");
@@ -28,7 +29,7 @@ impl Cop for BlockDelimiters {
         let braces_required_methods = config.get_string_array("BracesRequiredMethods");
 
         if enforced_style != "line_count_based" {
-            return Vec::new();
+            return;
         }
 
         let allowed = allowed_methods.unwrap_or_else(|| {
@@ -51,7 +52,7 @@ impl Cop for BlockDelimiters {
             braces_required_methods: braces_required,
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

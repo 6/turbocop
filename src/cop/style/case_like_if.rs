@@ -20,12 +20,13 @@ impl Cop for CaseLikeIf {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let min_branches = config.get_usize("MinBranchesCount", 3);
 
         let if_node = match node.as_if_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Count branches (if + elsif chain)
@@ -42,7 +43,7 @@ impl Cop for CaseLikeIf {
         }
 
         if branch_count < min_branches {
-            return Vec::new();
+            return;
         }
 
         // Check that ALL conditions compare against the same variable
@@ -62,7 +63,7 @@ impl Cop for CaseLikeIf {
         // Extract operands from first predicate to find the target variable
         let first_operands = match get_comparison_operands(&predicates[0]) {
             Some(ops) => ops,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Try each operand from the first condition as the potential target
@@ -83,17 +84,17 @@ impl Cop for CaseLikeIf {
         };
 
         if target.is_none() {
-            return Vec::new();
+            return;
         }
 
         let loc = if_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Convert `if-elsif` to `case-when`.".to_string(),
-        )]
+        ));
     }
 }
 

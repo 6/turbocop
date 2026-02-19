@@ -15,8 +15,7 @@ impl Cop for DuplicateMagicComment {
         Severity::Warning
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let mut seen_keys = HashSet::new();
 
         for (i, line) in source.lines().enumerate() {
@@ -96,7 +95,6 @@ impl Cop for DuplicateMagicComment {
             }
         }
 
-        diagnostics
     }
 }
 

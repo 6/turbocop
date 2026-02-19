@@ -20,34 +20,35 @@ impl Cop for MethodCallWithoutArgsParentheses {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allowed_methods = config.get_string_array("AllowedMethods");
         let _allowed_patterns = config.get_string_array("AllowedPatterns");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have parentheses (opening_loc present)
         if call.opening_loc().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Must have no arguments
         if call.arguments().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Must have no block
         if call.block().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Must have a message (method name)
         let msg_loc = match call.message_loc() {
             Some(l) => l,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name();
@@ -55,17 +56,17 @@ impl Cop for MethodCallWithoutArgsParentheses {
 
         // Skip methods starting with uppercase (like Test()) - these are conversion methods
         if method_bytes.first().is_some_and(|b| b.is_ascii_uppercase()) {
-            return Vec::new();
+            return;
         }
 
         // Skip operator methods ([], []=, etc.) - these use bracket syntax, not parentheses
         if method_bytes == b"[]" || method_bytes == b"[]=" {
-            return Vec::new();
+            return;
         }
 
         // Skip `not()` - keyword (Prism names it `!` internally but message_loc is `not`)
         if method_bytes == b"not" || msg_loc.as_slice() == b"not" {
-            return Vec::new();
+            return;
         }
 
         // Skip lambda call syntax: thing.()
@@ -75,7 +76,7 @@ impl Cop for MethodCallWithoutArgsParentheses {
             let op_loc = call.call_operator_loc().unwrap();
             let after_op = op_loc.end_offset();
             if after_op < src.len() && src[after_op] == b'(' {
-                return Vec::new();
+                return;
             }
         }
 
@@ -88,25 +89,25 @@ impl Cop for MethodCallWithoutArgsParentheses {
             // But `foo.it()` is flagged
             // We approximate: if no receiver, check context more carefully.
             // For now, just skip bare `it()` (no receiver) entirely to be safe.
-            return Vec::new();
+            return;
         }
 
         // Check AllowedMethods
         if let Some(ref allowed) = allowed_methods {
             let name_str = std::str::from_utf8(method_bytes).unwrap_or("");
             if allowed.iter().any(|m| m == name_str) {
-                return Vec::new();
+                return;
             }
         }
 
         let open_loc = call.opening_loc().unwrap();
         let (line, column) = source.offset_to_line_col(open_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Do not use parentheses for method calls with no arguments.".to_string(),
-        )]
+        ));
     }
 }
 

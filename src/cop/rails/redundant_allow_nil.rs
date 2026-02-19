@@ -47,27 +47,28 @@ impl Cop for RedundantAllowNil {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = call.name().as_slice();
         if name != b"validates" && name != b"validates!" {
-            return Vec::new();
+            return;
         }
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let (nil_offset, allow_nil_val) = match find_keyword_pair(&call, b"allow_nil") {
             Some(v) => v,
-            None => return Vec::new(),
+            None => return,
         };
         let (_blank_offset, allow_blank_val) = match find_keyword_pair(&call, b"allow_blank") {
             Some(v) => v,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Compare boolean values
@@ -81,11 +82,11 @@ impl Cop for RedundantAllowNil {
         } else if nil_is_false && blank_is_true {
             "`allow_nil: false` is redundant when `allow_blank` is true."
         } else {
-            return Vec::new();
+            return;
         };
 
         let (line, column) = source.offset_to_line_col(nil_offset);
-        vec![self.diagnostic(source, line, column, msg.to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, msg.to_string()));
     }
 }
 

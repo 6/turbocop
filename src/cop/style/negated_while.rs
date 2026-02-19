@@ -20,10 +20,11 @@ impl Cop for NegatedWhile {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let while_node = match node.as_while_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let predicate = while_node.predicate();
@@ -31,11 +32,10 @@ impl Cop for NegatedWhile {
             if call.name().as_slice() == b"!" {
                 let kw_loc = while_node.keyword_loc();
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                return vec![self.diagnostic(source, line, column, "Favor `until` over `while` for negative conditions.".to_string())];
+                diagnostics.push(self.diagnostic(source, line, column, "Favor `until` over `while` for negative conditions.".to_string()));
             }
         }
 
-        Vec::new()
     }
 }
 

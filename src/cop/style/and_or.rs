@@ -20,12 +20,14 @@ impl Cop for AndOr {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "conditionals");
 
         if enforced_style == "always" {
             // In "always" mode, flag every `and` and `or` keyword
-            return check_and_or_node(self, source, node);
+            diagnostics.extend(check_and_or_node(self, source, node));
+            return;
         }
 
         // "conditionals" mode: only flag `and`/`or` inside conditions of if/while/until
@@ -38,13 +40,11 @@ impl Cop for AndOr {
         } else if let Some(until_node) = node.as_until_node() {
             until_node.predicate()
         } else {
-            return Vec::new();
+            return;
         };
 
         // Walk the condition tree for and/or nodes
-        let mut diagnostics = Vec::new();
-        collect_and_or_in_condition(self, source, &condition, &mut diagnostics);
-        diagnostics
+        collect_and_or_in_condition(self, source, &condition, diagnostics);
     }
 }
 

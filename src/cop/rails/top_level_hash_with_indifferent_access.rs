@@ -24,18 +24,19 @@ impl Cop for TopLevelHashWithIndifferentAccess {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check for ConstantReadNode: `HashWithIndifferentAccess`
         if let Some(cr) = node.as_constant_read_node() {
             if cr.name().as_slice() == b"HashWithIndifferentAccess" {
                 let loc = node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Avoid top-level `HashWithIndifferentAccess`.".to_string(),
-                )];
+                ));
             }
         }
 
@@ -46,18 +47,17 @@ impl Cop for TopLevelHashWithIndifferentAccess {
                     if name.as_slice() == b"HashWithIndifferentAccess" {
                         let loc = node.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Avoid top-level `HashWithIndifferentAccess`.".to_string(),
-                        )];
+                        ));
                     }
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

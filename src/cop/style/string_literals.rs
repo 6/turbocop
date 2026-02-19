@@ -42,22 +42,23 @@ impl Cop for StringLiterals {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let string_node = match node.as_string_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let opening = match string_node.opening_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let opening_byte = opening.as_slice().first().copied().unwrap_or(0);
 
         // Skip %q, %Q, heredocs, ? prefix
         if matches!(opening_byte, b'%' | b'<' | b'?') {
-            return Vec::new();
+            return;
         }
 
         let enforced_style = config.get_str("EnforcedStyle", "single_quotes");
@@ -70,7 +71,7 @@ impl Cop for StringLiterals {
         // When ConsistentQuotesInMultiline is enabled, skip multiline strings —
         // these should be checked for consistency as a group (not individually)
         if consistent_multiline && content.contains(&b'\n') {
-            return Vec::new();
+            return;
         }
 
         match enforced_style {
@@ -78,14 +79,15 @@ impl Cop for StringLiterals {
                 if opening_byte == b'"' {
                     // Skip multi-line strings — RuboCop doesn't flag these
                     if content.contains(&b'\n') {
-                        return Vec::new();
+                        return;
                     }
                     // Check if single quotes can be used:
                     // - No single quotes in content
                     // - No escape sequences (no backslash in content)
                     if !content.contains(&b'\'') && !content.contains(&b'\\') {
                         let (line, column) = source.offset_to_line_col(opening.start_offset());
-                        return vec![self.diagnostic(source, line, column, "Prefer single-quoted strings when you don't need string interpolation or special symbols.".to_string())];
+                        diagnostics.push(self.diagnostic(source, line, column, "Prefer single-quoted strings when you don't need string interpolation or special symbols.".to_string()));
+                        return;
                     }
                 }
             }
@@ -94,38 +96,38 @@ impl Cop for StringLiterals {
                     // Skip if the content contains double quotes — converting would
                     // require escaping, so the single-quoted form is preferred.
                     if content.contains(&b'"') {
-                        return Vec::new();
+                        return;
                     }
                     // Skip if the content contains backslashes — in single-quoted
                     // strings they're literal, but in double-quoted strings they
                     // become escape sequences (changing the string's meaning).
                     if content.contains(&b'\\') {
-                        return Vec::new();
+                        return;
                     }
                     // Skip if content contains #{ — in double quotes this would
                     // become interpolation, changing the string's meaning.
                     if content.windows(2).any(|w| w == b"#{") {
-                        return Vec::new();
+                        return;
                     }
                     // Skip multi-line strings — RuboCop doesn't flag these
                     // in the per-string StringLiterals check.
                     if content.contains(&b'\n') {
-                        return Vec::new();
+                        return;
                     }
                     // Skip if this string is inside a #{ } interpolation context —
                     // converting to double quotes would need escaping inside the
                     // enclosing double-quoted string.
                     if is_inside_interpolation(source.as_bytes(), opening.start_offset()) {
-                        return Vec::new();
+                        return;
                     }
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
-                    return vec![self.diagnostic(source, line, column, "Prefer double-quoted strings unless you need single quotes within your string.".to_string())];
+                    diagnostics.push(self.diagnostic(source, line, column, "Prefer double-quoted strings unless you need single quotes within your string.".to_string()));
+                    return;
                 }
             }
             _ => {}
         }
 
-        Vec::new()
     }
 }
 

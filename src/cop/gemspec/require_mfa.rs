@@ -13,7 +13,7 @@ impl Cop for RequireMfa {
         &["**/*.gemspec"]
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let mut found_mfa = false;
 
         for line in source.lines() {
@@ -50,14 +50,13 @@ impl Cop for RequireMfa {
 
         if !found_mfa {
             // Report at line 1, column 0
-            vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 1,
                 0,
                 "`rubygems_mfa_required` must be set to `'true'` in gemspec metadata.".to_string(),
-            )]
-        } else {
-            Vec::new()
+            ));
+
         }
     }
 }

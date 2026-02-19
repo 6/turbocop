@@ -32,19 +32,20 @@ impl Cop for ActionOrder {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let class = match node.as_class_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body = match class.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Use configured order if provided, otherwise use standard order
@@ -67,7 +68,6 @@ impl Cop for ActionOrder {
             }
         }
 
-        let mut diagnostics = Vec::new();
         let mut max_seen_idx = 0;
         let mut max_seen_name: &[u8] = b"";
 
@@ -91,7 +91,6 @@ impl Cop for ActionOrder {
             }
         }
 
-        diagnostics
     }
 }
 

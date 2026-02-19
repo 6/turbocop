@@ -33,7 +33,8 @@ impl Cop for HeredocDelimiterNaming {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let _forbidden_delimiters = config.get_string_array("ForbiddenDelimiters");
 
         // Check InterpolatedStringNode and StringNode for heredoc openings
@@ -42,19 +43,19 @@ impl Cop for HeredocDelimiterNaming {
         } else if let Some(s) = node.as_string_node() {
             s.opening_loc()
         } else {
-            return Vec::new();
+            return;
         };
 
         let opening_loc = match opening_loc {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let bytes = source.as_bytes();
         let opening = &bytes[opening_loc.start_offset()..opening_loc.end_offset()];
 
         if !opening.starts_with(b"<<") {
-            return Vec::new();
+            return;
         }
 
         // Extract delimiter
@@ -81,22 +82,21 @@ impl Cop for HeredocDelimiterNaming {
 
         let delimiter_str = std::str::from_utf8(delimiter).unwrap_or("");
         if delimiter_str.is_empty() {
-            return Vec::new();
+            return;
         }
 
         if is_forbidden_delimiter(delimiter_str) {
             let delimiter_offset = opening_loc.start_offset() + opening.len() - delimiter.len()
                 - if opening.ends_with(b"'") || opening.ends_with(b"\"") || opening.ends_with(b"`") { 1 } else { 0 };
             let (line, column) = source.offset_to_line_col(delimiter_offset);
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Use meaningful heredoc delimiters.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

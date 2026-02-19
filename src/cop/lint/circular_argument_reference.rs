@@ -24,7 +24,8 @@ impl Cop for CircularArgumentReference {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check optional keyword arguments: def foo(bar: bar)
         if let Some(kwopt) = node.as_optional_keyword_parameter_node() {
             let param_name = kwopt.name().as_slice();
@@ -32,7 +33,7 @@ impl Cop for CircularArgumentReference {
             if is_circular_ref(param_name, &value) {
                 let loc = value.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
@@ -40,9 +41,9 @@ impl Cop for CircularArgumentReference {
                         "Circular argument reference - `{}`.",
                         std::str::from_utf8(param_name).unwrap_or("?")
                     ),
-                )];
+                ));
             }
-            return Vec::new();
+            return;
         }
 
         // Check optional positional arguments: def foo(bar = bar)
@@ -52,7 +53,7 @@ impl Cop for CircularArgumentReference {
             if is_circular_ref(param_name, &value) {
                 let loc = value.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
@@ -60,12 +61,11 @@ impl Cop for CircularArgumentReference {
                         "Circular argument reference - `{}`.",
                         std::str::from_utf8(param_name).unwrap_or("?")
                     ),
-                )];
+                ));
             }
-            return Vec::new();
+            return;
         }
 
-        Vec::new()
     }
 }
 

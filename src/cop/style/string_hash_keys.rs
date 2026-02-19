@@ -20,15 +20,15 @@ impl Cop for StringHashKeys {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
 
         let elements = if let Some(hash) = node.as_hash_node() {
             hash.elements().iter().collect::<Vec<_>>()
         } else if let Some(kw_hash) = node.as_keyword_hash_node() {
             kw_hash.elements().iter().collect::<Vec<_>>()
         } else {
-            return Vec::new();
+            return;
         };
 
         for element in elements {
@@ -47,7 +47,6 @@ impl Cop for StringHashKeys {
             }
         }
 
-        diagnostics
     }
 }
 

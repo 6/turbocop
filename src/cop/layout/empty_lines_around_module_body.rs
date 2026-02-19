@@ -21,11 +21,12 @@ impl Cop for EmptyLinesAroundModuleBody {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "no_empty_lines");
         let module_node = match node.as_module_node() {
             Some(m) => m,
-            None => return Vec::new(),
+            None => return,
         };
 
         let kw_offset = module_node.module_keyword_loc().start_offset();
@@ -33,15 +34,15 @@ impl Cop for EmptyLinesAroundModuleBody {
 
         match style {
             "empty_lines" => {
-                util::check_missing_empty_lines_around_body(
+                diagnostics.extend(util::check_missing_empty_lines_around_body(
                     self.name(), source, kw_offset, end_offset, "module",
-                )
+                ));
             }
             _ => {
                 // "no_empty_lines" (default)
-                util::check_empty_lines_around_body(
+                diagnostics.extend(util::check_empty_lines_around_body(
                     self.name(), source, kw_offset, end_offset, "module",
-                )
+                ));
             }
         }
     }

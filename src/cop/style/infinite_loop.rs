@@ -20,19 +20,20 @@ impl Cop for InfiniteLoop {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check `while true`
         if let Some(while_node) = node.as_while_node() {
             let predicate = while_node.predicate();
             if predicate.as_true_node().is_some() {
                 let kw_loc = while_node.keyword_loc();
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use `Kernel#loop` for infinite loops.".to_string(),
-                )];
+                ));
             }
         }
 
@@ -42,16 +43,15 @@ impl Cop for InfiniteLoop {
             if predicate.as_false_node().is_some() {
                 let kw_loc = until_node.keyword_loc();
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use `Kernel#loop` for infinite loops.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

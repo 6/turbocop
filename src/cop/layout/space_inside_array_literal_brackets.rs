@@ -20,24 +20,25 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let array = match node.as_array_node() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let opening = match array.opening_loc() {
             Some(loc) => loc,
-            None => return Vec::new(), // Implicit array (no brackets)
+            None => return, // Implicit array (no brackets)
         };
         let closing = match array.closing_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Only check [ ] arrays
         if opening.as_slice() != b"[" || closing.as_slice() != b"]" {
-            return Vec::new();
+            return;
         }
 
         let bytes = source.as_bytes();
@@ -51,14 +52,14 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
             match empty_style {
                 "space" => {
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Space inside empty array literal brackets missing.".to_string(),
-                    )];
+                    ));
                 }
-                _ => return Vec::new(),
+                _ => return,
             }
         }
         // Check for [ ] (empty with space)
@@ -66,14 +67,14 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
             match empty_style {
                 "no_space" => {
                     let (line, column) = source.offset_to_line_col(open_end);
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Space inside empty array literal brackets detected.".to_string(),
-                    )];
+                    ));
                 }
-                _ => return Vec::new(),
+                _ => return,
             }
         }
 
@@ -81,12 +82,11 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
         let (open_line, _) = source.offset_to_line_col(opening.start_offset());
         let (close_line, _) = source.offset_to_line_col(closing.start_offset());
         if open_line != close_line {
-            return Vec::new();
+            return;
         }
 
         let enforced = config.get_str("EnforcedStyle", "no_space");
 
-        let mut diagnostics = Vec::new();
 
         let space_after_open = bytes.get(open_end) == Some(&b' ');
         let space_before_close = close_start > 0 && bytes.get(close_start - 1) == Some(&b' ');
@@ -135,7 +135,6 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
             _ => {}
         }
 
-        diagnostics
     }
 }
 

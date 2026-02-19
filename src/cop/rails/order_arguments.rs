@@ -24,25 +24,26 @@ impl Cop for OrderArguments {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"order" {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         // All arguments must be string literals
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Check if all arguments are string literals that can be converted to symbols
@@ -75,7 +76,7 @@ impl Cop for OrderArguments {
         }
 
         if !all_strings || !all_convertible {
-            return Vec::new();
+            return;
         }
 
         // Build the preferred representation
@@ -106,12 +107,12 @@ impl Cop for OrderArguments {
 
         let first_arg_loc = arg_list[0].location();
         let (line, column) = source.offset_to_line_col(first_arg_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Prefer `{prefer}` instead."),
-        )]
+        ));
     }
 }
 

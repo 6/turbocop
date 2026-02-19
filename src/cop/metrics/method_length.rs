@@ -21,16 +21,17 @@ impl Cop for MethodLength {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Skip endless methods (no end keyword)
         let end_loc = match def_node.end_keyword_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let max = config.get_usize("Max", 10);
@@ -44,12 +45,12 @@ impl Cop for MethodLength {
             std::str::from_utf8(def_node.name().as_slice()).unwrap_or("");
         if let Some(allowed) = &allowed_methods {
             if allowed.iter().any(|m| m == method_name_str) {
-                return Vec::new();
+                return;
             }
         }
         if let Some(patterns) = &allowed_patterns {
             if patterns.iter().any(|p| method_name_str.contains(p.as_str())) {
-                return Vec::new();
+                return;
             }
         }
 
@@ -69,6 +70,7 @@ impl Cop for MethodLength {
                 }
             }
             ranges
+
         } else {
             Vec::new()
         };
@@ -81,15 +83,14 @@ impl Cop for MethodLength {
 
         if count > max {
             let (line, column) = source.offset_to_line_col(start_offset);
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Method has too many lines. [{count}/{max}]"),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

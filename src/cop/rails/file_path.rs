@@ -42,7 +42,8 @@ impl Cop for FilePath {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "slashes");
 
         // Check string interpolation: "#{Rails.root}/path/to"
@@ -64,7 +65,7 @@ impl Cop for FilePath {
                                         } else {
                                             "Prefer `Rails.root.join('path/to').to_s`."
                                         };
-                                        return vec![self.diagnostic(source, line, column, msg.to_string())];
+                                        diagnostics.push(self.diagnostic(source, line, column, msg.to_string()));
                                     }
                                 }
                             }
@@ -72,36 +73,36 @@ impl Cop for FilePath {
                     }
                 }
             }
-            return Vec::new();
+            return;
         }
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"join" {
-            return Vec::new();
+            return;
         }
 
         // Pattern 1: File.join(Rails.root, ...) — receiver is File constant
         let recv = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         if util::constant_name(&recv) == Some(b"File") {
             // File.join(Rails.root, ...) pattern
             let args = match call.arguments() {
                 Some(a) => a,
-                None => return Vec::new(),
+                None => return,
             };
             let arg_list: Vec<_> = args.arguments().iter().collect();
 
             // Check if any argument contains Rails.root
             let has_rails_root = arg_list.iter().any(|a| contains_rails_root(a));
             if !has_rails_root {
-                return Vec::new();
+                return;
             }
 
             // Check that no arguments are plain variables or constants
@@ -112,7 +113,7 @@ impl Cop for FilePath {
                         && util::constant_name(a) != Some(b"Rails"))
             });
             if has_invalid_arg {
-                return Vec::new();
+                return;
             }
 
             let loc = node.location();
@@ -122,35 +123,35 @@ impl Cop for FilePath {
             } else {
                 "Prefer `Rails.root.join('path/to').to_s`."
             };
-            return vec![self.diagnostic(source, line, column, msg.to_string())];
+            diagnostics.push(self.diagnostic(source, line, column, msg.to_string()));
         }
 
         // Pattern 2: Rails.root.join('path', 'to') — receiver is Rails.root
         let root_call = match recv.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         if root_call.name().as_slice() != b"root" {
-            return Vec::new();
+            return;
         }
         let rails_recv = match root_call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
         if util::constant_name(&rails_recv) != Some(b"Rails") {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
 
         // All args should be strings
         let all_strings = arg_list.iter().all(|a| a.as_string_node().is_some());
         if !all_strings {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
@@ -163,21 +164,21 @@ impl Cop for FilePath {
                     if let Some(s) = arg_list[0].as_string_node() {
                         let val = s.unescaped();
                         if val.windows(1).any(|w| w == b"/") {
-                            return vec![self.diagnostic(
+                            diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 "Prefer `Rails.root.join('path', 'to').to_s`.".to_string(),
-                            )];
+                            ));
                         }
                     }
                 }
-                Vec::new()
+
             }
             _ => {
                 // "slashes" (default): flag multi-arg join calls
                 if arg_list.len() < 2 {
-                    return Vec::new();
+                    return;
                 }
                 // Skip if any arg contains multiple slashes
                 let has_multi_slash = arg_list.iter().any(|a| {
@@ -189,14 +190,14 @@ impl Cop for FilePath {
                     }
                 });
                 if has_multi_slash {
-                    return Vec::new();
+                    return;
                 }
-                vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Prefer `Rails.root.join('path/to')`.".to_string(),
-                )]
+                ));
             }
         }
     }

@@ -24,17 +24,18 @@ impl Cop for InterpolationCheck {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let string_node = match node.as_string_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Only check single-quoted strings.
         // opening_loc gives us the quote character (', ", %q{, etc.)
         let opening = match string_node.opening_loc() {
             Some(loc) => loc,
-            None => return Vec::new(), // bare string (heredoc body etc.)
+            None => return, // bare string (heredoc body etc.)
         };
 
         let open_slice = opening.as_slice();
@@ -43,7 +44,7 @@ impl Cop for InterpolationCheck {
             || open_slice.starts_with(b"%q");
 
         if !is_single_quoted {
-            return Vec::new();
+            return;
         }
 
         // Check the raw source content between quotes for #{...}
@@ -89,19 +90,19 @@ impl Cop for InterpolationCheck {
                     // Report at the #{ position
                     let interp_offset = content_loc.start_offset() + i;
                     let (line, column) = source.offset_to_line_col(interp_offset);
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Interpolation in single-quoted string detected. Did you mean to use double quotes?".to_string(),
-                    )];
+                    ));
+                    return;
                 }
                 break;
             }
             i += 1;
         }
 
-        Vec::new()
     }
 }
 

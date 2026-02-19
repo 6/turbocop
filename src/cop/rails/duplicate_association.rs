@@ -34,24 +34,24 @@ impl Cop for DuplicateAssociation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let class = match node.as_class_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Only check classes that inherit from ActiveRecord
         let parent = parent_class_name(source, &class);
         if let Some(parent_name) = parent {
             if !is_active_record_parent(parent_name) {
-                return Vec::new();
+                return;
             }
         } else {
             // No parent class at all — skip
-            return Vec::new();
+            return;
         }
 
-        let mut diagnostics = Vec::new();
         let calls = class_body_calls(&class);
 
         // Map from association name -> first occurrence line
@@ -87,7 +87,6 @@ impl Cop for DuplicateAssociation {
             }
         }
 
-        diagnostics
     }
 }
 

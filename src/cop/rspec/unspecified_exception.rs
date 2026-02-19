@@ -31,53 +31,54 @@ impl Cop for UnspecifiedException {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
 
         // Look for `.to` calls (not `.not_to` or `.to_not` — those are fine without args)
         if method_name != b"to" {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Walk the argument's call chain to find the root matcher
         let root = match find_root_call(&arg_list[0]) {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let root_name = root.name().as_slice();
         if root_name != b"raise_error" && root_name != b"raise_exception" {
-            return Vec::new();
+            return;
         }
 
         // Must have no receiver (standalone matcher call)
         if root.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Must have no arguments (specifying an exception class)
         if root.arguments().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Must have no block (braces: raise_error { |e| ... })
         if root.block().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Also check if the `.to` call has a block with arguments.
@@ -87,19 +88,19 @@ impl Cop for UnspecifiedException {
         if let Some(to_block) = call.block() {
             if let Some(block_node) = to_block.as_block_node() {
                 if block_node.parameters().is_some() {
-                    return Vec::new();
+                    return;
                 }
             }
         }
 
         let loc = root.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Specify the exception being captured.".to_string(),
-        )]
+        ));
     }
 }
 

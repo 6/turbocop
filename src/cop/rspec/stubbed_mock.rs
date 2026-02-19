@@ -32,27 +32,28 @@ impl Cop for StubbedMock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
 
         // We need this to be a `.to` call (or a chain ending in `.to`)
         if method_name != b"to" && method_name != b"not_to" && method_name != b"to_not" {
-            return Vec::new();
+            return;
         }
 
         // Check the argument for receive/receive_messages/receive_message_chain
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let matcher_name = root_matcher_name(&arg_list[0]);
@@ -62,21 +63,21 @@ impl Cop for StubbedMock {
                 has_response_in_chain(&arg_list[0]) || has_block_response(&call)
             }
             Some(b"receive_messages") | Some(b"receive_message_chain") => true,
-            _ => return Vec::new(),
+            _ => return,
         };
 
         if !has_response {
-            return Vec::new();
+            return;
         }
 
         // Get the receiver of `.to` — should be expect(...), is_expected, etc.
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
         let recv_call = match receiver.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_name = recv_call.name().as_slice();
@@ -85,30 +86,30 @@ impl Cop for StubbedMock {
 
         match recv_name {
             b"expect" if recv_call.receiver().is_none() => {
-                vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Prefer `allow` over `expect` when configuring a response.".to_string(),
-                )]
+                ));
             }
             b"expect_any_instance_of" if recv_call.receiver().is_none() => {
-                vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Prefer `allow_any_instance_of` over `expect_any_instance_of` when configuring a response.".to_string(),
-                )]
+                ));
             }
             b"is_expected" if recv_call.receiver().is_none() => {
-                vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Prefer `allow(subject)` over `is_expected` when configuring a response.".to_string(),
-                )]
+                ));
             }
-            _ => Vec::new(),
+            _ => {}
         }
     }
 }

@@ -205,17 +205,18 @@ impl Cop for DangerousColumnNames {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method = call.name().as_slice();
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
 
@@ -226,15 +227,15 @@ impl Cop for DangerousColumnNames {
             2
         } else if COLUMN_TYPE_METHODS.contains(&method) {
             if call.receiver().is_none() {
-                return Vec::new();
+                return;
             }
             0
         } else {
-            return Vec::new();
+            return;
         };
 
         if col_idx >= arg_list.len() {
-            return Vec::new();
+            return;
         }
 
         let col_name_node = &arg_list[col_idx];
@@ -245,21 +246,21 @@ impl Cop for DangerousColumnNames {
         } else if let Some(s) = col_name_node.as_string_node() {
             String::from_utf8_lossy(s.unescaped()).to_string()
         } else {
-            return Vec::new();
+            return;
         };
 
         if !DANGEROUS_NAMES.contains(col_name.as_str()) {
-            return Vec::new();
+            return;
         }
 
         let loc = col_name_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Avoid dangerous column names.".to_string(),
-        )]
+        ));
     }
 }
 

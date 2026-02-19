@@ -20,7 +20,8 @@ impl Cop for SymbolProc {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_methods_with_arguments = config.get_bool("AllowMethodsWithArguments", false);
         let allowed_methods = config.get_string_array("AllowedMethods");
         let _allowed_patterns = config.get_string_array("AllowedPatterns");
@@ -31,15 +32,15 @@ impl Cop for SymbolProc {
         // check AllowedMethods against the outer method name.
         let call_with_block = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block = match call_with_block.block() {
             Some(b) => match b.as_block_node() {
                 Some(bn) => bn,
-                None => return Vec::new(),
+                None => return,
             },
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check outer method name against AllowedMethods
@@ -47,7 +48,7 @@ impl Cop for SymbolProc {
         if let Some(ref allowed) = allowed_methods {
             if let Ok(name_str) = std::str::from_utf8(outer_method) {
                 if allowed.iter().any(|m| m == name_str) {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -55,28 +56,28 @@ impl Cop for SymbolProc {
         // Must have exactly one parameter
         let params = match block.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_params = match params.as_block_parameters_node() {
             Some(bp) => bp,
-            None => return Vec::new(),
+            None => return,
         };
 
         let param_node = match block_params.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let requireds: Vec<_> = param_node.requireds().iter().collect();
         if requireds.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let param_name = if let Some(rp) = requireds[0].as_required_parameter_node() {
             rp.name().as_slice().to_vec()
         } else {
-            return Vec::new();
+            return;
         };
 
         // Must have no rest, keyword, optional, or block params
@@ -86,41 +87,41 @@ impl Cop for SymbolProc {
             || param_node.keyword_rest().is_some()
             || param_node.block().is_some()
         {
-            return Vec::new();
+            return;
         }
 
         // Body must be a single method call on the parameter
         let body = match block.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body_nodes: Vec<_> = stmts.body().iter().collect();
         if body_nodes.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let call = match body_nodes[0].as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must not use safe navigation (&.) - can't convert to &:method
         if let Some(op) = call.call_operator_loc() {
             if op.as_slice() == b"&." {
-                return Vec::new();
+                return;
             }
         }
 
         // The receiver must be the block parameter
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let is_param = if let Some(lv) = receiver.as_local_variable_read_node() {
@@ -130,24 +131,24 @@ impl Cop for SymbolProc {
         };
 
         if !is_param {
-            return Vec::new();
+            return;
         }
 
         // Method must not have arguments (unless AllowMethodsWithArguments)
         if !allow_methods_with_arguments && call.arguments().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Must not have a block
         if call.block().is_some() {
-            return Vec::new();
+            return;
         }
 
         let method_name = call.name().as_slice();
 
         let loc = block.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
@@ -155,7 +156,7 @@ impl Cop for SymbolProc {
                 "Pass `&:{}` as an argument to the method instead of a block.",
                 String::from_utf8_lossy(method_name),
             ),
-        )]
+        ));
     }
 }
 

@@ -18,7 +18,8 @@ impl Cop for MultilineMethodCallIndentation {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "aligned");
         let width = config.get_usize("IndentationWidth", 2);
         let mut visitor = ChainVisitor {
@@ -31,7 +32,7 @@ impl Cop for MultilineMethodCallIndentation {
             in_hash_value: false,
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

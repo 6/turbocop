@@ -38,13 +38,14 @@ impl Cop for SharedExamples {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Config: EnforcedStyle — "string" (default) or "symbol"
         let enforced_style = config.get_str("EnforcedStyle", "string");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -61,13 +62,13 @@ impl Cop for SharedExamples {
         };
 
         if !is_shared {
-            return Vec::new();
+            return;
         }
 
         // Get the first argument — should be a string (default enforced style)
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         for arg in args.arguments().iter() {
@@ -81,12 +82,12 @@ impl Cop for SharedExamples {
                     let sym_name = str_val.replace(' ', "_");
                     let loc = s.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         format!("Prefer `:{sym_name}` over '{str_val}' to symbolize shared examples."),
-                    )];
+                    ));
                 }
             } else {
                 // Default "string" style: flag symbol arguments, prefer strings
@@ -95,7 +96,7 @@ impl Cop for SharedExamples {
                     let title = sym_name.replace('_', " ");
                     let loc = sym.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
@@ -103,13 +104,12 @@ impl Cop for SharedExamples {
                             "Prefer '{}' over `:{sym_name}` to titleize shared examples.",
                             title
                         ),
-                    )];
+                    ));
                 }
             }
             break;
         }
 
-        Vec::new()
     }
 }
 

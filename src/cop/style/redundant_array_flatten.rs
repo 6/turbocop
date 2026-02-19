@@ -20,55 +20,56 @@ impl Cop for RedundantArrayFlatten {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Looking for: x.flatten.join or x.flatten.join(nil)
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Outer call must be `join`
         if call.name().as_slice() != b"join" {
-            return Vec::new();
+            return;
         }
 
         // join must have 0 or 1 args, and if 1, it must be nil
         if let Some(args) = call.arguments() {
             let arg_list: Vec<_> = args.arguments().iter().collect();
             if arg_list.len() > 1 {
-                return Vec::new();
+                return;
             }
             if arg_list.len() == 1 && arg_list[0].as_nil_node().is_none() {
                 // Has a non-nil argument (separator) - then flatten is not redundant
-                return Vec::new();
+                return;
             }
         }
 
         // Receiver must be a call to `flatten` with a receiver
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_call = match receiver.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if recv_call.name().as_slice() != b"flatten" {
-            return Vec::new();
+            return;
         }
 
         // flatten must have a receiver (not bare `flatten`)
         if recv_call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         // flatten can have 0 or 1 args (depth), but not more
         if let Some(args) = recv_call.arguments() {
             let arg_list: Vec<_> = args.arguments().iter().collect();
             if arg_list.len() > 1 {
-                return Vec::new();
+                return;
             }
         }
 
@@ -80,12 +81,12 @@ impl Cop for RedundantArrayFlatten {
             msg_loc.start_offset()
         };
         let (line, column) = source.offset_to_line_col(dot_start);
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Remove the redundant `flatten`.".to_string(),
-        )]
+        ));
     }
 }
 

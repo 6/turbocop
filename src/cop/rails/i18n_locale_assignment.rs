@@ -25,34 +25,35 @@ impl Cop for I18nLocaleAssignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"locale=" {
-            return Vec::new();
+            return;
         }
 
         let recv = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Handle both ConstantReadNode (I18n) and ConstantPathNode (::I18n)
         if util::constant_name(&recv) != Some(b"I18n") {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `I18n.with_locale` instead of directly setting `I18n.locale`.".to_string(),
-        )]
+        ));
     }
 }
 

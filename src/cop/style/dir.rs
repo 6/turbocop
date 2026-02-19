@@ -39,21 +39,22 @@ impl Cop for Dir {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         if !is_file_const(&receiver) {
-            return Vec::new();
+            return;
         }
 
         // Pattern 1: File.expand_path(File.dirname(__FILE__))
@@ -71,12 +72,12 @@ impl Cop for Dir {
                                         if inner_arg_list.len() == 1 && is_file_keyword(&inner_arg_list[0]) {
                                             let loc = node.location();
                                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                            return vec![self.diagnostic(
+                                            diagnostics.push(self.diagnostic(
                                                 source,
                                                 line,
                                                 column,
                                                 "Use `__dir__` to get an absolute path to the current file's directory.".to_string(),
-                                            )];
+                                            ));
                                         }
                                     }
                                 }
@@ -102,12 +103,12 @@ impl Cop for Dir {
                                         if inner_arg_list.len() == 1 && is_file_keyword(&inner_arg_list[0]) {
                                             let loc = node.location();
                                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                            return vec![self.diagnostic(
+                                            diagnostics.push(self.diagnostic(
                                                 source,
                                                 line,
                                                 column,
                                                 "Use `__dir__` to get an absolute path to the current file's directory.".to_string(),
-                                            )];
+                                            ));
                                         }
                                     }
                                 }
@@ -118,7 +119,6 @@ impl Cop for Dir {
             }
         }
 
-        Vec::new()
     }
 }
 

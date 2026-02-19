@@ -28,30 +28,31 @@ impl Cop for ReversibleMigrationMethodDefinition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let class_node = match node.as_class_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         // Check if it inherits from a Migration class
         let superclass = match class_node.superclass() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
         let super_loc = superclass.location();
         let super_text = &source.as_bytes()[super_loc.start_offset()..super_loc.end_offset()];
         // Match ActiveRecord::Migration or ActiveRecord::Migration[x.y]
         if !super_text.starts_with(b"ActiveRecord::Migration") {
-            return Vec::new();
+            return;
         }
 
         let body = match class_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let mut has_up = false;
@@ -72,36 +73,35 @@ impl Cop for ReversibleMigrationMethodDefinition {
 
         // If has `change`, it's fine (reversible)
         if has_change {
-            return Vec::new();
+            return;
         }
 
         // If has `up` but not `down`, flag
         if has_up && !has_down {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Define both `up` and `down` methods, or use `change` for reversible migrations."
                     .to_string(),
-            )];
+            ));
         }
 
         // If has `down` but not `up`, also flag
         if has_down && !has_up {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Define both `up` and `down` methods, or use `change` for reversible migrations."
                     .to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

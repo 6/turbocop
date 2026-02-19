@@ -20,17 +20,18 @@ impl Cop for MultilineHashBraceLayout {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "symmetrical");
 
         // KeywordHashNode (keyword args `foo(a: 1)`) has no braces — skip
         if node.as_keyword_hash_node().is_some() {
-            return Vec::new();
+            return;
         }
 
         let hash = match node.as_hash_node() {
             Some(h) => h,
-            None => return Vec::new(),
+            None => return,
         };
 
         let opening = hash.opening_loc();
@@ -38,12 +39,12 @@ impl Cop for MultilineHashBraceLayout {
 
         // Only check brace hashes
         if opening.as_slice() != b"{" || closing.as_slice() != b"}" {
-            return Vec::new();
+            return;
         }
 
         let elements = hash.elements();
         if elements.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let (open_line, _) = source.offset_to_line_col(opening.start_offset());
@@ -59,7 +60,7 @@ impl Cop for MultilineHashBraceLayout {
 
         // Only check multiline hashes
         if open_line == close_line {
-            return Vec::new();
+            return;
         }
 
         let open_same_as_first = open_line == first_elem_line;
@@ -68,48 +69,47 @@ impl Cop for MultilineHashBraceLayout {
         match enforced_style {
             "symmetrical" => {
                 if open_same_as_first && !close_same_as_last {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         close_line,
                         close_col,
                         "Closing hash brace must be on the same line as the last hash element when opening brace is on the same line as the first hash element.".to_string(),
-                    )];
+                    ));
                 }
                 if !open_same_as_first && close_same_as_last {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         close_line,
                         close_col,
                         "Closing hash brace must be on the line after the last hash element when opening brace is on a separate line from the first hash element.".to_string(),
-                    )];
+                    ));
                 }
             }
             "new_line" => {
                 if close_same_as_last {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         close_line,
                         close_col,
                         "Closing hash brace must be on the line after the last hash element."
                             .to_string(),
-                    )];
+                    ));
                 }
             }
             "same_line" => {
                 if !close_same_as_last {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         close_line,
                         close_col,
                         "Closing hash brace must be on the same line as the last hash element."
                             .to_string(),
-                    )];
+                    ));
                 }
             }
             _ => {}
         }
 
-        Vec::new()
     }
 }
 

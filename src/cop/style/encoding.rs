@@ -9,8 +9,7 @@ impl Cop for Encoding {
         "Style/Encoding"
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
 
         // Only check the first 3 lines (line 1, optional shebang pushes encoding to line 2,
         // and possibly line 3 with multiple magic comments)
@@ -51,7 +50,6 @@ impl Cop for Encoding {
             }
         }
 
-        diagnostics
     }
 }
 

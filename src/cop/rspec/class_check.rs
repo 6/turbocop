@@ -29,10 +29,11 @@ impl Cop for ClassCheck {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method = call.name().as_slice();
@@ -47,19 +48,19 @@ impl Cop for ClassCheck {
                         if recv.as_call_node().is_none()
                             && util::constant_name(&recv).is_some()
                         {
-                            return Vec::new();
+                            return;
                         }
                     }
 
                     let method_str = std::str::from_utf8(method).unwrap_or("be_kind_of");
                     let loc = call.message_loc().unwrap_or_else(|| call.location());
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         format!("Prefer `be_a` over `{method_str}`."),
-                    )];
+                    ));
                 }
             }
             "be_kind_of" => {
@@ -69,25 +70,24 @@ impl Cop for ClassCheck {
                         if recv.as_call_node().is_none()
                             && util::constant_name(&recv).is_some()
                         {
-                            return Vec::new();
+                            return;
                         }
                     }
 
                     let method_str = std::str::from_utf8(method).unwrap_or("be_a");
                     let loc = call.message_loc().unwrap_or_else(|| call.location());
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         format!("Prefer `be_kind_of` over `{method_str}`."),
-                    )];
+                    ));
                 }
             }
             _ => {}
         }
 
-        Vec::new()
     }
 }
 

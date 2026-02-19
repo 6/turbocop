@@ -30,32 +30,32 @@ impl Cop for MetadataStyle {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
 
         if !is_rspec_example_group(method_name) && !is_rspec_example(method_name) {
-            return Vec::new();
+            return;
         }
 
         // Must be receiverless or RSpec.describe / ::RSpec.describe
         if let Some(recv) = call.receiver() {
             if util::constant_name(&recv).map_or(true, |n| n != b"RSpec") {
-                return Vec::new();
+                return;
             }
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let style = config.get_str("EnforcedStyle", "symbol");
-        let mut diagnostics = Vec::new();
 
         if style == "symbol" {
             // Flag `key: true` keyword args — should be `:key` symbol style
@@ -98,7 +98,6 @@ impl Cop for MetadataStyle {
             }
         }
 
-        diagnostics
     }
 }
 

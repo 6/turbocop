@@ -34,39 +34,40 @@ impl Cop for StringIdentifierArgument {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if !METHODS.iter().any(|&m| m == method_name) {
-            return Vec::new();
+            return;
         }
 
         let arguments = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = arguments.arguments();
         if args.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Check if first argument is a StringNode
         let first_arg = match args.iter().next() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         if first_arg.as_string_node().is_none() {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, "Use a symbol instead of a string for method identifier arguments.".to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, "Use a symbol instead of a string for method identifier arguments.".to_string()));
     }
 }
 

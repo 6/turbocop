@@ -24,28 +24,29 @@ impl Cop for Squeeze {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"gsub" {
-            return Vec::new();
+            return;
         }
 
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         let arguments = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = arguments.arguments();
         if args.len() != 2 {
-            return Vec::new();
+            return;
         }
 
         let mut iter = args.iter();
@@ -55,13 +56,13 @@ impl Cop for Squeeze {
         // First arg must be a regex of the form X+ (2 bytes: a single char followed by +)
         let regex_node = match first_arg.as_regular_expression_node() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let regex_content = regex_node.content_loc().as_slice();
         // Pattern must be exactly 2 bytes: one literal char + '+'
         if regex_content.len() != 2 || regex_content[1] != b'+' {
-            return Vec::new();
+            return;
         }
 
         let repeat_char = regex_content[0];
@@ -71,23 +72,23 @@ impl Cop for Squeeze {
             b'.' | b'*' | b'+' | b'?' | b'|' | b'(' | b')' | b'[' | b']' | b'{' | b'}'
                 | b'^' | b'$' | b'\\'
         ) {
-            return Vec::new();
+            return;
         }
 
         // Second arg must be a single-char string matching the same character
         let string_node = match second_arg.as_string_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let replacement = string_node.unescaped();
         if replacement.len() != 1 || replacement[0] != repeat_char {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, "Use `squeeze` instead of `gsub`.".to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, "Use `squeeze` instead of `gsub`.".to_string()));
     }
 }
 

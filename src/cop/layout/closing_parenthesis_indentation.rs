@@ -21,17 +21,19 @@ impl Cop for ClosingParenthesisIndentation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Handle method calls with parentheses
         if let Some(call) = node.as_call_node() {
             if let (Some(open_loc), Some(close_loc)) =
                 (call.opening_loc(), call.closing_loc())
             {
                 if close_loc.as_slice() == b")" {
-                    return check_parens(source, self, open_loc, close_loc, call.arguments(), config);
+                    diagnostics.extend(check_parens(source, self, open_loc, close_loc, call.arguments(), config));
+                    return;
                 }
             }
-            return Vec::new();
+            return;
         }
 
         // Handle method definitions with parenthesized parameters
@@ -41,13 +43,13 @@ impl Cop for ClosingParenthesisIndentation {
                 let lparen = def_node.lparen_loc();
                 let rparen = def_node.rparen_loc();
                 if let (Some(open_loc), Some(close_loc)) = (lparen, rparen) {
-                    return check_def_parens(source, self, open_loc, close_loc, params, config);
+                    diagnostics.extend(check_def_parens(source, self, open_loc, close_loc, params, config));
+                    return;
                 }
             }
-            return Vec::new();
+            return;
         }
 
-        Vec::new()
     }
 }
 

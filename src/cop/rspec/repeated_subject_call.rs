@@ -31,32 +31,33 @@ impl Cop for RepeatedSubjectCall {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for example blocks (it/specify/etc.)
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = call.name().as_slice();
         if !is_rspec_example(name) {
-            return Vec::new();
+            return;
         }
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Find all `subject` calls in the example body, tracking which are in blocks
@@ -64,17 +65,16 @@ impl Cop for RepeatedSubjectCall {
         collect_subject_calls(source, &body, false, false, &mut subject_calls);
 
         if subject_calls.len() <= 1 {
-            return Vec::new();
+            return;
         }
 
         // Only flag if at least one call is inside a block
         let has_block_call = subject_calls.iter().any(|(_, _, in_block)| *in_block);
         if !has_block_call {
-            return Vec::new();
+            return;
         }
 
         // Flag all block calls after the first subject reference
-        let mut diagnostics = Vec::new();
         let mut seen_first = false;
         for &(line, col, in_block) in &subject_calls {
             if !seen_first {
@@ -91,7 +91,6 @@ impl Cop for RepeatedSubjectCall {
             }
         }
 
-        diagnostics
     }
 }
 

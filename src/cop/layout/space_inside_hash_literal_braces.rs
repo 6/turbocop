@@ -20,12 +20,13 @@ impl Cop for SpaceInsideHashLiteralBraces {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Note: keyword_hash_node (keyword args like `foo(a: 1)`) intentionally not
         // handled — this cop only applies to hash literals with `{ }` braces.
         let hash = match node.as_hash_node() {
             Some(h) => h,
-            None => return Vec::new(),
+            None => return,
         };
 
         let opening = hash.opening_loc();
@@ -33,7 +34,7 @@ impl Cop for SpaceInsideHashLiteralBraces {
 
         // Only check hash literals with { }
         if opening.as_slice() != b"{" || closing.as_slice() != b"}" {
-            return Vec::new();
+            return;
         }
 
         let bytes = source.as_bytes();
@@ -47,14 +48,15 @@ impl Cop for SpaceInsideHashLiteralBraces {
             match empty_style {
                 "space" => {
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Space inside empty hash literal braces missing.".to_string(),
-                    )];
+                    ));
+                    return;
                 }
-                _ => return Vec::new(),
+                _ => return,
             }
         }
         // Check for { } (empty with space)
@@ -62,14 +64,15 @@ impl Cop for SpaceInsideHashLiteralBraces {
             match empty_style {
                 "no_space" => {
                     let (line, column) = source.offset_to_line_col(open_end);
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Space inside empty hash literal braces detected.".to_string(),
-                    )];
+                    ));
+                    return;
                 }
-                _ => return Vec::new(),
+                _ => return,
             }
         }
 
@@ -77,12 +80,11 @@ impl Cop for SpaceInsideHashLiteralBraces {
         let (open_line, _) = source.offset_to_line_col(opening.start_offset());
         let (close_line, _) = source.offset_to_line_col(closing.start_offset());
         if open_line != close_line {
-            return Vec::new();
+            return;
         }
 
         let enforced = config.get_str("EnforcedStyle", "space");
 
-        let mut diagnostics = Vec::new();
 
         let space_after_open = bytes.get(open_end) == Some(&b' ');
         let space_before_close = close_start > 0 && bytes.get(close_start - 1) == Some(&b' ');
@@ -131,7 +133,6 @@ impl Cop for SpaceInsideHashLiteralBraces {
             _ => {}
         }
 
-        diagnostics
     }
 }
 

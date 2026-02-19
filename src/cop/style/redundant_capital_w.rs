@@ -20,18 +20,19 @@ impl Cop for RedundantCapitalW {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let loc = node.location();
         let src_bytes = loc.as_slice();
 
         // Only check array nodes whose source starts with %W
         if !src_bytes.starts_with(b"%W") {
-            return Vec::new();
+            return;
         }
 
         // Must be an array node
         if node.as_array_node().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Check if any element contains interpolation or special escape sequences
@@ -42,16 +43,15 @@ impl Cop for RedundantCapitalW {
 
             if !has_interpolation && !has_escape {
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Do not use `%W` unless interpolation is needed. If not, use `%w`.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

@@ -29,26 +29,27 @@ impl Cop for DocumentDynamicEvalDefinition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
         if !EVAL_METHODS.contains(&method_name) {
-            return Vec::new();
+            return;
         }
 
         // Check if the first argument is a string/heredoc with interpolation
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let first_arg = &arg_list[0];
@@ -56,13 +57,13 @@ impl Cop for DocumentDynamicEvalDefinition {
         // Check for interpolated string
         let interp = match first_arg.as_interpolated_string_node() {
             Some(i) => i,
-            None => return Vec::new(),
+            None => return,
         };
 
         let has_interpolation = interp.parts().iter().any(|p| p.as_embedded_statements_node().is_some());
 
         if !has_interpolation {
-            return Vec::new();
+            return;
         }
 
         // Check if there are inline comments documenting the eval.
@@ -80,7 +81,7 @@ impl Cop for DocumentDynamicEvalDefinition {
                             // Verify the # is not part of an interpolation marker
                             let after_hash = &line[pos + 2..];
                             if !after_hash.starts_with('{') {
-                                return Vec::new();
+                                return;
                             }
                         }
                     }
@@ -99,7 +100,7 @@ impl Cop for DocumentDynamicEvalDefinition {
                     // Verify this is a real comment, not # followed by { (interpolation)
                     let after_hash = &line[pos + 2..];
                     if !after_hash.starts_with('{') {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
@@ -111,12 +112,12 @@ impl Cop for DocumentDynamicEvalDefinition {
             call.location()
         };
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Add a comment block showing its appearance if interpolated.".to_string(),
-        )]
+        ));
     }
 }
 

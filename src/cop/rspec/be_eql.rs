@@ -29,46 +29,47 @@ impl Cop for BeEql {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Detect eql(true), eql(false), eql(nil), eql(integer), eql(float), eql(:symbol)
         // Suggest using `be` instead. Only flags positive expectations (`.to`).
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if method_name != b"to" {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let eql_call = match arg_list[0].as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if eql_call.name().as_slice() != b"eql" || eql_call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let eql_args = match eql_call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let eql_arg_list: Vec<_> = eql_args.arguments().iter().collect();
         if eql_arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let arg = &eql_arg_list[0];
@@ -80,17 +81,17 @@ impl Cop for BeEql {
             || arg.as_symbol_node().is_some();
 
         if !is_primitive {
-            return Vec::new();
+            return;
         }
 
         let loc = eql_call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Prefer `be` over `eql`.".to_string(),
-        )]
+        ));
     }
 }
 

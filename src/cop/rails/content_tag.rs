@@ -24,36 +24,37 @@ impl Cop for ContentTag {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // RuboCop's ContentTag checks legacy `tag()` calls, NOT `content_tag()`.
         // RESTRICT_ON_SEND = [:tag]
         if call.name().as_slice() != b"tag" {
-            return Vec::new();
+            return;
         }
 
         // Must be a receiverless call
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // RuboCop: return if node.arguments.count >= 3
         if arg_list.len() >= 3 {
-            return Vec::new();
+            return;
         }
 
         let first_arg = &arg_list[0];
@@ -66,25 +67,25 @@ impl Cop for ContentTag {
             sym.unescaped().to_vec()
         } else {
             // Not a literal string/symbol — skip (variable, send, const, splat, etc.)
-            return Vec::new();
+            return;
         };
 
         // Must be a valid HTML tag name: starts with letter, only letters/digits/hyphens
         if !is_valid_tag_name(&tag_name) {
-            return Vec::new();
+            return;
         }
 
         let tag_name_str = String::from_utf8_lossy(&tag_name);
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!(
                 "Use `tag.{tag_name_str}` instead of `tag(:{tag_name_str})`."
             ),
-        )]
+        ));
     }
 }
 

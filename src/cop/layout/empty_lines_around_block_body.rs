@@ -21,33 +21,34 @@ impl Cop for EmptyLinesAroundBlockBody {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "no_empty_lines");
         let block_node = match node.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         match style {
             "empty_lines" => {
                 // Require empty lines at beginning and end of block body
-                util::check_missing_empty_lines_around_body(
+                diagnostics.extend(util::check_missing_empty_lines_around_body(
                     self.name(),
                     source,
                     block_node.opening_loc().start_offset(),
                     block_node.closing_loc().start_offset(),
                     "block",
-                )
+                ));
             }
             _ => {
                 // "no_empty_lines" (default): flag extra empty lines
-                util::check_empty_lines_around_body(
+                diagnostics.extend(util::check_empty_lines_around_body(
                     self.name(),
                     source,
                     block_node.opening_loc().start_offset(),
                     block_node.closing_loc().start_offset(),
                     "block",
-                )
+                ));
             }
         }
     }

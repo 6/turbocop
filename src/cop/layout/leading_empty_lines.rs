@@ -9,22 +9,21 @@ impl Cop for LeadingEmptyLines {
         "Layout/LeadingEmptyLines"
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let bytes = source.as_bytes();
         if bytes.is_empty() {
-            return Vec::new();
+            return;
         }
 
         if bytes[0] == b'\n' {
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 1,
                 0,
                 "Unnecessary blank line at the beginning of the source.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 
@@ -42,7 +41,8 @@ mod tests {
     #[test]
     fn empty_file() {
         let source = SourceFile::from_bytes("test.rb", b"".to_vec());
-        let diags = LeadingEmptyLines.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        LeadingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty());
     }
 }

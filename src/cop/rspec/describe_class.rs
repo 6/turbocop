@@ -31,20 +31,19 @@ impl Cop for DescribeClass {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let program = match node.as_program_node() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = program.statements();
-        let mut diagnostics = Vec::new();
 
         for stmt in stmts.body().iter() {
-            check_top_level_describe(self, source, &stmt, &mut diagnostics, config);
+            check_top_level_describe(self, source, &stmt, diagnostics, config);
         }
 
-        diagnostics
     }
 }
 

@@ -31,7 +31,8 @@ impl Cop for NamedSubject {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "always");
         let named_only = style == "named_only";
         // Config: IgnoreSharedExamples — skip shared example groups
@@ -52,7 +53,7 @@ impl Cop for NamedSubject {
             diags: Vec::new(),
         };
         finder.visit(&parse_result.node());
-        finder.diags
+        diagnostics.extend(finder.diags);
     }
 }
 

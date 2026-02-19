@@ -25,14 +25,15 @@ impl Cop for RootJoinChain {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"join" {
-            return Vec::new();
+            return;
         }
 
         // Don't flag if this join is itself a receiver of another join (wait for the outermost)
@@ -41,31 +42,31 @@ impl Cop for RootJoinChain {
 
         let recv = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // The receiver should be another .join call
         let recv_call = match recv.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         if recv_call.name().as_slice() != b"join" {
-            return Vec::new();
+            return;
         }
 
         // Walk the chain to find if it originates from Rails.root or Rails.public_path
         if !chain_starts_with_rails_root(recv_call) {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use a single `join` with multiple arguments instead of chaining.".to_string(),
-        )]
+        ));
     }
 }
 

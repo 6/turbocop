@@ -31,24 +31,25 @@ impl Cop for VerifiedDoubles {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Config: IgnoreNameless — ignore doubles without a name argument
         let ignore_nameless = config.get_bool("IgnoreNameless", true);
         // Config: IgnoreSymbolicNames — ignore doubles with symbolic names
         let ignore_symbolic = config.get_bool("IgnoreSymbolicNames", false);
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if method_name != b"double" && method_name != b"spy" {
-            return Vec::new();
+            return;
         }
 
         // Must be receiverless
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Check arguments for name
@@ -67,27 +68,27 @@ impl Cop for VerifiedDoubles {
 
         // IgnoreNameless: skip doubles without a name argument
         if ignore_nameless && !has_name_arg {
-            return Vec::new();
+            return;
         }
 
         // IgnoreSymbolicNames: skip doubles with symbolic names
         if ignore_symbolic && is_symbolic {
-            return Vec::new();
+            return;
         }
 
         // Name must be a string or symbol to flag
         if has_name_arg && !is_string && !is_symbolic {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Prefer using verifying doubles over normal doubles.".to_string(),
-        )]
+        ));
     }
 }
 

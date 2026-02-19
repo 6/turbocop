@@ -16,11 +16,11 @@ impl Cop for Tab {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_named_tabs = config.get_bool("AllowNamedTabs", false);
         let _ = allow_named_tabs; // TODO: implement named tab handling
 
-        let mut diagnostics = Vec::new();
         let mut byte_offset: usize = 0;
 
         for (i, line) in source.lines().enumerate() {
@@ -39,7 +39,6 @@ impl Cop for Tab {
             }
             byte_offset += line_len;
         }
-        diagnostics
     }
 }
 

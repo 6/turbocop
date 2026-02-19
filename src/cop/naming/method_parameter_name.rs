@@ -24,7 +24,8 @@ impl Cop for MethodParameterName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let min_length = config.get_usize("MinNameLength", 3);
         let _allow_numbers = config.get_bool("AllowNamesEndingInNumbers", true);
         let allowed_names = config.get_string_array("AllowedNames");
@@ -32,25 +33,23 @@ impl Cop for MethodParameterName {
 
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params = match def_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let allowed: Vec<String> = allowed_names.unwrap_or_else(|| {
             DEFAULT_ALLOWED.iter().map(|s| s.to_string()).collect()
         });
 
-        let mut diagnostics = Vec::new();
-
         // Check required parameters
         for param in params.requireds().iter() {
             if let Some(req) = param.as_required_parameter_node() {
                 let name = req.name().as_slice();
-                check_param(self, source, name, &req.location(), min_length, &allowed, &mut diagnostics);
+                check_param(self, source, name, &req.location(), min_length, &allowed, diagnostics);
             }
         }
 
@@ -58,7 +57,7 @@ impl Cop for MethodParameterName {
         for param in params.optionals().iter() {
             if let Some(opt) = param.as_optional_parameter_node() {
                 let name = opt.name().as_slice();
-                check_param(self, source, name, &opt.name_loc(), min_length, &allowed, &mut diagnostics);
+                check_param(self, source, name, &opt.name_loc(), min_length, &allowed, diagnostics);
             }
         }
 
@@ -72,7 +71,7 @@ impl Cop for MethodParameterName {
                 } else {
                     name
                 };
-                check_param(self, source, clean_name, &kw.name_loc(), min_length, &allowed, &mut diagnostics);
+                check_param(self, source, clean_name, &kw.name_loc(), min_length, &allowed, diagnostics);
             }
             if let Some(kw) = param.as_optional_keyword_parameter_node() {
                 let name = kw.name().as_slice();
@@ -81,11 +80,10 @@ impl Cop for MethodParameterName {
                 } else {
                     name
                 };
-                check_param(self, source, clean_name, &kw.name_loc(), min_length, &allowed, &mut diagnostics);
+                check_param(self, source, clean_name, &kw.name_loc(), min_length, &allowed, diagnostics);
             }
         }
 
-        diagnostics
     }
 }
 

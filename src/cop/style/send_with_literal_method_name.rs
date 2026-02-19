@@ -20,12 +20,13 @@ impl Cop for SendWithLiteralMethodName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_send = config.get_bool("AllowSend", true);
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = call.name().as_slice();
@@ -37,17 +38,17 @@ impl Cop for SendWithLiteralMethodName {
             || (!allow_send && (name == b"__send__" || name == b"send"));
 
         if !is_target {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // First argument must be a static symbol or string with a valid method name.
@@ -65,17 +66,17 @@ impl Cop for SendWithLiteralMethodName {
         };
 
         if !is_valid_literal {
-            return Vec::new();
+            return;
         }
 
         let loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use a direct method call instead of `send` with a literal method name.".to_string(),
-        )]
+        ));
     }
 }
 

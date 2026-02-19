@@ -20,12 +20,13 @@ impl Cop for ReturnNil {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "return");
 
         let ret_node = match node.as_return_node() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         match enforced_style {
@@ -36,12 +37,12 @@ impl Cop for ReturnNil {
                     if arg_list.len() == 1 && arg_list[0].as_nil_node().is_some() {
                         let loc = node.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Use `return` instead of `return nil`.".to_string(),
-                        )];
+                        ));
                     }
                 }
             }
@@ -50,18 +51,17 @@ impl Cop for ReturnNil {
                 if ret_node.arguments().is_none() {
                     let loc = node.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use `return nil` instead of `return`.".to_string(),
-                    )];
+                    ));
                 }
             }
             _ => {}
         }
 
-        Vec::new()
     }
 }
 

@@ -39,26 +39,27 @@ impl Cop for TrailingCommaInArguments {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call_node = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let closing_loc = match call_node.closing_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arguments = match call_node.arguments() {
             Some(args) => args,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list = arguments.arguments();
         let last_arg = match arg_list.last() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let last_end = last_arg.location().end_offset();
@@ -69,7 +70,7 @@ impl Cop for TrailingCommaInArguments {
         // The comma before &block is a separator, not a trailing comma.
         if let Some(block) = call_node.block() {
             if block.as_block_argument_node().is_some() {
-                return Vec::new();
+                return;
             }
         }
 
@@ -77,7 +78,7 @@ impl Cop for TrailingCommaInArguments {
         // Ensure only whitespace surrounds the comma — reject ranges that contain
         // heredoc content or other code (which may have incidental commas).
         if last_end >= closing_start || closing_start > bytes.len() {
-            return Vec::new();
+            return;
         }
         let search_range = &bytes[last_end..closing_start];
         let has_comma = is_only_whitespace_and_comma(search_range);
@@ -91,13 +92,13 @@ impl Cop for TrailingCommaInArguments {
             "comma" | "consistent_comma" => {
                 if is_multiline && !has_comma {
                     let (line, column) = source.offset_to_line_col(last_end);
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Put a comma after the last parameter of a multiline method call."
                             .to_string(),
-                    )];
+                    ));
                 }
             }
             _ => {
@@ -107,18 +108,17 @@ impl Cop for TrailingCommaInArguments {
                     {
                         let abs_offset = last_end + comma_offset;
                         let (line, column) = source.offset_to_line_col(abs_offset);
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Avoid comma after the last parameter of a method call.".to_string(),
-                        )];
+                        ));
                     }
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

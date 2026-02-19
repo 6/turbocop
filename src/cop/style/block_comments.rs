@@ -9,8 +9,7 @@ impl Cop for BlockComments {
         "Style/BlockComments"
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         for (i, line) in source.lines().enumerate() {
             // =begin must be at the start of a line
             if line.starts_with(b"=begin") && (line.len() == 6 || line[6].is_ascii_whitespace()) {
@@ -22,7 +21,6 @@ impl Cop for BlockComments {
                 ));
             }
         }
-        diagnostics
     }
 }
 

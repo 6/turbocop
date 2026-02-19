@@ -20,7 +20,8 @@ impl Cop for Caller {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Pattern 1: caller.first or caller[n]
         if let Some(chain) = as_method_chain(node) {
             if chain.inner_method == b"caller" && chain.inner_call.receiver().is_none() {
@@ -29,13 +30,12 @@ impl Cop for Caller {
                     if chain.outer_method == b"first" || chain.outer_method == b"[]" {
                         let loc = node.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(source, line, column, "Use `caller(n..n).first` instead of `caller.first` or `caller[n]`.".to_string())];
+                        diagnostics.push(self.diagnostic(source, line, column, "Use `caller(n..n).first` instead of `caller.first` or `caller[n]`.".to_string()));
                     }
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

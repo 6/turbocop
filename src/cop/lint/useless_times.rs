@@ -24,36 +24,37 @@ impl Cop for UselessTimes {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for `N.times` where N is 0, 1, or negative
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"times" {
-            return Vec::new();
+            return;
         }
 
         // Must have no arguments (times takes no args)
         if call.arguments().is_some() {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if the receiver is an integer literal 0 or 1
         let recv_value = get_integer_value(&receiver, source);
         let value = match recv_value {
             Some(v) => v,
-            None => return Vec::new(),
+            None => return,
         };
 
         if value > 1 {
-            return Vec::new();
+            return;
         }
 
         // Get the display text for the number
@@ -66,7 +67,7 @@ impl Cop for UselessTimes {
         // Find the end of `.times`
         let msg_loc = match call.message_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let start = call.location().start_offset();
@@ -79,12 +80,12 @@ impl Cop for UselessTimes {
         // Use the full call range for the offense
         let _full_src = &source.as_bytes()[start..report_end];
 
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Useless call to `{}.times` detected.", recv_text),
-        )]
+        ));
     }
 }
 

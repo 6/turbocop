@@ -29,36 +29,37 @@ impl Cop for BeEmpty {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for `.to contain_exactly` (no args) or `.to match_array([])`
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if method_name != b"to" && method_name != b"not_to" && method_name != b"to_not" {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let first_arg = &arg_list[0];
         let matcher_call = match first_arg.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if matcher_call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let matcher_name = matcher_call.name().as_slice();
@@ -89,15 +90,14 @@ impl Cop for BeEmpty {
         if is_offense {
             let loc = matcher_call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Use `be_empty` matchers for checking an empty array.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

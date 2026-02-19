@@ -33,35 +33,36 @@ impl Cop for FactoryAssociationWithStrategy {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Match on CallNode for `factory` or `trait`
         let outer_call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method = outer_call.name().as_slice();
         if method != b"factory" && method != b"trait" {
-            return Vec::new();
+            return;
         }
 
         if outer_call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let block = match outer_call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Walk the body looking for attribute blocks with hardcoded strategy calls
@@ -72,7 +73,7 @@ impl Cop for FactoryAssociationWithStrategy {
         };
         finder.visit(&body);
 
-        finder.diagnostics
+        diagnostics.extend(finder.diagnostics);
     }
 }
 

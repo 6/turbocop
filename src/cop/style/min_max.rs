@@ -20,43 +20,44 @@ impl Cop for MinMax {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let array_node = match node.as_array_node() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let elements: Vec<_> = array_node.elements().iter().collect();
         if elements.len() != 2 {
-            return Vec::new();
+            return;
         }
 
         // First element must be receiver.min
         let min_recv_src = match get_receiver_of_method(&elements[0], b"min", source) {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Second element must be receiver.max (same receiver)
         let max_recv_src = match get_receiver_of_method(&elements[1], b"max", source) {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Receivers must be the same
         if min_recv_src != max_recv_src || min_recv_src.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let loc = array_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         let array_src = std::str::from_utf8(loc.as_slice()).unwrap_or("...");
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `{}.minmax` instead of `{}`.", min_recv_src, array_src),
-        )]
+        ));
     }
 }
 

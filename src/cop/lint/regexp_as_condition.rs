@@ -24,22 +24,23 @@ impl Cop for RegexpAsCondition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // MatchLastLineNode is what Prism creates for bare regexp in conditions
         let match_node = match node.as_match_last_line_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let loc = match_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Do not use regexp literal as a condition. The regexp literal matches `$_` implicitly."
                 .to_string(),
-        )]
+        ));
     }
 }
 

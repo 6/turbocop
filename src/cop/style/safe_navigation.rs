@@ -226,7 +226,8 @@ impl Cop for SafeNavigation {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::cop::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let max_chain_length = config.get_usize("MaxChainLength", 2);
         let _convert_nil = config.get_bool("ConvertCodeThatCanStartToReturnNil", false);
         let allowed_methods = config.get_string_array("AllowedMethods")
@@ -241,7 +242,7 @@ impl Cop for SafeNavigation {
             in_unsafe_parent: 0,
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

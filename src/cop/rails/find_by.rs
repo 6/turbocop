@@ -20,39 +20,40 @@ impl Cop for FindBy {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let ignore_where_first = config.get_bool("IgnoreWhereFirst", true);
 
         let chain = match as_method_chain(node) {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let is_first = chain.outer_method == b"first";
         let is_take = chain.outer_method == b"take";
 
         if !is_first && !is_take {
-            return Vec::new();
+            return;
         }
 
         if chain.inner_method != b"where" {
-            return Vec::new();
+            return;
         }
 
         // IgnoreWhereFirst: when true, skip `where(...).first`
         if ignore_where_first && is_first {
-            return Vec::new();
+            return;
         }
 
         let method_name = if is_first { "first" } else { "take" };
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `find_by` instead of `where.{method_name}`."),
-        )]
+        ));
     }
 }
 

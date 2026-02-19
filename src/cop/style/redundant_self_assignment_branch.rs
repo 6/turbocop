@@ -20,12 +20,13 @@ impl Cop for RedundantSelfAssignmentBranch {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for: x = if cond; expr; else; x; end
         // or: x = cond ? expr : x
         let write = match node.as_local_variable_write_node() {
             Some(w) => w,
-            None => return Vec::new(),
+            None => return,
         };
 
         let var_name = write.name().as_slice();
@@ -33,15 +34,14 @@ impl Cop for RedundantSelfAssignmentBranch {
 
         // Check if value is an if/ternary
         if let Some(if_node) = value.as_if_node() {
-            return self.check_if_branch(source, node, &if_node, var_name);
+            diagnostics.extend(self.check_if_branch(source, node, &if_node, var_name));
         }
 
         // Check case expression
         if let Some(case_node) = value.as_case_node() {
-            return self.check_case_branch(source, node, &case_node, var_name);
+            diagnostics.extend(self.check_case_branch(source, node, &case_node, var_name));
         }
 
-        Vec::new()
     }
 }
 

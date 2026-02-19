@@ -47,10 +47,11 @@ impl Cop for ClassLength {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let class_node = match node.as_class_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let max = config.get_usize("Max", 100);
@@ -83,15 +84,14 @@ impl Cop for ClassLength {
 
         if count > max {
             let (line, column) = source.offset_to_line_col(start_offset);
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Class has too many lines. [{count}/{max}]"),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

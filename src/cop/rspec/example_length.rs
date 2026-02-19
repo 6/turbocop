@@ -29,24 +29,25 @@ impl Cop for ExampleLength {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if !is_rspec_example(method_name) {
-            return Vec::new();
+            return;
         }
 
         // Must have a block
         let block = match call.block() {
             Some(b) => match b.as_block_node() {
                 Some(bn) => bn,
-                None => return Vec::new(),
+                None => return,
             },
-            None => return Vec::new(),
+            None => return,
         };
 
         let max = config.get_usize("Max", 5);
@@ -77,14 +78,13 @@ impl Cop for ExampleLength {
         if adjusted > max {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Example has too many lines. [{adjusted}/{max}]"),
-            )]
-        } else {
-            Vec::new()
+            ));
+
         }
     }
 }

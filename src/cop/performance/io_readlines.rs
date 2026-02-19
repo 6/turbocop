@@ -26,37 +26,38 @@ impl Cop for IoReadlines {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let chain = match as_method_chain(node) {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if chain.inner_method != b"readlines" {
-            return Vec::new();
+            return;
         }
 
         if chain.outer_method != b"each" && chain.outer_method != b"map" {
-            return Vec::new();
+            return;
         }
 
         // Check that the inner call's receiver is IO or File
         let receiver = match chain.inner_call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let class_name = match constant_name(&receiver) {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
         if class_name != b"IO" && class_name != b"File" {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, "Use `IO.foreach` instead of `IO.readlines.each`.".to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, "Use `IO.foreach` instead of `IO.readlines.each`.".to_string()));
     }
 }
 

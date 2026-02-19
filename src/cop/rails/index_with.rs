@@ -210,7 +210,8 @@ impl Cop for IndexWith {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Pattern 1: items.map { |e| [e, value] }.to_h
         if let Some(chain) = util::as_method_chain(node) {
             if chain.outer_method == b"to_h"
@@ -221,12 +222,12 @@ impl Cop for IndexWith {
                         if is_index_with_block(&block_node) {
                             let loc = node.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            return vec![self.diagnostic(
+                            diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 "Use `index_with` instead of `map { ... }.to_h`.".to_string(),
-                            )];
+                            ));
                         }
                     }
                 }
@@ -235,7 +236,7 @@ impl Cop for IndexWith {
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Pattern 2: items.to_h { |e| [e, value] }
@@ -245,12 +246,12 @@ impl Cop for IndexWith {
                     if is_index_with_block(&block_node) {
                         let loc = node.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Use `index_with` instead of `to_h { ... }`.".to_string(),
-                        )];
+                        ));
                     }
                 }
             }
@@ -263,12 +264,12 @@ impl Cop for IndexWith {
                     if is_each_with_object_index_with(&call, &block_node) {
                         let loc = node.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Use `index_with` instead of `each_with_object`.".to_string(),
-                        )];
+                        ));
                     }
                 }
             }
@@ -289,12 +290,12 @@ impl Cop for IndexWith {
                                             if is_index_with_block(&block_node) {
                                                 let loc = node.location();
                                                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                                return vec![self.diagnostic(
+                                                diagnostics.push(self.diagnostic(
                                                     source,
                                                     line,
                                                     column,
                                                     "Use `index_with` instead of `Hash[map { ... }]`.".to_string(),
-                                                )];
+                                                ));
                                             }
                                         }
                                     }
@@ -306,7 +307,6 @@ impl Cop for IndexWith {
             }
         }
 
-        Vec::new()
     }
 }
 

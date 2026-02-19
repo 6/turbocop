@@ -20,22 +20,23 @@ impl Cop for IfUnlessModifierOfIfUnless {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check modifier `if`
         if let Some(if_node) = node.as_if_node() {
             // Must be modifier form (no end keyword)
             if if_node.end_keyword_loc().is_some() {
-                return Vec::new();
+                return;
             }
 
             let kw_loc = match if_node.if_keyword_loc() {
                 Some(loc) => loc,
-                None => return Vec::new(), // ternary
+                None => return, // ternary
             };
 
             let kw_bytes = kw_loc.as_slice();
             if kw_bytes != b"if" {
-                return Vec::new();
+                return;
             }
 
             // Check if the body is a conditional
@@ -44,12 +45,12 @@ impl Cop for IfUnlessModifierOfIfUnless {
                 if body.len() == 1 && is_conditional(&body[0]) {
                     let keyword = "if";
                     let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         format!("Avoid modifier `{}` after another conditional.", keyword),
-                    )];
+                    ));
                 }
             }
         }
@@ -58,30 +59,29 @@ impl Cop for IfUnlessModifierOfIfUnless {
         if let Some(unless_node) = node.as_unless_node() {
             // Must be modifier form (no end keyword)
             if unless_node.end_keyword_loc().is_some() {
-                return Vec::new();
+                return;
             }
 
             let kw_loc = unless_node.keyword_loc();
 
             if kw_loc.as_slice() != b"unless" {
-                return Vec::new();
+                return;
             }
 
             if let Some(stmts) = unless_node.statements() {
                 let body: Vec<_> = stmts.body().iter().collect();
                 if body.len() == 1 && is_conditional(&body[0]) {
                     let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Avoid modifier `unless` after another conditional.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

@@ -86,21 +86,22 @@ impl Cop for TrailingMethodEndStatement {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Skip endless methods (def foo = ...)
         if def_node.equal_loc().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Must have a body
         let body = match def_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be multiline
@@ -108,27 +109,26 @@ impl Cop for TrailingMethodEndStatement {
         let (def_start_line, _) = source.offset_to_line_col(def_loc.start_offset());
         let end_loc = match def_node.end_keyword_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
         let (end_line, end_column) = source.offset_to_line_col(end_loc.start_offset());
 
         if def_start_line == end_line {
-            return Vec::new();
+            return;
         }
 
         // Check if body's last content line == end line
         let last_line = body_last_line(source, &body);
 
         if last_line == end_line {
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 end_line,
                 end_column,
                 "Place the end statement of a multi-line method on its own line.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

@@ -44,20 +44,21 @@ impl Cop for StructNewOverride {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"new" {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be Struct
         let recv = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let is_struct = if let Some(const_read) = recv.as_constant_read_node() {
@@ -72,15 +73,14 @@ impl Cop for StructNewOverride {
         };
 
         if !is_struct {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
         let arg_list: Vec<_> = args.arguments().iter().collect();
 
         for (index, arg) in arg_list.iter().enumerate() {
@@ -117,7 +117,6 @@ impl Cop for StructNewOverride {
             }
         }
 
-        diagnostics
     }
 }
 

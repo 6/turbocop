@@ -153,7 +153,8 @@ impl Cop for WhereMissing {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // We look for a method chain that contains both:
         // 1. left_joins(:assoc) or left_outer_joins(:assoc)
         // 2. where(assoc_table: { id: nil })
@@ -161,7 +162,7 @@ impl Cop for WhereMissing {
 
         let chain = collect_chain_info(node);
         if chain.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Only process this node if it's the outermost call in the chain.
@@ -179,10 +180,9 @@ impl Cop for WhereMissing {
             .collect();
 
         if left_joins_info.is_empty() {
-            return Vec::new();
+            return;
         }
 
-        let mut diagnostics = Vec::new();
 
         for (lj_idx, assoc_name) in &left_joins_info {
             // Build both singular and plural table names for matching
@@ -226,7 +226,6 @@ impl Cop for WhereMissing {
             }
         }
 
-        diagnostics
     }
 }
 

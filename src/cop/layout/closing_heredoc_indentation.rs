@@ -18,7 +18,8 @@ impl Cop for ClosingHeredocIndentation {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let mut visitor = HeredocVisitor {
             cop: self,
             source,
@@ -26,7 +27,7 @@ impl Cop for ClosingHeredocIndentation {
             call_indent_stack: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

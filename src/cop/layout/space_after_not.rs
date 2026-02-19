@@ -20,19 +20,20 @@ impl Cop for SpaceAfterNot {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // CallNode with method name "!" and a receiver
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         if call.name().as_slice() != b"!" || call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
         // Check if there's a space between ! and the receiver
         let bang_loc = match call.message_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
         let bang_end = bang_loc.end_offset();
         let recv_start = call.receiver().unwrap().location().start_offset();
@@ -40,15 +41,14 @@ impl Cop for SpaceAfterNot {
             let between = &source.as_bytes()[bang_end..recv_start];
             if between.iter().any(|&b| b == b' ' || b == b'\t') {
                 let (line, column) = source.offset_to_line_col(bang_loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Do not leave space between `!` and its argument.".to_string(),
-                )];
+                ));
             }
         }
-        Vec::new()
     }
 }
 

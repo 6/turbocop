@@ -33,7 +33,8 @@ impl Cop for EmptyLinesAfterModuleInclusion {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let mut visitor = InclusionVisitor {
             cop: self,
             source,
@@ -43,7 +44,7 @@ impl Cop for EmptyLinesAfterModuleInclusion {
             in_block_or_send: false,
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

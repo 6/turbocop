@@ -2628,3 +2628,65 @@ fn redundant_disable_renamed_cop_simple_value() {
 
     fs::remove_dir_all(&dir).ok();
 }
+
+/// Ensure no cop still uses the old `-> Vec<Diagnostic>` return type for trait methods.
+///
+/// The Cop trait methods (check_lines, check_source, check_node) now take
+/// `diagnostics: &mut Vec<Diagnostic>` and return `()`. This test scans all cop
+/// source files to catch any new cop that accidentally uses the old signature pattern.
+#[test]
+fn no_cop_returns_vec_diagnostic() {
+    let cop_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/cop");
+    let mut failures = Vec::new();
+
+    let skip_files = ["mod.rs", "walker.rs", "node_type.rs", "registry.rs", "util.rs"];
+
+    fn collect_rs_files(dir: &Path, files: &mut Vec<PathBuf>) {
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    collect_rs_files(&path, files);
+                } else if path.extension().map_or(false, |e| e == "rs") {
+                    files.push(path);
+                }
+            }
+        }
+    }
+
+    let mut rs_files = Vec::new();
+    collect_rs_files(&cop_dir, &mut rs_files);
+
+    for path in &rs_files {
+        let filename = path.file_name().unwrap().to_str().unwrap();
+        if skip_files.contains(&filename) {
+            continue;
+        }
+
+        let content = fs::read_to_string(path).unwrap();
+
+        for (i, line) in content.lines().enumerate() {
+            let trimmed = line.trim();
+            if (trimmed.contains("fn check_node(")
+                || trimmed.contains("fn check_lines(")
+                || trimmed.contains("fn check_source("))
+                && !trimmed.starts_with("//")
+            {
+                let remaining: String = content.lines().skip(i).take(10).collect::<Vec<_>>().join(" ");
+                if remaining.contains("-> Vec<Diagnostic>") {
+                    let rel = path.strip_prefix(&cop_dir).unwrap().display();
+                    failures.push(format!(
+                        "{rel}:{}: trait method still returns Vec<Diagnostic> — use `diagnostics: &mut Vec<Diagnostic>` parameter instead",
+                        i + 1
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "Cops using old Vec<Diagnostic> return pattern (should use &mut Vec<Diagnostic> parameter):\n{}",
+        failures.join("\n")
+    );
+}

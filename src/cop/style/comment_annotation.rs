@@ -33,7 +33,8 @@ impl Cop for CommentAnnotation {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let require_colon = config.get_bool("RequireColon", true);
         let keywords_opt = config.get_string_array("Keywords");
         let keywords: Vec<String> = keywords_opt.unwrap_or_else(|| {
@@ -41,7 +42,6 @@ impl Cop for CommentAnnotation {
         });
 
         let bytes = source.as_bytes();
-        let mut diagnostics = Vec::new();
         let comments: Vec<_> = parse_result.comments().collect();
 
         for (idx, comment) in comments.iter().enumerate() {
@@ -211,7 +211,6 @@ impl Cop for CommentAnnotation {
             }
         }
 
-        diagnostics
     }
 }
 

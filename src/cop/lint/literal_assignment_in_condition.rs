@@ -24,7 +24,8 @@ impl Cop for LiteralAssignmentInCondition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Get the condition from if/while/until
         let predicate = if let Some(if_node) = node.as_if_node() {
             Some(if_node.predicate())
@@ -40,12 +41,10 @@ impl Cop for LiteralAssignmentInCondition {
 
         let predicate = match predicate {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
-        check_node_for_literal_assignment(self, source, &predicate, &mut diagnostics);
-        diagnostics
+        check_node_for_literal_assignment(self, source, &predicate, diagnostics);
     }
 }
 

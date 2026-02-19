@@ -21,10 +21,11 @@ impl Cop for VariableName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let write_node = match node.as_local_variable_write_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let enforced_style = config.get_str("EnforcedStyle", "snake_case");
@@ -38,7 +39,7 @@ impl Cop for VariableName {
 
         // Skip names starting with _ (convention for unused vars)
         if var_name.starts_with(b"_") {
-            return Vec::new();
+            return;
         }
 
         let loc = write_node.name_loc();
@@ -47,12 +48,12 @@ impl Cop for VariableName {
         // ForbiddenIdentifiers: flag if var name is in the forbidden list
         if let Some(forbidden) = &forbidden_identifiers {
             if forbidden.iter().any(|f| f == var_name_str) {
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("`{var_name_str}` is forbidden, use another variable name instead."),
-                )];
+                ));
             }
         }
 
@@ -61,12 +62,12 @@ impl Cop for VariableName {
             for pattern in patterns {
                 if let Ok(re) = regex::Regex::new(pattern) {
                     if re.is_match(var_name_str) {
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             format!("`{var_name_str}` is forbidden, use another variable name instead."),
-                        )];
+                        ));
                     }
                 }
             }
@@ -75,14 +76,14 @@ impl Cop for VariableName {
         // AllowedIdentifiers: skip if var name is explicitly allowed
         if let Some(allowed) = &allowed_identifiers {
             if allowed.iter().any(|a| a == var_name_str) {
-                return Vec::new();
+                return;
             }
         }
 
         // AllowedPatterns: skip if var name matches any pattern
         if let Some(patterns) = &allowed_patterns {
             if patterns.iter().any(|p| var_name_str.contains(p.as_str())) {
-                return Vec::new();
+                return;
             }
         }
 
@@ -93,7 +94,7 @@ impl Cop for VariableName {
         };
 
         if style_ok {
-            return Vec::new();
+            return;
         }
 
         let style_msg = match enforced_style {
@@ -101,12 +102,12 @@ impl Cop for VariableName {
             _ => "snake_case",
         };
 
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use {style_msg} for variable names."),
-        )]
+        ));
     }
 }
 

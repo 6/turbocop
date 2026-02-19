@@ -20,7 +20,8 @@ impl Cop for ComparableClamp {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Pattern: if x < low then low elsif x > high then high else x end
         // (or with > / reversed operand positions)
         // Must match RuboCop's exact structural pattern:
@@ -29,63 +30,63 @@ impl Cop for ComparableClamp {
         // - The else body must equal the clamped variable
         let if_node = match node.as_if_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Skip elsif nodes — only check outermost if
         if if_node.if_keyword_loc().is_none() {
-            return Vec::new();
+            return;
         }
         // Also skip if the keyword is not "if" (could be ternary or modifier)
         if if_node.if_keyword_loc().unwrap().as_slice() != b"if" {
-            return Vec::new();
+            return;
         }
 
         // Must have exactly one elsif and an else
         let elsif = match if_node.subsequent() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let elsif_node = match elsif.as_if_node() {
             Some(n) => n,
-            None => return Vec::new(), // It's a plain else, not elsif
+            None => return, // It's a plain else, not elsif
         };
 
         // The elsif must have an else (no more elsifs)
         let else_clause = match elsif_node.subsequent() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Should not have another elsif
         if else_clause.as_if_node().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Get the else body as source text
         let else_body = match else_clause.as_else_node() {
             Some(e) => e,
-            None => return Vec::new(),
+            None => return,
         };
         let else_body_src = get_single_stmt_src(else_body.statements(), source);
         let else_body_src = match else_body_src {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Get the if body source
         let if_body_src = get_single_stmt_src(if_node.statements(), source);
         let if_body_src = match if_body_src {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Get the elsif body source
         let elsif_body_src = get_single_stmt_src(elsif_node.statements(), source);
         let elsif_body_src = match elsif_body_src {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check conditions: both must be comparisons with < or >
@@ -94,11 +95,11 @@ impl Cop for ComparableClamp {
 
         let (f_left, f_op, f_right) = match first_cmp {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         let (s_left, s_op, s_right) = match second_cmp {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Match one of the 8 patterns from RuboCop:
@@ -114,15 +115,14 @@ impl Cop for ComparableClamp {
         if is_clamp {
             let loc = if_node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Use `clamp` instead of `if/elsif/else`.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

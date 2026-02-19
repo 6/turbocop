@@ -20,14 +20,15 @@ impl Cop for MapCompact {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let chain = match as_method_chain(node) {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if chain.outer_method != b"compact" {
-            return Vec::new();
+            return;
         }
 
         let inner = chain.inner_method;
@@ -36,17 +37,17 @@ impl Cop for MapCompact {
         } else if inner == b"collect" {
             "collect"
         } else {
-            return Vec::new();
+            return;
         };
 
         // The inner call should have a block
         if chain.inner_call.block().is_none() {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, format!("Use `filter_map` instead of `{inner_name}...compact`."))]
+        diagnostics.push(self.diagnostic(source, line, column, format!("Use `filter_map` instead of `{inner_name}...compact`.")));
     }
 }
 

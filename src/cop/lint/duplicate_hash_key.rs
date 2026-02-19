@@ -26,17 +26,17 @@ impl Cop for DuplicateHashKey {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let elements = if let Some(hash_node) = node.as_hash_node() {
             hash_node.elements()
         } else if let Some(kw_hash) = node.as_keyword_hash_node() {
             kw_hash.elements()
         } else {
-            return Vec::new();
+            return;
         };
 
         let mut seen = HashSet::new();
-        let mut diagnostics = Vec::new();
 
         for element in elements.iter() {
             let assoc = match element.as_assoc_node() {
@@ -59,7 +59,6 @@ impl Cop for DuplicateHashKey {
             }
         }
 
-        diagnostics
     }
 }
 

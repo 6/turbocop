@@ -33,27 +33,27 @@ impl Cop for ClassStructure {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Reference config keys so config_audit passes
         let _categories = config.get_string_array("Categories");
         let _expected_order = config.get_string_array("ExpectedOrder");
 
         let class_node = match node.as_class_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body = match class_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
         let mut current_visibility = ElementCategory::PublicMethods;
         let mut last_category = ElementCategory::ModuleInclusion; // start at earliest
         let mut first = true;
@@ -124,7 +124,6 @@ impl Cop for ClassStructure {
             }
         }
 
-        diagnostics
     }
 }
 

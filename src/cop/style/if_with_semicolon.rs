@@ -20,26 +20,27 @@ impl Cop for IfWithSemicolon {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let if_node = match node.as_if_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have an `if` or `unless` keyword (not ternary)
         let if_kw_loc = match if_node.if_keyword_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let kw_bytes = if_kw_loc.as_slice();
         if kw_bytes != b"if" && kw_bytes != b"unless" {
-            return Vec::new();
+            return;
         }
 
         // Must not be modifier form (modifier has no end keyword)
         if if_node.end_keyword_loc().is_none() {
-            return Vec::new();
+            return;
         }
 
         // RuboCop checks node.loc.begin which is the then keyword.
@@ -58,7 +59,7 @@ impl Cop for IfWithSemicolon {
             } else if let Some(end_loc) = if_node.end_keyword_loc() {
                 end_loc.start_offset()
             } else {
-                return Vec::new();
+                return;
             };
             if pred_end < body_start {
                 let between = &source.content[pred_end..body_start];
@@ -71,7 +72,7 @@ impl Cop for IfWithSemicolon {
         };
 
         if !has_semicolon {
-            return Vec::new();
+            return;
         }
 
         let loc = if_node.location();
@@ -80,12 +81,12 @@ impl Cop for IfWithSemicolon {
         let cond_src = std::str::from_utf8(if_node.predicate().location().as_slice()).unwrap_or("...");
         let kw = std::str::from_utf8(kw_bytes).unwrap_or("if");
 
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Do not use `{} {};` - use a newline instead.", kw, cond_src),
-        )]
+        ));
     }
 }
 

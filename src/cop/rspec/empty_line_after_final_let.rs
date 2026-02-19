@@ -31,10 +31,11 @@ impl Cop for EmptyLineAfterFinalLet {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -47,25 +48,25 @@ impl Cop for EmptyLineAfterFinalLet {
         };
 
         if !is_example_group {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => match b.as_block_node() {
                 Some(bn) => bn,
-                None => return Vec::new(),
+                None => return,
             },
-            None => return Vec::new(),
+            None => return,
         };
 
         let body = match block.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Find the last let/let! in this block
@@ -81,12 +82,12 @@ impl Cop for EmptyLineAfterFinalLet {
 
         let last_idx = match last_let_idx {
             Some(i) => i,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if there's a next statement after the last let
         if last_idx + 1 >= nodes.len() {
-            return Vec::new(); // let is the last statement
+            return; // let is the last statement
         }
 
         // Get the start line of the next sibling after the last let
@@ -114,7 +115,7 @@ impl Cop for EmptyLineAfterFinalLet {
             for line_num in check_start..check_end {
                 if let Some(line) = line_at(source, line_num) {
                     if is_blank_line(line) {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
@@ -123,10 +124,10 @@ impl Cop for EmptyLineAfterFinalLet {
             let next_line = end_line + 1;
             if let Some(line) = line_at(source, next_line) {
                 if is_blank_line(line) {
-                    return Vec::new();
+                    return;
                 }
             } else {
-                return Vec::new();
+                return;
             }
         }
 
@@ -142,12 +143,12 @@ impl Cop for EmptyLineAfterFinalLet {
             0
         };
 
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             end_line,
             report_col,
             format!("Add an empty line after the last `{let_name}`."),
-        )]
+        ));
     }
 }
 

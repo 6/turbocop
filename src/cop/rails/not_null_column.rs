@@ -29,32 +29,33 @@ impl Cop for NotNullColumn {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let database = config.get_str("Database", "");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"add_column" {
-            return Vec::new();
+            return;
         }
 
         // Check for null: false
         let null_val = match crate::cop::util::keyword_arg_value(&call, b"null") {
             Some(v) => v,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if null: false
         if null_val.as_false_node().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Check if default: is present
         if has_keyword_arg(&call, b"default") {
-            return Vec::new();
+            return;
         }
 
         // If Database is mysql, skip TEXT columns (TEXT can't have default in MySQL)
@@ -65,7 +66,7 @@ impl Cop for NotNullColumn {
                 if arg_list.len() >= 3 {
                     if let Some(sym) = arg_list[2].as_symbol_node() {
                         if sym.unescaped() == b"text" {
-                            return Vec::new();
+                            return;
                         }
                     }
                 }
@@ -74,12 +75,12 @@ impl Cop for NotNullColumn {
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Do not add a NOT NULL column without a default value.".to_string(),
-        )]
+        ));
     }
 }
 

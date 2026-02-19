@@ -37,7 +37,8 @@ impl Cop for CompactBlank {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // minimum_target_rails_version 6.1
         // compact_blank was introduced in Rails 6.1; skip for older versions.
         let rails_version = config
@@ -46,12 +47,12 @@ impl Cop for CompactBlank {
             .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
             .unwrap_or(5.0);
         if rails_version < 6.1 {
-            return Vec::new();
+            return;
         }
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -62,18 +63,18 @@ impl Cop for CompactBlank {
         let expected_predicate: &[u8] = match method_name {
             b"reject" | b"delete_if" => b"blank?",
             b"select" | b"filter" | b"keep_if" => b"present?",
-            _ => return Vec::new(),
+            _ => return,
         };
 
         // Must have a receiver
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Must have a block (either block-pass &:blank? or { |e| e.blank? })
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check for block-pass form: reject(&:blank?), select(&:present?)
@@ -84,35 +85,35 @@ impl Cop for CompactBlank {
                     if &*unescaped == expected_predicate {
                         let loc = node.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             format!("Use `{}` instead.", preferred_method(method_name)),
-                        )];
+                        ));
                     }
                 }
             }
-            return Vec::new();
+            return;
         }
 
         // Check for block form: reject { |e| e.blank? } or reject { |_k, v| v.blank? }
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params = match block_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
         let block_params = match params.as_block_parameters_node() {
             Some(bp) => bp,
-            None => return Vec::new(),
+            None => return,
         };
         let param_list = match block_params.parameters() {
             Some(pl) => pl,
-            None => return Vec::new(),
+            None => return,
         };
         let requireds: Vec<_> = param_list.requireds().iter().collect();
 
@@ -122,65 +123,65 @@ impl Cop for CompactBlank {
             1 => {
                 match requireds[0].as_required_parameter_node() {
                     Some(p) => p.name().as_slice().to_vec(),
-                    None => return Vec::new(),
+                    None => return,
                 }
             }
             2 => {
                 // Hash form: the SECOND argument is the value
                 match requireds[1].as_required_parameter_node() {
                     Some(p) => p.name().as_slice().to_vec(),
-                    None => return Vec::new(),
+                    None => return,
                 }
             }
-            _ => return Vec::new(),
+            _ => return,
         };
 
         // Block body should be a single call to .blank? or .present?
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body_nodes: Vec<ruby_prism::Node<'_>> = stmts.body().iter().collect();
         if body_nodes.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let body_call = match body_nodes[0].as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if body_call.name().as_slice() != expected_predicate {
-            return Vec::new();
+            return;
         }
 
         // The receiver of .blank?/.present? must be the relevant block parameter
         let recv = match body_call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
         let recv_lvar = match recv.as_local_variable_read_node() {
             Some(lv) => lv,
-            None => return Vec::new(),
+            None => return,
         };
         if recv_lvar.name().as_slice() != check_param_name.as_slice() {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `{}` instead.", preferred_method(method_name)),
-        )]
+        ));
     }
 }
 

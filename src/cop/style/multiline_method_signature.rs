@@ -20,16 +20,17 @@ impl Cop for MultilineMethodSignature {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have parameters
         let params = match def_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Get the opening line (def keyword)
@@ -46,24 +47,23 @@ impl Cop for MultilineMethodSignature {
             let (rparen_line, _) = source.offset_to_line_col(rparen.start_offset());
             if def_line != rparen_line {
                 let (line, column) = source.offset_to_line_col(def_loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Avoid multi-line method signatures.".to_string(),
-                )];
+                ));
             }
         } else if def_line != params_end_line {
             let (line, column) = source.offset_to_line_col(def_loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Avoid multi-line method signatures.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

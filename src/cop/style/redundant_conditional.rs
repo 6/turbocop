@@ -53,40 +53,41 @@ impl Cop for RedundantConditional {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let if_node = match node.as_if_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let predicate = if_node.predicate();
 
         // Must be a comparison operator
         if !Self::is_comparison(&predicate) {
-            return Vec::new();
+            return;
         }
 
         // Get the then branch statements
         let then_stmts = match if_node.statements() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Get the else branch
         let else_branch = match if_node.subsequent() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Else branch must be an ElseNode
         let else_node = match else_branch.as_else_node() {
             Some(e) => e,
-            None => return Vec::new(),
+            None => return,
         };
 
         let else_stmts = match else_node.statements() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check for `if cond; true; else; false; end` or `if cond; false; else; true; end`
@@ -94,7 +95,7 @@ impl Cop for RedundantConditional {
         let then_false_else_true = Self::single_stmt_is_false(&then_stmts) && Self::single_stmt_is_true(&else_stmts);
 
         if !then_true_else_false && !then_false_else_true {
-            return Vec::new();
+            return;
         }
 
         let condition_src = std::str::from_utf8(predicate.location().as_slice()).unwrap_or("condition");
@@ -106,12 +107,12 @@ impl Cop for RedundantConditional {
 
         let loc = if_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("This conditional expression can just be replaced by `{}`.", replacement),
-        )]
+        ));
     }
 }
 

@@ -96,7 +96,8 @@ impl Cop for PercentLiteralDelimiters {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let preferred = Self::preferred_delimiters(config);
 
         // Get opening_loc from the node — only percent-literal node types have them
@@ -128,19 +129,19 @@ impl Cop for PercentLiteralDelimiters {
             // %s() symbols
             s.opening_loc()
         } else {
-            return Vec::new();
+            return;
         };
 
         let opening = match opening_loc {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let open_bytes = opening.as_slice();
 
         let (literal_type, actual_delim) = match Self::parse_percent_opening(open_bytes) {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let (expected_open, expected_close) = match preferred.get(&literal_type) {
@@ -163,13 +164,13 @@ impl Cop for PercentLiteralDelimiters {
             if content_end > content_start {
                 let content = &source.as_bytes()[content_start..content_end];
                 if content.contains(&expected_open) || content.contains(&expected_close) {
-                    return Vec::new();
+                    return;
                 }
             }
 
             let loc = opening;
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
@@ -177,10 +178,9 @@ impl Cop for PercentLiteralDelimiters {
                     "`{literal_type}`-literals should be delimited by `{}` and `{}`.",
                     expected_open as char, expected_close as char,
                 ),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

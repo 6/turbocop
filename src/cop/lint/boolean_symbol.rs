@@ -24,10 +24,11 @@ impl Cop for BooleanSymbol {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let symbol_node = match node.as_symbol_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let value = symbol_node.unescaped();
@@ -36,7 +37,7 @@ impl Cop for BooleanSymbol {
         } else if value == b"false" {
             "false"
         } else {
-            return Vec::new();
+            return;
         };
 
         // Skip :true/:false inside %i[] percent symbol arrays
@@ -45,21 +46,21 @@ impl Cop for BooleanSymbol {
         if let Some(open) = symbol_node.opening_loc() {
             // Normal symbol: opening is `:`, %i symbol has no `:` opening
             if !open.as_slice().starts_with(b":") {
-                return Vec::new();
+                return;
             }
         } else {
             // No opening loc means it's inside a %i[] literal
-            return Vec::new();
+            return;
         }
 
         let loc = symbol_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Symbol with a boolean name - you probably meant to use `{boolean_name}`."),
-        )]
+        ));
     }
 }
 

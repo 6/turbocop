@@ -20,18 +20,19 @@ impl Cop for BlockAlignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyleAlignWith", "either");
         let block_node = match node.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let closing_loc = block_node.closing_loc();
 
         // Only check do...end blocks, not brace blocks
         if closing_loc.as_slice() != b"end" {
-            return Vec::new();
+            return;
         }
 
         let opening_loc = block_node.opening_loc();
@@ -65,31 +66,31 @@ impl Cop for BlockAlignment {
 
         // Only flag if end is on a different line
         if end_line == opening_line {
-            return Vec::new();
+            return;
         }
 
         match style {
             "start_of_block" => {
                 // `end` must align with `do`
                 if end_col != do_col {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         end_line,
                         end_col,
                         "Align `end` with `do`.".to_string(),
-                    )];
+                    ));
                 }
             }
             "start_of_line" => {
                 // `end` must align with start of the expression
                 if end_col != expression_start_indent {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         end_line,
                         end_col,
                         "Align `end` with the start of the line where the block is defined."
                             .to_string(),
-                    )];
+                    ));
                 }
             }
             _ => {
@@ -103,18 +104,17 @@ impl Cop for BlockAlignment {
                     && end_col != expression_start_indent
                     && end_col != call_expr_col
                 {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         end_line,
                         end_col,
                         "Align `end` with the start of the line where the block is defined."
                             .to_string(),
-                    )];
+                    ));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

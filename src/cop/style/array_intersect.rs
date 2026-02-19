@@ -20,7 +20,8 @@ impl Cop for ArrayIntersect {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // intersect? requires Ruby >= 3.1
         let ruby_version = config
             .options
@@ -28,12 +29,12 @@ impl Cop for ArrayIntersect {
             .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
             .unwrap_or(3.4);
         if ruby_version < 3.1 {
-            return Vec::new();
+            return;
         }
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
@@ -42,7 +43,7 @@ impl Cop for ArrayIntersect {
         if matches!(method_name, "any?" | "empty?" | "none?") {
             // Skip if the call has arguments or a block (any? with block)
             if call.arguments().is_some() || call.block().is_some() {
-                return Vec::new();
+                return;
             }
 
             if let Some(receiver) = call.receiver() {
@@ -62,7 +63,7 @@ impl Cop for ArrayIntersect {
                                             std::str::from_utf8(inner_call.location().as_slice()).unwrap_or("array1 & array2"),
                                             method_name
                                         );
-                                        return vec![self.diagnostic(source, line, column, msg)];
+                                        diagnostics.push(self.diagnostic(source, line, column, msg));
                                     }
                                 }
                             }
@@ -85,7 +86,7 @@ impl Cop for ArrayIntersect {
                                         "Use `intersect?` instead of `intersection(...).{}`.",
                                         method_name
                                     );
-                                    return vec![self.diagnostic(source, line, column, msg)];
+                                    diagnostics.push(self.diagnostic(source, line, column, msg));
                                 }
                             }
                         }
@@ -94,7 +95,6 @@ impl Cop for ArrayIntersect {
             }
         }
 
-        Vec::new()
     }
 }
 

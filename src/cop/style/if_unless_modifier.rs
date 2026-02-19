@@ -121,19 +121,20 @@ impl Cop for IfUnlessModifier {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Extract keyword location, predicate, statements, has_else, and keyword name
         // from either IfNode or UnlessNode
         let (kw_loc, predicate, statements, has_else, keyword) =
             if let Some(if_node) = node.as_if_node() {
                 let kw_loc = match if_node.if_keyword_loc() {
                     Some(loc) => loc,
-                    None => return Vec::new(), // ternary
+                    None => return, // ternary
                 };
                 // Skip elsif nodes — they are visited as IfNode but can't be
                 // converted to modifier form independently
                 if kw_loc.as_slice() == b"elsif" {
-                    return Vec::new();
+                    return;
                 }
                 (
                     kw_loc,
@@ -151,59 +152,59 @@ impl Cop for IfUnlessModifier {
                     "unless",
                 )
             } else {
-                return Vec::new();
+                return;
             };
 
         // Must not have an else clause
         if has_else {
-            return Vec::new();
+            return;
         }
 
         let body = match statements {
             Some(stmts) => stmts,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body_stmts = body.body();
 
         // Must have exactly one statement
         if body_stmts.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let body_node = match body_stmts.iter().next() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if already modifier form: keyword starts after body
         if kw_loc.start_offset() > body_node.location().start_offset() {
-            return Vec::new();
+            return;
         }
 
         // Skip if the condition is a parenthesized assignment — these need the
         // full if/end form to capture the assignment value used in the body
         if predicate.as_parentheses_node().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Skip if the condition contains `defined?()` — converting to modifier
         // form changes semantics for undefined variables/methods.
         if condition_contains_defined(&predicate) {
-            return Vec::new();
+            return;
         }
 
         // Skip if the condition contains a local variable assignment — modifier
         // form may change scoping semantics (RuboCop: non_eligible_condition?).
         if condition_contains_lvasgn(&predicate) {
-            return Vec::new();
+            return;
         }
 
         // Skip if the body contains any nested conditional (if/unless/ternary).
         // RuboCop's `nested_conditional?` checks if any branch contains a nested
         // `:if` node, which includes ternaries (e.g., `a = x ? y : z`).
         if body_contains_nested_conditional(&body_node) {
-            return Vec::new();
+            return;
         }
 
         // Body must be on a single line to be eligible for modifier form
@@ -211,21 +212,21 @@ impl Cop for IfUnlessModifier {
         let body_end_off = body_node.location().end_offset().saturating_sub(1).max(body_node.location().start_offset());
         let (body_end_line, _) = source.offset_to_line_col(body_end_off);
         if body_start_line != body_end_line {
-            return Vec::new();
+            return;
         }
 
         // If there are comment lines between keyword and body, don't suggest modifier form.
         // Converting would lose the comments.
         let (kw_line, _) = source.offset_to_line_col(kw_loc.start_offset());
         if body_start_line > kw_line + 1 {
-            return Vec::new();
+            return;
         }
 
         // Check if body contains a heredoc argument. Prism's node location for heredoc
         // references only covers the opening delimiter (<<~FOO), not the heredoc content.
         // The actual output would span more lines than the AST suggests.
         if node_contains_heredoc(&body_node) {
-            return Vec::new();
+            return;
         }
 
         // Skip if body line has an EOL comment — converting to modifier would lose it
@@ -240,7 +241,7 @@ impl Cop for IfUnlessModifier {
                     let after_body = &body_line[body_end_col..];
                     let trimmed = after_body.iter().skip_while(|&&b| b == b' ' || b == b'\t').copied().collect::<Vec<_>>();
                     if trimmed.starts_with(b"#") {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
@@ -265,7 +266,7 @@ impl Cop for IfUnlessModifier {
                             let line = lines[line_num - 1];
                             let trimmed: Vec<u8> = line.iter().skip_while(|&&b| b == b' ' || b == b'\t').copied().collect();
                             if trimmed.starts_with(b"#") {
-                                return Vec::new();
+                                return;
                             }
                         }
                     }
@@ -331,12 +332,11 @@ impl Cop for IfUnlessModifier {
 
         if !line_length_enabled || modifier_len <= max_line_length {
             let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-            return vec![self.diagnostic(source, line, column, format!(
+            diagnostics.push(self.diagnostic(source, line, column, format!(
                 "Favor modifier `{keyword}` usage when having a single-line body."
-            ))];
+            )));
         }
 
-        Vec::new()
     }
 }
 

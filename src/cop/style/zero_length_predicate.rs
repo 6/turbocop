@@ -49,10 +49,11 @@ impl Cop for ZeroLengthPredicate {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name();
@@ -65,12 +66,12 @@ impl Cop for ZeroLengthPredicate {
                     let loc = node.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
                     let src = std::str::from_utf8(loc.as_slice()).unwrap_or("");
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         format!("Use `empty?` instead of `{}`.", src),
-                    )];
+                    ));
                 }
             }
         }
@@ -99,7 +100,7 @@ impl Cop for ZeroLengthPredicate {
                                 } else {
                                     format!("Use `empty?` instead of `{}`.", src)
                                 };
-                                return vec![self.diagnostic(source, line, column, msg)];
+                                diagnostics.push(self.diagnostic(source, line, column, msg));
                             }
                         }
                         // 0 == x.length, 1 > x.length
@@ -120,7 +121,7 @@ impl Cop for ZeroLengthPredicate {
                                     } else {
                                         format!("Use `empty?` instead of `{}`.", src)
                                     };
-                                    return vec![self.diagnostic(source, line, column, msg)];
+                                    diagnostics.push(self.diagnostic(source, line, column, msg));
                                 }
                             }
                         }
@@ -129,7 +130,6 @@ impl Cop for ZeroLengthPredicate {
             }
         }
 
-        Vec::new()
     }
 }
 

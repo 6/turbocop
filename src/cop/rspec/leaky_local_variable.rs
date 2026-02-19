@@ -31,11 +31,12 @@ impl Cop for LeakyLocalVariable {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for describe/context blocks (including RSpec.describe)
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -47,21 +48,19 @@ impl Cop for LeakyLocalVariable {
         };
 
         if !is_example_group {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
-        check_scope_for_leaky_vars(source, block_node, &mut diagnostics, self);
-        diagnostics
+        check_scope_for_leaky_vars(source, block_node, diagnostics, self);
     }
 }
 

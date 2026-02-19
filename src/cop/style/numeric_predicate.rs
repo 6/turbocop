@@ -36,14 +36,15 @@ impl Cop for NumericPredicate {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "predicate");
         let _allowed_methods = config.get_string_array("AllowedMethods");
         let _allowed_patterns = config.get_string_array("AllowedPatterns");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name();
@@ -52,13 +53,13 @@ impl Cop for NumericPredicate {
         if enforced_style == "predicate" {
             // Check for: x == 0, x > 0, x < 0, 0 == x, 0 > x, 0 < x
             if !matches!(method_bytes, b"==" | b">" | b"<") {
-                return Vec::new();
+                return;
             }
 
             if let Some(args) = call.arguments() {
                 let arg_list: Vec<_> = args.arguments().iter().collect();
                 if arg_list.len() != 1 {
-                    return Vec::new();
+                    return;
                 }
 
                 if let Some(receiver) = call.receiver() {
@@ -69,17 +70,17 @@ impl Cop for NumericPredicate {
                             b"==" => format!("{}.zero?", recv_src),
                             b">" => format!("{}.positive?", recv_src),
                             b"<" => format!("{}.negative?", recv_src),
-                            _ => return Vec::new(),
+                            _ => return,
                         };
                         let loc = node.location();
                         let current = std::str::from_utf8(loc.as_slice()).unwrap_or("");
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             format!("Use `{}` instead of `{}`.", replacement, current),
-                        )];
+                        ));
                     }
 
                     // 0 == x, 0 > x, 0 < x (inverted)
@@ -89,27 +90,27 @@ impl Cop for NumericPredicate {
                             b"==" => format!("{}.zero?", arg_src),
                             b">" => format!("{}.negative?", arg_src),  // 0 > x means x is negative
                             b"<" => format!("{}.positive?", arg_src),  // 0 < x means x is positive
-                            _ => return Vec::new(),
+                            _ => return,
                         };
                         let loc = node.location();
                         let current = std::str::from_utf8(loc.as_slice()).unwrap_or("");
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             format!("Use `{}` instead of `{}`.", replacement, current),
-                        )];
+                        ));
                     }
                 }
             }
         } else if enforced_style == "comparison" {
             // Check for: x.zero?, x.positive?, x.negative?
             if !matches!(method_bytes, b"zero?" | b"positive?" | b"negative?") {
-                return Vec::new();
+                return;
             }
             if call.arguments().is_some() {
-                return Vec::new();
+                return;
             }
             if let Some(receiver) = call.receiver() {
                 let recv_src = std::str::from_utf8(receiver.location().as_slice()).unwrap_or("x");
@@ -117,21 +118,20 @@ impl Cop for NumericPredicate {
                     b"zero?" => format!("{} == 0", recv_src),
                     b"positive?" => format!("{} > 0", recv_src),
                     b"negative?" => format!("{} < 0", recv_src),
-                    _ => return Vec::new(),
+                    _ => return,
                 };
                 let loc = node.location();
                 let current = std::str::from_utf8(loc.as_slice()).unwrap_or("");
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Use `{}` instead of `{}`.", replacement, current),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

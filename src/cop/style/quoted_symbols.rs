@@ -20,7 +20,8 @@ impl Cop for QuotedSymbols {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "same_as_string_literals");
 
         // Check for quoted symbols :'foo' or :"foo"
@@ -39,7 +40,7 @@ impl Cop for QuotedSymbols {
                     let has_single_quote = inner.contains(&b'\'');
 
                     if has_interpolation || has_escape {
-                        return Vec::new(); // Double quotes needed
+                        return; // Double quotes needed
                     }
 
                     let prefer_single = match style {
@@ -55,12 +56,12 @@ impl Cop for QuotedSymbols {
 
                     if prefer_single && !has_single_quote {
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Prefer single-quoted symbols when you don't need string interpolation or special symbols.".to_string(),
-                        )];
+                        ));
                     }
                 }
             } else if src_bytes.starts_with(b":'") {
@@ -71,18 +72,17 @@ impl Cop for QuotedSymbols {
 
                     if style == "double_quotes" && !has_double_quote {
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Prefer double-quoted symbols.".to_string(),
-                        )];
+                        ));
                     }
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

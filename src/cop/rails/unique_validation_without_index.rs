@@ -26,7 +26,7 @@ impl Cop for UniqueValidationWithoutIndex {
         _node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
-        Vec::new()
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
     }
 }

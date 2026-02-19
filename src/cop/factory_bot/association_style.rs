@@ -57,42 +57,42 @@ impl Cop for AssociationStyle {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Only trigger on `factory` or `trait` calls
         let method_name = call.name().as_slice();
         if method_name != b"factory" && method_name != b"trait" {
-            return Vec::new();
+            return;
         }
 
         // Must have no receiver (bare `factory` / `trait`)
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Must have a block
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body = match block_node.body() {
             Some(body) => body,
-            None => return Vec::new(),
+            None => return,
         };
 
         let style = config.get_str("EnforcedStyle", "implicit");
 
-        let mut diagnostics = Vec::new();
 
         let children: Vec<_> = if let Some(stmts) = body.as_statements_node() {
             stmts.body().iter().collect()
@@ -126,7 +126,6 @@ impl Cop for AssociationStyle {
             }
         }
 
-        diagnostics
     }
 }
 

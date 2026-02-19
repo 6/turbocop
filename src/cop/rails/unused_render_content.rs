@@ -42,23 +42,24 @@ impl Cop for UnusedRenderContent {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"render" {
-            return Vec::new();
+            return;
         }
 
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let mut has_non_content_status = false;
@@ -106,16 +107,15 @@ impl Cop for UnusedRenderContent {
         if has_non_content_status && has_content_keys {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Do not specify body content for a response with a non-content status code"
                     .to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

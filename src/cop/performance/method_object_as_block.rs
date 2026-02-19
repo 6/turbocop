@@ -24,30 +24,31 @@ impl Cop for MethodObjectAsBlock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Detect BlockArgumentNode whose expression is a call to `method`
         let block_arg = match node.as_block_argument_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let expr = match block_arg.expression() {
             Some(e) => e,
-            None => return Vec::new(),
+            None => return,
         };
 
         let call = match expr.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"method" {
-            return Vec::new();
+            return;
         }
 
         let loc = block_arg.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, "Use a block instead of `&method(...)` for better performance.".to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, "Use a block instead of `&method(...)` for better performance.".to_string()));
     }
 }
 

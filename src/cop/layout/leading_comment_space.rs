@@ -15,13 +15,13 @@ impl Cop for LeadingCommentSpace {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let _allow_doxygen = config.get_bool("AllowDoxygenCommentStyle", false);
         let _allow_gemfile_ruby = config.get_bool("AllowGemfileRubyComment", false);
         let _allow_rbs_inline = config.get_bool("AllowRBSInlineAnnotation", false);
         let _allow_steep = config.get_bool("AllowSteepAnnotation", false);
         let bytes = source.as_bytes();
-        let mut diagnostics = Vec::new();
 
         for comment in parse_result.comments() {
             let loc = comment.location();
@@ -71,7 +71,6 @@ impl Cop for LeadingCommentSpace {
             }
         }
 
-        diagnostics
     }
 }
 

@@ -24,7 +24,8 @@ impl Cop for BinaryOperatorWithIdenticalOperands {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Handle `&&` and `||` (AndNode / OrNode)
         if let Some(and_node) = node.as_and_node() {
             let left_loc = and_node.left().location();
@@ -34,14 +35,14 @@ impl Cop for BinaryOperatorWithIdenticalOperands {
             if left_src == right_src {
                 let loc = and_node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Binary operator `&&` has identical operands.".to_string(),
-                )];
+                ));
             }
-            return Vec::new();
+            return;
         }
 
         if let Some(or_node) = node.as_or_node() {
@@ -52,20 +53,20 @@ impl Cop for BinaryOperatorWithIdenticalOperands {
             if left_src == right_src {
                 let loc = or_node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Binary operator `||` has identical operands.".to_string(),
-                )];
+                ));
             }
-            return Vec::new();
+            return;
         }
 
         // Handle binary send operators: ==, !=, ===, <=>, =~, >, >=, <, <=, |, ^, &
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method = call.name().as_slice();
@@ -74,22 +75,22 @@ impl Cop for BinaryOperatorWithIdenticalOperands {
             b"==" | b"!=" | b"===" | b"<=>" | b"=~" | b">" | b">=" | b"<" | b"<=" | b"|" | b"^" | b"&"
         );
         if !is_binary_op {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arguments = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = arguments.arguments();
         if args.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let first_arg = args.iter().next().unwrap();
@@ -102,15 +103,14 @@ impl Cop for BinaryOperatorWithIdenticalOperands {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             let op_str = std::str::from_utf8(method).unwrap_or("?");
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Binary operator `{op_str}` has identical operands."),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

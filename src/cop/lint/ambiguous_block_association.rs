@@ -24,43 +24,44 @@ impl Cop for AmbiguousBlockAssociation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // We look for CallNode where:
         // 1. The outer call has no parentheses (opening_loc is None)
         // 2. It has arguments
         // 3. The last argument is a CallNode that has a block
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must not have parentheses on the outer call
         if call.opening_loc().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Skip operator methods (==, !=, +, -, etc.) and assignment methods (x=)
         let outer_name = call.name().as_slice();
         if is_operator(outer_name) {
-            return Vec::new();
+            return;
         }
         if outer_name.ends_with(b"=") && outer_name != b"==" && outer_name != b"!=" {
-            return Vec::new();
+            return;
         }
 
         // Must have a message_loc (named method call, not just a block)
         if call.message_loc().is_none() {
-            return Vec::new();
+            return;
         }
 
         let arguments = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = arguments.arguments();
         if args.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Check the last argument - it should be a CallNode with a block
@@ -68,12 +69,12 @@ impl Cop for AmbiguousBlockAssociation {
 
         // Skip lambda/proc/Proc.new — these are block builders, not ambiguous
         if is_lambda_or_proc(&last_arg) {
-            return Vec::new();
+            return;
         }
 
         let inner_call = match last_arg.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // The inner call must have a real block (do...end or { }),
@@ -84,14 +85,14 @@ impl Cop for AmbiguousBlockAssociation {
             None => false,
         };
         if !has_real_block {
-            return Vec::new();
+            return;
         }
 
         // If the inner call has arguments (parenthesized or not), the block
         // clearly belongs to it — no ambiguity. RuboCop checks:
         // `!send_node.last_argument.send_node.arguments?`
         if inner_call.arguments().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Check AllowedMethods
@@ -99,7 +100,7 @@ impl Cop for AmbiguousBlockAssociation {
         let inner_name = std::str::from_utf8(inner_call.name().as_slice()).unwrap_or("");
         if let Some(ref methods) = allowed_methods {
             if methods.iter().any(|m| m == inner_name) {
-                return Vec::new();
+                return;
             }
         }
 
@@ -114,7 +115,7 @@ impl Cop for AmbiguousBlockAssociation {
             for pattern in patterns {
                 if let Ok(re) = regex::Regex::new(pattern) {
                     if re.is_match(args_text) {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
@@ -128,7 +129,7 @@ impl Cop for AmbiguousBlockAssociation {
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
@@ -136,7 +137,7 @@ impl Cop for AmbiguousBlockAssociation {
                 "Parenthesize the param `{}` to make sure that the block will be associated with the `{}` method call.",
                 param_text, inner_name
             ),
-        )]
+        ));
     }
 }
 

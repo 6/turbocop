@@ -26,14 +26,14 @@ impl Cop for DuplicateCaseCondition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let case_node = match node.as_case_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let mut seen = HashSet::new();
-        let mut diagnostics = Vec::new();
 
         for when_node_ref in case_node.conditions().iter() {
             let when_node = match when_node_ref.as_when_node() {
@@ -55,7 +55,6 @@ impl Cop for DuplicateCaseCondition {
             }
         }
 
-        diagnostics
     }
 }
 

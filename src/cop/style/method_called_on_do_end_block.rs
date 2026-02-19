@@ -20,53 +20,54 @@ impl Cop for MethodCalledOnDoEndBlock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Skip if this call itself has a block (to avoid double-reporting with MultilineBlockChain)
         if call.block().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Check if the receiver is a call with a do...end block
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_call = match receiver.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have a block
         let block = match recv_call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be a do...end block (check opening_loc is "do")
         let opening_loc = block_node.opening_loc();
         if opening_loc.as_slice() != b"do" {
-            return Vec::new();
+            return;
         }
 
         let msg_loc = call.message_loc().unwrap_or_else(|| call.location());
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Avoid chaining a method call on a do...end block.".to_string(),
-        )]
+        ));
     }
 }
 

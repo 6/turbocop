@@ -29,7 +29,8 @@ impl Cop for VoidExpect {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Detect `expect(...)` or `expect { ... }` without `.to` or `.not_to` chained.
         // This means the expect call node should NOT be the receiver of a `.to`/`.not_to`/`.to_not` call.
         // We detect this by checking that the expect call is a statement (its parent is a
@@ -57,10 +58,9 @@ impl Cop for VoidExpect {
         // Alternative approach: look for StatementsNode and check direct children.
         let stmts = match node.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
         for stmt in stmts.body().iter() {
             let call = match stmt.as_call_node() {
                 Some(c) => c,
@@ -88,7 +88,6 @@ impl Cop for VoidExpect {
             ));
         }
 
-        diagnostics
     }
 }
 

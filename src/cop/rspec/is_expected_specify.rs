@@ -29,36 +29,37 @@ impl Cop for IsExpectedSpecify {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         if call.name().as_slice() != b"specify" {
-            return Vec::new();
+            return;
         }
 
         // Must be a one-liner with a brace block (not do...end)
         let block_raw = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block = match block_raw.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have no description argument (positional args)
         if let Some(args) = call.arguments() {
             for arg in args.arguments().iter() {
                 if arg.as_keyword_hash_node().is_none() {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -70,27 +71,26 @@ impl Cop for IsExpectedSpecify {
         let (end_line, _) = source.offset_to_line_col(end_off);
 
         if start_line != end_line {
-            return Vec::new();
+            return;
         }
 
         // Check if the block body contains is_expected or are_expected
         let body = match block.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         if contains_is_expected(&body) {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Use `it` instead of `specify`.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

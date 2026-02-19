@@ -26,29 +26,30 @@ impl Cop for UriDefaultParser {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if method_name != b"decode" && method_name != b"encode" {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_name = match constant_name(&receiver) {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         if recv_name != b"URI" {
-            return Vec::new();
+            return;
         }
 
         let suggestion = if method_name == b"decode" {
@@ -59,10 +60,10 @@ impl Cop for UriDefaultParser {
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, format!(
+        diagnostics.push(self.diagnostic(source, line, column, format!(
             "Use `{suggestion}` instead of `URI.{}`.",
             std::str::from_utf8(method_name).unwrap_or("?")
-        ))]
+        )));
     }
 }
 

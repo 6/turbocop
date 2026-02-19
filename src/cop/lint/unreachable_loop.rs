@@ -20,7 +20,8 @@ impl Cop for UnreachableLoop {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let _allowed_patterns = config.get_string_array("AllowedPatterns");
         let mut visitor = UnreachableLoopVisitor {
             cop: self,
@@ -28,7 +29,7 @@ impl Cop for UnreachableLoop {
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

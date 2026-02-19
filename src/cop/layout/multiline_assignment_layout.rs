@@ -55,7 +55,8 @@ impl Cop for MultilineAssignmentLayout {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "new_line");
         let supported_types = config
             .get_string_array("SupportedTypes")
@@ -82,11 +83,11 @@ impl Cop for MultilineAssignmentLayout {
         } else if let Some(asgn) = node.as_global_variable_write_node() {
             (asgn.name_loc().end_offset(), asgn.value())
         } else {
-            return Vec::new();
+            return;
         };
 
         if !is_supported_type(&value, &supported_types) {
-            return Vec::new();
+            return;
         }
 
         let (value_start_line, _) = source.offset_to_line_col(value.location().start_offset());
@@ -96,13 +97,13 @@ impl Cop for MultilineAssignmentLayout {
 
         // Only check multi-line RHS
         if value_start_line == value_end_line {
-            return Vec::new();
+            return;
         }
 
         // Find the `=` sign between the name and the value
         let eq_offset = match find_eq_offset(source, name_end, value.location().start_offset()) {
             Some(o) => o,
-            None => return Vec::new(),
+            None => return,
         };
 
         let (eq_line, _) = source.offset_to_line_col(eq_offset);
@@ -112,28 +113,27 @@ impl Cop for MultilineAssignmentLayout {
         match enforced_style {
             "new_line" => {
                 if same_line {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         node_line,
                         node_col,
                         "Right hand side of multi-line assignment is on the same line as the assignment operator `=`.".to_string(),
-                    )];
+                    ));
                 }
             }
             "same_line" => {
                 if !same_line {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         node_line,
                         node_col,
                         "Right hand side of multi-line assignment is not on the same line as the assignment operator `=`.".to_string(),
-                    )];
+                    ));
                 }
             }
             _ => {}
         }
 
-        Vec::new()
     }
 }
 

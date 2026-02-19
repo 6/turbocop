@@ -32,24 +32,25 @@ impl Cop for ExampleWithoutDescription {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let method_name = call.name().as_slice();
         if !EXAMPLE_METHODS.iter().any(|m| method_name == *m) {
-            return Vec::new();
+            return;
         }
 
         // Must have a block
         if call.block().is_none() {
-            return Vec::new();
+            return;
         }
 
         let style = config.get_str("EnforcedStyle", "always_allow");
@@ -66,16 +67,16 @@ impl Cop for ExampleWithoutDescription {
                     if s.unescaped().is_empty() {
                         let loc = s.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Omit the argument when you want to have auto-generated description.".to_string(),
-                        )];
+                        ));
                     }
                 }
                 // Has a non-empty string or other arg — fine
-                return Vec::new();
+                return;
             }
         }
 
@@ -83,7 +84,7 @@ impl Cop for ExampleWithoutDescription {
         match style {
             "always_allow" => {
                 // No description is always OK
-                Vec::new()
+
             }
             "disallow" => {
                 // All examples must have descriptions,
@@ -99,17 +100,17 @@ impl Cop for ExampleWithoutDescription {
                         .max(block_loc.start_offset());
                     let (end_line, _) = source.offset_to_line_col(end_off);
                     if start_line != end_line {
-                        return Vec::new();
+                        return;
                     }
                 }
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Add a description.".to_string(),
-                )]
+                ));
             }
             _ => {
                 // "single_line_only": single-line OK, multi-line flagged
@@ -128,18 +129,18 @@ impl Cop for ExampleWithoutDescription {
                     // multiline, regardless of EnforcedStyle. See:
                     //   return if node.method?(:specify) && node.parent.multiline?
                     if method_name == b"specify" {
-                        return Vec::new();
+                        return;
                     }
                     let loc = call.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Add a description.".to_string(),
-                    )];
+                    ));
                 }
-                Vec::new()
+
             }
         }
     }

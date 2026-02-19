@@ -16,7 +16,8 @@ impl Cop for OneClassPerFile {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let mut visitor = ClassCollector {
             source,
             classes: Vec::new(),
@@ -26,19 +27,14 @@ impl Cop for OneClassPerFile {
 
         // If there's more than one top-level class, flag all but the first
         if visitor.classes.len() > 1 {
-            visitor.classes[1..]
-                .iter()
-                .map(|&(line, column)| {
-                    self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Only define one class per source file.".to_string(),
-                    )
-                })
-                .collect()
-        } else {
-            Vec::new()
+            for &(line, column) in &visitor.classes[1..] {
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Only define one class per source file.".to_string(),
+                ));
+            }
         }
     }
 }

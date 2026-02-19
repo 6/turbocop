@@ -22,7 +22,8 @@ impl Cop for BlockForwarding {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Anonymous block forwarding requires Ruby 3.1+
         // Default TargetRubyVersion is 3.4 (matching RuboCop's behavior when unset)
         let target_version = config
@@ -35,36 +36,36 @@ impl Cop for BlockForwarding {
             })
             .unwrap_or(3.4);
         if target_version < 3.1 {
-            return Vec::new();
+            return;
         }
 
         let enforced_style = config.get_str("EnforcedStyle", "anonymous");
         let _block_forwarding_name = config.get_str("BlockForwardingName", "block");
 
         if enforced_style != "anonymous" {
-            return Vec::new();
+            return;
         }
 
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params = match def_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if there's a &block parameter
         let block_param = match params.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // If the block param has no name (already anonymous &), skip
         let param_name = match block_param.name() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let param_name_bytes = param_name.as_slice();
@@ -72,7 +73,7 @@ impl Cop for BlockForwarding {
         // Check if the block is only used for forwarding (passed as &name to other calls)
         let body = match def_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if the block parameter is only used as &name in call arguments
@@ -86,15 +87,14 @@ impl Cop for BlockForwarding {
         if checker.only_forwarded && checker.has_forwarding {
             let loc = block_param.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Use anonymous block forwarding.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

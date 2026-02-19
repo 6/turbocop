@@ -36,11 +36,12 @@ impl Cop for RedundantSelfAssignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for `x = x.method!` patterns
         let write = match node.as_local_variable_write_node() {
             Some(w) => w,
-            None => return Vec::new(),
+            None => return,
         };
 
         let var_name = write.name().as_slice();
@@ -49,33 +50,33 @@ impl Cop for RedundantSelfAssignment {
         let value = write.value();
         let call = match value.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Receiver must be the same local variable
         let recv_lvar = match receiver.as_local_variable_read_node() {
             Some(lv) => lv,
-            None => return Vec::new(),
+            None => return,
         };
 
         if recv_lvar.name().as_slice() != var_name {
-            return Vec::new();
+            return;
         }
 
         // Method must be an in-place modification method
         let method_name = call.name().as_slice();
         if !INPLACE_METHODS.iter().any(|m| *m == method_name) {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
@@ -84,7 +85,7 @@ impl Cop for RedundantSelfAssignment {
                 String::from_utf8_lossy(method_name),
                 String::from_utf8_lossy(var_name),
             ),
-        )]
+        ));
     }
 }
 

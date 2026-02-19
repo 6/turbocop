@@ -25,66 +25,67 @@ impl Cop for EnvironmentVariableAccess {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_reads = config.get_bool("AllowReads", false);
         let allow_writes = config.get_bool("AllowWrites", false);
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method = call.name().as_slice();
 
         // AllowWrites: skip ENV[]= assignments
         if allow_writes && method == b"[]=" {
-            return Vec::new();
+            return;
         }
 
         // AllowReads: skip ENV[] reads
         if allow_reads && method == b"[]" {
-            return Vec::new();
+            return;
         }
 
         if method != b"[]" {
-            return Vec::new();
+            return;
         }
 
         let recv = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Handle both ConstantReadNode (ENV) and ConstantPathNode (::ENV)
         if util::constant_name(&recv) != Some(b"ENV") {
-            return Vec::new();
+            return;
         }
 
         // Get the key string for the message
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let key = if let Some(s) = arg_list[0].as_string_node() {
             String::from_utf8_lossy(s.unescaped()).to_string()
         } else {
-            return Vec::new();
+            return;
         };
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `ENV.fetch('{key}')` instead of `ENV['{key}']` for safer access."),
-        )]
+        ));
     }
 }
 

@@ -26,30 +26,31 @@ impl Cop for TrailingCommaInAttributeDeclaration {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be a bare call (no receiver) to an attr method
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let method_name = call.name().as_slice();
         if !ATTR_METHODS.iter().any(|m| *m == method_name) {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Check if the last argument is a DefNode (method definition).
@@ -60,15 +61,14 @@ impl Cop for TrailingCommaInAttributeDeclaration {
         if last_arg.as_def_node().is_some() {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Avoid leaving a trailing comma in attribute declarations.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

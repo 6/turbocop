@@ -13,7 +13,7 @@ impl Cop for RequiredRubyVersion {
         &["**/*.gemspec"]
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let mut found = false;
 
         for line in source.lines() {
@@ -42,14 +42,13 @@ impl Cop for RequiredRubyVersion {
         }
 
         if !found {
-            vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 1,
                 0,
                 "`required_ruby_version` should be set in gemspec.".to_string(),
-            )]
-        } else {
-            Vec::new()
+            ));
+
         }
     }
 }

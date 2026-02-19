@@ -53,63 +53,64 @@ impl Cop for HashFetchChain {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be fetch method
         if call.name().as_slice() != b"fetch" {
-            return Vec::new();
+            return;
         }
 
         // Must have 2 arguments (key, default)
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 2 {
-            return Vec::new();
+            return;
         }
 
         // The last fetch's default must be nil
         if !arg_list[1].as_nil_node().is_some() {
-            return Vec::new();
+            return;
         }
 
         // The receiver must also be a fetch call with nil/{}/Hash.new default
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_call = match receiver.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if recv_call.name().as_slice() != b"fetch" {
-            return Vec::new();
+            return;
         }
 
         let recv_args = match recv_call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let recv_arg_list: Vec<_> = recv_args.arguments().iter().collect();
         if recv_arg_list.len() != 2 {
-            return Vec::new();
+            return;
         }
 
         if !Self::is_nil_or_empty_hash(&recv_arg_list[1]) {
-            return Vec::new();
+            return;
         }
 
         // Must not have a block
         if call.block().is_some() || recv_call.block().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Build dig arguments
@@ -121,12 +122,12 @@ impl Cop for HashFetchChain {
         let msg_loc = recv_call.message_loc().unwrap_or_else(|| recv_call.location());
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
 
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `dig({}, {})` instead.", first_key, second_key),
-        )]
+        ));
     }
 }
 

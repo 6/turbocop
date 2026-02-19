@@ -20,16 +20,17 @@ impl Cop for RequestReferer {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "referer");
 
         let chain = match as_method_chain(node) {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if chain.inner_method != b"request" {
-            return Vec::new();
+            return;
         }
 
         // Determine the "wrong" method based on style
@@ -39,18 +40,18 @@ impl Cop for RequestReferer {
         };
 
         if chain.outer_method != wrong_method {
-            return Vec::new();
+            return;
         }
 
         let wrong_str = std::str::from_utf8(wrong_method).unwrap_or("?");
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `request.{preferred}` instead of `request.{wrong_str}`."),
-        )]
+        ));
     }
 }
 

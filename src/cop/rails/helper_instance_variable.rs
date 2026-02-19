@@ -28,7 +28,8 @@ impl Cop for HelperInstanceVariable {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let loc;
 
         if node.as_instance_variable_read_node().is_some() {
@@ -36,16 +37,16 @@ impl Cop for HelperInstanceVariable {
         } else if node.as_instance_variable_write_node().is_some() {
             loc = node.location();
         } else {
-            return Vec::new();
+            return;
         }
 
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Do not use instance variables in helpers.".to_string(),
-        )]
+        ));
     }
 }
 

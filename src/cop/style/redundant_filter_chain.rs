@@ -22,10 +22,11 @@ impl Cop for RedundantFilterChain {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_bytes = call.name().as_slice();
@@ -36,35 +37,35 @@ impl Cop for RedundantFilterChain {
             b"empty?" => "none?",
             b"none?" => "none?",
             b"one?" => "one?",
-            _ => return Vec::new(),
+            _ => return,
         };
 
         // Must have no arguments or block
         if call.arguments().is_some() || call.block().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be a filter method with a block
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_call = match receiver.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_method = recv_call.name();
         let recv_bytes = recv_method.as_slice();
 
         if !FILTER_METHODS.iter().any(|&m| m == recv_bytes) {
-            return Vec::new();
+            return;
         }
 
         // The filter method must have a block (or block pass)
         if recv_call.block().is_none() {
-            return Vec::new();
+            return;
         }
 
         let filter_str = std::str::from_utf8(recv_bytes).unwrap_or("select");
@@ -72,12 +73,12 @@ impl Cop for RedundantFilterChain {
 
         let msg_loc = recv_call.message_loc().unwrap_or_else(|| recv_call.location());
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `{replacement}` instead of `{filter_str}.{predicate_str}`."),
-        )]
+        ));
     }
 }
 

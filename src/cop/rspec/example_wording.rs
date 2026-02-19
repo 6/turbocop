@@ -35,7 +35,8 @@ impl Cop for ExampleWording {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Config: CustomTransform — hash of word replacements (unused: requires hash config)
         let custom_transform = config.get_string_hash("CustomTransform").unwrap_or_default();
         // Config: IgnoredWords — words to ignore in description checking
@@ -45,22 +46,22 @@ impl Cop for ExampleWording {
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let method_name = call.name().as_slice();
         if !EXAMPLE_METHODS.iter().any(|m| method_name == *m) {
-            return Vec::new();
+            return;
         }
 
         // Get the first positional argument (the description string)
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         for arg in args.arguments().iter() {
@@ -95,12 +96,12 @@ impl Cop for ExampleWording {
                     for d in disallowed {
                         if trimmed.eq_ignore_ascii_case(d) {
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            return vec![self.diagnostic(
+                            diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 format!("Avoid disallowed example description '{d}'."),
-                            )];
+                            ));
                         }
                     }
                 }
@@ -133,40 +134,39 @@ impl Cop for ExampleWording {
                     } else {
                         "Do not use should when describing your tests.".to_string()
                     };
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         msg,
-                    )];
+                    ));
                 }
 
                 // Check for "will"/"won't" prefix
                 if starts_with_will(&desc) {
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Do not use the future tense when describing your tests.".to_string(),
-                    )];
+                    ));
                 }
 
                 // Check for "it " prefix (repeating "it" inside it blocks)
                 if starts_with_it_prefix(&desc) {
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Do not repeat 'it' when describing your tests.".to_string(),
-                    )];
+                    ));
                 }
             }
             break;
         }
 
-        Vec::new()
     }
 }
 

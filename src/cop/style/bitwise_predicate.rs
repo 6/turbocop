@@ -20,10 +20,11 @@ impl Cop for BitwisePredicate {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
@@ -46,12 +47,12 @@ impl Cop for BitwisePredicate {
                                         };
                                         let loc = node.location();
                                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                        return vec![self.diagnostic(
+                                        diagnostics.push(self.diagnostic(
                                             source,
                                             line,
                                             column,
                                             format!("Replace with `{}` for comparison with bit flags.", predicate),
-                                        )];
+                                        ));
                                     }
                                 }
                             }
@@ -87,22 +88,22 @@ impl Cop for BitwisePredicate {
                                                         {
                                                             let loc = node.location();
                                                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                                            return vec![self.diagnostic(
+                                                            diagnostics.push(self.diagnostic(
                                                                 source,
                                                                 line,
                                                                 column,
                                                                 "Replace with `anybits?` for comparison with bit flags.".to_string(),
-                                                            )];
+                                                            ));
                                                         }
                                                         if method_name == "==" && is_zero {
                                                             let loc = node.location();
                                                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                                            return vec![self.diagnostic(
+                                                            diagnostics.push(self.diagnostic(
                                                                 source,
                                                                 line,
                                                                 column,
                                                                 "Replace with `nobits?` for comparison with bit flags.".to_string(),
-                                                            )];
+                                                            ));
                                                         }
                                                     }
                                                 }
@@ -117,7 +118,6 @@ impl Cop for BitwisePredicate {
             }
         }
 
-        Vec::new()
     }
 }
 

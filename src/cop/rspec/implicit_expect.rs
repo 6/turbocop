@@ -29,17 +29,18 @@ impl Cop for ImplicitExpect {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Config: EnforcedStyle — "is_expected" (default) or "should"
         let enforced_style = config.get_str("EnforcedStyle", "is_expected");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let method_name = call.name().as_slice();
@@ -49,39 +50,38 @@ impl Cop for ImplicitExpect {
             if method_name == b"is_expected" {
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Prefer `should` over `is_expected.to`.".to_string(),
-                )];
+                ));
             }
         } else {
             // Default "is_expected" style: flag `should` and `should_not`
             if method_name == b"should" {
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Prefer `is_expected.to` over `should`.".to_string(),
-                )];
+                ));
             }
 
             if method_name == b"should_not" {
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Prefer `is_expected.to_not` over `should_not`.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

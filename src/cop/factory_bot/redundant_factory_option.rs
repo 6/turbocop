@@ -29,35 +29,36 @@ impl Cop for RedundantFactoryOption {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"association" {
-            return Vec::new();
+            return;
         }
 
         // Must have no receiver
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // First argument: association name (symbol)
         let assoc_name = match arg_list[0].as_symbol_node() {
             Some(s) => s.unescaped().to_vec(),
-            None => return Vec::new(),
+            None => return,
         };
 
         // Look for hash argument with factory: key
@@ -107,18 +108,17 @@ impl Cop for RedundantFactoryOption {
                     if name == assoc_name {
                         let loc = pair.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Remove redundant `factory` option.".to_string(),
-                        )];
+                        ));
                     }
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

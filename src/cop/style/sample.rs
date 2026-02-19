@@ -20,10 +20,11 @@ impl Cop for Sample {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name();
@@ -31,20 +32,20 @@ impl Cop for Sample {
 
         // Must be .first or .last (the simple cases)
         if !matches!(method_bytes, b"first" | b"last") {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be a call to .shuffle
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         if let Some(shuffle_call) = receiver.as_call_node() {
             if shuffle_call.name().as_slice() == b"shuffle" {
                 // shuffle must have a receiver (the collection)
                 if shuffle_call.receiver().is_none() {
-                    return Vec::new();
+                    return;
                 }
 
                 let loc = node.location();
@@ -80,16 +81,15 @@ impl Cop for Sample {
                     "sample".to_string()
                 };
 
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Use `{}` instead of `{}`.", correct, incorrect),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

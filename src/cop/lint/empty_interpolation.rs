@@ -24,10 +24,11 @@ impl Cop for EmptyInterpolation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let embedded = match node.as_embedded_statements_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body_empty = match embedded.statements() {
@@ -36,17 +37,17 @@ impl Cop for EmptyInterpolation {
         };
 
         if !body_empty {
-            return Vec::new();
+            return;
         }
 
         let loc = embedded.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Empty interpolation detected.".to_string(),
-        )]
+        ));
     }
 }
 

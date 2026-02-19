@@ -92,32 +92,33 @@ impl Cop for EmptyLinesAroundAccessModifier {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "around");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if it's a bare access modifier (no receiver, no args, no block)
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let method_name = call.name().as_slice();
         if !ACCESS_MODIFIERS.iter().any(|&m| m == method_name) {
-            return Vec::new();
+            return;
         }
 
         // Must have no arguments to be an access modifier (not `private :foo`)
         if call.arguments().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Skip if it has a block (e.g. `private do ... end`)
         if call.block().is_some() {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
@@ -145,7 +146,7 @@ impl Cop for EmptyLinesAroundAccessModifier {
                 .rev()
                 .collect();
             if end_trimmed != method_name {
-                return Vec::new();
+                return;
             }
         }
 
@@ -180,43 +181,41 @@ impl Cop for EmptyLinesAroundAccessModifier {
         match enforced_style {
             "around" => {
                 if !has_blank_before && !has_blank_after {
-                    vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         col,
                         format!("Keep a blank line before and after `{modifier_str}`."),
-                    )]
+                    ));
                 } else if !has_blank_before {
-                    vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         col,
                         format!("Keep a blank line before and after `{modifier_str}`."),
-                    )]
+                    ));
                 } else if !has_blank_after {
-                    vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         col,
                         format!("Keep a blank line after `{modifier_str}`."),
-                    )]
-                } else {
-                    Vec::new()
+                    ));
+
                 }
             }
             "only_before" => {
                 if !has_blank_before {
-                    vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         col,
                         format!("Keep a blank line before `{modifier_str}`."),
-                    )]
-                } else {
-                    Vec::new()
+                    ));
+
                 }
             }
-            _ => Vec::new(),
+            _ => {},
         }
     }
 }

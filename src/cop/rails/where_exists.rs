@@ -25,13 +25,15 @@ impl Cop for WhereExists {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "exists");
 
-        match style {
+        let result = match style {
             "where" => self.check_where_style(source, node),
             _ => self.check_exists_style(source, node),
-        }
+        };
+        diagnostics.extend(result);
     }
 }
 

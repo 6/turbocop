@@ -20,17 +20,18 @@ impl Cop for SpaceAroundBlockParameters {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyleInsidePipes", "no_space");
 
         let block = match node.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params = match block.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params_loc = params.location();
@@ -40,19 +41,18 @@ impl Cop for SpaceAroundBlockParameters {
 
         // Params location should be |...|
         if start >= end || start >= bytes.len() || end > bytes.len() {
-            return Vec::new();
+            return;
         }
         if bytes[start] != b'|' {
-            return Vec::new();
+            return;
         }
 
         // Find the closing pipe
         let close_pipe = end.saturating_sub(1);
         if close_pipe <= start || bytes[close_pipe] != b'|' {
-            return Vec::new();
+            return;
         }
 
-        let mut diagnostics = Vec::new();
 
         match style {
             "no_space" => {
@@ -102,7 +102,6 @@ impl Cop for SpaceAroundBlockParameters {
             _ => {}
         }
 
-        diagnostics
     }
 }
 

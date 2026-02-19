@@ -24,32 +24,33 @@ impl Cop for NumberedParameterAssignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let write = match node.as_local_variable_write_node() {
             Some(w) => w,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = write.name();
         let name_bytes = name.as_slice();
         let name_str = match std::str::from_utf8(name_bytes) {
             Ok(s) => s,
-            Err(_) => return Vec::new(),
+            Err(_) => return,
         };
 
         // Match pattern: _N where N is one or more digits
         if !name_str.starts_with('_') {
-            return Vec::new();
+            return;
         }
 
         let after_underscore = &name_str[1..];
         if after_underscore.is_empty() || !after_underscore.chars().all(|c| c.is_ascii_digit()) {
-            return Vec::new();
+            return;
         }
 
         let number: u64 = match after_underscore.parse() {
             Ok(n) => n,
-            Err(_) => return Vec::new(),
+            Err(_) => return,
         };
 
         let msg = if (1..=9).contains(&number) {
@@ -60,7 +61,7 @@ impl Cop for NumberedParameterAssignment {
 
         let loc = write.name_loc();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, msg)]
+        diagnostics.push(self.diagnostic(source, line, column, msg));
     }
 }
 

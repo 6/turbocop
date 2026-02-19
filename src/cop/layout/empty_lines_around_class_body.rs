@@ -21,11 +21,12 @@ impl Cop for EmptyLinesAroundClassBody {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "no_empty_lines");
         let class_node = match node.as_class_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let kw_offset = class_node.class_keyword_loc().start_offset();
@@ -33,9 +34,9 @@ impl Cop for EmptyLinesAroundClassBody {
 
         match style {
             "empty_lines" => {
-                util::check_missing_empty_lines_around_body(
+                diagnostics.extend(util::check_missing_empty_lines_around_body(
                     self.name(), source, kw_offset, end_offset, "class",
-                )
+                ));
             }
             "beginning_only" => {
                 // Require blank line at beginning, flag blank at end
@@ -49,7 +50,7 @@ impl Cop for EmptyLinesAroundClassBody {
                     self.name(), source, kw_offset, end_offset, "class",
                 );
                 diags.extend(extra_end.into_iter().filter(|d| d.message.contains("end")));
-                diags
+                diagnostics.extend(diags);
             }
             "ending_only" => {
                 // Require blank line at end, flag blank at beginning
@@ -63,13 +64,13 @@ impl Cop for EmptyLinesAroundClassBody {
                     self.name(), source, kw_offset, end_offset, "class",
                 );
                 diags.extend(extra_begin.into_iter().filter(|d| d.message.contains("beginning")));
-                diags
+                diagnostics.extend(diags);
             }
             _ => {
                 // "no_empty_lines" (default)
-                util::check_empty_lines_around_body(
+                diagnostics.extend(util::check_empty_lines_around_body(
                     self.name(), source, kw_offset, end_offset, "class",
-                )
+                ));
             }
         }
     }

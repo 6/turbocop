@@ -20,7 +20,8 @@ impl Cop for CombinableLoops {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check in class/module/method bodies for consecutive loops
         // Note: ProgramNode's StatementsNode is visited via visit_statements_node
         // directly (not through generic visit()), so visit_branch_node_enter is
@@ -31,10 +32,9 @@ impl Cop for CombinableLoops {
             } else if let Some(prog_node) = node.as_program_node() {
                 prog_node.statements().body().iter().collect()
             } else {
-                return Vec::new();
+                return;
             };
 
-        let mut diagnostics = Vec::new();
 
         for i in 1..stmt_list.len() {
             let prev = &stmt_list[i - 1];
@@ -66,7 +66,6 @@ impl Cop for CombinableLoops {
             }
         }
 
-        diagnostics
     }
 }
 

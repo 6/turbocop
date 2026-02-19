@@ -20,10 +20,11 @@ impl Cop for EvenOdd {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call_node = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call_node.name();
@@ -31,20 +32,20 @@ impl Cop for EvenOdd {
 
         // Must be == or !=
         if method_bytes != b"==" && method_bytes != b"!=" {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be `x % 2` or `(x % 2)`
         let receiver = match call_node.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Unwrap optional parentheses
         let modulo_call = if let Some(parens) = receiver.as_parentheses_node() {
             match parens.body() {
                 Some(body) => body.as_call_node().map(|c| c),
-                None => return Vec::new(),
+                None => return,
             }
         } else {
             receiver.as_call_node()
@@ -52,50 +53,50 @@ impl Cop for EvenOdd {
 
         let modulo_call = match modulo_call {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be % method
         if modulo_call.name().as_slice() != b"%" {
-            return Vec::new();
+            return;
         }
 
         // Argument of % must be integer literal 2
         let mod_args = match modulo_call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let mod_arg_list: Vec<_> = mod_args.arguments().iter().collect();
         if mod_arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
         let mod_arg = &mod_arg_list[0];
         let int_node = match mod_arg.as_integer_node() {
             Some(i) => i,
-            None => return Vec::new(),
+            None => return,
         };
         let int_src = int_node.location().as_slice();
         if int_src != b"2" {
-            return Vec::new();
+            return;
         }
 
         // The comparison argument must be integer literal 0 or 1
         let args = match call_node.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
         let cmp_arg = &arg_list[0];
         let cmp_int = match cmp_arg.as_integer_node() {
             Some(i) => i,
-            None => return Vec::new(),
+            None => return,
         };
         let cmp_src = cmp_int.location().as_slice();
         if cmp_src != b"0" && cmp_src != b"1" {
-            return Vec::new();
+            return;
         }
 
         let is_zero = cmp_src == b"0";
@@ -109,12 +110,12 @@ impl Cop for EvenOdd {
         };
 
         let (line, column) = source.offset_to_line_col(call_node.location().start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Replace with `Integer#{}?`.", replacement),
-        )]
+        ));
     }
 }
 

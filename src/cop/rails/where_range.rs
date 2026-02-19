@@ -24,15 +24,16 @@ impl Cop for WhereRange {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method = call.name().as_slice();
         if method != b"where" && method != b"not" {
-            return Vec::new();
+            return;
         }
 
         // For `not`, check that the receiver is a `where` call
@@ -40,30 +41,30 @@ impl Cop for WhereRange {
             if let Some(recv) = call.receiver() {
                 if let Some(recv_call) = recv.as_call_node() {
                     if recv_call.name().as_slice() != b"where" {
-                        return Vec::new();
+                        return;
                     }
                 } else {
-                    return Vec::new();
+                    return;
                 }
             } else {
-                return Vec::new();
+                return;
             }
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // First argument should be a string containing a simple comparison pattern
         let string_node = match arg_list[0].as_string_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let content = string_node.unescaped();
@@ -76,17 +77,17 @@ impl Cop for WhereRange {
         // - "column <[=] :name"
         // - "column >= :name1 AND column <[=] :name2"
         if !matches_where_range_pattern(&content) {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use a range in `where` instead of manually constructing SQL conditions.".to_string(),
-        )]
+        ));
     }
 }
 

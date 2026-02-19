@@ -30,80 +30,81 @@ impl Cop for MessageSpies {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Config: EnforcedStyle — "have_received" (default) or "receive"
         let enforced_style = config.get_str("EnforcedStyle", "have_received");
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if method_name != b"to" && method_name != b"not_to" && method_name != b"to_not" {
-            return Vec::new();
+            return;
         }
 
         // Check receiver is `expect(...)`
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
         let recv_call = match receiver.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         if recv_call.name().as_slice() != b"expect" || recv_call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Check that the matcher argument is `receive` (not `have_received`)
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Walk into chained calls to find the root matcher name
         let matcher_call = find_root_call(&arg_list[0]);
         let matcher_call = match matcher_call {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let matcher_name = matcher_call.name().as_slice();
         if matcher_call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         if enforced_style == "receive" {
             // "receive" style: flag `have_received`, prefer `receive`
             if matcher_name != b"have_received" {
-                return Vec::new();
+                return;
             }
             let loc = matcher_call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Prefer `receive` for setting message expectations.".to_string(),
-            )]
+            ));
         } else {
             // Default "have_received" style: flag `receive`, prefer `have_received`
             if matcher_name != b"receive" {
-                return Vec::new();
+                return;
             }
             let loc = matcher_call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Prefer `have_received` for setting message expectations. Setup the object as a spy using `allow` or `instance_spy`.".to_string(),
-            )]
+            ));
         }
     }
 }

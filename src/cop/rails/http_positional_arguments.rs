@@ -25,12 +25,13 @@ impl Cop for HttpPositionalArguments {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // First, check if the file includes Rack::Test::Methods — if so, skip entirely
         let mut checker = RackTestChecker { found: false };
         checker.visit(&parse_result.node());
         if checker.found {
-            return Vec::new();
+            return;
         }
 
         let mut visitor = HttpPosArgsVisitor {
@@ -39,7 +40,7 @@ impl Cop for HttpPositionalArguments {
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

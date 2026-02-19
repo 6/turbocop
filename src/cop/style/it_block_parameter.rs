@@ -20,28 +20,29 @@ impl Cop for ItBlockParameter {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let _style = config.get_str("EnforcedStyle", "allow_single_line");
 
         // Detect block parameters named `it`: { |it| ... }
         let block = match node.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params = match block.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_params = match params.as_block_parameters_node() {
             Some(bp) => bp,
-            None => return Vec::new(),
+            None => return,
         };
 
         let parameters = match block_params.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         for req in parameters.requireds().iter() {
@@ -49,17 +50,16 @@ impl Cop for ItBlockParameter {
                 if param.name().as_slice() == b"it" {
                     let loc = param.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Avoid using `it` as a block parameter name, since `it` will be the default block parameter in Ruby 3.4+.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

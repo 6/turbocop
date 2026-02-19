@@ -24,16 +24,17 @@ impl Cop for ToFormattedS {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "to_fs");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         let method_name = call.name().as_slice();
@@ -45,18 +46,18 @@ impl Cop for ToFormattedS {
         };
 
         if method_name != wrong_method {
-            return Vec::new();
+            return;
         }
 
         let wrong_str = std::str::from_utf8(wrong_method).unwrap_or("?");
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `{preferred}` instead of `{wrong_str}`."),
-        )]
+        ));
     }
 }
 

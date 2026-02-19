@@ -20,18 +20,19 @@ impl Cop for MethodDefParentheses {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "require_parentheses");
 
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Only apply to methods with parameters
         let params = match def_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if there are actual parameters
@@ -43,7 +44,7 @@ impl Cop for MethodDefParentheses {
             && params.keyword_rest().is_none()
             && params.block().is_none()
         {
-            return Vec::new();
+            return;
         }
 
         let has_parens = def_node.lparen_loc().is_some();
@@ -52,24 +53,24 @@ impl Cop for MethodDefParentheses {
             "require_parentheses" | "require_no_parentheses_except_multiline" if !has_parens => {
                 let def_loc = def_node.def_keyword_loc();
                 let (line, column) = source.offset_to_line_col(def_loc.start_offset());
-                vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use `def` with parentheses when there are parameters.".to_string(),
-                )]
+                ));
             }
             "require_no_parentheses" if has_parens => {
                 let def_loc = def_node.def_keyword_loc();
                 let (line, column) = source.offset_to_line_col(def_loc.start_offset());
-                vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use `def` without parentheses.".to_string(),
-                )]
+                ));
             }
-            _ => Vec::new(),
+            _ => {}
         }
     }
 }

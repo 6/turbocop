@@ -80,10 +80,11 @@ impl Cop for EmptyBlock {
         node: &ruby_prism::Node<'_>,
         parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let block_node = match node.as_block_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body_empty = match block_node.body() {
@@ -98,7 +99,7 @@ impl Cop for EmptyBlock {
         };
 
         if !body_empty {
-            return Vec::new();
+            return;
         }
 
         // AllowEmptyLambdas: skip lambda/proc blocks
@@ -110,7 +111,7 @@ impl Cop for EmptyBlock {
             let block_start = block_node.location().start_offset();
             let bytes = source.as_bytes();
             if is_lambda_or_proc_block(bytes, block_start) {
-                return Vec::new();
+                return;
             }
         }
 
@@ -132,7 +133,7 @@ impl Cop for EmptyBlock {
                     // (the disable mechanism handles that separately).
                     let comment_text = comment.location().as_slice();
                     if !is_disable_comment_for_cop(comment_text, b"Lint/EmptyBlock") {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
@@ -140,12 +141,12 @@ impl Cop for EmptyBlock {
 
         let loc = block_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Empty block detected.".to_string(),
-        )]
+        ));
     }
 }
 

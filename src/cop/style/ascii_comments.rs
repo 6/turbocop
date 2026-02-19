@@ -9,12 +9,11 @@ impl Cop for AsciiComments {
         "Style/AsciiComments"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let allowed_chars = config
             .get_string_array("AllowedChars")
             .unwrap_or_default();
 
-        let mut diagnostics = Vec::new();
 
         for (i, line) in source.lines().enumerate() {
             let line_str = match std::str::from_utf8(line) {
@@ -51,7 +50,6 @@ impl Cop for AsciiComments {
             }
         }
 
-        diagnostics
     }
 }
 

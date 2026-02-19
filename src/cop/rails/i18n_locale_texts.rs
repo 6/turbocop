@@ -110,10 +110,11 @@ impl Cop for I18nLocaleTexts {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -121,11 +122,11 @@ impl Cop for I18nLocaleTexts {
         match method_name {
             b"validates" => {
                 // Check for string message values in nested hashes
-                return find_message_strings_in_validation_args(&call, source, self);
+                diagnostics.extend(find_message_strings_in_validation_args(&call, source, self));
+                return;
             }
             b"redirect_to" | b"redirect_back" => {
                 // Check :notice and :alert keyword args for string literals
-                let mut diagnostics = Vec::new();
                 for key in &[b"notice" as &[u8], b"alert"] {
                     if let Some(val) = find_keyword_string_value(&call, key) {
                         if is_string_literal(&val) {
@@ -135,7 +136,7 @@ impl Cop for I18nLocaleTexts {
                         }
                     }
                 }
-                return diagnostics;
+                return;
             }
             b"mail" => {
                 // Check :subject keyword arg for string literal
@@ -143,7 +144,7 @@ impl Cop for I18nLocaleTexts {
                     if is_string_literal(&val) {
                         let loc = val.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(source, line, column, MSG.to_string())];
+                        diagnostics.push(self.diagnostic(source, line, column, MSG.to_string()));
                     }
                 }
             }
@@ -163,12 +164,12 @@ impl Cop for I18nLocaleTexts {
                             if is_string_literal(&arg_list[1]) {
                                 let loc = arg_list[1].location();
                                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                return vec![self.diagnostic(
+                                diagnostics.push(self.diagnostic(
                                     source,
                                     line,
                                     column,
                                     MSG.to_string(),
-                                )];
+                                ));
                             }
                         }
                     }
@@ -176,7 +177,6 @@ impl Cop for I18nLocaleTexts {
             }
         }
 
-        Vec::new()
     }
 }
 

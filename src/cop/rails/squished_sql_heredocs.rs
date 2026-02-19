@@ -46,32 +46,33 @@ impl Cop for SquishedSQLHeredocs {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check for heredocs with SQL tag that don't have .squish
         // Could be a StringNode or InterpolatedStringNode
 
         let (opening_loc, closing_loc, node_loc) = if let Some(s) = node.as_string_node() {
             let opening = match s.opening_loc() {
                 Some(o) => o,
-                None => return Vec::new(),
+                None => return,
             };
             let closing = match s.closing_loc() {
                 Some(c) => c,
-                None => return Vec::new(),
+                None => return,
             };
             (opening, closing, node.location())
         } else if let Some(s) = node.as_interpolated_string_node() {
             let opening = match s.opening_loc() {
                 Some(o) => o,
-                None => return Vec::new(),
+                None => return,
             };
             let closing = match s.closing_loc() {
                 Some(c) => c,
-                None => return Vec::new(),
+                None => return,
             };
             (opening, closing, node.location())
         } else {
-            return Vec::new();
+            return;
         };
 
         let bytes = source.as_bytes();
@@ -79,7 +80,7 @@ impl Cop for SquishedSQLHeredocs {
 
         // Must be a heredoc starting with << or <<- or <<~
         if !opening_text.starts_with(b"<<") {
-            return Vec::new();
+            return;
         }
 
         // Extract the tag name, stripping <<, <<-, <<~
@@ -94,7 +95,7 @@ impl Cop for SquishedSQLHeredocs {
 
         // Must be SQL heredoc
         if tag != b"SQL" {
-            return Vec::new();
+            return;
         }
 
         // Check if .squish is already called by looking at parent context
@@ -110,19 +111,19 @@ impl Cop for SquishedSQLHeredocs {
 
         // Check if `.squish` appears right after the opening tag
         if after_opening.starts_with(b".squish") {
-            return Vec::new();
+            return;
         }
 
         // Also check if the opening text itself contains .squish (e.g., <<~SQL.squish)
         if opening_text.windows(7).any(|w| w == b".squish") {
-            return Vec::new();
+            return;
         }
 
         // Check for SQL comments that would break if squished
         let content_start = opening_loc.end_offset();
         let content_end = closing_loc.start_offset();
         if contains_sql_comments(source, content_start, content_end) {
-            return Vec::new();
+            return;
         }
 
         let heredoc_style = if opening_text.starts_with(b"<<~") {
@@ -134,12 +135,12 @@ impl Cop for SquishedSQLHeredocs {
         };
 
         let (line, column) = source.offset_to_line_col(opening_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `{heredoc_style}.squish` instead of `{heredoc_style}`."),
-        )]
+        ));
     }
 }
 

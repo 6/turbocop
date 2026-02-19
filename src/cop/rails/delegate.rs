@@ -24,17 +24,18 @@ impl Cop for Delegate {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforce_for_prefixed = config.get_bool("EnforceForPrefixed", true);
 
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Skip class/module methods (def self.foo)
         if def_node.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Collect parameter names (for argument forwarding check)
@@ -46,7 +47,7 @@ impl Cop for Delegate {
                 || params.keyword_rest().is_some()
                 || params.block().is_some();
             if has_non_required {
-                return Vec::new();
+                return;
             }
             params
                 .requireds()
@@ -56,6 +57,7 @@ impl Cop for Delegate {
                         .map(|rp| rp.name().as_slice().to_vec())
                 })
                 .collect()
+
         } else {
             Vec::new()
         };
@@ -63,22 +65,22 @@ impl Cop for Delegate {
         // Body must be a single call expression
         let body = match def_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body_nodes: Vec<_> = stmts.body().iter().collect();
         if body_nodes.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let call = match body_nodes[0].as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // The delegated method name must match the defined method name
@@ -86,19 +88,19 @@ impl Cop for Delegate {
         // def foo; bar.baz; end → NOT a delegation
         let def_name = def_node.name().as_slice();
         if call.name().as_slice() != def_name {
-            return Vec::new();
+            return;
         }
 
         // Must have a receiver (delegating to another object)
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Safe navigation (&.) is ignored — Rails' delegate with allow_nil
         // has different semantics than safe navigation
         if call.call_operator_loc().is_some_and(|op: ruby_prism::Location<'_>| op.as_slice() == b"&.") {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be a delegatable target:
@@ -141,7 +143,7 @@ impl Cop for Delegate {
         };
 
         if !is_delegatable_receiver {
-            return Vec::new();
+            return;
         }
 
         // Check argument forwarding: call args must match def params 1:1
@@ -153,13 +155,14 @@ impl Cop for Delegate {
                         .map(|lv| lv.name().as_slice().to_vec())
                 })
                 .collect()
+
         } else {
             Vec::new()
         };
 
         // Argument count must match and all must be simple lvar forwards
         if call_arg_names.len() != param_names.len() {
-            return Vec::new();
+            return;
         }
         let call_arg_count = if let Some(args) = call.arguments() {
             args.arguments().iter().count()
@@ -167,18 +170,18 @@ impl Cop for Delegate {
             0
         };
         if call_arg_count != param_names.len() {
-            return Vec::new();
+            return;
         }
         // Each param must forward to matching lvar in same order
         for (param, arg) in param_names.iter().zip(call_arg_names.iter()) {
             if param != arg {
-                return Vec::new();
+                return;
             }
         }
 
         // Should not have a block
         if call.block().is_some() {
-            return Vec::new();
+            return;
         }
 
         // When EnforceForPrefixed is false, skip prefixed delegations
@@ -189,7 +192,7 @@ impl Cop for Delegate {
                 let mut prefix = recv_name.to_vec();
                 prefix.push(b'_');
                 if def_name.starts_with(&prefix) {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -198,17 +201,17 @@ impl Cop for Delegate {
         // Check if there's a `private` or `protected` declaration on the same line
         // or on a standalone line above this method.
         if is_private_or_protected(source, node.location().start_offset()) {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `delegate` to define delegations.".to_string(),
-        )]
+        ));
     }
 }
 

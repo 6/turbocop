@@ -17,7 +17,8 @@ impl Cop for ClassAndModuleChildren {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "nested").to_string();
         let enforced_for_classes = config.get_str("EnforcedStyleForClasses", "").to_string();
         let enforced_for_modules = config.get_str("EnforcedStyleForModules", "").to_string();
@@ -31,7 +32,7 @@ impl Cop for ClassAndModuleChildren {
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 
     fn diagnostic(

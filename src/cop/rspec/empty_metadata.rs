@@ -29,11 +29,12 @@ impl Cop for EmptyMetadata {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Detect empty metadata hash `{}` in example groups/examples
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -48,12 +49,12 @@ impl Cop for EmptyMetadata {
         };
 
         if !is_rspec {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Note: keyword_hash_node (keyword args) intentionally not handled —
@@ -63,17 +64,16 @@ impl Cop for EmptyMetadata {
                 if hash.elements().iter().count() == 0 {
                     let loc = hash.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Avoid empty metadata hash.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

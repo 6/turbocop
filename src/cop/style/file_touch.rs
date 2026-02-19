@@ -34,60 +34,61 @@ impl Cop for FileTouch {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // File.open(filename, 'a') {}
         if call.name().as_slice() != b"open" {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         if !Self::is_file_class(&receiver) {
-            return Vec::new();
+            return;
         }
 
         // Must have a block
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Block must be empty (no body)
         if let Some(block_node) = block.as_block_node() {
             if block_node.body().is_some() {
-                return Vec::new();
+                return;
             }
         } else {
-            return Vec::new();
+            return;
         }
 
         // Must have 'a' mode argument
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() < 2 {
-            return Vec::new();
+            return;
         }
 
         // Second arg should be 'a'
         if let Some(str_node) = arg_list[1].as_string_node() {
             let content: &[u8] = &str_node.unescaped();
             if content != b"a" {
-                return Vec::new();
+                return;
             }
         } else {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
@@ -97,12 +98,12 @@ impl Cop for FileTouch {
         let fname_src = &source.as_bytes()[arg_list[0].location().start_offset()..arg_list[0].location().end_offset()];
         let fname_str = String::from_utf8_lossy(fname_src);
 
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `FileUtils.touch({})` instead of `File.open` in append mode with empty block.", fname_str),
-        )]
+        ));
     }
 }
 

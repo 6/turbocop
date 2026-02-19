@@ -24,7 +24,8 @@ impl Cop for ParenthesesAsGroupedExpression {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for method calls where there's a space before the opening parenthesis.
         // `a.func (x)` should be `a.func(x)`.
         //
@@ -37,36 +38,36 @@ impl Cop for ParenthesesAsGroupedExpression {
         // 4. There's only ONE argument (the ParenthesesNode)
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must NOT have opening_loc (no call-level parens)
         if call.opening_loc().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Skip operator methods (%, +, -, ==, etc.)
         let method_name = call.name().as_slice();
         if is_operator(method_name) {
-            return Vec::new();
+            return;
         }
 
         // Must have a method name
         let msg_loc = match call.message_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arguments = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = arguments.arguments();
 
         // Must have exactly one argument (the parenthesized expression)
         if args.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let first_arg = args.iter().next().unwrap();
@@ -74,7 +75,7 @@ impl Cop for ParenthesesAsGroupedExpression {
         // The argument must be a ParenthesesNode
         let paren_node = match first_arg.as_parentheses_node() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         // There must be a space between method name end and the `(` of the ParenthesesNode
@@ -82,12 +83,12 @@ impl Cop for ParenthesesAsGroupedExpression {
         let paren_start = paren_node.location().start_offset();
 
         if paren_start <= msg_end {
-            return Vec::new();
+            return;
         }
 
         let between = &source.as_bytes()[msg_end..paren_start];
         if between.is_empty() || !between.iter().all(|&b| b == b' ' || b == b'\t') {
-            return Vec::new();
+            return;
         }
 
         // Check what's after the closing paren - if there's an operator, method chain,
@@ -97,7 +98,7 @@ impl Cop for ParenthesesAsGroupedExpression {
 
         // If the call extends beyond the paren, something follows (operator/chain)
         if call_end > paren_end {
-            return Vec::new();
+            return;
         }
 
         // Check what's after the closing paren on the same line
@@ -111,19 +112,19 @@ impl Cop for ParenthesesAsGroupedExpression {
                     let ch = rest[pos];
                     // Hash rocket
                     if rest[pos..].starts_with(b"=>") {
-                        return Vec::new();
+                        return;
                     }
                     // Ternary
                     if ch == b'?' {
-                        return Vec::new();
+                        return;
                     }
                     // Binary operators
                     if ch == b'|' || ch == b'&' || ch == b'+' || ch == b'-' || ch == b'*' {
-                        return Vec::new();
+                        return;
                     }
                     // Method chain
                     if ch == b'.' {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
@@ -145,7 +146,7 @@ impl Cop for ParenthesesAsGroupedExpression {
                         let right_compound =
                             range.right().map(|r| is_compound(&r)).unwrap_or(false);
                         if left_compound || right_compound {
-                            return Vec::new();
+                            return;
                         }
                     }
                 }
@@ -157,12 +158,12 @@ impl Cop for ParenthesesAsGroupedExpression {
             std::str::from_utf8(&source.as_bytes()[paren_start..paren_end]).unwrap_or("(...)");
 
         let (line, column) = source.offset_to_line_col(paren_start);
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("`{}` interpreted as grouped expression.", arg_text),
-        )]
+        ));
     }
 }
 

@@ -25,7 +25,8 @@ impl Cop for NonDeterministicRequireOrder {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // RuboCop: maximum_target_ruby_version 2.7
         // Dir.glob and Dir[] return sorted results in Ruby 3.0+, making this cop
         // unnecessary. Skip if the target Ruby version is 3.0 or later.
@@ -35,7 +36,7 @@ impl Cop for NonDeterministicRequireOrder {
             .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
             .unwrap_or(2.7);
         if ruby_version >= 3.0 {
-            return Vec::new();
+            return;
         }
         // Pattern 1: Dir["..."].each { |f| require f }
         // Pattern 2: Dir.glob("...").each { |f| require f }
@@ -51,7 +52,7 @@ impl Cop for NonDeterministicRequireOrder {
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -60,12 +61,12 @@ impl Cop for NonDeterministicRequireOrder {
         if method_name == b"each" {
             let recv = match call.receiver() {
                 Some(r) => r,
-                None => return Vec::new(),
+                None => return,
             };
 
             // The block must contain a require/require_relative
             if !block_contains_require(&call) {
-                return Vec::new();
+                return;
             }
 
             // Check if receiver is Dir[...] or Dir.glob(...)
@@ -74,18 +75,18 @@ impl Cop for NonDeterministicRequireOrder {
                 // If the receiver is a CallNode to `sort`, it's fine
                 if let Some(recv_call) = recv.as_call_node() {
                     if recv_call.name().as_slice() == b"sort" {
-                        return Vec::new();
+                        return;
                     }
                 }
 
                 let loc = recv.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Sort files before requiring them.".to_string(),
-                )];
+                ));
             }
         }
 
@@ -93,11 +94,11 @@ impl Cop for NonDeterministicRequireOrder {
         if method_name == b"glob" {
             let recv = match call.receiver() {
                 Some(r) => r,
-                None => return Vec::new(),
+                None => return,
             };
 
             if !is_dir_constant(&recv) {
-                return Vec::new();
+                return;
             }
 
             // Must have a block
@@ -110,20 +111,20 @@ impl Cop for NonDeterministicRequireOrder {
                     if has_require_block_arg {
                         let loc = call.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Sort files before requiring them.".to_string(),
-                        )];
+                        ));
                     }
                 }
-                return Vec::new();
+                return;
             }
 
             // Block must contain require
             if !block_node_contains_require(call.block().as_ref().unwrap()) {
-                return Vec::new();
+                return;
             }
 
             let loc = call.location();
@@ -131,15 +132,14 @@ impl Cop for NonDeterministicRequireOrder {
             let report_end = msg_loc.end_offset();
             let _ = report_end; // We report on the full call location
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Sort files before requiring them.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

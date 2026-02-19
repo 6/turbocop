@@ -19,7 +19,8 @@ impl Cop for ExtraSpacing {
         parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_for_alignment = config.get_bool("AllowForAlignment", true);
         let allow_before_trailing_comments =
             config.get_bool("AllowBeforeTrailingComments", false);
@@ -39,7 +40,6 @@ impl Cop for ExtraSpacing {
         // Identify comment-only lines (0-indexed) for skipping during alignment search
         let comment_only_lines = build_comment_only_lines(&lines);
 
-        let mut diagnostics = Vec::new();
 
         // Track cumulative byte offset for each line start
         let mut line_start_offset: usize = 0;
@@ -119,7 +119,6 @@ impl Cop for ExtraSpacing {
             line_start_offset += line.len() + 1;
         }
 
-        diagnostics
     }
 }
 

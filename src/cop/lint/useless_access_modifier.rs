@@ -20,7 +20,8 @@ impl Cop for UselessAccessModifier {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let _context_creating = config.get_string_array("ContextCreatingMethods");
         let method_creating = config.get_string_array("MethodCreatingMethods").unwrap_or_default();
         let mut visitor = UselessAccessVisitor {
@@ -30,7 +31,7 @@ impl Cop for UselessAccessModifier {
             method_creating_methods: method_creating,
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

@@ -17,7 +17,8 @@ impl Cop for ReturnNilInPredicateMethodDefinition {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allowed_methods = config.get_string_array("AllowedMethods").unwrap_or_default();
         let allowed_patterns = config.get_string_array("AllowedPatterns").unwrap_or_default();
 
@@ -29,7 +30,7 @@ impl Cop for ReturnNilInPredicateMethodDefinition {
             allowed_patterns,
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

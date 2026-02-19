@@ -20,10 +20,11 @@ impl Cop for SpaceInsideBlockBraces {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let block = match node.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let opening = block.opening_loc();
@@ -31,7 +32,7 @@ impl Cop for SpaceInsideBlockBraces {
 
         // Only check { } blocks, not do...end
         if opening.as_slice() != b"{" {
-            return Vec::new();
+            return;
         }
 
         let bytes = source.as_bytes();
@@ -47,14 +48,15 @@ impl Cop for SpaceInsideBlockBraces {
             match empty_style {
                 "space" => {
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Space inside empty braces missing.".to_string(),
-                    )];
+                    ));
+                    return;
                 }
-                _ => return Vec::new(), // no_space is fine for {}
+                _ => return, // no_space is fine for {}
             }
         }
         // Check for { } (empty with space)
@@ -62,14 +64,15 @@ impl Cop for SpaceInsideBlockBraces {
             match empty_style {
                 "no_space" => {
                     let (line, column) = source.offset_to_line_col(open_end);
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Space inside empty braces detected.".to_string(),
-                    )];
+                    ));
+                    return;
                 }
-                _ => return Vec::new(), // space is fine for { }
+                _ => return, // space is fine for { }
             }
         }
 
@@ -79,12 +82,13 @@ impl Cop for SpaceInsideBlockBraces {
                 let pipe_start = params.location().start_offset();
                 if pipe_start == open_end + 1 && bytes.get(open_end) == Some(&b' ') {
                     let (line, column) = source.offset_to_line_col(open_end);
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Space between { and | detected.".to_string(),
-                    )];
+                    ));
+                    return;
                 }
             }
         }
@@ -93,12 +97,10 @@ impl Cop for SpaceInsideBlockBraces {
         let (open_line, _) = source.offset_to_line_col(opening.start_offset());
         let (close_line, _) = source.offset_to_line_col(closing.start_offset());
         if open_line != close_line {
-            return Vec::new();
+            return;
         }
 
         let enforced = config.get_str("EnforcedStyle", "space");
-
-        let mut diagnostics = Vec::new();
 
         let space_after_open = bytes.get(open_end) == Some(&b' ');
         let space_before_close = close_start > 0 && bytes.get(close_start - 1) == Some(&b' ');
@@ -147,7 +149,6 @@ impl Cop for SpaceInsideBlockBraces {
             _ => {}
         }
 
-        diagnostics
     }
 }
 

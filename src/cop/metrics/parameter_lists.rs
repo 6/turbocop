@@ -20,10 +20,11 @@ impl Cop for ParameterLists {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         let max = config.get_usize("Max", 5);
@@ -32,10 +33,9 @@ impl Cop for ParameterLists {
 
         let params = match def_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
 
         // Check total parameter count
         let mut count = 0usize;
@@ -82,7 +82,6 @@ impl Cop for ParameterLists {
             ));
         }
 
-        diagnostics
     }
 }
 

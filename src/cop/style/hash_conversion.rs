@@ -20,20 +20,21 @@ impl Cop for HashConversion {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be Hash[] call
         if call.name().as_slice() != b"[]" {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Receiver must be Hash constant
@@ -44,7 +45,7 @@ impl Cop for HashConversion {
             });
 
         if !is_hash {
-            return Vec::new();
+            return;
         }
 
         let _allow_splat = config.get_bool("AllowSplatArgument", true);
@@ -59,44 +60,47 @@ impl Cop for HashConversion {
 
             // Check for splat argument
             if _allow_splat && arg_list.iter().any(|a| a.as_splat_node().is_some()) {
-                return Vec::new();
+                return;
             }
 
             // Check for keyword hash argument
             if arg_list.len() == 1 && arg_list[0].as_keyword_hash_node().is_some() {
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Prefer literal hash to `Hash[key: value, ...]`.".to_string(),
-                )];
+                ));
+                return;
             }
 
             if arg_list.len() == 1 {
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Prefer `ary.to_h` to `Hash[ary]`.".to_string(),
-                )];
+                ));
+                return;
             }
 
             // Multi-argument
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Prefer literal hash to `Hash[arg1, arg2, ...]`.".to_string(),
-            )];
+            ));
+            return;
         }
 
         // No arguments: Hash[]
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Prefer literal hash to `Hash[arg1, arg2, ...]`.".to_string(),
-        )]
+        ));
     }
 }
 

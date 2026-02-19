@@ -17,7 +17,8 @@ impl Cop for GlobalStdStream {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let mut visitor = GlobalStdStreamVisitor {
             cop: self,
             source,
@@ -25,7 +26,7 @@ impl Cop for GlobalStdStream {
             in_gvar_assignment: false,
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

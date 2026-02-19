@@ -56,7 +56,8 @@ impl Cop for ParenthesesAroundCondition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_safe_assignment = config.get_bool("AllowSafeAssignment", true);
         let allow_multiline = config.get_bool("AllowInMultilineConditions", false);
 
@@ -64,15 +65,15 @@ impl Cop for ParenthesesAroundCondition {
             // Must have `if` keyword (not ternary)
             let kw_loc = match if_node.if_keyword_loc() {
                 Some(loc) => loc,
-                None => return Vec::new(),
+                None => return,
             };
 
             if let Some(paren) = if_node.predicate().as_parentheses_node() {
                 if allow_safe_assignment && is_safe_assignment(&paren) {
-                    return Vec::new();
+                    return;
                 }
                 if allow_multiline && is_multiline_paren(source, &paren) {
-                    return Vec::new();
+                    return;
                 }
                 let keyword = if kw_loc.as_slice() == b"unless" {
                     "unless"
@@ -81,37 +82,36 @@ impl Cop for ParenthesesAroundCondition {
                 };
                 let open_loc = paren.opening_loc();
                 let (line, column) = source.offset_to_line_col(open_loc.start_offset());
-                return vec![self.diagnostic(source, line, column, format!(
+                diagnostics.push(self.diagnostic(source, line, column, format!(
                     "Don't use parentheses around the condition of an `{keyword}`."
-                ))];
+                )));
             }
         } else if let Some(while_node) = node.as_while_node() {
             if let Some(paren) = while_node.predicate().as_parentheses_node() {
                 if allow_safe_assignment && is_safe_assignment(&paren) {
-                    return Vec::new();
+                    return;
                 }
                 if allow_multiline && is_multiline_paren(source, &paren) {
-                    return Vec::new();
+                    return;
                 }
                 let open_loc = paren.opening_loc();
                 let (line, column) = source.offset_to_line_col(open_loc.start_offset());
-                return vec![self.diagnostic(source, line, column, "Don't use parentheses around the condition of a `while`.".to_string())];
+                diagnostics.push(self.diagnostic(source, line, column, "Don't use parentheses around the condition of a `while`.".to_string()));
             }
         } else if let Some(until_node) = node.as_until_node() {
             if let Some(paren) = until_node.predicate().as_parentheses_node() {
                 if allow_safe_assignment && is_safe_assignment(&paren) {
-                    return Vec::new();
+                    return;
                 }
                 if allow_multiline && is_multiline_paren(source, &paren) {
-                    return Vec::new();
+                    return;
                 }
                 let open_loc = paren.opening_loc();
                 let (line, column) = source.offset_to_line_col(open_loc.start_offset());
-                return vec![self.diagnostic(source, line, column, "Don't use parentheses around the condition of an `until`.".to_string())];
+                diagnostics.push(self.diagnostic(source, line, column, "Don't use parentheses around the condition of an `until`.".to_string()));
             }
         }
 
-        Vec::new()
     }
 }
 

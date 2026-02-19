@@ -21,30 +21,31 @@ impl Cop for EmptyLinesAroundBeginBody {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Only check explicit begin..end blocks (BeginNode in Prism)
         let begin_node = match node.as_begin_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have begin and end keywords
         let begin_keyword_loc = match begin_node.begin_keyword_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
         let end_keyword_loc = match begin_node.end_keyword_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
-        util::check_empty_lines_around_body(
+        diagnostics.extend(util::check_empty_lines_around_body(
             self.name(),
             source,
             begin_keyword_loc.start_offset(),
             end_keyword_loc.start_offset(),
             "`begin`",
-        )
+        ));
     }
 }
 

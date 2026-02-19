@@ -20,10 +20,11 @@ impl Cop for EmptyLiteral {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call_node = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call_node.name();
@@ -31,13 +32,13 @@ impl Cop for EmptyLiteral {
 
         // Must be `new` or `[]`
         if method_bytes != b"new" && method_bytes != b"[]" {
-            return Vec::new();
+            return;
         }
 
         // Must have a constant receiver: Array, Hash, or String
         let receiver = match call_node.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let const_name: Vec<u8> = if let Some(cr) = receiver.as_constant_read_node() {
@@ -46,15 +47,15 @@ impl Cop for EmptyLiteral {
             // Handle ::Array, ::Hash, ::String
             let child_name = match cp.name() {
                 Some(n) => n.as_slice().to_vec(),
-                None => return Vec::new(),
+                None => return,
             };
             // Only allow if the parent is nil/cbase (top-level)
             if cp.parent().is_some() {
-                return Vec::new();
+                return;
             }
             child_name
         } else {
-            return Vec::new();
+            return;
         };
 
         // Must have no arguments (empty constructor)
@@ -62,13 +63,13 @@ impl Cop for EmptyLiteral {
             let arg_list: Vec<_> = args.arguments().iter().collect();
             if !arg_list.is_empty() {
                 // Exception: Array.new with empty array arg or Array[] with empty
-                return Vec::new();
+                return;
             }
         }
 
         // Must not have a block (Hash.new { |h, k| h[k] = [] })
         if call_node.block().is_some() {
-            return Vec::new();
+            return;
         }
 
         let msg = match const_name.as_slice() {
@@ -83,12 +84,12 @@ impl Cop for EmptyLiteral {
             b"String" if method_bytes == b"new" => {
                 "Use string literal `''` instead of `String.new`.".to_string()
             }
-            _ => return Vec::new(),
+            _ => return,
         };
 
         let loc = call_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, msg)]
+        diagnostics.push(self.diagnostic(source, line, column, msg));
     }
 }
 

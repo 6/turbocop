@@ -59,8 +59,8 @@ impl Cop for DepartmentName {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let mut byte_offset: usize = 0;
 
         for (line_idx, line) in source.lines().enumerate() {
@@ -144,7 +144,6 @@ impl Cop for DepartmentName {
             byte_offset += line_len;
         }
 
-        diagnostics
     }
 }
 

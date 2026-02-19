@@ -18,9 +18,9 @@ impl Cop for CommentedKeyword {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let bytes = source.as_bytes();
-        let mut diagnostics = Vec::new();
 
         // Iterate over parser-recognized comments only.
         // This avoids false positives from `#` inside heredocs, strings, etc.
@@ -103,7 +103,6 @@ impl Cop for CommentedKeyword {
             }
         }
 
-        diagnostics
     }
 }
 

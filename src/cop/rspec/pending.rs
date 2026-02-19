@@ -35,10 +35,11 @@ impl Cop for Pending {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -47,7 +48,7 @@ impl Cop for Pending {
         if XMETHODS.contains(&method_name) && call.receiver().is_none() && call.block().is_some() {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(source, line, column, "Pending spec found.".to_string())];
+            diagnostics.push(self.diagnostic(source, line, column, "Pending spec found.".to_string()));
         }
 
         // Check for `pending 'test' do` and `skip 'test' do` as example methods
@@ -57,7 +58,7 @@ impl Cop for Pending {
         {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(source, line, column, "Pending spec found.".to_string())];
+            diagnostics.push(self.diagnostic(source, line, column, "Pending spec found.".to_string()));
         }
 
         // Check for `skip` without arguments inside an example (standalone call)
@@ -68,7 +69,7 @@ impl Cop for Pending {
         {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(source, line, column, "Pending spec found.".to_string())];
+            diagnostics.push(self.diagnostic(source, line, column, "Pending spec found.".to_string()));
         }
 
         // Check for `it 'test'` without a block (pending example)
@@ -82,7 +83,7 @@ impl Cop for Pending {
         {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(source, line, column, "Pending spec found.".to_string())];
+            diagnostics.push(self.diagnostic(source, line, column, "Pending spec found.".to_string()));
         }
 
         // Check for :skip or :pending metadata, or skip: true/string, pending: true/string
@@ -101,12 +102,12 @@ impl Cop for Pending {
                         if val == b"skip" || val == b"pending" {
                             let loc = call.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            return vec![self.diagnostic(
+                            diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 "Pending spec found.".to_string(),
-                            )];
+                            ));
                         }
                     }
                     // Check for skip: true/string, pending: true/string in keyword args
@@ -123,12 +124,12 @@ impl Cop for Pending {
                                         let loc = call.location();
                                         let (line, column) =
                                             source.offset_to_line_col(loc.start_offset());
-                                        return vec![self.diagnostic(
+                                        diagnostics.push(self.diagnostic(
                                             source,
                                             line,
                                             column,
                                             "Pending spec found.".to_string(),
-                                        )];
+                                        ));
                                     }
                                 }
                             }
@@ -138,7 +139,6 @@ impl Cop for Pending {
             }
         }
 
-        Vec::new()
     }
 }
 

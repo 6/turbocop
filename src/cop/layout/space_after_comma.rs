@@ -16,9 +16,9 @@ impl Cop for SpaceAfterComma {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let bytes = source.as_bytes();
-        let mut diagnostics = Vec::new();
         for (i, &byte) in bytes.iter().enumerate() {
             if byte == b',' && code_map.is_code(i) {
                 // Skip if this comma is part of a global variable ($, or $;)
@@ -42,7 +42,6 @@ impl Cop for SpaceAfterComma {
                 }
             }
         }
-        diagnostics
     }
 }
 

@@ -97,20 +97,21 @@ impl Cop for FirstArrayElementIndentation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let array_node = match node.as_array_node() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let opening_loc = match array_node.opening_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let elements: Vec<_> = array_node.elements().iter().collect();
         if elements.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let first_element = &elements[0];
@@ -121,7 +122,7 @@ impl Cop for FirstArrayElementIndentation {
 
         // Skip if first element is on same line as opening bracket
         if elem_line == open_line {
-            return Vec::new();
+            return;
         }
 
         let style = config.get_str("EnforcedStyle", "special_inside_parentheses");
@@ -160,7 +161,7 @@ impl Cop for FirstArrayElementIndentation {
 
         if elem_col != expected {
             let base = elem_col.saturating_sub(open_line_indent);
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 elem_line,
                 elem_col,
@@ -168,10 +169,9 @@ impl Cop for FirstArrayElementIndentation {
                     "Use {} (not {}) spaces for indentation of the first element.",
                     width, base
                 ),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

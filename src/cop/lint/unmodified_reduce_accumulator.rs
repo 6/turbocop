@@ -29,15 +29,16 @@ impl Cop for UnmodifiedReduceAccumulator {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if method_name != b"reduce" && method_name != b"inject" {
-            return Vec::new();
+            return;
         }
 
         let method_str = std::str::from_utf8(method_name).unwrap_or("reduce");
@@ -46,40 +47,38 @@ impl Cop for UnmodifiedReduceAccumulator {
         let block = match call.block() {
             Some(b) => match b.as_block_node() {
                 Some(bn) => bn,
-                None => return Vec::new(),
+                None => return,
             },
-            None => return Vec::new(),
+            None => return,
         };
 
         // Get block parameters
         let params = match block.parameters() {
             Some(p) => p,
-            None => return Vec::new(), // No block params
+            None => return, // No block params
         };
 
         let (acc_name, el_name) = match extract_reduce_params(&params) {
             Some(names) => names,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Get block body
         let body = match block.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Get the statements in the body
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body_stmts: Vec<ruby_prism::Node<'_>> = stmts.body().iter().collect();
         if body_stmts.is_empty() {
-            return Vec::new();
+            return;
         }
-
-        let mut diagnostics = Vec::new();
 
         // Check each return point (last expression, next, break)
         check_return_values(
@@ -89,10 +88,9 @@ impl Cop for UnmodifiedReduceAccumulator {
             &acc_name,
             &el_name,
             method_str,
-            &mut diagnostics,
+            diagnostics,
         );
 
-        diagnostics
     }
 }
 

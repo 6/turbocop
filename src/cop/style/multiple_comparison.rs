@@ -103,14 +103,15 @@ impl Cop for MultipleComparison {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_method = config.get_bool("AllowMethodComparison", true);
         let threshold = config.get_usize("ComparisonsThreshold", 2);
 
         // Must be an OrNode (||) — in Prism, `||` is OrNode, not CallNode
         let or_node = match node.as_or_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         if let Some((_, count)) = Self::collect_comparisons(node, allow_method) {
@@ -121,23 +122,22 @@ impl Cop for MultipleComparison {
                 if left.as_or_node().is_some() {
                     if let Some((_, inner_count)) = Self::collect_comparisons(&left, allow_method) {
                         if inner_count >= threshold {
-                            return Vec::new();
+                            return;
                         }
                     }
                 }
 
                 let loc = node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Avoid comparing a variable with multiple items in a conditional, use `Array#include?` instead.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

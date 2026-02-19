@@ -20,11 +20,12 @@ impl Cop for SpaceInsideParens {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "no_space");
         let parens = match node.as_parentheses_node() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let bytes = source.as_bytes();
@@ -33,10 +34,9 @@ impl Cop for SpaceInsideParens {
 
         // Skip empty parens ()
         if close_start == open_end {
-            return Vec::new();
+            return;
         }
 
-        let mut diagnostics = Vec::new();
 
         let space_after_open = bytes.get(open_end) == Some(&b' ');
         let space_before_close = close_start > 0 && bytes.get(close_start - 1) == Some(&b' ');
@@ -115,7 +115,6 @@ impl Cop for SpaceInsideParens {
             }
         }
 
-        diagnostics
     }
 }
 

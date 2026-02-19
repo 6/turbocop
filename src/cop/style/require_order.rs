@@ -15,8 +15,8 @@ impl Cop for RequireOrder {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let lines: Vec<&[u8]> = source.lines().collect();
 
         // Compute byte offsets where each line starts
@@ -86,7 +86,6 @@ impl Cop for RequireOrder {
             }
         }
 
-        diagnostics
     }
 }
 

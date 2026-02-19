@@ -20,13 +20,14 @@ impl Cop for CaseIndentation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "case");
         let indent_one_step = config.get_bool("IndentOneStep", false);
         let indent_width = config.get_usize("IndentationWidth", 2);
         let case_node = match node.as_case_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let case_loc = case_node.case_keyword_loc();
@@ -55,7 +56,6 @@ impl Cop for CaseIndentation {
             "Indent `when` as deep as `case`.".to_string()
         };
 
-        let mut diagnostics = Vec::new();
 
         for condition in case_node.conditions().iter() {
             if let Some(when_node) = condition.as_when_node() {
@@ -73,7 +73,6 @@ impl Cop for CaseIndentation {
             }
         }
 
-        diagnostics
     }
 }
 

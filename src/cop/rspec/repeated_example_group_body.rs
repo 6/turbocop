@@ -32,7 +32,8 @@ impl Cop for RepeatedExampleGroupBody {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // We need to look at sibling example groups within a common parent.
         // The parent can be a ProgramNode (top-level) or any block body.
         let stmts = if let Some(program) = node.as_program_node() {
@@ -45,33 +46,34 @@ impl Cop for RepeatedExampleGroupBody {
             // Also check inside example group blocks
             let call = match node.as_call_node() {
                 Some(c) => c,
-                None => return Vec::new(),
+                None => return,
             };
             let name = call.name().as_slice();
             if !is_parent_group(name) {
-                return Vec::new();
+                return;
             }
             let block = match call.block() {
                 Some(b) => b,
-                None => return Vec::new(),
+                None => return,
             };
             let block_node = match block.as_block_node() {
                 Some(b) => b,
-                None => return Vec::new(),
+                None => return,
             };
             let body = match block_node.body() {
                 Some(b) => b,
-                None => return Vec::new(),
+                None => return,
             };
             let inner_stmts = match body.as_statements_node() {
                 Some(s) => s,
-                None => return Vec::new(),
+                None => return,
             };
-            return check_sibling_groups(self, source, &inner_stmts);
+            diagnostics.extend(check_sibling_groups(self, source, &inner_stmts));
+            return;
         }
 
         let program_stmts = stmts.unwrap();
-        check_sibling_groups_from_body(self, source, &program_stmts)
+        diagnostics.extend(check_sibling_groups_from_body(self, source, &program_stmts));
     }
 }
 

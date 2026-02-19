@@ -20,17 +20,18 @@ impl Cop for SpaceInLambdaLiteral {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "require_no_space");
 
         let lambda = match node.as_lambda_node() {
             Some(l) => l,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have parameters
         if lambda.parameters().is_none() {
-            return Vec::new();
+            return;
         }
 
         let operator_loc = lambda.operator_loc();
@@ -45,14 +46,14 @@ impl Cop for SpaceInLambdaLiteral {
         let between = if arrow_end < search_end {
             &bytes[arrow_end..search_end]
         } else {
-            return Vec::new();
+            return;
         };
 
         // Must have parenthesized parameters
         let paren_offset_in_between = between.iter().position(|&b| b == b'(');
         let paren_pos = match paren_offset_in_between {
             Some(offset) => arrow_end + offset,
-            None => return Vec::new(),
+            None => return,
         };
 
         let has_space = paren_pos > arrow_end
@@ -64,29 +65,28 @@ impl Cop for SpaceInLambdaLiteral {
             "require_space" => {
                 if !has_space {
                     let (line, col) = source.offset_to_line_col(arrow_end);
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         col,
                         "Use a space between `->` and `(` in lambda literals.".to_string(),
-                    )];
+                    ));
                 }
             }
             _ => {
                 // "require_no_space" (default)
                 if has_space {
                     let (line, col) = source.offset_to_line_col(arrow_end);
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         col,
                         "Do not use spaces between `->` and `(` in lambda literals.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

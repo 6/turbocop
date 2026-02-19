@@ -24,40 +24,41 @@ impl Cop for ArraySemiInfiniteRangeSlice {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"[]" {
-            return Vec::new();
+            return;
         }
 
         let arguments = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = arguments.arguments();
         if args.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let first_arg = args.iter().next().unwrap();
         let range = match first_arg.as_range_node() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Semi-infinite range: has a left but no right (e.g., 2..)
         if range.left().is_none() || range.right().is_some() {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, "Use `drop` instead of `[]` with a semi-infinite range.".to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, "Use `drop` instead of `[]` with a semi-infinite range.".to_string()));
     }
 }
 

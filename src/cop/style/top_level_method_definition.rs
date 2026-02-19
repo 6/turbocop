@@ -15,8 +15,8 @@ impl Cop for TopLevelMethodDefinition {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
 
         let root = parse_result.node();
         if let Some(program) = root.as_program_node() {
@@ -35,7 +35,6 @@ impl Cop for TopLevelMethodDefinition {
             }
         }
 
-        diagnostics
     }
 }
 

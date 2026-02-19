@@ -24,16 +24,16 @@ impl Cop for AmbiguousRange {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let require_parens_for_chains =
             config.get_bool("RequireParenthesesForMethodChains", false);
 
         let range = match node.as_range_node() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
 
         // Check left boundary
         if let Some(left) = range.left() {
@@ -65,7 +65,6 @@ impl Cop for AmbiguousRange {
             }
         }
 
-        diagnostics
     }
 }
 

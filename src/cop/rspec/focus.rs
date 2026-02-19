@@ -44,10 +44,11 @@ impl Cop for Focus {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -58,15 +59,15 @@ impl Cop for Focus {
             if call.block().is_some() {
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![Diagnostic {
+                diagnostics.push(Diagnostic {
                     path: source.path_str().to_string(),
                     location: crate::diagnostic::Location { line, column },
                     severity: Severity::Convention,
                     cop_name: self.name().to_string(),
                     message: "Focused spec found.".to_string(),
-                }];
+                });
             }
-            return Vec::new();
+            return;
         }
 
         // Check for focus metadata on RSpec methods
@@ -81,21 +82,20 @@ impl Cop for Focus {
         };
 
         if !is_rspec_method {
-            return Vec::new();
+            return;
         }
 
         // Check for focus: true or :focus in arguments
         if let Some((line, col, _offset, _len)) = has_rspec_focus_metadata(source, node) {
-            return vec![Diagnostic {
+            diagnostics.push(Diagnostic {
                 path: source.path_str().to_string(),
                 location: crate::diagnostic::Location { line, column: col },
                 severity: Severity::Convention,
                 cop_name: self.name().to_string(),
                 message: "Focused spec found.".to_string(),
-            }];
+            });
         }
 
-        Vec::new()
     }
 }
 

@@ -20,7 +20,8 @@ impl Cop for RegexpLiteral {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "slashes");
         let allow_inner_slashes = config.get_bool("AllowInnerSlashes", false);
 
@@ -41,12 +42,13 @@ impl Cop for RegexpLiteral {
                 let full = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
                 let content = if content_end > content_start {
                     full[content_start..content_end].to_vec()
+
                 } else {
                     Vec::new()
                 };
                 (open.to_vec(), content, loc.start_offset(), loc.end_offset())
             } else {
-                return Vec::new();
+                return;
             };
 
         let is_slash = open_bytes == b"/";
@@ -90,56 +92,56 @@ impl Cop for RegexpLiteral {
             "slashes" => {
                 if is_percent_r {
                     if has_slash && !allow_inner_slashes {
-                        return Vec::new();
+                        return;
                     }
                     if content_starts_with_space_or_eq {
-                        return Vec::new();
+                        return;
                     }
                     let (line, column) = source.offset_to_line_col(node_start);
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use `//` around regular expression.".to_string(),
-                    )];
+                    ));
                 }
             }
             "percent_r" => {
                 if is_slash {
                     let (line, column) = source.offset_to_line_col(node_start);
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use `%r` around regular expression.".to_string(),
-                    )];
+                    ));
                 }
             }
             "mixed" => {
                 if is_multiline {
                     if is_slash {
                         let (line, column) = source.offset_to_line_col(node_start);
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Use `%r` around regular expression.".to_string(),
-                        )];
+                        ));
                     }
                 } else if is_percent_r {
                     if has_slash && !allow_inner_slashes {
-                        return Vec::new();
+                        return;
                     }
                     if content_starts_with_space_or_eq {
-                        return Vec::new();
+                        return;
                     }
                     let (line, column) = source.offset_to_line_col(node_start);
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use `//` around regular expression.".to_string(),
-                    )];
+                    ));
                 }
             }
             _ => {}
@@ -148,15 +150,14 @@ impl Cop for RegexpLiteral {
         // For slashes style: check for inner slashes
         if enforced_style == "slashes" && is_slash && has_slash && !allow_inner_slashes {
             let (line, column) = source.offset_to_line_col(node_start);
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Use `%r` around regular expression.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

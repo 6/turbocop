@@ -37,20 +37,21 @@ impl Cop for ReceiveMessages {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let block = match node.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body = match block.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let mut stubs: Vec<StubInfo> = Vec::new();
@@ -61,7 +62,6 @@ impl Cop for ReceiveMessages {
             }
         }
 
-        let mut diagnostics = Vec::new();
         let mut processed = vec![false; stubs.len()];
 
         for i in 0..stubs.len() {
@@ -110,7 +110,6 @@ impl Cop for ReceiveMessages {
             }
         }
 
-        diagnostics
     }
 }
 

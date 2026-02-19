@@ -30,33 +30,34 @@ impl Cop for MultipleSubjects {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for call nodes that are example groups (describe/context/etc.)
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = call.name().as_slice();
         if !is_example_group(name) {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Collect subject declarations in this group's direct body
@@ -75,11 +76,10 @@ impl Cop for MultipleSubjects {
         }
 
         if subject_calls.len() <= 1 {
-            return Vec::new();
+            return;
         }
 
         // Flag all except the last one
-        let mut diagnostics = Vec::new();
         for &(line, col, _end_off) in &subject_calls[..subject_calls.len() - 1] {
             diagnostics.push(self.diagnostic(
                 source,
@@ -89,7 +89,6 @@ impl Cop for MultipleSubjects {
             ));
         }
 
-        diagnostics
     }
 }
 

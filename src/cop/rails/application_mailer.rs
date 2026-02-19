@@ -29,34 +29,34 @@ impl Cop for ApplicationMailer {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let class = match node.as_class_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let class_name = full_constant_path(source, &class.constant_path());
         if class_name == b"ApplicationMailer" {
-            return Vec::new();
+            return;
         }
 
         let parent = match parent_class_name(source, &class) {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         if parent == b"ActionMailer::Base" {
             let loc = class.class_keyword_loc();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Use `ApplicationMailer` instead of `ActionMailer::Base`.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

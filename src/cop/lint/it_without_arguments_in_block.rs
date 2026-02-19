@@ -27,7 +27,8 @@ impl Cop for ItWithoutArgumentsInBlock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // RuboCop: maximum_target_ruby_version 3.3
         // In Ruby 3.4+, `it` is the official anonymous block parameter, so this
         // warning is no longer relevant.
@@ -37,7 +38,7 @@ impl Cop for ItWithoutArgumentsInBlock {
             .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
             .unwrap_or(2.7);
         if ruby_version >= 3.4 {
-            return Vec::new();
+            return;
         }
 
         // In Prism 1.9+, bare `it` in a parameterless block is parsed as
@@ -45,15 +46,14 @@ impl Cop for ItWithoutArgumentsInBlock {
         if let Some(it_node) = node.as_it_local_variable_read_node() {
             let loc = it_node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "`it` calls without arguments will refer to the first block param in Ruby 3.4; use `it()` or `self.it`.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

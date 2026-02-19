@@ -32,10 +32,11 @@ impl Cop for UnpackFirst {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name();
@@ -43,7 +44,7 @@ impl Cop for UnpackFirst {
 
         // Must be .first, .[], .slice, or .at
         if !matches!(method_bytes, b"first" | b"[]" | b"slice" | b"at") {
-            return Vec::new();
+            return;
         }
 
         // For .first, no arguments required
@@ -52,19 +53,19 @@ impl Cop for UnpackFirst {
             if let Some(args) = call.arguments() {
                 let arg_list: Vec<_> = args.arguments().iter().collect();
                 if arg_list.len() != 1 || Self::int_value(&arg_list[0]) != Some(0) {
-                    return Vec::new();
+                    return;
                 }
             } else {
-                return Vec::new();
+                return;
             }
         } else if method_bytes == b"first" && call.arguments().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be a call to .unpack with one argument
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         if let Some(unpack_call) = receiver.as_call_node() {
@@ -76,18 +77,17 @@ impl Cop for UnpackFirst {
                         let loc = node.location();
                         let current = std::str::from_utf8(loc.as_slice()).unwrap_or("");
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             format!("Use `unpack1({})` instead of `{}`.", format_src, current),
-                        )];
+                        ));
                     }
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

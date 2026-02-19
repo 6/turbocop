@@ -26,37 +26,38 @@ impl Cop for DeprecatedClassMethods {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if method_name != b"exists?" {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let class_name = match constant_name(&receiver) {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
         let message = if class_name == b"File" {
             "`File.exists?` is deprecated in favor of `File.exist?`."
         } else if class_name == b"Dir" {
             "`Dir.exists?` is deprecated in favor of `Dir.exist?`."
         } else {
-            return Vec::new();
+            return;
         };
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, message.to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, message.to_string()));
     }
 }
 

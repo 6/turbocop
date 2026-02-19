@@ -20,7 +20,8 @@ impl Cop for NonNilCheck {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let include_semantic_changes = config.get_bool("IncludeSemanticChanges", false);
 
         // Pattern 1: x != nil
@@ -33,22 +34,22 @@ impl Cop for NonNilCheck {
                             let loc = call.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
                             if include_semantic_changes {
-                                return vec![self.diagnostic(
+                                diagnostics.push(self.diagnostic(
                                     source,
                                     line,
                                     column,
                                     "Explicit non-nil checks are usually redundant.".to_string(),
-                                )];
+                                ));
                             } else {
                                 // In non-semantic mode, suggest !x.nil? instead
                                 let receiver_src = std::str::from_utf8(call.receiver().unwrap().location().as_slice()).unwrap_or("x");
                                 let current_src = std::str::from_utf8(loc.as_slice()).unwrap_or("");
-                                return vec![self.diagnostic(
+                                diagnostics.push(self.diagnostic(
                                     source,
                                     line,
                                     column,
                                     format!("Prefer `!{}.nil?` over `{}`.", receiver_src, current_src),
-                                )];
+                                ));
                             }
                         }
                     }
@@ -67,19 +68,18 @@ impl Cop for NonNilCheck {
                             // We don't have full parent tracking, so we just flag it
                             let loc = node.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            return vec![self.diagnostic(
+                            diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 "Explicit non-nil checks are usually redundant.".to_string(),
-                            )];
+                            ));
                         }
                     }
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

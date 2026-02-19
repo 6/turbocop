@@ -18,7 +18,8 @@ impl Cop for FirstArgumentIndentation {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str(
             "EnforcedStyle",
             "special_for_inner_method_call_in_parentheses",
@@ -34,7 +35,7 @@ impl Cop for FirstArgumentIndentation {
             parent_call_stack: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

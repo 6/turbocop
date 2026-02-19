@@ -29,10 +29,11 @@ impl Cop for DuplicatedMetadata {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -47,17 +48,16 @@ impl Cop for DuplicatedMetadata {
             && method_name != b"after"
             && method_name != b"around"
         {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Collect symbol arguments and check for duplicates
         let mut seen_symbols: Vec<Vec<u8>> = Vec::new();
-        let mut diagnostics = Vec::new();
 
         for arg in args.arguments().iter() {
             if let Some(sym) = arg.as_symbol_node() {
@@ -77,7 +77,6 @@ impl Cop for DuplicatedMetadata {
             }
         }
 
-        diagnostics
     }
 }
 

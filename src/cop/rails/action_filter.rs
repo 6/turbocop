@@ -44,15 +44,16 @@ impl Cop for ActionFilter {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be receiverless
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let name = call.name().as_slice();
@@ -64,7 +65,7 @@ impl Cop for ActionFilter {
                 Some((filter, action)) => {
                     (std::str::from_utf8(filter).unwrap(), std::str::from_utf8(action).unwrap())
                 }
-                None => return Vec::new(),
+                None => return,
             }
         } else {
             // Bad: action methods; Good: filter methods
@@ -72,18 +73,18 @@ impl Cop for ActionFilter {
                 Some((filter, action)) => {
                     (std::str::from_utf8(action).unwrap(), std::str::from_utf8(filter).unwrap())
                 }
-                None => return Vec::new(),
+                None => return,
             }
         };
 
         let loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Prefer `{prefer}` over `{current}`."),
-        )]
+        ));
     }
 }
 

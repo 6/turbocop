@@ -25,12 +25,10 @@ impl Cop for OrderedDependencies {
         &["**/*.gemspec"]
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let treat_comments_as_separators =
             config.get_bool("TreatCommentsAsGroupSeparators", true);
         let consider_punctuation = config.get_bool("ConsiderPunctuation", false);
-
-        let mut diagnostics = Vec::new();
 
         let mut current_method: Option<String> = None;
         let mut group: Vec<DepEntry> = Vec::new();
@@ -40,7 +38,7 @@ impl Cop for OrderedDependencies {
             let line_str = match std::str::from_utf8(line) {
                 Ok(s) => s,
                 Err(_) => {
-                    flush_group(&mut group, &mut diagnostics, source, self, consider_punctuation);
+                    flush_group(&mut group, diagnostics, source, self, consider_punctuation);
                     current_method = None;
                     continue;
                 }
@@ -52,7 +50,7 @@ impl Cop for OrderedDependencies {
                 if treat_comments_as_separators {
                     flush_group(
                         &mut group,
-                        &mut diagnostics,
+                        diagnostics,
                         source,
                         self,
                         consider_punctuation,
@@ -73,7 +71,7 @@ impl Cop for OrderedDependencies {
                             // Different dependency type, flush previous group
                             flush_group(
                                 &mut group,
-                                &mut diagnostics,
+                                diagnostics,
                                 source,
                                 self,
                                 consider_punctuation,
@@ -92,15 +90,14 @@ impl Cop for OrderedDependencies {
             }
 
             if !found_dep && !trimmed.is_empty() {
-                flush_group(&mut group, &mut diagnostics, source, self, consider_punctuation);
+                flush_group(&mut group, diagnostics, source, self, consider_punctuation);
                 current_method = None;
             }
         }
 
         // Flush remaining group
-        flush_group(&mut group, &mut diagnostics, source, self, consider_punctuation);
+        flush_group(&mut group, diagnostics, source, self, consider_punctuation);
 
-        diagnostics
     }
 }
 

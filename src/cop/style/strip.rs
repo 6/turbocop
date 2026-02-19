@@ -20,10 +20,11 @@ impl Cop for Strip {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let outer_name = call.name();
@@ -31,16 +32,16 @@ impl Cop for Strip {
 
         // Must be lstrip or rstrip with no arguments
         if !matches!(outer_bytes, b"lstrip" | b"rstrip") {
-            return Vec::new();
+            return;
         }
         if call.arguments().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be a call to the opposite strip method
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         if let Some(inner_call) = receiver.as_call_node() {
@@ -60,16 +61,15 @@ impl Cop for Strip {
                 // Point at the inner method selector through the outer
                 let loc = node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Use `strip` instead of `{}`.", methods),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

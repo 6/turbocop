@@ -20,11 +20,12 @@ impl Cop for CollectionCompact {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allowed_receivers = config.get_string_array("AllowedReceivers").unwrap_or_default();
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
@@ -32,14 +33,14 @@ impl Cop for CollectionCompact {
         // Pattern: array.reject { |e| e.nil? } or array.reject(&:nil?)
         if method_name == "reject" || method_name == "reject!" {
             if call.receiver().is_none() {
-                return Vec::new();
+                return;
             }
 
             // Check AllowedReceivers
             if let Some(receiver) = call.receiver() {
                 let recv_src = std::str::from_utf8(receiver.location().as_slice()).unwrap_or("");
                 if allowed_receivers.iter().any(|ar| recv_src == ar.as_str()) {
-                    return Vec::new();
+                    return;
                 }
             }
 
@@ -53,12 +54,12 @@ impl Cop for CollectionCompact {
                                 let bang = if method_name == "reject!" { "!" } else { "" };
                                 let loc = call.message_loc().unwrap_or(call.location());
                                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                return vec![self.diagnostic(
+                                diagnostics.push(self.diagnostic(
                                     source,
                                     line,
                                     column,
                                     format!("Use `compact{}` instead of `{}(&:nil?)`.", bang, method_name),
-                                )];
+                                ));
                             }
                         }
                     }
@@ -99,12 +100,12 @@ impl Cop for CollectionCompact {
                                                 let bang = if method_name == "reject!" { "!" } else { "" };
                                                 let loc = call.message_loc().unwrap_or(call.location());
                                                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                                return vec![self.diagnostic(
+                                                diagnostics.push(self.diagnostic(
                                                     source,
                                                     line,
                                                     column,
                                                     format!("Use `compact{}` instead of `{} {{ |e| e.nil? }}`.", bang, method_name),
-                                                )];
+                                                ));
                                             }
                                         }
                                     }
@@ -116,7 +117,6 @@ impl Cop for CollectionCompact {
             }
         }
 
-        Vec::new()
     }
 }
 

@@ -24,16 +24,16 @@ impl Cop for RedundantStringCoercion {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let interp = match node.as_interpolated_string_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let parts = interp.parts();
 
         // We look for EmbeddedStatementsNode parts containing a to_s call
-        let mut diagnostics = Vec::new();
 
         for part in &parts {
             let embedded = match part.as_embedded_statements_node() {
@@ -80,7 +80,6 @@ impl Cop for RedundantStringCoercion {
             ));
         }
 
-        diagnostics
     }
 }
 

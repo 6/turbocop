@@ -34,7 +34,8 @@ impl Cop for MissingSuper {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allowed_parent_classes: Vec<Vec<u8>> = config
             .get_string_array("AllowedParentClasses")
             .unwrap_or_default()
@@ -50,7 +51,7 @@ impl Cop for MissingSuper {
             allowed_parent_classes,
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

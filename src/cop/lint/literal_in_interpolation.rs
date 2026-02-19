@@ -24,25 +24,26 @@ impl Cop for LiteralInInterpolation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let embedded = match node.as_embedded_statements_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match embedded.statements() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body = stmts.body();
         if body.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let first = match body.first() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Skip whitespace-only string literals — `#{' '}` is a deliberate Ruby idiom
@@ -50,7 +51,7 @@ impl Cop for LiteralInInterpolation {
         if let Some(str_node) = first.as_string_node() {
             let content = str_node.content_loc().as_slice();
             if content.iter().all(|&b| b == b' ' || b == b'\t') {
-                return Vec::new();
+                return;
             }
         }
 
@@ -63,17 +64,17 @@ impl Cop for LiteralInInterpolation {
             || first.as_false_node().is_some();
 
         if !is_literal {
-            return Vec::new();
+            return;
         }
 
         let loc = embedded.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Literal interpolation detected.".to_string(),
-        )]
+        ));
     }
 }
 

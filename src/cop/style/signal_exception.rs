@@ -20,20 +20,21 @@ impl Cop for SignalException {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Only bare raise/fail (no receiver)
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let name = call.name().as_slice();
         if name != b"raise" && name != b"fail" {
-            return Vec::new();
+            return;
         }
 
         let enforced_style = config.get_str("EnforcedStyle", "only_raise");
@@ -44,19 +45,18 @@ impl Cop for SignalException {
             "only_raise" => {
                 if name == b"fail" {
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(source, line, column, "Use `raise` instead of `fail` to rethrow exceptions.".to_string())];
+                    diagnostics.push(self.diagnostic(source, line, column, "Use `raise` instead of `fail` to rethrow exceptions.".to_string()));
                 }
             }
             "only_fail" => {
                 if name == b"raise" {
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(source, line, column, "Use `fail` instead of `raise` to rethrow exceptions.".to_string())];
+                    diagnostics.push(self.diagnostic(source, line, column, "Use `fail` instead of `raise` to rethrow exceptions.".to_string()));
                 }
             }
             _ => {}
         }
 
-        Vec::new()
     }
 }
 

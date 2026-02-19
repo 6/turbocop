@@ -27,38 +27,39 @@ impl Cop for IncompatibleIoSelectWithFiberScheduler {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"select" {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_name = match constant_name(&receiver) {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         if recv_name != b"IO" {
-            return Vec::new();
+            return;
         }
 
         let arguments = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args: Vec<_> = arguments.arguments().iter().collect();
         if args.is_empty() || args.len() > 4 {
-            return Vec::new();
+            return;
         }
 
         // args: [read_array, write_array, except_array, timeout]
@@ -70,12 +71,12 @@ impl Cop for IncompatibleIoSelectWithFiberScheduler {
         if let Some(exc) = excepts {
             if let Some(arr) = exc.as_array_node() {
                 if !arr.elements().is_empty() {
-                    return Vec::new();
+                    return;
                 }
             }
             // If excepts is not an empty array and not nil, skip
             else if exc.as_nil_node().is_none() {
-                return Vec::new();
+                return;
             }
         }
 
@@ -84,7 +85,7 @@ impl Cop for IncompatibleIoSelectWithFiberScheduler {
         let is_write = is_single_element_array(write) && is_empty_or_nil(read);
 
         if !is_read && !is_write {
-            return Vec::new();
+            return;
         }
 
         let call_src = node_source(source, &node);
@@ -108,12 +109,12 @@ impl Cop for IncompatibleIoSelectWithFiberScheduler {
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `{}` instead of `{}`.", preferred, call_src),
-        )]
+        ));
     }
 }
 

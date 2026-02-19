@@ -20,17 +20,18 @@ impl Cop for NumericLiteralPrefix {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let int_node = match node.as_integer_node() {
             Some(i) => i,
-            None => return Vec::new(),
+            None => return,
         };
 
         let loc = int_node.location();
         let src = loc.as_slice();
         let src_str = match std::str::from_utf8(src) {
             Ok(s) => s,
-            Err(_) => return Vec::new(),
+            Err(_) => return,
         };
 
         // Strip any underscores for prefix matching
@@ -42,44 +43,44 @@ impl Cop for NumericLiteralPrefix {
 
         // Check uppercase hex prefix: 0X...
         if clean.starts_with("0X") {
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Use 0x for hexadecimal literals.".to_string(),
-            )];
+            ));
         }
 
         // Check uppercase binary prefix: 0B...
         if clean.starts_with("0B") {
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Use 0b for binary literals.".to_string(),
-            )];
+            ));
         }
 
         // Check decimal prefix: 0d... or 0D...
         if clean.starts_with("0d") || clean.starts_with("0D") {
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Do not use prefixes for decimal literals.".to_string(),
-            )];
+            ));
         }
 
         // Octal handling
         if enforced_octal_style == "zero_with_o" {
             // Bad: 0O... (uppercase)
             if clean.starts_with("0O") {
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use 0o for octal literals.".to_string(),
-                )];
+                ));
             }
             // Bad: plain 0... without 'o' (e.g., 01234)
             // Must be octal: starts with 0, followed by digits 0-7, not 0x/0b/0d/0o
@@ -90,26 +91,25 @@ impl Cop for NumericLiteralPrefix {
                 && !clean.starts_with("0o")
                 && clean[1..].bytes().all(|b| b.is_ascii_digit() && b < b'8')
             {
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use 0o for octal literals.".to_string(),
-                )];
+                ));
             }
         } else if enforced_octal_style == "zero_only" {
             // Bad: 0o... or 0O...
             if clean.starts_with("0o") || clean.starts_with("0O") {
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use 0 for octal literals.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

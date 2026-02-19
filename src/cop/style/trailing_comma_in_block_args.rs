@@ -20,33 +20,34 @@ impl Cop for TrailingCommaInBlockArgs {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let block = match node.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params = match block.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_params = match params.as_block_parameters_node() {
             Some(bp) => bp,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check the source for a trailing comma before |
         let close_loc = match block_params.closing_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Look at bytes before the closing |
         let bytes = source.as_bytes();
         let close_offset = close_loc.start_offset();
         if close_offset == 0 {
-            return Vec::new();
+            return;
         }
 
         // Scan backwards for trailing comma (skip whitespace)
@@ -57,15 +58,14 @@ impl Cop for TrailingCommaInBlockArgs {
 
         if bytes[pos] == b',' {
             let (line, column) = source.offset_to_line_col(pos);
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Useless trailing comma present in block arguments.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

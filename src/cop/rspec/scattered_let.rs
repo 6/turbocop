@@ -29,10 +29,11 @@ impl Cop for ScatteredLet {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -45,31 +46,30 @@ impl Cop for ScatteredLet {
         };
 
         if !is_example_group {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => match b.as_block_node() {
                 Some(bn) => bn,
-                None => return Vec::new(),
+                None => return,
             },
-            None => return Vec::new(),
+            None => return,
         };
 
         let body = match block.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Track if we've seen a non-let statement after the initial let block
         let mut seen_non_let = false;
         let mut in_let_group = false;
-        let mut diagnostics = Vec::new();
 
         for stmt in stmts.body().iter() {
             if let Some(c) = stmt.as_call_node() {
@@ -98,7 +98,6 @@ impl Cop for ScatteredLet {
             }
         }
 
-        diagnostics
     }
 }
 

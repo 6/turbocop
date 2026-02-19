@@ -15,12 +15,11 @@ impl Cop for OrderedGems {
         &["**/*.gemfile", "**/Gemfile", "**/gems.rb"]
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let treat_comments_as_separators =
             config.get_bool("TreatCommentsAsGroupSeparators", true);
         let consider_punctuation = config.get_bool("ConsiderPunctuation", false);
 
-        let mut diagnostics = Vec::new();
         let mut prev_gem: Option<(String, String)> = None; // (original_name, sort_key)
 
         for (i, line) in source.lines().enumerate() {
@@ -67,7 +66,6 @@ impl Cop for OrderedGems {
                 prev_gem = None;
             }
         }
-        diagnostics
     }
 }
 

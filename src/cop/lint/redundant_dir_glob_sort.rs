@@ -24,7 +24,8 @@ impl Cop for RedundantDirGlobSort {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // RuboCop: minimum_target_ruby_version 3.0
         // Dir.glob and Dir[] return sorted results in Ruby 3.0+, so `.sort` is
         // redundant only when targeting 3.0 or later.
@@ -34,43 +35,43 @@ impl Cop for RedundantDirGlobSort {
             .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
             .unwrap_or(3.4);
         if ruby_version < 3.0 {
-            return Vec::new();
+            return;
         }
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be a .sort call
         if call.name().as_slice() != b"sort" {
-            return Vec::new();
+            return;
         }
 
         // Must have no arguments (bare .sort)
         if call.arguments().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be a Dir.glob or Dir[] call
         let recv = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_call = match recv.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_method = recv_call.name().as_slice();
         if recv_method != b"glob" && recv_method != b"[]" {
-            return Vec::new();
+            return;
         }
 
         // The receiver of glob/[] must be Dir
         let dir_recv = match recv_call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let is_dir = if let Some(const_read) = dir_recv.as_constant_read_node() {
@@ -82,29 +83,29 @@ impl Cop for RedundantDirGlobSort {
         };
 
         if !is_dir {
-            return Vec::new();
+            return;
         }
 
         // Check for multiple arguments (not redundant if glob has multiple args)
         if let Some(args) = recv_call.arguments() {
             let arg_list: Vec<_> = args.arguments().iter().collect();
             if arg_list.len() >= 2 {
-                return Vec::new();
+                return;
             }
             // Check for splat argument
             if !arg_list.is_empty() && arg_list[0].as_splat_node().is_some() {
-                return Vec::new();
+                return;
             }
         }
 
         let msg_loc = call.message_loc().unwrap();
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Remove redundant `sort`.".to_string(),
-        )]
+        ));
     }
 }
 

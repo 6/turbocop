@@ -29,10 +29,11 @@ impl Cop for SingleArgumentMessageChain {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method = call.name().as_slice();
@@ -41,12 +42,12 @@ impl Cop for SingleArgumentMessageChain {
         } else if method == b"stub_chain" {
             "stub"
         } else {
-            return Vec::new();
+            return;
         };
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
@@ -73,20 +74,20 @@ impl Cop for SingleArgumentMessageChain {
         };
 
         if !is_single_arg {
-            return Vec::new();
+            return;
         }
 
         let method_str = std::str::from_utf8(method).unwrap_or("receive_message_chain");
         let loc = call.message_loc().unwrap_or_else(|| call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!(
                 "Use `{replacement}` instead of calling `{method_str}` with a single argument."
             ),
-        )]
+        ));
     }
 }
 

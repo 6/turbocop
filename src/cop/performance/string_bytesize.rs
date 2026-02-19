@@ -25,31 +25,32 @@ impl Cop for StringBytesize {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let chain = match as_method_chain(node) {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be .bytes.{size,length,count}
         if chain.inner_method != b"bytes" {
-            return Vec::new();
+            return;
         }
 
         match chain.outer_method {
             b"size" | b"length" | b"count" => {}
-            _ => return Vec::new(),
+            _ => return,
         }
 
         // The inner call (.bytes) must have a receiver
         let recv = match chain.inner_call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Receiver must not be nil (bare `bytes`) or an integer
         if recv.as_integer_node().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Report on the `.bytes.{size,length,count}` portion
@@ -64,13 +65,13 @@ impl Cop for StringBytesize {
         // Build annotation-compatible offset
         let _ = end_col_offset;
 
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `String#bytesize` instead of calculating the size of the bytes array."
                 .to_string(),
-        )]
+        ));
     }
 }
 

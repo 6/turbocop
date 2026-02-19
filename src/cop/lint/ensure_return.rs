@@ -44,23 +44,24 @@ impl Cop for EnsureReturn {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // EnsureNode is visited via visit_begin_node's specific method,
         // not via the generic visit() dispatch. So we match BeginNode
         // and check its ensure_clause.
         let begin_node = match node.as_begin_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let ensure_node = match begin_node.ensure_clause() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let statements = match ensure_node.statements() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let mut finder = ReturnFinder { found: vec![] };
@@ -68,7 +69,7 @@ impl Cop for EnsureReturn {
             finder.visit(&stmt);
         }
 
-        finder
+        diagnostics.extend(finder
             .found
             .iter()
             .map(|&offset| {
@@ -79,8 +80,7 @@ impl Cop for EnsureReturn {
                     column,
                     "Do not return from an `ensure` block.".to_string(),
                 )
-            })
-            .collect()
+            }));
     }
 }
 

@@ -38,7 +38,8 @@ impl Cop for GlobalVars {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allowed = config.get_string_array("AllowedVariables");
 
         let (name, loc) = if let Some(gw) = node.as_global_variable_write_node() {
@@ -57,29 +58,29 @@ impl Cop for GlobalVars {
             let n = goow.name();
             (n.as_slice().to_vec(), goow.name_loc())
         } else {
-            return Vec::new();
+            return;
         };
 
         // Skip built-in globals
         if BUILTIN_GLOBALS.iter().any(|&g| g == name.as_slice()) {
-            return Vec::new();
+            return;
         }
 
         // Skip allowed variables
         let name_str = String::from_utf8_lossy(&name);
         if let Some(ref list) = allowed {
             if list.iter().any(|a| a.as_str() == name_str.as_ref()) {
-                return Vec::new();
+                return;
             }
         }
 
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Do not introduce global variables.".to_string(),
-        )]
+        ));
     }
 }
 

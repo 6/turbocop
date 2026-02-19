@@ -24,13 +24,14 @@ impl Cop for EmptyClass {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Handle both ClassNode and SingletonClassNode (metaclass)
         let (body_empty, kw_loc, start_line, end_line) =
             if let Some(class_node) = node.as_class_node() {
                 // Per RuboCop: skip classes with a parent class (e.g. class Error < StandardError; end)
                 if class_node.superclass().is_some() {
-                    return Vec::new();
+                    return;
                 }
                 let empty = match class_node.body() {
                     None => true,
@@ -62,11 +63,11 @@ impl Cop for EmptyClass {
                 let (el, _) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
                 (empty, sclass.class_keyword_loc(), sl, el)
             } else {
-                return Vec::new();
+                return;
             };
 
         if !body_empty {
-            return Vec::new();
+            return;
         }
 
         // AllowComments: default false per vendor config
@@ -81,19 +82,19 @@ impl Cop for EmptyClass {
                         .map(|start| &line[start..])
                         .unwrap_or(&[]);
                     if trimmed.starts_with(b"#") {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
         }
 
         let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Empty class detected.".to_string(),
-        )]
+        ));
     }
 }
 

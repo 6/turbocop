@@ -29,9 +29,9 @@ impl Cop for UnusedIgnoredColumns {
         _node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // No-op: requires schema analysis
-        Vec::new()
     }
 }
 

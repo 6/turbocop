@@ -26,10 +26,11 @@ impl Cop for DuplicateElsifCondition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let if_node = match node.as_if_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Only process top-level if (not elsif nodes visited separately)
@@ -37,15 +38,14 @@ impl Cop for DuplicateElsifCondition {
         // to check this is a top-level if by checking there's an if_keyword
         let kw_loc = if_node.if_keyword_loc();
         if kw_loc.is_none() {
-            return Vec::new();
+            return;
         }
         let kw_slice = kw_loc.unwrap().as_slice();
         if kw_slice != b"if" && kw_slice != b"unless" {
-            return Vec::new();
+            return;
         }
 
         let mut seen = HashSet::new();
-        let mut diagnostics = Vec::new();
 
         // Add the first condition
         let first_cond = if_node.predicate().location().as_slice().to_vec();
@@ -72,7 +72,6 @@ impl Cop for DuplicateElsifCondition {
             }
         }
 
-        diagnostics
     }
 }
 

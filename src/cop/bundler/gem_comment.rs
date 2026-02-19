@@ -15,7 +15,7 @@ impl Cop for GemComment {
         &["**/*.gemfile", "**/Gemfile", "**/gems.rb"]
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let ignored_gems = config
             .get_string_array("IgnoredGems")
             .unwrap_or_default();
@@ -24,7 +24,6 @@ impl Cop for GemComment {
             .unwrap_or_default();
         let check_version_specifiers = only_for.iter().any(|s| s == "version_specifiers");
 
-        let mut diagnostics = Vec::new();
         let lines: Vec<&[u8]> = source.lines().collect();
 
         for (i, line) in lines.iter().enumerate() {
@@ -60,7 +59,6 @@ impl Cop for GemComment {
                 }
             }
         }
-        diagnostics
     }
 }
 

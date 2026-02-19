@@ -17,7 +17,8 @@ impl Cop for StringLiteralsInInterpolation {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "single_quotes").to_string();
 
         let mut visitor = InterpStringVisitor {
@@ -28,7 +29,7 @@ impl Cop for StringLiteralsInInterpolation {
             in_interpolation: false,
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

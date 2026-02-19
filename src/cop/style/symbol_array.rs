@@ -20,20 +20,21 @@ impl Cop for SymbolArray {
         node: &ruby_prism::Node<'_>,
         parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let array_node = match node.as_array_node() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have `[` opening (not %i or %I)
         let opening = match array_node.opening_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         if opening.as_slice() != b"[" {
-            return Vec::new();
+            return;
         }
 
         let elements = array_node.elements();
@@ -42,11 +43,11 @@ impl Cop for SymbolArray {
 
         // "brackets" style: never flag bracket arrays — they ARE the preferred style
         if enforced_style == "brackets" {
-            return Vec::new();
+            return;
         }
 
         if elements.len() < min_size {
-            return Vec::new();
+            return;
         }
 
         // Skip arrays containing comments — %i[] can't contain comments
@@ -56,7 +57,7 @@ impl Cop for SymbolArray {
             for comment in parse_result.comments() {
                 let comment_line = source.offset_to_line_col(comment.location().start_offset()).0;
                 if comment_line >= array_start_line && comment_line <= array_end_line {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -64,12 +65,12 @@ impl Cop for SymbolArray {
         // All elements must be symbol nodes
         for elem in elements.iter() {
             if elem.as_symbol_node().is_none() {
-                return Vec::new();
+                return;
             }
         }
 
         let (line, column) = source.offset_to_line_col(opening.start_offset());
-        vec![self.diagnostic(source, line, column, "Use `%i` or `%I` for an array of symbols.".to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, "Use `%i` or `%I` for an array of symbols.".to_string()));
     }
 }
 

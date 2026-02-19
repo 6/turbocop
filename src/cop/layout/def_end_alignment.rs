@@ -21,17 +21,18 @@ impl Cop for DefEndAlignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyleAlignWith", "start_of_line");
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Skip endless methods (no end keyword)
         let end_kw_loc = match def_node.end_keyword_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Skip single-line defs (e.g., `def foo; 42; end`)
@@ -39,7 +40,7 @@ impl Cop for DefEndAlignment {
         let (def_line, _) = source.offset_to_line_col(def_kw_offset);
         let (end_line, end_col) = source.offset_to_line_col(end_kw_loc.start_offset());
         if def_line == end_line {
-            return Vec::new();
+            return;
         }
 
         match style {
@@ -47,24 +48,24 @@ impl Cop for DefEndAlignment {
                 // Align `end` with `def` keyword
                 let (_, def_col) = source.offset_to_line_col(def_kw_offset);
                 if end_col != def_col {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         end_line,
                         end_col,
                         "Align `end` with `def`.".to_string(),
-                    )];
+                    ));
                 }
-                Vec::new()
+
             }
             _ => {
                 // "start_of_line" (default): align `end` with start of the line containing `def`
-                util::check_keyword_end_alignment(
+                diagnostics.extend(util::check_keyword_end_alignment(
                     self.name(),
                     source,
                     "def",
                     def_kw_offset,
                     end_kw_loc.start_offset(),
-                )
+                ));
             }
         }
     }

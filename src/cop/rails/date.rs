@@ -25,13 +25,14 @@ impl Cop for Date {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "flexible");
         let allow_to_time = config.get_bool("AllowToTime", true);
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method = call.name().as_slice();
@@ -40,35 +41,35 @@ impl Cop for Date {
         if method == b"to_time" && !allow_to_time && style == "strict" {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Do not use `to_time` in strict mode.".to_string(),
-            )];
+            ));
         }
 
         if method != b"today" {
-            return Vec::new();
+            return;
         }
 
         let recv = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
         // Handle both ConstantReadNode (Date) and ConstantPathNode (::Date)
         if util::constant_name(&recv) != Some(b"Date") {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `Date.current` instead of `Date.today`.".to_string(),
-        )]
+        ));
     }
 }
 

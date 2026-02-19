@@ -20,12 +20,13 @@ impl Cop for RedundantArgument {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let _methods = config.get_string_hash("Methods");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name();
@@ -33,12 +34,12 @@ impl Cop for RedundantArgument {
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let arg = &arg_list[0];
@@ -60,15 +61,14 @@ impl Cop for RedundantArgument {
             let arg_src = std::str::from_utf8(arg.location().as_slice()).unwrap_or("");
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Argument `{arg_src}` is redundant because it is implied by default."),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

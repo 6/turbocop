@@ -20,10 +20,11 @@ impl Cop for MultilineBlockLayout {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let block_node = match node.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let opening_loc = block_node.opening_loc();
@@ -34,10 +35,8 @@ impl Cop for MultilineBlockLayout {
 
         // Single line block — no offense
         if open_line == close_line {
-            return Vec::new();
+            return;
         }
-
-        let mut diagnostics = Vec::new();
 
         // Check 1: Block arguments should be on the same line as block start
         if let Some(params) = block_node.parameters() {
@@ -111,7 +110,6 @@ impl Cop for MultilineBlockLayout {
             }
         }
 
-        diagnostics
     }
 }
 

@@ -364,10 +364,11 @@ impl Cop for AbcSize {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         let max = config.get_usize("Max", 17);
@@ -380,12 +381,12 @@ impl Cop for AbcSize {
             std::str::from_utf8(def_node.name().as_slice()).unwrap_or("");
         if let Some(allowed) = &allowed_methods {
             if allowed.iter().any(|m| m == method_name_str) {
-                return Vec::new();
+                return;
             }
         }
         if let Some(patterns) = &allowed_patterns {
             if patterns.iter().any(|p| method_name_str.contains(p.as_str())) {
-                return Vec::new();
+                return;
             }
         }
 
@@ -396,7 +397,7 @@ impl Cop for AbcSize {
         // parameters inside the body ARE counted because the visitor traverses them.
         let body = match def_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         counter.visit(&body);
 
@@ -406,17 +407,16 @@ impl Cop for AbcSize {
                 std::str::from_utf8(def_node.name().as_slice()).unwrap_or("unknown");
             let start_offset = def_node.def_keyword_loc().start_offset();
             let (line, column) = source.offset_to_line_col(start_offset);
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!(
                     "Assignment Branch Condition size for {method_name} is too high. [{score:.2}/{max}]"
                 ),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

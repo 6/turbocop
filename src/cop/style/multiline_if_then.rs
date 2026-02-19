@@ -20,30 +20,31 @@ impl Cop for MultilineIfThen {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Handle `if ... then` (multi-line)
         if let Some(if_node) = node.as_if_node() {
             // Must have an `if` keyword (not ternary)
             let if_kw_loc = match if_node.if_keyword_loc() {
                 Some(loc) => loc,
-                None => return Vec::new(),
+                None => return,
             };
 
             let kw_text = if_kw_loc.as_slice();
 
             // Must be `if` or `elsif`, not `unless`
             if kw_text != b"if" && kw_text != b"elsif" {
-                return Vec::new();
+                return;
             }
 
             // Check for `then` keyword
             let then_loc = match if_node.then_keyword_loc() {
                 Some(loc) => loc,
-                None => return Vec::new(),
+                None => return,
             };
 
             if then_loc.as_slice() != b"then" {
-                return Vec::new();
+                return;
             }
 
             // Check if this is a multiline if (then and body/end are on different lines)
@@ -57,7 +58,7 @@ impl Cop for MultilineIfThen {
                     let first_body_line = source.offset_to_line_col(body_nodes[0].location().start_offset()).0;
                     if first_body_line == then_line {
                         // Table style: `if cond then body` all on same line
-                        return Vec::new();
+                        return;
                     }
                 }
             } else {
@@ -65,37 +66,37 @@ impl Cop for MultilineIfThen {
                 if let Some(end_loc) = if_node.end_keyword_loc() {
                     let end_line = source.offset_to_line_col(end_loc.start_offset()).0;
                     if end_line == then_line {
-                        return Vec::new();
+                        return;
                     }
                 }
                 // If there's a subsequent (elsif/else) on same line, it's table style
                 if let Some(sub) = if_node.subsequent() {
                     let sub_line = source.offset_to_line_col(sub.location().start_offset()).0;
                     if sub_line == then_line {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
 
             let keyword_name = if kw_text == b"elsif" { "elsif" } else { "if" };
             let (line, column) = source.offset_to_line_col(then_loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Do not use `then` for multi-line `{}`.", keyword_name),
-            )];
+            ));
         }
 
         // Handle `unless ... then` (multi-line)
         if let Some(unless_node) = node.as_unless_node() {
             let then_loc = match unless_node.then_keyword_loc() {
                 Some(loc) => loc,
-                None => return Vec::new(),
+                None => return,
             };
 
             if then_loc.as_slice() != b"then" {
-                return Vec::new();
+                return;
             }
 
             let then_line = source.offset_to_line_col(then_loc.start_offset()).0;
@@ -106,28 +107,27 @@ impl Cop for MultilineIfThen {
                 if !body_nodes.is_empty() {
                     let first_body_line = source.offset_to_line_col(body_nodes[0].location().start_offset()).0;
                     if first_body_line == then_line {
-                        return Vec::new();
+                        return;
                     }
                 }
             } else {
                 if let Some(end_loc) = unless_node.end_keyword_loc() {
                     let end_line = source.offset_to_line_col(end_loc.start_offset()).0;
                     if end_line == then_line {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
 
             let (line, column) = source.offset_to_line_col(then_loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Do not use `then` for multi-line `unless`.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

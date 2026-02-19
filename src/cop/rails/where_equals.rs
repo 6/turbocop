@@ -24,15 +24,16 @@ impl Cop for WhereEquals {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = call.name().as_slice();
         if name != b"where" && name != b"not" {
-            return Vec::new();
+            return;
         }
 
         // If `not`, check that receiver is a `where` call
@@ -40,34 +41,34 @@ impl Cop for WhereEquals {
             if let Some(recv) = call.receiver() {
                 if let Some(recv_call) = recv.as_call_node() {
                     if recv_call.name().as_slice() != b"where" {
-                        return Vec::new();
+                        return;
                     }
                 } else {
-                    return Vec::new();
+                    return;
                 }
             } else {
-                return Vec::new();
+                return;
             }
         }
 
         // Must have a receiver
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // First argument must be a string literal with a simple comparison pattern
         let str_node = match arg_list[0].as_string_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let template = std::str::from_utf8(str_node.unescaped()).unwrap_or("");
@@ -89,18 +90,18 @@ impl Cop for WhereEquals {
             || in_named.is_match(template);
 
         if !is_simple_sql {
-            return Vec::new();
+            return;
         }
 
         let loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         let method = std::str::from_utf8(name).unwrap_or("where");
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `{method}(attribute: value)` instead of manually constructing SQL."),
-        )]
+        ));
     }
 }
 

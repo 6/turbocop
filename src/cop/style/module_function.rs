@@ -17,7 +17,8 @@ impl Cop for ModuleFunction {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "module_function");
         // Autocorrect config key acknowledged (autocorrect not yet implemented)
         let _autocorrect = config.get_bool("Autocorrect", false);
@@ -28,7 +29,7 @@ impl Cop for ModuleFunction {
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

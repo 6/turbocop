@@ -21,7 +21,8 @@ impl Cop for ConstantDefinitionInBlock {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allowed_methods = config
             .get_string_array("AllowedMethods")
             .unwrap_or_else(|| vec!["enums".to_string()]);
@@ -34,7 +35,7 @@ impl Cop for ConstantDefinitionInBlock {
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

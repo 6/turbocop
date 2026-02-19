@@ -63,14 +63,15 @@ impl Cop for StringConcatenation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if !Self::is_string_concat(&call) {
-            return Vec::new();
+            return;
         }
 
         let mode = config.get_str("Mode", "aggressive");
@@ -79,7 +80,7 @@ impl Cop for StringConcatenation {
             // In conservative mode, only flag if the receiver (LHS) is a string literal
             if let Some(receiver) = call.receiver() {
                 if !Self::is_string_literal(&receiver) {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -90,7 +91,7 @@ impl Cop for StringConcatenation {
                 if let Some(args) = call.arguments() {
                     let arg_list: Vec<_> = args.arguments().iter().collect();
                     if !arg_list.is_empty() && Self::is_string_literal(&receiver) && Self::is_string_literal(&arg_list[0]) {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
@@ -101,19 +102,19 @@ impl Cop for StringConcatenation {
         if let Some(receiver) = call.receiver() {
             if let Some(recv_call) = receiver.as_call_node() {
                 if Self::is_string_concat(&recv_call) {
-                    return Vec::new();
+                    return;
                 }
             }
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Prefer string interpolation to string concatenation.".to_string(),
-        )]
+        ));
     }
 }
 

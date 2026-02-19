@@ -24,32 +24,32 @@ impl Cop for OrAssignmentToConstant {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // ConstantOrWriteNode represents CONST ||= value
         if let Some(n) = node.as_constant_or_write_node() {
             let loc = n.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Do not use `||=` for assigning to constants.".to_string(),
-            )];
+            ));
         }
 
         // ConstantPathOrWriteNode represents Foo::BAR ||= value
         if let Some(n) = node.as_constant_path_or_write_node() {
             let loc = n.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Do not use `||=` for assigning to constants.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

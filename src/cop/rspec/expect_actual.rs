@@ -29,45 +29,46 @@ impl Cop for ExpectActual {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for expect(literal).to/to_not/not_to matcher(args) chains
         // RuboCop only flags when the full chain has a matcher with arguments.
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         // Must be a runner method (.to, .to_not, .not_to)
         if method_name != b"to" && method_name != b"to_not" && method_name != b"not_to" {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be expect(literal)
         let recv = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
         let expect_call = match recv.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         if expect_call.name().as_slice() != b"expect" || expect_call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let expect_args = match expect_call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let expect_arg_list: Vec<ruby_prism::Node<'_>> = expect_args.arguments().iter().collect();
         if expect_arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let literal_arg = &expect_arg_list[0];
         if !is_literal_value(literal_arg) {
-            return Vec::new();
+            return;
         }
 
         // Check that the matcher has arguments (RuboCop requires this).
@@ -75,11 +76,11 @@ impl Cop for ExpectActual {
         // `expect(".foo").to be_present` → `be_present` has no args → NOT flagged
         let matcher_args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let matcher_list: Vec<ruby_prism::Node<'_>> = matcher_args.arguments().iter().collect();
         if matcher_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // The matcher call itself must have arguments
@@ -88,23 +89,23 @@ impl Cop for ExpectActual {
             let matcher_name = matcher_call.name().as_slice();
             // Skip route_to and be_routable matchers
             if matcher_name == b"route_to" || matcher_name == b"be_routable" {
-                return Vec::new();
+                return;
             }
             // Matcher must have arguments (eq(something), be(something), etc.)
             if matcher_call.arguments().is_none() {
                 // Also check for `be == something` pattern
-                return Vec::new();
+                return;
             }
         }
 
         let loc = literal_arg.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Provide the actual value you are testing to `expect(...)`.".to_string(),
-        )]
+        ));
     }
 }
 

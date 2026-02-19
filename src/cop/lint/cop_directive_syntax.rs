@@ -24,8 +24,8 @@ impl Cop for CopDirectiveSyntax {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
 
         let mut byte_offset = 0usize;
         for (i, line) in source.lines().enumerate() {
@@ -108,7 +108,6 @@ impl Cop for CopDirectiveSyntax {
             byte_offset += line.len() + 1;
         }
 
-        diagnostics
     }
 }
 

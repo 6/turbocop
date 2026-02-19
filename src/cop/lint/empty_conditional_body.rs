@@ -35,7 +35,8 @@ impl Cop for EmptyConditionalBody {
         node: &ruby_prism::Node<'_>,
         parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_comments = config.get_bool("AllowComments", true);
 
         // Check IfNode
@@ -43,7 +44,7 @@ impl Cop for EmptyConditionalBody {
             // Only check keyword if, not ternaries
             let kw_loc = match if_node.if_keyword_loc() {
                 Some(loc) => loc,
-                None => return Vec::new(),
+                None => return,
             };
 
             let body_empty = match if_node.statements() {
@@ -65,16 +66,16 @@ impl Cop for EmptyConditionalBody {
                         node.location().end_offset()
                     };
                     if has_comment_in_range(parse_result, range_start, range_end) {
-                        return Vec::new();
+                        return;
                     }
                 }
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Avoid empty `if` conditions.".to_string(),
-                )];
+                ));
             }
         }
 
@@ -96,21 +97,20 @@ impl Cop for EmptyConditionalBody {
                         node.location().end_offset()
                     };
                     if has_comment_in_range(parse_result, body_start, body_end) {
-                        return Vec::new();
+                        return;
                     }
                 }
                 let kw_loc = unless_node.keyword_loc();
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Avoid empty `unless` conditions.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

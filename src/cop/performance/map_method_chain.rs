@@ -36,42 +36,43 @@ impl Cop for MapMethodChain {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let outer_call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let outer_method = outer_call.name().as_slice();
         if outer_method != b"map" && outer_method != b"collect" {
-            return Vec::new();
+            return;
         }
 
         // Outer call must have a block_pass with symbol arg (e.g., map(&:foo))
         if !has_symbol_block_pass(&outer_call) {
-            return Vec::new();
+            return;
         }
 
         // Inner call (receiver) must also be map/collect with symbol block_pass
         let inner_node = match outer_call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
         let inner_call = match inner_node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         let inner_method = inner_call.name().as_slice();
         if inner_method != b"map" && inner_method != b"collect" {
-            return Vec::new();
+            return;
         }
         if !has_symbol_block_pass(&inner_call) {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, "Use `map` with a block instead of chaining multiple `map` calls with symbol arguments.".to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, "Use `map` with a block instead of chaining multiple `map` calls with symbol arguments.".to_string()));
     }
 }
 

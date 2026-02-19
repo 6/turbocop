@@ -34,36 +34,37 @@ impl Cop for FloatDivision {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"/" {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let left_is_to_f = Self::is_to_f_call(&receiver);
         let right_is_to_f = Self::is_to_f_call(&arg_list[0]);
 
         if !left_is_to_f && !right_is_to_f {
-            return Vec::new();
+            return;
         }
 
         let style = config.get_str("EnforcedStyle", "single_coerce");
@@ -74,48 +75,47 @@ impl Cop for FloatDivision {
         match style {
             "single_coerce" => {
                 if left_is_to_f && right_is_to_f {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Prefer using `.to_f` on one side only.".to_string(),
-                    )];
+                    ));
                 }
             }
             "left_coerce" => {
                 if right_is_to_f {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Prefer using `.to_f` on the left side.".to_string(),
-                    )];
+                    ));
                 }
             }
             "right_coerce" => {
                 if left_is_to_f {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Prefer using `.to_f` on the right side.".to_string(),
-                    )];
+                    ));
                 }
             }
             "fdiv" => {
                 if left_is_to_f || right_is_to_f {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Prefer using `fdiv` for float divisions.".to_string(),
-                    )];
+                    ));
                 }
             }
             _ => {}
         }
 
-        Vec::new()
     }
 }
 

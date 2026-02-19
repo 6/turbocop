@@ -27,7 +27,8 @@ impl Cop for InstanceVariable {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Config: AssignmentOnly — when true, only flag reads of ivars that are
         // also assigned within the same top-level example group. When false (default),
         // flag ALL ivar reads. Writes/assignments are never flagged (matching RuboCop).
@@ -61,7 +62,7 @@ impl Cop for InstanceVariable {
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

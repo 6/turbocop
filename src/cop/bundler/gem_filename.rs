@@ -15,7 +15,7 @@ impl Cop for GemFilename {
         &["**/Gemfile", "**/gems.rb"]
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let enforced_style = config.get_str("EnforcedStyle", "Gemfile");
         let path = Path::new(source.path_str());
         let file_name = path
@@ -26,7 +26,7 @@ impl Cop for GemFilename {
         match enforced_style {
             "Gemfile" => {
                 if file_name == "gems.rb" {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         1,
                         0,
@@ -34,10 +34,10 @@ impl Cop for GemFilename {
                             "`gems.rb` file was found but `Gemfile` is required (file path: {}).",
                             source.path_str()
                         ),
-                    )];
+                    ));
                 }
                 if file_name == "gems.locked" {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         1,
                         0,
@@ -45,12 +45,12 @@ impl Cop for GemFilename {
                             "Expected a `Gemfile.lock` with `Gemfile` but found `gems.locked` file (file path: {}).",
                             source.path_str()
                         ),
-                    )];
+                    ));
                 }
             }
             "gems.rb" => {
                 if file_name == "Gemfile" {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         1,
                         0,
@@ -58,10 +58,10 @@ impl Cop for GemFilename {
                             "`Gemfile` was found but `gems.rb` is required (file path: {}).",
                             source.path_str()
                         ),
-                    )];
+                    ));
                 }
                 if file_name == "Gemfile.lock" {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         1,
                         0,
@@ -69,13 +69,12 @@ impl Cop for GemFilename {
                             "Expected a `gems.locked` with `gems.rb` but found `Gemfile.lock` file (file path: {}).",
                             source.path_str()
                         ),
-                    )];
+                    ));
                 }
             }
             _ => {}
         }
 
-        Vec::new()
     }
 }
 

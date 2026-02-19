@@ -20,19 +20,20 @@ impl Cop for Lambda {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Only bare `lambda` calls (no receiver)
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         if call.name().as_slice() != b"lambda" {
-            return Vec::new();
+            return;
         }
 
         let style = config.get_str("EnforcedStyle", "line_count_dependent");
@@ -42,11 +43,11 @@ impl Cop for Lambda {
                 // Always flag `lambda` — use `->` instead
                 let loc = call.message_loc().unwrap_or_else(|| call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                vec![self.diagnostic(source, line, column, "Use the `-> {}` lambda literal syntax for all lambdas.".to_string())]
+                diagnostics.push(self.diagnostic(source, line, column, "Use the `-> {}` lambda literal syntax for all lambdas.".to_string()));
             }
             "lambda" => {
                 // Never flag `lambda` — it's preferred
-                Vec::new()
+
             }
             _ => {
                 // "line_count_dependent" (default): only flag single-line `lambda`
@@ -54,11 +55,11 @@ impl Cop for Lambda {
                 // Single-line `lambda { }` should use `-> { }` instead.
                 let block = match call.block() {
                     Some(b) => b,
-                    None => return Vec::new(),
+                    None => return,
                 };
                 let block_node = match block.as_block_node() {
                     Some(bn) => bn,
-                    None => return Vec::new(),
+                    None => return,
                 };
 
                 let (start_line, _) = source.offset_to_line_col(block_node.location().start_offset());
@@ -68,10 +69,10 @@ impl Cop for Lambda {
                     // Single-line lambda — flag it
                     let loc = call.message_loc().unwrap_or_else(|| call.location());
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    vec![self.diagnostic(source, line, column, "Use the `-> {}` lambda literal syntax for single-line lambdas.".to_string())]
+                    diagnostics.push(self.diagnostic(source, line, column, "Use the `-> {}` lambda literal syntax for single-line lambdas.".to_string()));
                 } else {
                     // Multi-line lambda — this is correct for `line_count_dependent`
-                    Vec::new()
+
                 }
             }
         }

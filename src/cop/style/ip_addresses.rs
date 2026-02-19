@@ -99,20 +99,21 @@ impl Cop for IpAddresses {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let string_node = match node.as_string_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let content = string_node.unescaped();
         let content_str = match std::str::from_utf8(&content) {
             Ok(s) => s,
-            Err(_) => return Vec::new(),
+            Err(_) => return,
         };
 
         if content_str.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let allowed = config.get_string_array("AllowedAddresses")
@@ -122,7 +123,7 @@ impl Cop for IpAddresses {
         if let Some(ref allowed_list) = allowed {
             for addr in allowed_list {
                 if addr.eq_ignore_ascii_case(content_str) {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -133,15 +134,14 @@ impl Cop for IpAddresses {
         if is_ip {
             let loc = string_node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Do not hardcode IP addresses.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

@@ -20,27 +20,28 @@ impl Cop for MultilineMethodDefinitionBraceLayout {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "symmetrical");
 
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have explicit parentheses
         let lparen_loc = match def_node.lparen_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
         let rparen_loc = match def_node.rparen_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params = match def_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let (open_line, _) = source.offset_to_line_col(lparen_loc.start_offset());
@@ -48,7 +49,7 @@ impl Cop for MultilineMethodDefinitionBraceLayout {
 
         // Only check multiline parameter lists
         if open_line == close_line {
-            return Vec::new();
+            return;
         }
 
         // Find the first and last parameter locations
@@ -146,11 +147,11 @@ impl Cop for MultilineMethodDefinitionBraceLayout {
 
         let first_off = match first_offset {
             Some(o) => o,
-            None => return Vec::new(),
+            None => return,
         };
         let last_end = match last_end_offset {
             Some(o) => o,
-            None => return Vec::new(),
+            None => return,
         };
 
         let (first_param_line, _) = source.offset_to_line_col(first_off);
@@ -162,48 +163,47 @@ impl Cop for MultilineMethodDefinitionBraceLayout {
         match enforced_style {
             "symmetrical" => {
                 if open_same_as_first && !close_same_as_last {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         close_line,
                         close_col,
                         "Closing method definition brace must be on the same line as the last parameter when opening brace is on the same line as the first parameter.".to_string(),
-                    )];
+                    ));
                 }
                 if !open_same_as_first && close_same_as_last {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         close_line,
                         close_col,
                         "Closing method definition brace must be on the line after the last parameter when opening brace is on a separate line from the first parameter.".to_string(),
-                    )];
+                    ));
                 }
             }
             "new_line" => {
                 if close_same_as_last {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         close_line,
                         close_col,
                         "Closing method definition brace must be on the line after the last parameter."
                             .to_string(),
-                    )];
+                    ));
                 }
             }
             "same_line" => {
                 if !close_same_as_last {
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         close_line,
                         close_col,
                         "Closing method definition brace must be on the same line as the last parameter."
                             .to_string(),
-                    )];
+                    ));
                 }
             }
             _ => {}
         }
 
-        Vec::new()
     }
 }
 

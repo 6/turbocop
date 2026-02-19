@@ -56,30 +56,31 @@ impl Cop for AssignmentIndentation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let width = config.get_usize("IndentationWidth", 2);
 
         if let Some(n) = node.as_local_variable_write_node() {
-            return self.check_write(source, n.name_loc().start_offset(), &n.value(), width);
+            diagnostics.extend(self.check_write(source, n.name_loc().start_offset(), &n.value(), width));
         }
 
         if let Some(n) = node.as_instance_variable_write_node() {
-            return self.check_write(source, n.name_loc().start_offset(), &n.value(), width);
+            diagnostics.extend(self.check_write(source, n.name_loc().start_offset(), &n.value(), width));
         }
 
         if let Some(n) = node.as_class_variable_write_node() {
-            return self.check_write(source, n.name_loc().start_offset(), &n.value(), width);
+            diagnostics.extend(self.check_write(source, n.name_loc().start_offset(), &n.value(), width));
         }
 
         if let Some(n) = node.as_global_variable_write_node() {
-            return self.check_write(source, n.name_loc().start_offset(), &n.value(), width);
+            diagnostics.extend(self.check_write(source, n.name_loc().start_offset(), &n.value(), width));
         }
 
         if let Some(n) = node.as_constant_write_node() {
-            return self.check_write(source, n.name_loc().start_offset(), &n.value(), width);
+            diagnostics.extend(self.check_write(source, n.name_loc().start_offset(), &n.value(), width));
+            return;
         }
 
-        Vec::new()
     }
 }
 

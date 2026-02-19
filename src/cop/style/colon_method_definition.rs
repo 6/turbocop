@@ -20,34 +20,35 @@ impl Cop for ColonMethodDefinition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be a singleton method (has receiver: def self::bar)
         if def_node.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Check the operator between receiver and method name
         let operator_loc = match def_node.operator_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         if operator_loc.as_slice() != b"::" {
-            return Vec::new();
+            return;
         }
 
         let (line, column) = source.offset_to_line_col(operator_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Do not use `::` for defining class methods.".to_string(),
-        )]
+        ));
     }
 }
 

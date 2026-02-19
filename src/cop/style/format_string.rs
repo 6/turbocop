@@ -20,10 +20,11 @@ impl Cop for FormatString {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_bytes = call.name().as_slice();
@@ -33,75 +34,74 @@ impl Cop for FormatString {
             b"%" => {
                 // String#% - only flag when style prefers format or sprintf
                 if style == "percent" {
-                    return Vec::new();
+                    return;
                 }
                 // Must have a string receiver
                 let receiver = match call.receiver() {
                     Some(r) => r,
-                    None => return Vec::new(),
+                    None => return,
                 };
                 if receiver.as_string_node().is_none()
                     && receiver.as_interpolated_string_node().is_none()
                 {
-                    return Vec::new();
+                    return;
                 }
 
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 let preferred = if style == "format" { "format" } else { "sprintf" };
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Favor `{}` over `String#%`.", preferred),
-                )];
+                ));
             }
             b"format" => {
                 if style == "format" {
-                    return Vec::new();
+                    return;
                 }
                 // Only flag top-level or Kernel.format / ::Kernel.format
                 if let Some(recv) = call.receiver() {
                     if !is_kernel_constant(&recv) {
-                        return Vec::new();
+                        return;
                     }
                 }
 
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 let preferred = if style == "sprintf" { "sprintf" } else { "String#%" };
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Favor `{}` over `format`.", preferred),
-                )];
+                ));
             }
             b"sprintf" => {
                 if style == "sprintf" {
-                    return Vec::new();
+                    return;
                 }
                 // Only flag top-level or Kernel.sprintf / ::Kernel.sprintf
                 if let Some(recv) = call.receiver() {
                     if !is_kernel_constant(&recv) {
-                        return Vec::new();
+                        return;
                     }
                 }
 
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 let preferred = if style == "format" { "format" } else { "String#%" };
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Favor `{}` over `sprintf`.", preferred),
-                )];
+                ));
             }
             _ => {}
         }
 
-        Vec::new()
     }
 }
 

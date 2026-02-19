@@ -167,15 +167,16 @@ impl Cop for HttpStatus {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "symbolic");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         if !STATUS_METHODS.contains(&call.name().as_slice()) {
-            return Vec::new();
+            return;
         }
 
         let method_name = call.name().as_slice();
@@ -233,7 +234,7 @@ impl Cop for HttpStatus {
 
         if let Some(ref kw) = keyword_status {
             if let Some(diag) = check_status(&kw) {
-                return vec![diag];
+                diagnostics.push(diag);
             }
         }
 
@@ -243,14 +244,13 @@ impl Cop for HttpStatus {
                 for first in args.arguments().iter().take(1) {
                     if first.as_integer_node().is_some() || first.as_symbol_node().is_some() {
                         if let Some(diag) = check_status(&first) {
-                            return vec![diag];
+                            diagnostics.push(diag);
                         }
                     }
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

@@ -23,7 +23,8 @@ impl Cop for AccessModifierIndentation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "indent");
         let _indent_width = config.get_usize("IndentationWidth", 2);
 
@@ -31,35 +32,34 @@ impl Cop for AccessModifierIndentation {
         let (body, container_offset) = if let Some(class_node) = node.as_class_node() {
             match class_node.body() {
                 Some(b) => (b, class_node.location().start_offset()),
-                None => return Vec::new(),
+                None => return,
             }
         } else if let Some(module_node) = node.as_module_node() {
             match module_node.body() {
                 Some(b) => (b, module_node.location().start_offset()),
-                None => return Vec::new(),
+                None => return,
             }
         } else if let Some(sclass_node) = node.as_singleton_class_node() {
             match sclass_node.body() {
                 Some(b) => (b, sclass_node.location().start_offset()),
-                None => return Vec::new(),
+                None => return,
             }
         } else {
-            return Vec::new();
+            return;
         };
 
         // Get the indentation of the container keyword line
         let (container_line, _) = source.offset_to_line_col(container_offset);
         let container_indent = match util::line_at(source, container_line) {
             Some(line) => util::indentation_of(line),
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
 
         for stmt in stmts.body().iter() {
             let call = match stmt.as_call_node() {
@@ -110,7 +110,6 @@ impl Cop for AccessModifierIndentation {
             }
         }
 
-        diagnostics
     }
 }
 

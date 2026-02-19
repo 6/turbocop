@@ -14,13 +14,13 @@ impl Cop for Copyright {
         false // Matches vendor config/default.yml: Enabled: false
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let notice_pattern = config.get_str("Notice", r"^Copyright (\(c\) )?2[0-9]{3} .+");
         let _autocorrect_notice = config.get_str("AutocorrectNotice", "");
 
         let regex = match Regex::new(notice_pattern) {
             Ok(r) => r,
-            Err(_) => return Vec::new(),
+            Err(_) => return,
         };
 
         // Search all comment lines for the copyright notice
@@ -35,7 +35,7 @@ impl Cop for Copyright {
             if line_str.starts_with('#') {
                 let comment_text = line_str.trim_start_matches('#').trim();
                 if regex.is_match(comment_text) {
-                    return Vec::new();
+                    return;
                 }
             }
 
@@ -49,12 +49,12 @@ impl Cop for Copyright {
                 Err(_) => continue,
             };
             if regex.is_match(line_str_raw) {
-                return Vec::new();
+                return;
             }
         }
 
         // No copyright notice found
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             1,
             0,
@@ -62,7 +62,7 @@ impl Cop for Copyright {
                 "Include a copyright notice matching `{}` before any code.",
                 notice_pattern
             ),
-        )]
+        ));
     }
 }
 

@@ -20,19 +20,20 @@ impl Cop for OpenStructUse {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check ConstantReadNode (OpenStruct)
         if let Some(cr) = node.as_constant_read_node() {
             if cr.name().as_slice() == b"OpenStruct" {
                 let loc = cr.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Avoid using `OpenStruct`; use `Struct`, `Hash`, a class, or ActiveModel attributes instead."
                         .to_string(),
-                )];
+                ));
             }
         }
 
@@ -42,18 +43,17 @@ impl Cop for OpenStructUse {
                 if name.as_slice() == b"OpenStruct" {
                     let loc = cp.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Avoid using `OpenStruct`; use `Struct`, `Hash`, a class, or ActiveModel attributes instead."
                             .to_string(),
-                    )];
+                    ));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

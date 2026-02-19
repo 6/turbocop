@@ -31,24 +31,24 @@ impl Cop for CreateList {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let style = config.get_str("EnforcedStyle", "create_list");
         let explicit_only = config.get_bool("ExplicitOnly", false);
 
         if style == "create_list" {
-            return self.check_for_create_list_style(source, &call, explicit_only);
+            diagnostics.extend(self.check_for_create_list_style(source, &call, explicit_only));
         }
 
         if style == "n_times" {
-            return self.check_for_n_times_style(source, &call, explicit_only);
+            diagnostics.extend(self.check_for_n_times_style(source, &call, explicit_only));
         }
 
-        Vec::new()
     }
 }
 

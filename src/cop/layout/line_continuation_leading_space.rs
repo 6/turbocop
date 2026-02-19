@@ -16,12 +16,12 @@ impl Cop for LineContinuationLeadingSpace {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "trailing");
 
         let content = source.as_bytes();
         let lines: Vec<&[u8]> = source.lines().collect();
-        let mut diagnostics = Vec::new();
 
         // Precompute byte offset of each line start
         let mut line_starts: Vec<usize> = Vec::with_capacity(lines.len());
@@ -135,7 +135,6 @@ impl Cop for LineContinuationLeadingSpace {
             }
         }
 
-        diagnostics
     }
 }
 

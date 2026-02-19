@@ -20,20 +20,21 @@ impl Cop for BeginBlock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let pre_exe = match node.as_pre_execution_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let kw_loc = pre_exe.keyword_loc();
         let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Avoid the use of `BEGIN` blocks.".to_string(),
-        )]
+        ));
     }
 }
 

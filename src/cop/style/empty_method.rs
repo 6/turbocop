@@ -20,17 +20,18 @@ impl Cop for EmptyMethod {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "compact");
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Skip endless methods (no end keyword)
         let end_kw_loc = match def_node.end_keyword_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let def_loc = def_node.def_keyword_loc();
@@ -50,7 +51,7 @@ impl Cop for EmptyMethod {
         };
 
         if !is_empty {
-            return Vec::new();
+            return;
         }
 
         // Check for comment lines between def and end.
@@ -63,7 +64,7 @@ impl Cop for EmptyMethod {
                     let trimmed = line.iter().skip_while(|&&b| b == b' ' || b == b'\t');
                     let trimmed_bytes: Vec<u8> = trimmed.copied().collect();
                     if !trimmed_bytes.is_empty() && trimmed_bytes[0] == b'#' {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
@@ -72,13 +73,13 @@ impl Cop for EmptyMethod {
         match enforced_style {
             "compact" if !is_single_line => {
                 let (line, column) = source.offset_to_line_col(def_loc.start_offset());
-                vec![self.diagnostic(source, line, column, "Put empty method definitions on a single line.".to_string())]
+                diagnostics.push(self.diagnostic(source, line, column, "Put empty method definitions on a single line.".to_string()));
             }
             "expanded" if is_single_line => {
                 let (line, column) = source.offset_to_line_col(def_loc.start_offset());
-                vec![self.diagnostic(source, line, column, "Put the `end` on the next line.".to_string())]
+                diagnostics.push(self.diagnostic(source, line, column, "Put the `end` on the next line.".to_string()));
             }
-            _ => Vec::new(),
+            _ => {}
         }
     }
 }

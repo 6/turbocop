@@ -20,26 +20,27 @@ impl Cop for EachForSimpleLoop {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for CallNode with .each and a block
         let call_node = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call_node.name().as_slice() != b"each" {
-            return Vec::new();
+            return;
         }
 
         // Must have a block
         let block = match call_node.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Block must have no parameters (empty args) or no params node at all
@@ -55,30 +56,30 @@ impl Cop for EachForSimpleLoop {
                         || inner_params.keyword_rest().is_some()
                         || inner_params.block().is_some();
                     if has_params {
-                        return Vec::new();
+                        return;
                     }
                 }
             } else {
                 // Some other parameter type - skip
-                return Vec::new();
+                return;
             }
         }
 
         // Receiver must be a parenthesized range: (0..n) or (1..n)
         let receiver = match call_node.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Unwrap parentheses
         let parens = match receiver.as_parentheses_node() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let parens_body = match parens.body() {
             Some(body) => body,
-            None => return Vec::new(),
+            None => return,
         };
 
         // The body may be a RangeNode directly or wrapped in a StatementsNode
@@ -87,46 +88,46 @@ impl Cop for EachForSimpleLoop {
         } else if let Some(stmts) = parens_body.as_statements_node() {
             let body: Vec<_> = stmts.body().iter().collect();
             if body.len() != 1 {
-                return Vec::new();
+                return;
             }
             match body[0].as_range_node() {
                 Some(r) => r,
-                None => return Vec::new(),
+                None => return,
             }
         } else {
-            return Vec::new();
+            return;
         };
 
         // Left side must be an integer literal
         let left = match range_node.left() {
             Some(l) => l,
-            None => return Vec::new(),
+            None => return,
         };
 
         if left.as_integer_node().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Right side must be an integer literal
         let right = match range_node.right() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         if right.as_integer_node().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Check if left is 0 (for inclusive range) or args are empty
         // We flag all cases with integer ranges and empty block params
         let (line, column) = source.offset_to_line_col(receiver.location().start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `Integer#times` for a simple loop which iterates a fixed number of times."
                 .to_string(),
-        )]
+        ));
     }
 }
 

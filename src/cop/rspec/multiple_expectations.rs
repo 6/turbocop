@@ -26,7 +26,8 @@ impl Cop for MultipleExpectations {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let max = config.get_usize("Max", 1);
         let mut visitor = MultipleExpectationsVisitor {
             source,
@@ -36,7 +37,7 @@ impl Cop for MultipleExpectations {
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

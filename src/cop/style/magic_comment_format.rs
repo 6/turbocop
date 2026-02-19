@@ -41,8 +41,8 @@ impl Cop for MagicCommentFormat {
         &self,
         source: &SourceFile,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let lines: Vec<&str> = source.lines()
             .filter_map(|l| std::str::from_utf8(l).ok())
             .collect();
@@ -76,7 +76,7 @@ impl Cop for MagicCommentFormat {
                     if let Some(colon_pos) = part.find(':') {
                         let directive = part[..colon_pos].trim();
                         if Self::is_magic_comment_directive(directive) {
-                            Self::check_directive_style(&mut diagnostics, source, i, line, directive, style, self);
+                            Self::check_directive_style(diagnostics, source, i, line, directive, style, self);
                         }
                     }
                 }
@@ -85,13 +85,12 @@ impl Cop for MagicCommentFormat {
                 if let Some(colon_pos) = content.find(':') {
                     let directive = content[..colon_pos].trim();
                     if Self::is_magic_comment_directive(directive) {
-                        Self::check_directive_style(&mut diagnostics, source, i, line, directive, style, self);
+                        Self::check_directive_style(diagnostics, source, i, line, directive, style, self);
                     }
                 }
             }
         }
 
-        diagnostics
     }
 }
 

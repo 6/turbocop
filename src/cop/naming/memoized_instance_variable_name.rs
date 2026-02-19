@@ -67,12 +67,13 @@ impl Cop for MemoizedInstanceVariableName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyleForLeadingUnderscores", "disallowed");
 
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = def_node.name().as_slice();
@@ -83,7 +84,7 @@ impl Cop for MemoizedInstanceVariableName {
             method_name_str,
             "initialize" | "initialize_clone" | "initialize_copy" | "initialize_dup"
         ) {
-            return Vec::new();
+            return;
         }
 
         // Strip trailing ? or ! from method name for matching
@@ -91,7 +92,7 @@ impl Cop for MemoizedInstanceVariableName {
 
         let body = match def_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Look for @var ||= pattern — only when it's the entire body or the last statement.
@@ -99,26 +100,25 @@ impl Cop for MemoizedInstanceVariableName {
 
         // Body could be a bare InstanceVariableOrWriteNode (single statement)
         if let Some(or_write) = body.as_instance_variable_or_write_node() {
-            return self.check_or_write(source, or_write, base_name, method_name_str, enforced_style);
+            diagnostics.extend(self.check_or_write(source, or_write, base_name, method_name_str, enforced_style));
         }
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body_nodes: Vec<_> = stmts.body().iter().collect();
         if body_nodes.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Only check the last statement — vendor requires ||= be the sole or last statement
         let last = &body_nodes[body_nodes.len() - 1];
         if let Some(or_write) = last.as_instance_variable_or_write_node() {
-            return self.check_or_write(source, or_write, base_name, method_name_str, enforced_style);
+            diagnostics.extend(self.check_or_write(source, or_write, base_name, method_name_str, enforced_style));
         }
 
-        Vec::new()
     }
 }
 

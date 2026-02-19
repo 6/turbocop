@@ -16,11 +16,11 @@ impl Cop for Semicolon {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let bytes = source.as_bytes();
         let lines: Vec<&[u8]> = source.lines().collect();
         let allow_separator = config.get_bool("AllowAsExpressionSeparator", false);
-        let mut diagnostics = Vec::new();
 
         for (i, &byte) in bytes.iter().enumerate() {
             if byte != b';' || !code_map.is_code(i) {
@@ -64,7 +64,6 @@ impl Cop for Semicolon {
             ));
         }
 
-        diagnostics
     }
 }
 

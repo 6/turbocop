@@ -24,7 +24,8 @@ impl Cop for EmptyEnsure {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // EnsureNode is not visited directly by the generic walker.
         // It appears as ensure_clause() on BeginNode.
         let ensure_node = if let Some(begin_node) = node.as_begin_node() {
@@ -35,7 +36,7 @@ impl Cop for EmptyEnsure {
 
         let ensure_node = match ensure_node {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body_empty = match ensure_node.statements() {
@@ -44,17 +45,17 @@ impl Cop for EmptyEnsure {
         };
 
         if !body_empty {
-            return Vec::new();
+            return;
         }
 
         let kw_loc = ensure_node.ensure_keyword_loc();
         let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Empty `ensure` block detected.".to_string(),
-        )]
+        ));
     }
 }
 

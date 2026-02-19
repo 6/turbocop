@@ -20,13 +20,14 @@ impl Cop for EmptyClassDefinition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "class_definition");
 
         match enforced_style {
-            "class_definition" => check_class_definition_style(self, source, node),
-            "class_new" => check_class_new_style(self, source, node),
-            _ => Vec::new(),
+            "class_definition" => diagnostics.extend(check_class_definition_style(self, source, node)),
+            "class_new" => diagnostics.extend(check_class_new_style(self, source, node)),
+            _ => {}
         }
     }
 }

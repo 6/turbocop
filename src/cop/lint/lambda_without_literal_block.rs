@@ -24,7 +24,8 @@ impl Cop for LambdaWithoutLiteralBlock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for `lambda(&something)` -- lambda called with a block argument
         // instead of a literal block.
         //
@@ -37,16 +38,16 @@ impl Cop for LambdaWithoutLiteralBlock {
         // `lambda(&:do_something)` should NOT be flagged (symbol proc).
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"lambda" {
-            return Vec::new();
+            return;
         }
 
         // Must have no receiver (bare `lambda`)
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Check if block() is a BlockArgumentNode (not a literal block)
@@ -54,13 +55,14 @@ impl Cop for LambdaWithoutLiteralBlock {
             Some(b) => b,
             None => {
                 // No block at all -- check arguments for &something
-                return self.check_arguments(call, source);
+                diagnostics.extend(self.check_arguments(call, source));
+                return;
             }
         };
 
         // If it's a literal block (BlockNode), that's fine
         if block.as_block_node().is_some() {
-            return Vec::new();
+            return;
         }
 
         // If it's a BlockArgumentNode, check what's inside
@@ -68,22 +70,21 @@ impl Cop for LambdaWithoutLiteralBlock {
             // Skip symbol procs like `lambda(&:do_something)`
             if let Some(expr) = block_arg.expression() {
                 if expr.as_symbol_node().is_some() {
-                    return Vec::new();
+                    return;
                 }
             }
 
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "lambda without a literal block is deprecated; use the proc without lambda instead."
                     .to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

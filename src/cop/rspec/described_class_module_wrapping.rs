@@ -30,10 +30,11 @@ impl Cop for DescribedClassModuleWrapping {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let module_node = match node.as_module_node() {
             Some(m) => m,
-            None => return Vec::new(),
+            None => return,
         };
 
         let loc = module_node.location();
@@ -41,15 +42,14 @@ impl Cop for DescribedClassModuleWrapping {
 
         // Check if this module contains an RSpec.describe block (anywhere nested)
         if contains_rspec_describe(module_node) {
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 col,
                 "Avoid opening modules and defining specs within them.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

@@ -28,7 +28,8 @@ impl Cop for MultilineOperationIndentation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "aligned");
 
         // Check CallNode with operator methods (binary operators are parsed as calls)
@@ -36,28 +37,28 @@ impl Cop for MultilineOperationIndentation {
             let method_name = call_node.name().as_slice();
 
             if !OPERATOR_METHODS.contains(&method_name) {
-                return Vec::new();
+                return;
             }
 
             // Skip if inside a grouped expression or method call arg list parentheses.
             // Matches RuboCop's not_for_this_cop? check for operator method calls.
             if is_inside_parentheses(source, node) {
-                return Vec::new();
+                return;
             }
 
             let receiver = match call_node.receiver() {
                 Some(r) => r,
-                None => return Vec::new(),
+                None => return,
             };
 
             let args_node = match call_node.arguments() {
                 Some(a) => a,
-                None => return Vec::new(),
+                None => return,
             };
 
             let args: Vec<_> = args_node.arguments().iter().collect();
             if args.is_empty() {
-                return Vec::new();
+                return;
             }
 
             let recv_loc = receiver.location();
@@ -71,7 +72,7 @@ impl Cop for MultilineOperationIndentation {
             // different line than where the receiver ENDS (not starts).
             // For `end + tag.hr`, receiver ends at `end` on the same line as `tag.hr`.
             if arg_line == recv_end_line {
-                return Vec::new();
+                return;
             }
 
             let width = config.get_usize("IndentationWidth", 2);
@@ -97,7 +98,7 @@ impl Cop for MultilineOperationIndentation {
             };
 
             if !is_ok {
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     arg_line,
                     arg_col,
@@ -106,7 +107,7 @@ impl Cop for MultilineOperationIndentation {
                         width,
                         arg_col.saturating_sub(recv_indent)
                     ),
-                )];
+                ));
             }
         }
 
@@ -115,33 +116,34 @@ impl Cop for MultilineOperationIndentation {
             // Skip if inside a grouped expression (parentheses) or method call
             // arg list parentheses — matches RuboCop's not_for_this_cop? check.
             if is_inside_parentheses(source, node) {
-                return Vec::new();
+                return;
             }
-            return self.check_binary_node(
+            diagnostics.extend(self.check_binary_node(
                 source,
                 &and_node.left(),
                 &and_node.right(),
                 config,
                 style,
-            );
+            ));
+            return;
         }
 
         // Check OrNode
         if let Some(or_node) = node.as_or_node() {
             // Skip if inside a grouped expression or method call arg list parentheses
             if is_inside_parentheses(source, node) {
-                return Vec::new();
+                return;
             }
-            return self.check_binary_node(
+            diagnostics.extend(self.check_binary_node(
                 source,
                 &or_node.left(),
                 &or_node.right(),
                 config,
                 style,
-            );
+            ));
+            return;
         }
 
-        Vec::new()
     }
 }
 

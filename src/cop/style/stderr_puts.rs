@@ -20,26 +20,27 @@ impl Cop for StderrPuts {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be `puts` method
         if call.name().as_slice() != b"puts" {
-            return Vec::new();
+            return;
         }
 
         // Must have at least one argument
         if call.arguments().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be $stderr or STDERR or ::STDERR
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let is_stderr_gvar = receiver
@@ -57,7 +58,7 @@ impl Cop for StderrPuts {
         });
 
         if !is_stderr_gvar && !is_stderr_const && !is_stderr_const_path {
-            return Vec::new();
+            return;
         }
 
         let receiver_src = std::str::from_utf8(receiver.location().as_slice()).unwrap_or("");
@@ -68,7 +69,7 @@ impl Cop for StderrPuts {
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, msg)]
+        diagnostics.push(self.diagnostic(source, line, column, msg));
     }
 }
 

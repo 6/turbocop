@@ -25,10 +25,11 @@ impl Cop for UnusedMethodArgument {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         let ignore_empty = config.get_bool("IgnoreEmptyMethods", true);
@@ -41,21 +42,21 @@ impl Cop for UnusedMethodArgument {
             None => {
                 // Empty method
                 if ignore_empty {
-                    return Vec::new();
+                    return;
                 }
                 // Fall through to check params with no body
-                return Vec::new();
+                return;
             }
         };
 
         // Check for not-implemented methods
         if ignore_not_implemented && is_not_implemented(&body) {
-            return Vec::new();
+            return;
         }
 
         let params = match def_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Collect parameter info: (name_bytes, offset, is_keyword)
@@ -100,7 +101,7 @@ impl Cop for UnusedMethodArgument {
         }
 
         if param_info.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Find all local variable reads in the body AND in parameter defaults.
@@ -128,16 +129,15 @@ impl Cop for UnusedMethodArgument {
         // If the body contains bare `super` (ForwardingSuperNode), all args are
         // implicitly forwarded and therefore "used".
         if finder.has_forwarding_super {
-            return Vec::new();
+            return;
         }
 
         // If the body calls `binding`, all local variables are accessible via
         // `binding.local_variable_get`, so consider all args as used.
         if finder.has_binding_call {
-            return Vec::new();
+            return;
         }
 
-        let mut diagnostics = Vec::new();
 
         for (name, offset, _is_keyword) in &param_info {
             // Skip arguments prefixed with _
@@ -164,7 +164,6 @@ impl Cop for UnusedMethodArgument {
             }
         }
 
-        diagnostics
     }
 }
 

@@ -37,25 +37,26 @@ impl Cop for RedundantException {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call_node = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be `raise` or `fail` without a receiver
         let method = call_node.name();
         let method_name = method.as_slice();
         if !matches!(method_name, b"raise" | b"fail") {
-            return Vec::new();
+            return;
         }
         if call_node.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let args = match call_node.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().into_iter().collect();
@@ -64,12 +65,12 @@ impl Cop for RedundantException {
         if arg_list.len() == 2 && Self::is_runtime_error(&arg_list[0]) {
             let loc = call_node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Redundant `RuntimeError` argument can be removed.".to_string(),
-            )];
+            ));
         }
 
         // Pattern 2: raise RuntimeError.new("message") (1 arg that's a call to .new on RuntimeError)
@@ -80,19 +81,18 @@ impl Cop for RedundantException {
                         if Self::is_runtime_error(&receiver) {
                             let loc = call_node.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            return vec![self.diagnostic(
+                            diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 "Redundant `RuntimeError.new` call can be replaced with just the message.".to_string(),
-                            )];
+                            ));
                         }
                     }
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

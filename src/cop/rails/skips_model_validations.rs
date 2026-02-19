@@ -44,13 +44,14 @@ impl Cop for SkipsModelValidations {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let forbidden = config.get_string_array("ForbiddenMethods");
         let allowed = config.get_string_array("AllowedMethods");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         let method_name = call.name().as_slice();
         let method_str = std::str::from_utf8(method_name).unwrap_or("");
@@ -63,18 +64,18 @@ impl Cop for SkipsModelValidations {
         };
 
         if !is_forbidden {
-            return Vec::new();
+            return;
         }
 
         // Skip if method is in AllowedMethods
         if let Some(ref list) = allowed {
             if list.iter().any(|m| m == method_str) {
-                return Vec::new();
+                return;
             }
         }
 
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         // RuboCop: METHODS_WITH_ARGUMENTS — skip if the method is in this list
@@ -86,7 +87,7 @@ impl Cop for SkipsModelValidations {
             b"update_columns", b"update_counters", b"upsert", b"upsert_all",
         ];
         if methods_with_args.contains(&method_name) && call.arguments().is_none() {
-            return Vec::new();
+            return;
         }
 
         // RuboCop: good_insert? — for insert/insert!, skip when the second argument
@@ -124,7 +125,7 @@ impl Cop for SkipsModelValidations {
                         false // Not a hash — not an AR insert
                     };
                     if !is_ar_insert {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
@@ -135,13 +136,13 @@ impl Cop for SkipsModelValidations {
             if let Some(recv) = call.receiver() {
                 if let Some(cr) = recv.as_constant_read_node() {
                     if cr.name().as_slice() == b"FileUtils" {
-                        return Vec::new();
+                        return;
                     }
                 }
                 if let Some(cp) = recv.as_constant_path_node() {
                     if let Some(name) = cp.name() {
                         if name.as_slice() == b"FileUtils" {
-                            return Vec::new();
+                            return;
                         }
                     }
                 }
@@ -151,7 +152,7 @@ impl Cop for SkipsModelValidations {
                 if arg_list.len() == 1 {
                     let first = &arg_list[0];
                     if first.as_true_node().is_some() || first.as_false_node().is_some() {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
@@ -163,7 +164,7 @@ impl Cop for SkipsModelValidations {
             "Avoid `{}` because it skips validations.",
             std::str::from_utf8(method_name).unwrap_or("?")
         );
-        vec![self.diagnostic(source, line, column, msg)]
+        diagnostics.push(self.diagnostic(source, line, column, msg));
     }
 }
 

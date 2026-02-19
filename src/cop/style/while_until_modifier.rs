@@ -45,13 +45,14 @@ impl Cop for WhileUntilModifier {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let (kw_loc, statements, keyword) = if let Some(while_node) = node.as_while_node() {
             (while_node.keyword_loc(), while_node.statements(), "while")
         } else if let Some(until_node) = node.as_until_node() {
             (until_node.keyword_loc(), until_node.statements(), "until")
         } else {
-            return Vec::new();
+            return;
         };
 
         // Skip modifier form — check if keyword comes before the closing
@@ -60,22 +61,22 @@ impl Cop for WhileUntilModifier {
         } else if let Some(until_node) = node.as_until_node() {
             until_node.closing_loc()
         } else {
-            return Vec::new();
+            return;
         };
 
         // If no closing (end), it's already modifier form
         if closing_loc.is_none() {
-            return Vec::new();
+            return;
         }
 
         let body = match statements {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body_stmts: Vec<_> = body.body().iter().collect();
         if body_stmts.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let body_node = &body_stmts[0];
@@ -85,7 +86,7 @@ impl Cop for WhileUntilModifier {
         let body_end_off = body_node.location().end_offset().saturating_sub(1).max(body_node.location().start_offset());
         let (body_end_line, _) = source.offset_to_line_col(body_end_off);
         if body_start_line != body_end_line {
-            return Vec::new();
+            return;
         }
 
         // Check if the modifier form would fit within the max line length.
@@ -106,13 +107,13 @@ impl Cop for WhileUntilModifier {
         } else if let Some(until_node) = node.as_until_node() {
             until_node.predicate()
         } else {
-            return Vec::new();
+            return;
         };
 
         // Skip if the condition contains a local variable assignment
         // (e.g., `while (chunk = file.read(1024))`)
         if contains_lvar_assignment(&predicate) {
-            return Vec::new();
+            return;
         }
 
         let pred_src = &source.as_bytes()[predicate.location().start_offset()..predicate.location().end_offset()];
@@ -128,16 +129,16 @@ impl Cop for WhileUntilModifier {
         // "  body keyword condition"
         let modifier_len = indent + body_trimmed.len() + 1 + keyword.len() + 1 + pred_str.len();
         if modifier_len > max_line_length {
-            return Vec::new();
+            return;
         }
 
         let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Favor modifier `{}` usage when having a single-line body.", keyword),
-        )]
+        ));
     }
 }
 

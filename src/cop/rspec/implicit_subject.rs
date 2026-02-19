@@ -29,7 +29,8 @@ impl Cop for ImplicitSubject {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Config: EnforcedStyle — "single_line_only" (default), "single_statement_only", or "disallow"
         let enforced_style = config.get_str("EnforcedStyle", "single_line_only");
 
@@ -39,11 +40,11 @@ impl Cop for ImplicitSubject {
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let method_name = call.name().as_slice();
@@ -53,7 +54,7 @@ impl Cop for ImplicitSubject {
             || method_name == b"should_not";
 
         if !is_implicit {
-            return Vec::new();
+            return;
         }
 
         // Check if we're inside a multi-line example block by looking at
@@ -77,12 +78,12 @@ impl Cop for ImplicitSubject {
 
         // "disallow" style: flag all implicit subject usage
         if enforced_style == "disallow" {
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Don't use implicit subject.".to_string(),
-            )];
+            ));
         }
 
         // If the line starts with `it {` or `it{`, it's a single-line example — OK
@@ -91,17 +92,17 @@ impl Cop for ImplicitSubject {
             // Single-line pattern — check if it's actually single-line
             // by seeing if the line also has a closing `}`
             if line_bytes.iter().any(|&b| b == b'}') {
-                return Vec::new();
+                return;
             }
         }
 
         // This is used in a multi-line context — flag it
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Don't use implicit subject.".to_string(),
-        )]
+        ));
     }
 }
 

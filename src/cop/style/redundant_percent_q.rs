@@ -20,15 +20,16 @@ impl Cop for RedundantPercentQ {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let string_node = match node.as_string_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let opening_loc = match string_node.opening_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let opening = opening_loc.as_slice();
@@ -45,18 +46,18 @@ impl Cop for RedundantPercentQ {
             let has_interpolation_pattern = contains_interpolation_pattern(raw_content);
 
             if has_escape || has_interpolation_pattern || (has_single && has_double) {
-                return Vec::new();
+                return;
             }
 
             let loc = string_node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Use `%q` only for strings that contain both single quotes and double quotes."
                     .to_string(),
-            )];
+            ));
         }
 
         if opening.starts_with(b"%Q") {
@@ -65,21 +66,20 @@ impl Cop for RedundantPercentQ {
             let has_double = raw_content.contains(&b'"');
 
             if has_double {
-                return Vec::new();
+                return;
             }
 
             let loc = string_node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Use `%Q` only for strings that contain both single quotes and double quotes, or for dynamic strings that contain double quotes."
                     .to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

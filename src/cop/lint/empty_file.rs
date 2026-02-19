@@ -13,12 +13,13 @@ impl Cop for EmptyFile {
         Severity::Warning
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let allow_comments = config.get_bool("AllowComments", true);
 
         let src = source.as_bytes();
         if src.is_empty() {
-            return vec![self.diagnostic(source, 1, 0, "Empty file detected.".to_string())];
+            diagnostics.push(self.diagnostic(source, 1, 0, "Empty file detected.".to_string()));
+            return;
         }
 
         // Check if file has only whitespace and optionally comments
@@ -46,14 +47,14 @@ impl Cop for EmptyFile {
         }
 
         if has_code {
-            return Vec::new();
+            return;
         }
 
         if has_comments && allow_comments {
-            return Vec::new();
+            return;
         }
 
-        vec![self.diagnostic(source, 1, 0, "Empty file detected.".to_string())]
+        diagnostics.push(self.diagnostic(source, 1, 0, "Empty file detected.".to_string()));
     }
 }
 

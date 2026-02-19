@@ -22,7 +22,8 @@ impl Cop for UnderscorePrefixedVariableName {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_keyword_block_args = config.get_bool("AllowKeywordBlockArguments", false);
         let mut visitor = DefFinder {
             cop: self,
@@ -31,7 +32,7 @@ impl Cop for UnderscorePrefixedVariableName {
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

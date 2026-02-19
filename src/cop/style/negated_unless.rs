@@ -20,24 +20,25 @@ impl Cop for NegatedUnless {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "both");
         let unless_node = match node.as_unless_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must not have an else clause
         if unless_node.else_clause().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Detect modifier (postfix) form: no end keyword
         let is_modifier = unless_node.end_keyword_loc().is_none();
 
         match enforced_style {
-            "prefix" if is_modifier => return Vec::new(),
-            "postfix" if !is_modifier => return Vec::new(),
+            "prefix" if is_modifier => return,
+            "postfix" if !is_modifier => return,
             _ => {} // "both" checks all forms
         }
 
@@ -47,16 +48,15 @@ impl Cop for NegatedUnless {
             if call.name().as_slice() == b"!" {
                 let kw_loc = unless_node.keyword_loc();
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Favor `if` over `unless` for negative conditions.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

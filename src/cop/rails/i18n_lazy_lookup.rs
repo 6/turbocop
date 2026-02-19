@@ -21,10 +21,11 @@ impl Cop for I18nLazyLookup {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let path = source.path_str();
         if !is_controller_file(path) {
-            return Vec::new();
+            return;
         }
 
         let style = config.get_str("EnforcedStyle", "lazy");
@@ -39,7 +40,7 @@ impl Cop for I18nLazyLookup {
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

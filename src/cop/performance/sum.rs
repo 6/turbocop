@@ -24,32 +24,33 @@ impl Cop for Sum {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let only_sum_or_with_initial_value =
             config.get_bool("OnlySumOrWithInitialValue", false);
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if method_name != b"inject" && method_name != b"reduce" {
-            return Vec::new();
+            return;
         }
 
         // Must have a receiver
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Must not have a block
         if call.block().is_some() {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_nodes: Vec<_> = args.arguments().iter().collect();
@@ -72,7 +73,7 @@ impl Cop for Sum {
         };
 
         if !is_sum_pattern {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
@@ -85,7 +86,7 @@ impl Cop for Sum {
             format!("{method_str}(:+)")
         };
 
-        vec![self.diagnostic(source, line, column, format!("Use `sum` instead of `{args_str}`."))]
+        diagnostics.push(self.diagnostic(source, line, column, format!("Use `sum` instead of `{args_str}`.")));
     }
 }
 

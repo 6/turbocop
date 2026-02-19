@@ -20,10 +20,11 @@ impl Cop for WhenThen {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let when_node = match node.as_when_node() {
             Some(w) => w,
-            None => return Vec::new(),
+            None => return,
         };
 
         // If there's a then_keyword_loc that says "then", it's already fine
@@ -32,9 +33,9 @@ impl Cop for WhenThen {
             if text == b"then" || text == b";" {
                 // If it's "then", it's OK. If Prism reports ";", flag it.
                 if text == b";" {
-                    return self.flag_semicolon(source, &when_node, then_loc.start_offset());
+                    diagnostics.extend(self.flag_semicolon(source, &when_node, then_loc.start_offset()));
                 }
-                return Vec::new();
+                return;
             }
         }
 
@@ -42,17 +43,17 @@ impl Cop for WhenThen {
         // between the last condition and the first statement.
         let conditions: Vec<_> = when_node.conditions().into_iter().collect();
         if conditions.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let stmts = match when_node.statements() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body_nodes: Vec<_> = stmts.body().into_iter().collect();
         if body_nodes.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let last_condition = &conditions[conditions.len() - 1];
@@ -65,10 +66,9 @@ impl Cop for WhenThen {
 
         if let Some(semi_offset) = between.iter().position(|&b| b == b';') {
             let abs_offset = last_cond_end + semi_offset;
-            return self.flag_semicolon(source, &when_node, abs_offset);
+            diagnostics.extend(self.flag_semicolon(source, &when_node, abs_offset));
         }
 
-        Vec::new()
     }
 }
 

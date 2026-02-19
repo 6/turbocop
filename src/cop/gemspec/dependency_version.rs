@@ -19,13 +19,12 @@ impl Cop for DependencyVersion {
         &["**/*.gemspec"]
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let style = config.get_str("EnforcedStyle", "required");
         let allowed_gems = config
             .get_string_array("AllowedGems")
             .unwrap_or_default();
 
-        let mut diagnostics = Vec::new();
 
         for (line_idx, line) in source.lines().enumerate() {
             let line_str = match std::str::from_utf8(line) {
@@ -76,7 +75,6 @@ impl Cop for DependencyVersion {
                 }
             }
         }
-        diagnostics
     }
 }
 

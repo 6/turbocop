@@ -31,10 +31,11 @@ impl Cop for EmptyExampleGroup {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -52,15 +53,15 @@ impl Cop for EmptyExampleGroup {
         };
 
         if !is_example_group {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => match b.as_block_node() {
                 Some(bn) => bn,
-                None => return Vec::new(),
+                None => return,
             },
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if the block body contains any examples
@@ -75,14 +76,13 @@ impl Cop for EmptyExampleGroup {
         if !has_examples {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Empty example group detected.".to_string(),
-            )]
-        } else {
-            Vec::new()
+            ));
+
         }
     }
 }

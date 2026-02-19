@@ -28,31 +28,32 @@ impl Cop for UnescapedBracketInRegexp {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check RegularExpressionNode
         if let Some(regexp) = node.as_regular_expression_node() {
             let content = regexp.unescaped();
             let content_str = match std::str::from_utf8(&content) {
                 Ok(s) => s,
-                Err(_) => return Vec::new(),
+                Err(_) => return,
             };
 
             // Check for interpolation — skip
             let raw_src = &source.as_bytes()
                 [regexp.location().start_offset()..regexp.location().end_offset()];
             if raw_src.windows(2).any(|w| w == b"#{") {
-                return Vec::new();
+                return;
             }
 
             // The offset of the regexp content within the source (after the opening /)
             let content_start = regexp.content_loc().start_offset();
 
-            return find_unescaped_brackets(self, source, content_str, content_start);
+            diagnostics.extend(find_unescaped_brackets(self, source, content_str, content_start));
+            return;
         }
 
         // Check InterpolatedRegularExpressionNode
         if let Some(interp_regexp) = node.as_interpolated_regular_expression_node() {
-            let mut diagnostics = Vec::new();
             for part in interp_regexp.parts().iter() {
                 if let Some(s) = part.as_string_node() {
                     let content = s.unescaped();
@@ -64,10 +65,9 @@ impl Cop for UnescapedBracketInRegexp {
                     diagnostics.extend(find_unescaped_brackets(self, source, content_str, content_start));
                 }
             }
-            return diagnostics;
+            return;
         }
 
-        Vec::new()
     }
 }
 

@@ -24,7 +24,8 @@ impl Cop for SelfAssignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let _allow_rbs = config.get_bool("AllowRBSInlineAnnotation", false);
 
         // Local variable: x = x
@@ -33,12 +34,12 @@ impl Cop for SelfAssignment {
                 if write.name().as_slice() == read.name().as_slice() {
                     let loc = write.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Self-assignment detected.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
@@ -49,12 +50,12 @@ impl Cop for SelfAssignment {
                 if write.name().as_slice() == read.name().as_slice() {
                     let loc = write.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Self-assignment detected.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
@@ -65,12 +66,12 @@ impl Cop for SelfAssignment {
                 if write.name().as_slice() == read.name().as_slice() {
                     let loc = write.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Self-assignment detected.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
@@ -81,12 +82,12 @@ impl Cop for SelfAssignment {
                 if write.name().as_slice() == read.name().as_slice() {
                     let loc = write.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Self-assignment detected.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
@@ -97,12 +98,12 @@ impl Cop for SelfAssignment {
                 if write.name().as_slice() == read.name().as_slice() {
                     let loc = write.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Self-assignment detected.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
@@ -117,17 +118,16 @@ impl Cop for SelfAssignment {
                 if target_src == val_src {
                     let loc = write.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Self-assignment detected.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

@@ -15,8 +15,7 @@ impl Cop for DuplicatedAssignment {
         &["**/*.gemspec"]
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         // Track: attribute_name -> first occurrence line
         let mut seen: HashMap<String, usize> = HashMap::new();
 
@@ -49,7 +48,6 @@ impl Cop for DuplicatedAssignment {
                 }
             }
         }
-        diagnostics
     }
 }
 

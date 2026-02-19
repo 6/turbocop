@@ -20,7 +20,8 @@ impl Cop for IfWithBooleanLiteralBranches {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allowed_methods = config.get_string_array("AllowedMethods");
 
         // Check `if` nodes (including ternary)
@@ -32,24 +33,24 @@ impl Cop for IfWithBooleanLiteralBranches {
                 let kw_text = if_node.if_keyword_loc().unwrap().as_slice();
                 // Must be `if`, not `elsif`
                 if kw_text != b"if" {
-                    return Vec::new();
+                    return;
                 }
             }
 
             // Need both branches (if body and else)
             let if_body = match if_node.statements() {
                 Some(s) => s,
-                None => return Vec::new(),
+                None => return,
             };
             let else_clause = match if_node.subsequent() {
                 Some(s) => s,
-                None => return Vec::new(),
+                None => return,
             };
 
             // Must be a simple else (not elsif)
             let else_node = match else_clause.as_else_node() {
                 Some(e) => e,
-                None => return Vec::new(), // it's an elsif
+                None => return, // it's an elsif
             };
 
             // Check if both branches are single boolean literals
@@ -62,7 +63,7 @@ impl Cop for IfWithBooleanLiteralBranches {
                     // Check if condition is known to return boolean.
                     // Applies to both ternary and if/unless forms (matching RuboCop).
                     if !condition_returns_boolean(&if_node.predicate(), &allowed_methods) {
-                        return Vec::new();
+                        return;
                     }
 
                     if is_ternary {
@@ -76,42 +77,43 @@ impl Cop for IfWithBooleanLiteralBranches {
                             q_offset += 1;
                         }
                         let (line, column) = source.offset_to_line_col(q_offset);
-                        return vec![self.diagnostic(
+                        diagnostics.push(self.diagnostic(
                             source,
                             line,
                             column,
                             "Remove redundant ternary operator with boolean literal branches.".to_string(),
-                        )];
+                        ));
+                        return;
                     }
 
                     let if_kw_loc = if_node.if_keyword_loc().unwrap();
                     let (line, column) = source.offset_to_line_col(if_kw_loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Remove redundant `if` with boolean literal branches.".to_string(),
-                    )];
+                    ));
                 }
             }
 
-            return Vec::new();
+            return;
         }
 
         // Check `unless` nodes
         if let Some(unless_node) = node.as_unless_node() {
             let kw_loc = unless_node.keyword_loc();
             if kw_loc.as_slice() != b"unless" {
-                return Vec::new();
+                return;
             }
 
             let unless_body = match unless_node.statements() {
                 Some(s) => s,
-                None => return Vec::new(),
+                None => return,
             };
             let else_clause = match unless_node.else_clause() {
                 Some(e) => e,
-                None => return Vec::new(),
+                None => return,
             };
 
             let unless_bool = single_boolean_value(&unless_body);
@@ -120,21 +122,20 @@ impl Cop for IfWithBooleanLiteralBranches {
             if let (Some(unless_val), Some(else_val)) = (unless_bool, else_bool) {
                 if (unless_val && !else_val) || (!unless_val && else_val) {
                     if !condition_returns_boolean(&unless_node.predicate(), &allowed_methods) {
-                        return Vec::new();
+                        return;
                     }
 
                     let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Remove redundant `unless` with boolean literal branches.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

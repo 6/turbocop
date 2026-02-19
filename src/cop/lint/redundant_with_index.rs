@@ -24,27 +24,28 @@ impl Cop for RedundantWithIndex {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
 
         // Check each_with_index { |x| } (only 1 block param, index unused)
         if method_name != b"each_with_index" {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params = block_node.parameters();
@@ -67,15 +68,14 @@ impl Cop for RedundantWithIndex {
         if param_count < 2 {
             let msg_loc = call.message_loc().unwrap_or(call.location());
             let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Redundant `with_index`.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

@@ -20,29 +20,30 @@ impl Cop for HeredocArgumentClosingParenthesis {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have parenthesized call
         let open_loc = match call.opening_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
         let close_loc = match call.closing_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         if open_loc.as_slice() != b"(" || close_loc.as_slice() != b")" {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if any argument is a heredoc
@@ -55,7 +56,7 @@ impl Cop for HeredocArgumentClosingParenthesis {
         }
 
         if !has_heredoc {
-            return Vec::new();
+            return;
         }
 
         // The closing paren should be right after the heredoc opener line
@@ -70,16 +71,15 @@ impl Cop for HeredocArgumentClosingParenthesis {
             // For heredoc, the opening tag is on the call line
             let (last_arg_line, _) = source.offset_to_line_col(last_arg.location().start_offset());
             if close_line != last_arg_line {
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     close_line,
                     close_col,
                     "Put the closing parenthesis for a method call with a HEREDOC parameter on the same line as the HEREDOC opening.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

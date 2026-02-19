@@ -28,47 +28,48 @@ impl Cop for AssertNot {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be a receiverless `assert` call
         if call.receiver().is_some() || call.name().as_slice() != b"assert" {
-            return Vec::new();
+            return;
         }
 
         // Must have arguments
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // First argument must be a `!` (negation) call
         let first_arg = &arg_list[0];
         let neg_call = match first_arg.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if neg_call.name().as_slice() != b"!" {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Prefer `assert_not` over `assert !`.".to_string(),
-        )]
+        ));
     }
 }
 

@@ -16,7 +16,8 @@ impl Cop for ClassEqualityComparison {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::cop::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allowed_methods: Vec<String> = config
             .get_string_array("AllowedMethods")
             .unwrap_or_else(|| vec!["==".to_string(), "equal?".to_string(), "eql?".to_string()]);
@@ -36,7 +37,7 @@ impl Cop for ClassEqualityComparison {
             enclosing_def_name: None,
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

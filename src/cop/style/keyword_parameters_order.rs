@@ -20,7 +20,8 @@ impl Cop for KeywordParametersOrder {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check both def and block parameters
         let parameters = if let Some(def_node) = node.as_def_node() {
             def_node.parameters()
@@ -40,10 +41,9 @@ impl Cop for KeywordParametersOrder {
 
         let parameters = match parameters {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
 
         // Check keyword parameters order: required keywords should come before optional keywords
         let keywords: Vec<_> = parameters.keywords().iter().collect();
@@ -63,7 +63,7 @@ impl Cop for KeywordParametersOrder {
         }
 
         if !have_optional_before_required {
-            return Vec::new();
+            return;
         }
 
         // Second pass: report each optional keyword that appears before a required keyword
@@ -85,7 +85,6 @@ impl Cop for KeywordParametersOrder {
             }
         }
 
-        diagnostics
     }
 }
 

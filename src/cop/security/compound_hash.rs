@@ -24,30 +24,31 @@ impl Cop for CompoundHash {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"hash" {
-            return Vec::new();
+            return;
         }
 
         // Must have no arguments
         if call.arguments().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be an array literal
         let recv = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let array_node = match recv.as_array_node() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let elements: Vec<ruby_prism::Node<'_>> = array_node.elements().iter().collect();
@@ -63,13 +64,13 @@ impl Cop for CompoundHash {
         if elements.len() == 1 {
             let msg_loc = call.message_loc().unwrap();
             let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Delegate hash directly without wrapping in an array when only using a single value."
                     .to_string(),
-            )];
+            ));
         }
 
         // Check for redundant: all elements call .hash
@@ -86,17 +87,16 @@ impl Cop for CompoundHash {
             if all_call_hash {
                 let msg_loc = call.message_loc().unwrap();
                 let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Calling `.hash` on elements of a hashed array is redundant."
                         .to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

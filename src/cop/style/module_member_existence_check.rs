@@ -29,35 +29,36 @@ impl Cop for ModuleMemberExistenceCheck {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allowed_methods = config.get_string_array("AllowedMethods");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be `include?` or `member?`
         let outer_method = call.name();
         let outer_bytes = outer_method.as_slice();
         if outer_bytes != b"include?" && outer_bytes != b"member?" {
-            return Vec::new();
+            return;
         }
 
         // Must have an argument
         if call.arguments().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be a call to one of the array-returning methods
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_call = match receiver.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_method = recv_call.name();
@@ -65,25 +66,25 @@ impl Cop for ModuleMemberExistenceCheck {
 
         let predicate = match METHOD_MAPPINGS.iter().find(|(m, _)| *m == recv_bytes) {
             Some((_, p)) => *p,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check AllowedMethods
         if let Some(ref allowed) = allowed_methods {
             let recv_str = std::str::from_utf8(recv_bytes).unwrap_or("");
             if allowed.iter().any(|m| m == recv_str) {
-                return Vec::new();
+                return;
             }
         }
 
         let msg_loc = recv_call.message_loc().unwrap_or_else(|| recv_call.location());
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `{predicate}` instead."),
-        )]
+        ));
     }
 }
 

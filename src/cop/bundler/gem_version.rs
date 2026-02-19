@@ -15,13 +15,12 @@ impl Cop for GemVersion {
         &["**/*.gemfile", "**/Gemfile", "**/gems.rb"]
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let enforced_style = config.get_str("EnforcedStyle", "required");
         let allowed_gems = config
             .get_string_array("AllowedGems")
             .unwrap_or_default();
 
-        let mut diagnostics = Vec::new();
 
         for (i, line) in source.lines().enumerate() {
             let line_str = std::str::from_utf8(line).unwrap_or("");
@@ -60,7 +59,6 @@ impl Cop for GemVersion {
                 }
             }
         }
-        diagnostics
     }
 }
 

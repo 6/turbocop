@@ -40,7 +40,8 @@ impl Cop for StrongParametersExpect {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // minimum_target_rails_version 8.0
         // params.expect(...) was introduced in Rails 8.0; skip for older versions.
         let rails_version = config
@@ -49,38 +50,38 @@ impl Cop for StrongParametersExpect {
             .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
             .unwrap_or(5.0);
         if rails_version < 8.0 {
-            return Vec::new();
+            return;
         }
 
         // Pattern 1: params.require(:x).permit(:a, :b)
         // Pattern 2: params.permit(x: [:a, :b]).require(:x)
         let chain = match as_method_chain(node) {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let is_require_permit = chain.inner_method == b"require" && chain.outer_method == b"permit";
         let is_permit_require = chain.inner_method == b"permit" && chain.outer_method == b"require";
 
         if !is_require_permit && !is_permit_require {
-            return Vec::new();
+            return;
         }
 
         // Check if the innermost receiver is `params`
         let inner_receiver = match chain.inner_call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         if !is_params_receiver(&inner_receiver) {
-            return Vec::new();
+            return;
         }
 
         // For require.permit, permit must have arguments
         if is_require_permit {
             let outer_call = node.as_call_node().unwrap();
             if outer_call.arguments().is_none() {
-                return Vec::new();
+                return;
             }
         }
 
@@ -88,12 +89,12 @@ impl Cop for StrongParametersExpect {
 
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
 
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `expect(...)` instead.".to_string(),
-        )]
+        ));
     }
 }
 

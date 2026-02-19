@@ -20,29 +20,29 @@ impl Cop for ArrayCoercion {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Pattern 1: [*var] - splat into array with single element
         if let Some(array_node) = node.as_array_node() {
             // Skip implicit arrays (e.g., RHS of multi-write `a, b = *x`)
             if array_node.opening_loc().is_none() {
-                return Vec::new();
+                return;
             }
             let elements: Vec<_> = array_node.elements().iter().collect();
             if elements.len() == 1 {
                 if elements[0].as_splat_node().is_some() {
                     let loc = node.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use `Array(variable)` instead of `[*variable]`.".to_string(),
-                    )];
+                    ));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

@@ -13,15 +13,15 @@ impl Cop for ScriptPermission {
         Severity::Warning
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         // Only check files that start with a shebang
         let first_line = match source.lines().next() {
             Some(l) => l,
-            None => return Vec::new(),
+            None => return,
         };
 
         if !first_line.starts_with(b"#!") {
-            return Vec::new();
+            return;
         }
 
         // Check actual file permissions (Unix-only)
@@ -29,7 +29,7 @@ impl Cop for ScriptPermission {
 
         // Skip stdin or synthetic paths (used in tests)
         if path == "test.rb" || path == "(stdin)" || path.is_empty() {
-            return Vec::new();
+            return;
         }
 
         #[cfg(unix)]
@@ -40,17 +40,17 @@ impl Cop for ScriptPermission {
                     let mode = metadata.permissions().mode();
                     // Check if any execute bit is set
                     if mode & 0o111 != 0 {
-                        return Vec::new(); // Already executable
+                        return; // Already executable
                     }
                 }
-                Err(_) => return Vec::new(), // Can't check, skip
+                Err(_) => return, // Can't check, skip
             }
         }
 
         #[cfg(not(unix))]
         {
             // On non-Unix platforms, skip this check
-            return Vec::new();
+            return;
         }
 
         #[allow(unreachable_code)]
@@ -59,12 +59,12 @@ impl Cop for ScriptPermission {
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or(path);
-            vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 1,
                 0,
                 format!("Script file {basename} doesn't have execute permission."),
-            )]
+            ));
         }
     }
 }
@@ -97,7 +97,8 @@ mod tests {
         );
         let source = SourceFile::from_bytes(&path, std::fs::read(&path).unwrap());
         let config = CopConfig::default();
-        let diags = ScriptPermission.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        ScriptPermission.check_lines(&source, &config, &mut diags);
         #[cfg(unix)]
         assert_eq!(diags.len(), 1, "Should flag non-executable script");
         #[cfg(not(unix))]
@@ -113,7 +114,8 @@ mod tests {
         );
         let source = SourceFile::from_bytes(&path, std::fs::read(&path).unwrap());
         let config = CopConfig::default();
-        let diags = ScriptPermission.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        ScriptPermission.check_lines(&source, &config, &mut diags);
         #[cfg(unix)]
         assert_eq!(diags.len(), 1, "Should flag non-executable script");
         #[cfg(not(unix))]
@@ -129,7 +131,8 @@ mod tests {
         );
         let source = SourceFile::from_bytes(&path, std::fs::read(&path).unwrap());
         let config = CopConfig::default();
-        let diags = ScriptPermission.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        ScriptPermission.check_lines(&source, &config, &mut diags);
         #[cfg(unix)]
         assert_eq!(diags.len(), 1, "Should flag non-executable script");
         #[cfg(not(unix))]
@@ -145,7 +148,8 @@ mod tests {
         );
         let source = SourceFile::from_bytes(&path, std::fs::read(&path).unwrap());
         let config = CopConfig::default();
-        let diags = ScriptPermission.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        ScriptPermission.check_lines(&source, &config, &mut diags);
         assert!(diags.is_empty(), "Should not flag executable script");
     }
 
@@ -156,7 +160,8 @@ mod tests {
             b"puts 'hello'\nx = 1\ny = 2\nz = 3\na = 4\nb = 5\n".to_vec(),
         );
         let config = CopConfig::default();
-        let diags = ScriptPermission.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        ScriptPermission.check_lines(&source, &config, &mut diags);
         assert!(diags.is_empty());
     }
 }

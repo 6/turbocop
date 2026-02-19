@@ -59,10 +59,11 @@ impl Cop for EnvLocal {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let or_node = match node.as_or_node() {
             Some(o) => o,
-            None => return Vec::new(),
+            None => return,
         };
 
         let left: ruby_prism::Node<'_> = or_node.left();
@@ -75,17 +76,17 @@ impl Cop for EnvLocal {
                 && is_rails_env_check(&right, b"development?"));
 
         if !matches {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `Rails.env.local?` instead of checking for development or test.".to_string(),
-        )]
+        ));
     }
 }
 

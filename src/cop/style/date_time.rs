@@ -20,12 +20,13 @@ impl Cop for DateTime {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_coercion = config.get_bool("AllowCoercion", false);
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
@@ -33,44 +34,43 @@ impl Cop for DateTime {
         // Check for .to_datetime calls
         if method_name == "to_datetime" {
             if allow_coercion {
-                return Vec::new();
+                return;
             }
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Do not use `#to_datetime`.".to_string(),
-            )];
+            ));
         }
 
         // Check for DateTime.something calls
         if let Some(receiver) = call.receiver() {
             let is_datetime = is_datetime_const(&receiver);
             if !is_datetime {
-                return Vec::new();
+                return;
             }
 
             // DateTime.iso8601('date', Date::ENGLAND) has 2 args - historic date, skip
             if let Some(args) = call.arguments() {
                 let arg_list: Vec<_> = args.arguments().iter().collect();
                 if arg_list.len() >= 2 {
-                    return Vec::new();
+                    return;
                 }
             }
 
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Prefer `Time` over `DateTime`.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

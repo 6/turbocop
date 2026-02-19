@@ -20,10 +20,11 @@ impl Cop for MultilineWhenThen {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let when_node = match node.as_when_node() {
             Some(w) => w,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check for `then` keyword
@@ -32,12 +33,12 @@ impl Cop for MultilineWhenThen {
             None => {
                 // Also check if `then` appears on a separate line in the body
                 // (Prism may parse `when bar\n  then do_something` differently)
-                return Vec::new();
+                return;
             }
         };
 
         if then_loc.as_slice() != b"then" {
-            return Vec::new();
+            return;
         }
 
         let then_line = source.offset_to_line_col(then_loc.start_offset()).0;
@@ -52,18 +53,18 @@ impl Cop for MultilineWhenThen {
                     // Check if all body nodes are on the same line as `then`
                     // If a later body node wraps to the next line, it could be:
                     // `when foo then do_something(arg1,\n arg2)` which is allowed
-                    return Vec::new();
+                    return;
                 }
             }
         }
 
         let (line, column) = source.offset_to_line_col(then_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Do not use `then` for multiline `when` statement.".to_string(),
-        )]
+        ));
     }
 }
 

@@ -60,7 +60,8 @@ impl Cop for EmptyLineBetweenDefs {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let empty_between_methods = config.get_bool("EmptyLineBetweenMethodDefs", true);
         let empty_between_classes = config.get_bool("EmptyLineBetweenClassDefs", true);
         let empty_between_modules = config.get_bool("EmptyLineBetweenModuleDefs", true);
@@ -72,7 +73,7 @@ impl Cop for EmptyLineBetweenDefs {
         let is_def_like_macro;
         let (def_line, def_col, is_single_line) = if let Some(def_node) = node.as_def_node() {
             if !empty_between_methods {
-                return Vec::new();
+                return;
             }
             is_def_like_macro = false;
             let loc = def_node.def_keyword_loc();
@@ -85,7 +86,7 @@ impl Cop for EmptyLineBetweenDefs {
             (line, col, end_line == line)
         } else if let Some(class_node) = node.as_class_node() {
             if !empty_between_classes {
-                return Vec::new();
+                return;
             }
             is_def_like_macro = false;
             let loc = class_node.class_keyword_loc();
@@ -94,7 +95,7 @@ impl Cop for EmptyLineBetweenDefs {
             (line, col, end_line == line)
         } else if let Some(module_node) = node.as_module_node() {
             if !empty_between_modules {
-                return Vec::new();
+                return;
             }
             is_def_like_macro = false;
             let loc = module_node.module_keyword_loc();
@@ -104,11 +105,11 @@ impl Cop for EmptyLineBetweenDefs {
         } else if let Some(call_node) = node.as_call_node() {
             // DefLikeMacros: treat matching call nodes as definition-like
             if def_like_macros.is_empty() || call_node.receiver().is_some() {
-                return Vec::new();
+                return;
             }
             let name = std::str::from_utf8(call_node.name().as_slice()).unwrap_or("");
             if !def_like_macros.iter().any(|m| m == name) {
-                return Vec::new();
+                return;
             }
             is_def_like_macro = true;
             let loc = call_node.location();
@@ -116,18 +117,18 @@ impl Cop for EmptyLineBetweenDefs {
             // Macro calls are always single-line definitions
             (line, col, true)
         } else {
-            return Vec::new();
+            return;
         };
 
         // AllowAdjacentOneLineDefs: skip single-line defs (but not def-like macros,
         // which are always single-line and should still require blank lines)
         if allow_adjacent && is_single_line && !is_def_like_macro {
-            return Vec::new();
+            return;
         }
 
         // Skip if def is on the first line
         if def_line <= 1 {
-            return Vec::new();
+            return;
         }
 
         // Scan backwards from the def line, counting blank lines.
@@ -136,11 +137,11 @@ impl Cop for EmptyLineBetweenDefs {
         let mut blank_count = 0;
         loop {
             if check_line < 1 {
-                return Vec::new();
+                return;
             }
             let line = match line_at(source, check_line) {
                 Some(l) => l,
-                None => return Vec::new(),
+                None => return,
             };
             if is_blank(line) {
                 blank_count += 1;
@@ -153,7 +154,7 @@ impl Cop for EmptyLineBetweenDefs {
             }
             // Check if this is an opening line (class, module, def, etc.)
             if is_opening_line(line) {
-                return Vec::new();
+                return;
             }
             // Check if this line is `end` (with optional leading whitespace)
             let trimmed: Vec<u8> = line
@@ -164,7 +165,7 @@ impl Cop for EmptyLineBetweenDefs {
             if trimmed == b"end" || trimmed.starts_with(b"end ") || trimmed.starts_with(b"end\t") {
                 // Previous definition ended here — check blank line count
                 if blank_count >= number_of_empty_lines {
-                    return Vec::new();
+                    return;
                 }
                 break;
             }
@@ -178,13 +179,13 @@ impl Cop for EmptyLineBetweenDefs {
                 });
                 if is_macro_line {
                     if blank_count >= number_of_empty_lines {
-                        return Vec::new();
+                        return;
                     }
                     break;
                 }
             }
             // Something else (e.g., LONG_DESC, attr_accessor, etc.) — don't flag
-            return Vec::new();
+            return;
         }
 
         let msg = if number_of_empty_lines == 1 {
@@ -193,7 +194,7 @@ impl Cop for EmptyLineBetweenDefs {
             format!("Use {number_of_empty_lines} empty lines between method definitions.")
         };
 
-        vec![self.diagnostic(source, def_line, def_col, msg)]
+        diagnostics.push(self.diagnostic(source, def_line, def_col, msg));
     }
 }
 

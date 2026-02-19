@@ -112,24 +112,25 @@ impl Cop for RedundantFreeze {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call_node = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be a call to `.freeze` with no arguments
         if call_node.name().as_slice() != b"freeze" {
-            return Vec::new();
+            return;
         }
         if call_node.arguments().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Must have a receiver
         let receiver = match call_node.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if the receiver is an immutable literal
@@ -137,17 +138,17 @@ impl Cop for RedundantFreeze {
             || Self::is_operation_producing_immutable(&receiver);
 
         if !is_immutable {
-            return Vec::new();
+            return;
         }
 
         let loc = receiver.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Do not freeze immutable objects, as freezing them has no effect.".to_string(),
-        )]
+        ));
     }
 }
 

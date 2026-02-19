@@ -21,23 +21,24 @@ impl Cop for BisectedAttrAccessor {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let body = if let Some(class_node) = node.as_class_node() {
             class_node.body()
         } else if let Some(module_node) = node.as_module_node() {
             module_node.body()
         } else {
-            return Vec::new();
+            return;
         };
 
         let body = match body {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let mut readers: HashSet<String> = HashSet::new();
@@ -84,7 +85,6 @@ impl Cop for BisectedAttrAccessor {
             }
         }
 
-        let mut diagnostics = Vec::new();
         let common: HashSet<_> = readers.intersection(&writers).collect();
 
         for attr_name in &common {
@@ -110,7 +110,6 @@ impl Cop for BisectedAttrAccessor {
             }
         }
 
-        diagnostics
     }
 }
 

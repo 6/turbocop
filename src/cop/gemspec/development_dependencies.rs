@@ -13,7 +13,7 @@ impl Cop for DevelopmentDependencies {
         &["**/*.gemspec"]
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let style = config.get_str("EnforcedStyle", "Gemfile");
         let allowed_gems = config
             .get_string_array("AllowedGems")
@@ -21,11 +21,10 @@ impl Cop for DevelopmentDependencies {
 
         // When style is "gemspec", development dependencies belong in gemspec, so no offense
         if style == "gemspec" {
-            return Vec::new();
+            return;
         }
 
         // For "Gemfile" or "gems.rb" styles, flag add_development_dependency calls
-        let mut diagnostics = Vec::new();
         for (line_idx, line) in source.lines().enumerate() {
             let line_str = match std::str::from_utf8(line) {
                 Ok(s) => s,
@@ -52,7 +51,6 @@ impl Cop for DevelopmentDependencies {
                 ));
             }
         }
-        diagnostics
     }
 }
 

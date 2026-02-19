@@ -21,25 +21,26 @@ impl Cop for EmptyLinesAroundMethodBody {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Skip endless methods (no end keyword)
         let end_loc = match def_node.end_keyword_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
-        util::check_empty_lines_around_body(
+        diagnostics.extend(util::check_empty_lines_around_body(
             self.name(),
             source,
             def_node.def_keyword_loc().start_offset(),
             end_loc.start_offset(),
             "method",
-        )
+        ));
     }
 }
 

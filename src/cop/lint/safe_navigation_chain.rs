@@ -122,27 +122,28 @@ impl Cop for SafeNavigationChain {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // This call must NOT use safe navigation itself
         if let Some(op) = call.call_operator_loc() {
             if op.as_slice() == b"&." {
-                return Vec::new(); // This call itself is safe navigation
+                return; // This call itself is safe navigation
             }
         }
 
         // Check if the receiver used safe navigation
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         if !receiver_uses_safe_nav(&receiver) {
-            return Vec::new();
+            return;
         }
 
         let method_name = call.name().as_slice();
@@ -150,18 +151,18 @@ impl Cop for SafeNavigationChain {
         // Check allowed methods: nil methods are ALWAYS allowed, plus any configured AllowedMethods
         let is_nil_method = NIL_METHODS.iter().any(|&m| m == method_name);
         if is_nil_method {
-            return Vec::new();
+            return;
         }
 
         if let Some(ref allowed) = config.get_string_array("AllowedMethods") {
             if allowed.iter().any(|m| m.as_bytes() == method_name) {
-                return Vec::new();
+                return;
             }
         }
 
         // Skip unary +@ and -@ operators
         if method_name == b"+@" || method_name == b"-@" {
-            return Vec::new();
+            return;
         }
 
         // Skip assignment methods (foo= etc.) but not comparison operators
@@ -172,7 +173,7 @@ impl Cop for SafeNavigationChain {
             && method_name != b"<="
             && method_name != b">="
         {
-            return Vec::new();
+            return;
         }
 
         // Skip ==, ===, !=, |, & (these are valid after safe navigation)
@@ -182,7 +183,7 @@ impl Cop for SafeNavigationChain {
             || method_name == b"|"
             || method_name == b"&"
         {
-            return Vec::new();
+            return;
         }
 
         // Report at the dot or after the receiver
@@ -194,12 +195,12 @@ impl Cop for SafeNavigationChain {
             source.offset_to_line_col(recv_end)
         };
 
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Do not chain ordinary method call after safe navigation operator.".to_string(),
-        )]
+        ));
     }
 }
 

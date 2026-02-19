@@ -41,23 +41,24 @@ impl Cop for SpaceBeforeFirstArg {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_for_alignment = config.get_bool("AllowForAlignment", true);
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Only check calls without parentheses
         if call.opening_loc().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Must have arguments
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Skip operator methods (e.g. `2**128`, `x + 1`) and setter methods (e.g. `self.foo=`)
@@ -65,19 +66,19 @@ impl Cop for SpaceBeforeFirstArg {
         let method_name = call.name();
         let name_bytes = method_name.as_slice();
         if is_operator_method(name_bytes) || is_setter_method(name_bytes) {
-            return Vec::new();
+            return;
         }
 
         // Get the method name location
         let msg_loc = call.message_loc();
         let msg_loc = match msg_loc {
             Some(l) => l,
-            None => return Vec::new(),
+            None => return,
         };
 
         let first_arg = match args.arguments().iter().next() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_end = msg_loc.end_offset();
@@ -87,7 +88,7 @@ impl Cop for SpaceBeforeFirstArg {
         let (method_line, _) = source.offset_to_line_col(method_end);
         let (arg_line, _) = source.offset_to_line_col(arg_start);
         if method_line != arg_line {
-            return Vec::new();
+            return;
         }
 
         let gap = arg_start.saturating_sub(method_end);
@@ -95,19 +96,19 @@ impl Cop for SpaceBeforeFirstArg {
         if gap == 0 {
             // No space at all between method name and first arg — always flag
             let (line, column) = source.offset_to_line_col(method_end);
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Put one space between the method name and the first argument.".to_string(),
-            )];
+            ));
         }
 
         if gap > 1 {
             // When AllowForAlignment is true (default), extra spaces are allowed
             // because they may be used for vertical alignment with adjacent lines.
             if allow_for_alignment {
-                return Vec::new();
+                return;
             }
 
             // More than one space between method name and first arg
@@ -115,16 +116,15 @@ impl Cop for SpaceBeforeFirstArg {
             let between = &bytes[method_end..arg_start];
             if between.iter().all(|&b| b == b' ') {
                 let (line, column) = source.offset_to_line_col(method_end);
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Put one space between the method name and the first argument.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

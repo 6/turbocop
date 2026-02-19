@@ -26,10 +26,11 @@ impl Cop for UselessDefined {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let defined_node = match node.as_defined_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         let value = defined_node.value();
@@ -39,12 +40,12 @@ impl Cop for UselessDefined {
         } else if value.as_symbol_node().is_some() || value.as_interpolated_symbol_node().is_some() {
             "symbol"
         } else {
-            return Vec::new();
+            return;
         };
 
         let loc = defined_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
@@ -52,7 +53,7 @@ impl Cop for UselessDefined {
                 "Calling `defined?` with a {} argument will always return a truthy value.",
                 type_name
             ),
-        )]
+        ));
     }
 }
 

@@ -29,14 +29,15 @@ impl Cop for IdSequence {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"sequence" {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be nil or FactoryBot
@@ -44,19 +45,19 @@ impl Cop for IdSequence {
             None => {}
             Some(recv) => {
                 if !is_factory_bot_receiver(&recv) {
-                    return Vec::new();
+                    return;
                 }
             }
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // First argument must be :id symbol
@@ -66,17 +67,17 @@ impl Cop for IdSequence {
             .map_or(false, |s| s.unescaped() == b"id");
 
         if !is_id {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Do not create a sequence for an id attribute".to_string(),
-        )]
+        ));
     }
 }
 

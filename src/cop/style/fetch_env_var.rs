@@ -112,7 +112,8 @@ impl Cop for FetchEnvVar {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allowed_vars = config.get_string_array("AllowedVars");
         let default_to_nil = config.get_bool("DefaultToNil", true);
 
@@ -126,7 +127,7 @@ impl Cop for FetchEnvVar {
             condition_key_ranges: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

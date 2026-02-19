@@ -33,14 +33,15 @@ impl Cop for SharedContext {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let name = call.name().as_slice();
@@ -48,29 +49,29 @@ impl Cop for SharedContext {
         let is_shared_examples = name == b"shared_examples" || name == b"shared_examples_for";
 
         if !is_shared_context && !is_shared_examples {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(), // Empty body is OK
+            None => return, // Empty body is OK
         };
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let nodes: Vec<_> = stmts.body().iter().collect();
         if nodes.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let mut has_examples = false;
@@ -91,24 +92,23 @@ impl Cop for SharedContext {
         let (line, col) = source.offset_to_line_col(loc.start_offset());
 
         if is_shared_context && has_examples && !has_context_setup {
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 col,
                 "Use `shared_examples` when you don't define context.".to_string(),
-            )];
+            ));
         }
 
         if is_shared_examples && has_context_setup && !has_examples {
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 col,
                 "Use `shared_context` when you don't define examples.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

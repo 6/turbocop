@@ -70,12 +70,13 @@ impl Cop for SpecialGlobalVars {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let require_english = config.get_bool("RequireEnglish", true);
         let enforced_style = config.get_str("EnforcedStyle", "use_english_names");
         let gvar = match node.as_global_variable_read_node() {
             Some(g) => g,
-            None => return Vec::new(),
+            None => return,
         };
 
         let loc = gvar.location();
@@ -87,12 +88,12 @@ impl Cop for SpecialGlobalVars {
                 if let Some(perl) = english_to_perl(var_name) {
                     let english_name = std::str::from_utf8(var_name).unwrap_or("$?");
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         format!("Prefer `{}` over `{}`.", perl, english_name),
-                    )];
+                    ));
                 }
             }
             _ => {
@@ -108,12 +109,11 @@ impl Cop for SpecialGlobalVars {
                     } else {
                         format!("Prefer `{}` over `{}`.", english, perl_name)
                     };
-                    return vec![self.diagnostic(source, line, column, msg)];
+                    diagnostics.push(self.diagnostic(source, line, column, msg));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

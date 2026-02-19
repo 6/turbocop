@@ -16,7 +16,8 @@ impl Cop for FileNull {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::cop::CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // First pass: check if the file contains any "/dev/null" string
         // (needed for bare "NUL" detection)
         let root = parse_result.node();
@@ -33,7 +34,7 @@ impl Cop for FileNull {
             in_array_or_pair: false,
         };
         visitor.visit(&root);
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

@@ -20,31 +20,32 @@ impl Cop for EmptyBlockParameter {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check BlockNode for empty parameters (||)
         let block_node = match node.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let params = match block_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let bp = match params.as_block_parameters_node() {
             Some(bp) => bp,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have pipe delimiters (opening_loc and closing_loc)
         let opening_loc = match bp.opening_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         if opening_loc.as_slice() != b"|" {
-            return Vec::new();
+            return;
         }
 
         // Parameters must be empty (no actual params)
@@ -57,22 +58,22 @@ impl Cop for EmptyBlockParameter {
                 || inner_params.keyword_rest().is_some()
                 || inner_params.block().is_some();
             if has_params {
-                return Vec::new();
+                return;
             }
         }
 
         // Locals must be empty too (no block-local vars like `do |; x|`)
         if !bp.locals().is_empty() {
-            return Vec::new();
+            return;
         }
 
         let (line, column) = source.offset_to_line_col(opening_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Omit pipes for the empty block parameters.".to_string(),
-        )]
+        ));
     }
 }
 

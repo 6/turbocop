@@ -20,25 +20,26 @@ impl Cop for RedundantHeredocDelimiterQuotes {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check both StringNode (non-interpolated heredoc) and InterpolatedStringNode (heredoc with interp)
         let opening_loc = if let Some(s) = node.as_string_node() {
             s.opening_loc()
         } else if let Some(s) = node.as_interpolated_string_node() {
             s.opening_loc()
         } else {
-            return Vec::new();
+            return;
         };
 
         let opening = match opening_loc {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let open_bytes = opening.as_slice();
         // Must be a heredoc: starts with <<
         if !open_bytes.starts_with(b"<<") {
-            return Vec::new();
+            return;
         }
 
         // Check for quoted delimiter: <<~'EOS', <<-"EOS", <<"EOS", <<'EOS'
@@ -52,12 +53,12 @@ impl Cop for RedundantHeredocDelimiterQuotes {
         };
 
         if rest.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let quote_char = rest[0];
         if quote_char != b'\'' && quote_char != b'"' {
-            return Vec::new();
+            return;
         }
 
         // Extract the delimiter name (between quotes)
@@ -68,7 +69,7 @@ impl Cop for RedundantHeredocDelimiterQuotes {
         // need quotes to be parsed correctly by Ruby.
         for &b in delim {
             if b == b' ' || b == b'\'' || b == b'"' || b == b'\\' || !b.is_ascii_graphic() {
-                return Vec::new();
+                return;
             }
         }
 
@@ -91,12 +92,12 @@ impl Cop for RedundantHeredocDelimiterQuotes {
             };
             // Check for interpolation patterns: #{, #@, #@@, #$
             if body_bytes.windows(2).any(|w| w == b"#{" || w == b"#@" || w == b"#$") {
-                return Vec::new();
+                return;
             }
             // Check for backslash escapes — in single-quoted heredocs, backslashes
             // are literal. Removing quotes would make them escape sequences.
             if body_bytes.contains(&b'\\') {
-                return Vec::new();
+                return;
             }
         }
 
@@ -106,7 +107,7 @@ impl Cop for RedundantHeredocDelimiterQuotes {
         let delim_str = String::from_utf8_lossy(delim);
 
         let (line, column) = source.offset_to_line_col(opening.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
@@ -114,7 +115,7 @@ impl Cop for RedundantHeredocDelimiterQuotes {
                 "Remove the redundant heredoc delimiter quotes, use `{}{}` instead.",
                 prefix_str, delim_str
             ),
-        )]
+        ));
     }
 }
 

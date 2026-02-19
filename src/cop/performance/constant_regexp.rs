@@ -23,7 +23,8 @@ impl Cop for ConstantRegexp {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let mut visitor = ConstantRegexpVisitor {
             cop: self,
             source,
@@ -32,7 +33,7 @@ impl Cop for ConstantRegexp {
             in_or_assignment: false,
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

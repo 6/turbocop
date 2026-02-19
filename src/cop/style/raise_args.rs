@@ -28,37 +28,38 @@ impl Cop for RaiseArgs {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = call.name().as_slice();
         if name != b"raise" && name != b"fail" {
-            return Vec::new();
+            return;
         }
 
         // Only bare raise/fail (no receiver)
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let enforced_style = config.get_str("EnforcedStyle", "explode");
         let allowed_compact_types = config.get_string_array("AllowedCompactTypes").unwrap_or_default();
 
         if enforced_style != "explode" {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Check if the first argument is a call to `.new`
@@ -68,16 +69,15 @@ impl Cop for RaiseArgs {
                     // Check AllowedCompactTypes: extract the constant name
                     let const_name = extract_const_name(&receiver);
                     if !const_name.is_empty() && allowed_compact_types.iter().any(|t| t == &const_name) {
-                        return Vec::new();
+                        return;
                     }
                     let loc = call.message_loc().unwrap_or_else(|| call.location());
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(source, line, column, "Provide an exception class and message as separate arguments.".to_string())];
+                    diagnostics.push(self.diagnostic(source, line, column, "Provide an exception class and message as separate arguments.".to_string()));
                 }
             }
         }
 
-        Vec::new()
     }
 }
 

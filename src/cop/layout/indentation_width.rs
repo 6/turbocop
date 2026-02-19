@@ -147,7 +147,8 @@ impl Cop for IndentationWidth {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let width = config.get_usize("Width", 2);
         let align_style = config.get_str("EnforcedStyleAlignWith", "start_of_line");
         let allowed_patterns = config.get_string_array("AllowedPatterns").unwrap_or_default();
@@ -160,7 +161,7 @@ impl Cop for IndentationWidth {
                     for pattern in &allowed_patterns {
                         if let Ok(re) = regex::Regex::new(pattern) {
                             if re.is_match(line_str) {
-                                return Vec::new();
+                                return;
                             }
                         }
                     }
@@ -171,25 +172,27 @@ impl Cop for IndentationWidth {
         if let Some(class_node) = node.as_class_node() {
             let kw_offset = class_node.class_keyword_loc().start_offset();
             let (_, kw_col) = source.offset_to_line_col(kw_offset);
-            return self.check_body_indentation(
+            diagnostics.extend(self.check_body_indentation(
                 source,
                 kw_offset,
                 kw_col,
                 class_node.body(),
                 width,
-            );
+            ));
+            return;
         }
 
         if let Some(module_node) = node.as_module_node() {
             let kw_offset = module_node.module_keyword_loc().start_offset();
             let (_, kw_col) = source.offset_to_line_col(kw_offset);
-            return self.check_body_indentation(
+            diagnostics.extend(self.check_body_indentation(
                 source,
                 kw_offset,
                 kw_col,
                 module_node.body(),
                 width,
-            );
+            ));
+            return;
         }
 
         if let Some(def_node) = node.as_def_node() {
@@ -206,13 +209,14 @@ impl Cop for IndentationWidth {
                     source.offset_to_line_col(kw_offset).1
                 }
             };
-            return self.check_body_indentation(
+            diagnostics.extend(self.check_body_indentation(
                 source,
                 kw_offset,
                 base_col,
                 def_node.body(),
                 width,
-            );
+            ));
+            return;
         }
 
         if let Some(if_node) = node.as_if_node() {
@@ -223,13 +227,14 @@ impl Cop for IndentationWidth {
                     source, kw_col,
                     if_node.end_keyword_loc().map(|l| l.start_offset()),
                 );
-                return self.check_statements_indentation(
+                diagnostics.extend(self.check_statements_indentation(
                     source,
                     kw_offset,
                     base_col,
                     if_node.statements(),
                     width,
-                );
+                ));
+                return;
             }
         }
 
@@ -251,7 +256,7 @@ impl Cop for IndentationWidth {
                         line_start -= 1;
                     }
                     if !bytes[line_start..closing_offset].iter().all(|&b| b == b' ' || b == b'\t') {
-                        return Vec::new();
+                        return;
                     }
 
                     // Skip if block parameters are on the same line as the
@@ -263,7 +268,7 @@ impl Cop for IndentationWidth {
                                     let (params_line, _) = source.offset_to_line_col(params.location().end_offset());
                                     let (first_line, _) = source.offset_to_line_col(first.location().start_offset());
                                     if first_line == params_line {
-                                        return Vec::new();
+                                        return;
                                     }
                                 }
                             }
@@ -289,13 +294,14 @@ impl Cop for IndentationWidth {
                     } else {
                         closing_col
                     };
-                    return self.check_body_indentation(
+                    diagnostics.extend(self.check_body_indentation(
                         source,
                         opening_offset,
                         base_col,
                         block.body(),
                         width,
-                    );
+                    ));
+                    return;
                 }
             }
         }
@@ -314,19 +320,20 @@ impl Cop for IndentationWidth {
                     if let Some(first) = stmts.body().iter().next() {
                         let (first_line, _) = source.offset_to_line_col(first.location().start_offset());
                         if first_line == then_line {
-                            return Vec::new();
+                            return;
                         }
                     }
                 }
             }
 
-            return self.check_statements_indentation(
+            diagnostics.extend(self.check_statements_indentation(
                 source,
                 kw_offset,
                 kw_col,
                 when_node.statements(),
                 width,
-            );
+            ));
+            return;
         }
 
         if let Some(while_node) = node.as_while_node() {
@@ -336,13 +343,14 @@ impl Cop for IndentationWidth {
                 source, kw_col,
                 while_node.closing_loc().map(|l| l.start_offset()),
             );
-            return self.check_statements_indentation(
+            diagnostics.extend(self.check_statements_indentation(
                 source,
                 kw_offset,
                 base_col,
                 while_node.statements(),
                 width,
-            );
+            ));
+            return;
         }
 
         if let Some(until_node) = node.as_until_node() {
@@ -352,16 +360,16 @@ impl Cop for IndentationWidth {
                 source, kw_col,
                 until_node.closing_loc().map(|l| l.start_offset()),
             );
-            return self.check_statements_indentation(
+            diagnostics.extend(self.check_statements_indentation(
                 source,
                 kw_offset,
                 base_col,
                 until_node.statements(),
                 width,
-            );
+            ));
+            return;
         }
 
-        Vec::new()
     }
 }
 

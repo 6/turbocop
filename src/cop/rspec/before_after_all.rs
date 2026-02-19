@@ -31,46 +31,47 @@ impl Cop for BeforeAfterAll {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if method_name != b"before" && method_name != b"after" {
-            return Vec::new();
+            return;
         }
 
         // Must be receiverless
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Must have a block (or block pass)
         if call.block().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Check for :all or :context argument
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let first_arg = &arg_list[0];
         let scope = if let Some(sym) = first_arg.as_symbol_node() {
             sym.unescaped().to_vec()
         } else {
-            return Vec::new();
+            return;
         };
 
         if scope != b"all" && scope != b"context" {
-            return Vec::new();
+            return;
         }
 
         let method_str = std::str::from_utf8(method_name).unwrap_or("before");
@@ -79,7 +80,7 @@ impl Cop for BeforeAfterAll {
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
@@ -88,7 +89,7 @@ impl Cop for BeforeAfterAll {
                  If you are using `rspec-rails`, and `use_transactional_fixtures` is enabled, \
                  then records created in `{hook}` are not automatically rolled back."
             ),
-        )]
+        ));
     }
 }
 

@@ -20,7 +20,8 @@ impl Cop for CollectionMethods {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let preferred_methods = config.get_string_hash("PreferredMethods").unwrap_or_else(|| {
             // Default preferred methods per RuboCop's default.yml
             let mut m = std::collections::HashMap::new();
@@ -37,12 +38,12 @@ impl Cop for CollectionMethods {
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have a receiver (collection.method)
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
@@ -50,15 +51,14 @@ impl Cop for CollectionMethods {
         if let Some(preferred) = preferred_methods.get(method_name) {
             let loc = call.message_loc().unwrap_or(call.location());
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 format!("Prefer `{}` over `{}`.", preferred, method_name),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

@@ -23,7 +23,8 @@ impl Cop for UnexpectedBlockArity {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Read configured methods
         let methods = get_methods(config);
 
@@ -34,7 +35,7 @@ impl Cop for UnexpectedBlockArity {
             methods,
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

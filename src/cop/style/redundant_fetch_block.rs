@@ -34,7 +34,8 @@ impl Cop for RedundantFetchBlock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let safe_for_constants = config.get_bool("SafeForConstants", false);
         // Check if frozen_string_literal is enabled (needed for string body)
         let frozen_string_literal = source.lines().next().is_some_and(|line| {
@@ -43,37 +44,37 @@ impl Cop for RedundantFetchBlock {
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"fetch" {
-            return Vec::new();
+            return;
         }
 
         // Must have exactly one argument (the key)
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         // Must have a block
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Block must have no parameters
         if block_node.parameters().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Check block body
@@ -86,12 +87,12 @@ impl Cop for RedundantFetchBlock {
                     if let Some(recv_recv) = recv_call.receiver() {
                         if let Some(const_node) = recv_recv.as_constant_read_node() {
                             if const_node.name().as_slice() == b"Rails" {
-                                return Vec::new();
+                                return;
                             }
                         }
                         if let Some(const_path) = recv_recv.as_constant_path_node() {
                             if const_path.location().as_slice() == b"Rails" {
-                                return Vec::new();
+                                return;
                             }
                         }
                     }
@@ -127,7 +128,7 @@ impl Cop for RedundantFetchBlock {
         };
 
         if !is_redundant {
-            return Vec::new();
+            return;
         }
 
         let key_src = std::str::from_utf8(arg_list[0].location().as_slice()).unwrap_or("");
@@ -148,12 +149,12 @@ impl Cop for RedundantFetchBlock {
 
         let fetch_loc = call.message_loc().unwrap_or_else(|| call.location());
         let (line, column) = source.offset_to_line_col(fetch_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Use `fetch({key_src}, {value_src})` instead of `fetch({key_src}) {{ {value_src} }}`."),
-        )]
+        ));
     }
 }
 

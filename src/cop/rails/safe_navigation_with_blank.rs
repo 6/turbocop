@@ -59,20 +59,22 @@ impl Cop for SafeNavigationWithBlank {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check if nodes
         if let Some(if_node) = node.as_if_node() {
             let predicate = if_node.predicate();
-            return check_safe_blank_predicate(source, &predicate, self);
+            diagnostics.extend(check_safe_blank_predicate(source, &predicate, self));
+            return;
         }
 
         // Check unless nodes
         if let Some(unless_node) = node.as_unless_node() {
             let predicate = unless_node.predicate();
-            return check_safe_blank_predicate(source, &predicate, self);
+            diagnostics.extend(check_safe_blank_predicate(source, &predicate, self));
+            return;
         }
 
-        Vec::new()
     }
 }
 

@@ -20,23 +20,24 @@ impl Cop for ExpandPathArguments {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call_node = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call_node.name();
         let method_bytes = method_name.as_slice();
 
         if method_bytes != b"expand_path" {
-            return Vec::new();
+            return;
         }
 
         // Receiver must be `File` or `::File`
         let receiver = match call_node.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let is_file_receiver = if let Some(const_read) = receiver.as_constant_read_node() {
@@ -52,32 +53,32 @@ impl Cop for ExpandPathArguments {
         };
 
         if !is_file_receiver {
-            return Vec::new();
+            return;
         }
 
         // Must have arguments
         let args = match call_node.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
 
         // Pattern: File.expand_path('...', __FILE__) - needs exactly 2 args
         if arg_list.len() != 2 {
-            return Vec::new();
+            return;
         }
 
         // Second argument must be __FILE__
         if arg_list[1].as_source_file_node().is_none() {
-            return Vec::new();
+            return;
         }
 
         // First argument must be a string literal
         let first_arg = &arg_list[0];
         let path_str = match extract_string_value(first_arg) {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Build the suggestion
@@ -87,7 +88,7 @@ impl Cop for ExpandPathArguments {
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
 
         let orig = format!("expand_path('{}', __FILE__)", path_str);
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
@@ -95,7 +96,7 @@ impl Cop for ExpandPathArguments {
                 "Use `{}` instead of `{}`.",
                 suggestion, orig,
             ),
-        )]
+        ));
     }
 }
 

@@ -15,8 +15,8 @@ impl Cop for RedundantLineContinuation {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let lines: Vec<&[u8]> = source.lines().collect();
 
         for (i, line) in lines.iter().enumerate() {
@@ -70,7 +70,6 @@ impl Cop for RedundantLineContinuation {
             }
         }
 
-        diagnostics
     }
 }
 

@@ -29,69 +29,70 @@ impl Cop for ReceiveNever {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for .to / .to_not / .not_to calls (the matcher dispatch)
         let to_call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let to_method = to_call.name().as_slice();
         if to_method != b"to" {
-            return Vec::new();
+            return;
         }
 
         // The receiver of .to should be an expect-like call
         let recv = match to_call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         if !is_expect_call(&recv) {
-            return Vec::new();
+            return;
         }
 
         // The argument to .to should be a chain ending in .never with receive
         let args = match to_call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Check if the first argument is a chain that ends with .never on a receive
         let arg_call = match arg_list[0].as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if arg_call.name().as_slice() != b"never" {
-            return Vec::new();
+            return;
         }
 
         // Check that the chain contains receive
         let recv_of_never = match arg_call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         if !has_receive_in_chain(&recv_of_never) {
-            return Vec::new();
+            return;
         }
 
         let loc = arg_call
             .message_loc()
             .unwrap_or_else(|| arg_call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `not_to receive` instead of `never`.".to_string(),
-        )]
+        ));
     }
 }
 

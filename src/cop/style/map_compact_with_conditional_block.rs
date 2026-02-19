@@ -20,62 +20,63 @@ impl Cop for MapCompactWithConditionalBlock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check for .compact call
         if call.name().as_slice() != b"compact" {
-            return Vec::new();
+            return;
         }
 
         // No arguments for compact
         if call.arguments().is_some() {
-            return Vec::new();
+            return;
         }
 
         let receiver = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Receiver should be a .map call with a block
         let map_call = match receiver.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if map_call.name().as_slice() != b"map" {
-            return Vec::new();
+            return;
         }
 
         // map call must have a block
         let block = match map_call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if block body is a conditional (if/unless) that returns nil in one branch
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body_nodes: Vec<_> = stmts.body().iter().collect();
         if body_nodes.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let expr = &body_nodes[0];
@@ -91,15 +92,14 @@ impl Cop for MapCompactWithConditionalBlock {
         if is_conditional_with_nil {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Use `filter_map` instead of `map { ... }.compact`.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

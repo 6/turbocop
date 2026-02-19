@@ -20,17 +20,18 @@ impl Cop for TrailingUnderscoreVariable {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_named = config.get_bool("AllowNamedUnderscoreVariables", true);
 
         let multi = match node.as_multi_write_node() {
             Some(m) => m,
-            None => return Vec::new(),
+            None => return,
         };
 
         let lefts: Vec<_> = multi.lefts().iter().collect();
         if lefts.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Check trailing underscore variables
@@ -51,22 +52,22 @@ impl Cop for TrailingUnderscoreVariable {
         }
 
         if trailing_count == 0 {
-            return Vec::new();
+            return;
         }
 
         // Don't flag if ALL variables are underscores
         if trailing_count >= lefts.len() {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Trailing underscore variable(s) in parallel assignment are unnecessary.".to_string(),
-        )]
+        ));
     }
 }
 

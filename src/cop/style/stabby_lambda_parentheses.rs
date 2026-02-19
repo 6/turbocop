@@ -20,17 +20,18 @@ impl Cop for StabbyLambdaParentheses {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let lambda_node = match node.as_lambda_node() {
             Some(l) => l,
-            None => return Vec::new(),
+            None => return,
         };
 
         let enforced_style = config.get_str("EnforcedStyle", "require_parentheses");
 
         // Only care if the lambda has parameters
         if lambda_node.parameters().is_none() {
-            return Vec::new();
+            return;
         }
 
         let operator_loc = lambda_node.operator_loc();
@@ -53,29 +54,28 @@ impl Cop for StabbyLambdaParentheses {
             "require_parentheses" => {
                 if !has_paren {
                     let (line, column) = source.offset_to_line_col(operator_loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use parentheses for stabby lambda arguments.".to_string(),
-                    )];
+                    ));
                 }
             }
             "require_no_parentheses" => {
                 if has_paren {
                     let (line, column) = source.offset_to_line_col(operator_loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Do not use parentheses for stabby lambda arguments.".to_string(),
-                    )];
+                    ));
                 }
             }
             _ => {}
         }
 
-        Vec::new()
     }
 }
 

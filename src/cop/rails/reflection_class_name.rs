@@ -32,16 +32,17 @@ impl Cop for ReflectionClassName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
         if !ASSOCIATION_METHODS.contains(&call.name().as_slice()) {
-            return Vec::new();
+            return;
         }
         if let Some(value) = keyword_arg_value(&call, b"class_name") {
             // RuboCop flags non-string values (constants, method calls) for class_name.
@@ -53,15 +54,14 @@ impl Cop for ReflectionClassName {
             {
                 let loc = value.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use a string value for `class_name`.".to_string(),
-                )];
+                ));
             }
         }
-        Vec::new()
     }
 }
 

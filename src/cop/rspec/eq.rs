@@ -29,31 +29,32 @@ impl Cop for Eq {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Look for `be == value` pattern
         // This appears as a call to `==` with receiver being the `be` call
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"==" {
-            return Vec::new();
+            return;
         }
 
         // The receiver should be a `be` call
         let recv = match call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let recv_call = match recv.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if recv_call.name().as_slice() != b"be" {
-            return Vec::new();
+            return;
         }
 
         // `be` should have no arguments (bare `be`)
@@ -62,7 +63,7 @@ impl Cop for Eq {
             .map(|a| a.arguments().iter().count() > 0)
             .unwrap_or(false);
         if has_args {
-            return Vec::new();
+            return;
         }
 
         let loc = recv_call.location();
@@ -71,12 +72,12 @@ impl Cop for Eq {
         let (_, end_column) = source.offset_to_line_col(end_loc.start_offset());
         // The offense covers "be ==" - the be call + == call name
         let _ = end_column;
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use `eq` instead of `be ==` to compare objects.".to_string(),
-        )]
+        ));
     }
 }
 

@@ -24,28 +24,29 @@ impl Cop for ElseLayout {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let if_node = match node.as_if_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be a keyword if/unless (not ternary)
         if if_node.if_keyword_loc().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Check the subsequent (else/elsif) clause
         let subsequent = match if_node.subsequent() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // We only care about else clauses, not elsif
         // An else clause in Prism is represented as an ElseNode
         let else_node = match subsequent.as_else_node() {
             Some(e) => e,
-            None => return Vec::new(),
+            None => return,
         };
 
         let else_kw_loc = else_node.else_keyword_loc();
@@ -54,28 +55,27 @@ impl Cop for ElseLayout {
         // Check if there's a statement on the same line as else
         let statements = match else_node.statements() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body = statements.body();
         let first_stmt = match body.first() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let first_loc = first_stmt.location();
         let (stmt_line, stmt_col) = source.offset_to_line_col(first_loc.start_offset());
 
         if stmt_line == else_line {
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 stmt_line,
                 stmt_col,
                 "Odd `else` layout detected. Code on the same line as `else` is not allowed.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

@@ -16,9 +16,9 @@ impl Cop for SpaceBeforeComment {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let bytes = source.as_bytes();
-        let mut diagnostics = Vec::new();
 
         for comment in parse_result.comments() {
             let loc = comment.location();
@@ -54,7 +54,6 @@ impl Cop for SpaceBeforeComment {
             }
         }
 
-        diagnostics
     }
 }
 

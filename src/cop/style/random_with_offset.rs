@@ -20,10 +20,11 @@ impl Cop for RandomWithOffset {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_bytes = call.name().as_slice();
@@ -32,14 +33,13 @@ impl Cop for RandomWithOffset {
         // Pattern 2: rand(n) - offset
         // Pattern 3: rand(n).succ / rand(n).next / rand(n).pred
         if method_bytes == b"+" || method_bytes == b"-" {
-            return self.check_arithmetic(source, node, &call);
+            diagnostics.extend(self.check_arithmetic(source, node, &call));
         }
 
         if method_bytes == b"succ" || method_bytes == b"next" || method_bytes == b"pred" {
-            return self.check_succ_pred(source, node, &call);
+            diagnostics.extend(self.check_succ_pred(source, node, &call));
         }
 
-        Vec::new()
     }
 }
 

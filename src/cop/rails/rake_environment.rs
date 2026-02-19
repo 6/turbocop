@@ -24,41 +24,42 @@ impl Cop for RakeEnvironment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Start from CallNode `task`, then check if it has a block
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be receiverless `task` call
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         if call.name().as_slice() != b"task" {
-            return Vec::new();
+            return;
         }
 
         // Must have a block
         if call.block().is_none() {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // Check if first arg is a symbol (simple task definition)
         let has_symbol_arg = arg_list[0].as_symbol_node().is_some();
         if !has_symbol_arg {
-            return Vec::new();
+            return;
         }
 
         // Check if any argument is a hash with dependencies.
@@ -74,12 +75,12 @@ impl Cop for RakeEnvironment {
                         let value = assoc.value();
                         // Symbol value: `=> :environment` or `foo: :environment`
                         if value.as_symbol_node().is_some() {
-                            return Vec::new();
+                            return;
                         }
                         // Array value: `=> [:environment]` or `=> [:env1, :env2]`
                         if let Some(arr) = value.as_array_node() {
                             if arr.elements().iter().next().is_some() {
-                                return Vec::new();
+                                return;
                             }
                         }
                     }
@@ -89,12 +90,12 @@ impl Cop for RakeEnvironment {
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Add `:environment` dependency to the rake task.".to_string(),
-        )]
+        ));
     }
 }
 

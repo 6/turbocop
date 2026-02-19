@@ -20,19 +20,20 @@ impl Cop for ReverseEach {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let chain = match as_method_chain(node) {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if chain.inner_method != b"reverse" || chain.outer_method != b"each" {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, "Use `reverse_each` instead of `reverse.each`.".to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, "Use `reverse_each` instead of `reverse.each`.".to_string()));
     }
 }
 

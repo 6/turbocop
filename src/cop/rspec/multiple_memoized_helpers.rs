@@ -27,7 +27,8 @@ impl Cop for MultipleMemoizedHelpers {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let max = config.get_usize("Max", 5);
         let allow_subject = config.get_bool("AllowSubject", true);
 
@@ -41,7 +42,7 @@ impl Cop for MultipleMemoizedHelpers {
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

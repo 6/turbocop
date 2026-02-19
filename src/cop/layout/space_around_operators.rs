@@ -54,7 +54,8 @@ impl Cop for SpaceAroundOperators {
         parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_for_alignment = config.get_bool("AllowForAlignment", true);
         let _enforced_style_exponent =
             config.get_str("EnforcedStyleForExponentOperator", "no_space");
@@ -72,7 +73,6 @@ impl Cop for SpaceAroundOperators {
 
         let bytes = source.as_bytes();
         let len = bytes.len();
-        let mut diagnostics = Vec::new();
         let mut i = 0;
 
         // Suppress unused variable warning when alignment is not used
@@ -204,7 +204,6 @@ impl Cop for SpaceAroundOperators {
             i += 1;
         }
 
-        diagnostics
     }
 }
 

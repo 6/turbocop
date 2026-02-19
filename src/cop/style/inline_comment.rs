@@ -13,8 +13,8 @@ impl Cop for InlineComment {
         &self,
         source: &SourceFile,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let lines = source.lines();
 
         for (i, line_bytes) in lines.enumerate() {
@@ -61,7 +61,6 @@ impl Cop for InlineComment {
             }
         }
 
-        diagnostics
     }
 }
 

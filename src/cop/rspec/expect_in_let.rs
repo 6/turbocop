@@ -32,40 +32,39 @@ impl Cop for ExpectInLet {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let method_name = call.name().as_slice();
         if method_name != b"let" && method_name != b"let!" {
-            return Vec::new();
+            return;
         }
 
         // Check the block body for expect calls
         let block_raw = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block = match block_raw.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body = match block.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
-        find_expects_in_node(&body, source, self, &mut diagnostics);
-        diagnostics
+        find_expects_in_node(&body, source, self, diagnostics);
     }
 }
 

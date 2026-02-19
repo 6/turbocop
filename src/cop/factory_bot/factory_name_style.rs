@@ -29,30 +29,31 @@ impl Cop for FactoryNameStyle {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
         if !FACTORY_BOT_METHODS.contains(&method_name) {
-            return Vec::new();
+            return;
         }
 
         let explicit_only = config.get_bool("ExplicitOnly", false);
         if !is_factory_call(call.receiver(), explicit_only) {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let first_arg = &arg_list[0];
@@ -66,17 +67,17 @@ impl Cop for FactoryNameStyle {
 
                 // Skip namespaced names (contain /)
                 if value_str.contains('/') {
-                    return Vec::new();
+                    return;
                 }
 
                 let loc = first_arg.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use symbol to refer to a factory.".to_string(),
-                )];
+                ));
             }
             // Skip interpolated strings
         } else if style == "string" {
@@ -84,16 +85,15 @@ impl Cop for FactoryNameStyle {
             if first_arg.as_symbol_node().is_some() {
                 let loc = first_arg.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use string to refer to a factory.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

@@ -21,10 +21,11 @@ impl Cop for ConstantName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         if let Some(cw) = node.as_constant_write_node() {
             let const_name = cw.name().as_slice();
-            return self.check_constant(source, const_name, &cw.name_loc());
+            diagnostics.extend(self.check_constant(source, const_name, &cw.name_loc()));
         }
 
         if let Some(cpw) = node.as_constant_path_write_node() {
@@ -32,10 +33,9 @@ impl Cop for ConstantName {
             let target = cpw.target();
             let name_loc = target.name_loc();
             let const_name = target.name().map(|n| n.as_slice()).unwrap_or(b"");
-            return self.check_constant(source, const_name, &name_loc);
+            diagnostics.extend(self.check_constant(source, const_name, &name_loc));
         }
 
-        Vec::new()
     }
 }
 

@@ -41,10 +41,11 @@ impl Cop for NumericLiterals {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let int_node = match node.as_integer_node() {
             Some(i) => i,
-            None => return Vec::new(),
+            None => return,
         };
 
         let loc = int_node.location();
@@ -67,7 +68,7 @@ impl Cop for NumericLiterals {
             || text.starts_with("0d")
             || text.starts_with("0D")
         {
-            return Vec::new();
+            return;
         }
 
         // Strip leading minus sign if present
@@ -82,14 +83,14 @@ impl Cop for NumericLiterals {
 
         // Check AllowedNumbers (compared as strings)
         if allowed_numbers.iter().any(|n| n == &int_str) {
-            return Vec::new();
+            return;
         }
 
         // Check AllowedPatterns (simple substring match, similar to RuboCop)
         if !allowed_patterns.is_empty() {
             for pattern in &allowed_patterns {
                 if int_str.contains(pattern.as_str()) {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -99,21 +100,20 @@ impl Cop for NumericLiterals {
         let has_underscores = digits_part.contains('_');
 
         if digit_count < min_digits {
-            return Vec::new();
+            return;
         }
 
         if !has_underscores {
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(source, line, column, "Use underscores(_) as thousands separator.".to_string())];
+            diagnostics.push(self.diagnostic(source, line, column, "Use underscores(_) as thousands separator.".to_string()));
         }
 
         // Strict mode: check that underscores are at correct every-3-digit positions
         if strict && !is_correctly_grouped(digits_part) {
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(source, line, column, "Use underscores(_) as thousands separator.".to_string())];
+            diagnostics.push(self.diagnostic(source, line, column, "Use underscores(_) as thousands separator.".to_string()));
         }
 
-        Vec::new()
     }
 }
 

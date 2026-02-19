@@ -26,7 +26,8 @@ impl Cop for RedundantSelf {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let mut visitor = RedundantSelfVisitor {
             cop: self,
             source,
@@ -34,7 +35,7 @@ impl Cop for RedundantSelf {
             local_scopes: vec![HashSet::new()],
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

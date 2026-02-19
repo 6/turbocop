@@ -24,21 +24,22 @@ impl Cop for PluckInWhere {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyle", "conservative");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"where" {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Look for pluck inside argument values (keyword hash args)
@@ -46,16 +47,15 @@ impl Cop for PluckInWhere {
             if self.has_pluck_call(&arg, style) {
                 let loc = node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use a subquery instead of `pluck` inside `where`.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

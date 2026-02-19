@@ -9,9 +9,8 @@ impl Cop for TrailingWhitespace {
         "Layout/TrailingWhitespace"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let allow_in_heredoc = config.get_bool("AllowInHeredoc", false);
-        let mut diagnostics = Vec::new();
 
         // Track heredoc regions: when AllowInHeredoc is true, skip lines inside heredocs.
         // Simple heuristic: track <<~WORD / <<-WORD / <<WORD openers and their terminators.
@@ -86,7 +85,6 @@ impl Cop for TrailingWhitespace {
                 _ => {}
             }
         }
-        diagnostics
     }
 }
 
@@ -99,7 +97,8 @@ mod tests {
     #[test]
     fn all_whitespace_line() {
         let source = SourceFile::from_bytes("test.rb", b"x = 1\n   \ny = 2\n".to_vec());
-        let diags = TrailingWhitespace.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        TrailingWhitespace.check_lines(&source, &CopConfig::default(), &mut diags);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].location.line, 2);
         assert_eq!(diags[0].location.column, 0);
@@ -108,7 +107,8 @@ mod tests {
     #[test]
     fn trailing_tab() {
         let source = SourceFile::from_bytes("test.rb", b"x = 1\t\n".to_vec());
-        let diags = TrailingWhitespace.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        TrailingWhitespace.check_lines(&source, &CopConfig::default(), &mut diags);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].location.line, 1);
         assert_eq!(diags[0].location.column, 5);
@@ -117,7 +117,8 @@ mod tests {
     #[test]
     fn no_trailing_newline() {
         let source = SourceFile::from_bytes("test.rb", b"x = 1  ".to_vec());
-        let diags = TrailingWhitespace.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        TrailingWhitespace.check_lines(&source, &CopConfig::default(), &mut diags);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].location.line, 1);
         assert_eq!(diags[0].location.column, 5);
@@ -136,7 +137,8 @@ mod tests {
             "test.rb",
             b"x = <<~TEXT\n  hello  \n  world  \nTEXT\n".to_vec(),
         );
-        let diags = TrailingWhitespace.check_lines(&source, &config);
+        let mut diags = Vec::new();
+        TrailingWhitespace.check_lines(&source, &config, &mut diags);
         assert!(diags.is_empty(), "AllowInHeredoc should skip trailing whitespace inside heredocs");
     }
 
@@ -146,7 +148,8 @@ mod tests {
             "test.rb",
             b"x = <<~TEXT\n  hello  \nTEXT\n".to_vec(),
         );
-        let diags = TrailingWhitespace.check_lines(&source, &CopConfig::default());
+        let mut diags = Vec::new();
+        TrailingWhitespace.check_lines(&source, &CopConfig::default(), &mut diags);
         assert_eq!(diags.len(), 1, "Default should flag trailing whitespace inside heredocs");
     }
 }

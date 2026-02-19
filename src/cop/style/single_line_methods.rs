@@ -20,17 +20,18 @@ impl Cop for SingleLineMethods {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allow_empty = config.get_bool("AllowIfMethodIsEmpty", true);
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Skip endless methods (no end keyword)
         let end_kw_loc = match def_node.end_keyword_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if the method has a body
@@ -47,7 +48,7 @@ impl Cop for SingleLineMethods {
 
         // AllowIfMethodIsEmpty: skip empty methods when enabled (default true)
         if !has_body && allow_empty {
-            return Vec::new();
+            return;
         }
 
         let def_loc = def_node.def_keyword_loc();
@@ -56,10 +57,9 @@ impl Cop for SingleLineMethods {
 
         if def_line == end_line {
             let (line, column) = source.offset_to_line_col(def_loc.start_offset());
-            return vec![self.diagnostic(source, line, column, "Avoid single-line method definitions.".to_string())];
+            diagnostics.push(self.diagnostic(source, line, column, "Avoid single-line method definitions.".to_string()));
         }
 
-        Vec::new()
     }
 }
 

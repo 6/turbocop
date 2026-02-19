@@ -43,24 +43,24 @@ impl Cop for AmbiguousOperatorPrecedence {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Handle `a || b && c` pattern
         if let Some(or_node) = node.as_or_node() {
-            return self.check_or_and(source, &or_node);
+            diagnostics.extend(self.check_or_and(source, &or_node));
         }
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method = call.name().as_slice();
         let outer_prec = match precedence_level(method) {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
-        let mut diagnostics = Vec::new();
 
         // Check arguments for higher-precedence operators
         // e.g., `a + b * c`: outer is `+` (prec 2), arg `b * c` is `*` (prec 1)
@@ -108,7 +108,6 @@ impl Cop for AmbiguousOperatorPrecedence {
             }
         }
 
-        diagnostics
     }
 }
 

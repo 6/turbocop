@@ -20,10 +20,11 @@ impl Cop for CollectionQuerying {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
@@ -33,7 +34,7 @@ impl Cop for CollectionQuerying {
         // Pattern: x.count.zero? => x.none?
         if method_name == "positive?" || method_name == "zero?" {
             if call.arguments().is_some() {
-                return Vec::new();
+                return;
             }
 
             if let Some(receiver) = call.receiver() {
@@ -55,12 +56,12 @@ impl Cop for CollectionQuerying {
                                 recv_call.message_loc().unwrap_or(recv_call.location());
                             let (line, column) =
                                 source.offset_to_line_col(loc.start_offset());
-                            return vec![self.diagnostic(
+                            diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 format!("Use `{}` instead.", suggestion),
-                            )];
+                            ));
                         }
                     }
                 }
@@ -105,7 +106,7 @@ impl Cop for CollectionQuerying {
                                                 .unwrap_or(recv_call.location());
                                             let (line, column) = source
                                                 .offset_to_line_col(loc.start_offset());
-                                            return vec![self.diagnostic(
+                                            diagnostics.push(self.diagnostic(
                                                 source,
                                                 line,
                                                 column,
@@ -113,7 +114,7 @@ impl Cop for CollectionQuerying {
                                                     "Use `{}` instead.",
                                                     suggestion
                                                 ),
-                                            )];
+                                            ));
                                         }
                                     }
                                 }
@@ -124,7 +125,6 @@ impl Cop for CollectionQuerying {
             }
         }
 
-        Vec::new()
     }
 }
 

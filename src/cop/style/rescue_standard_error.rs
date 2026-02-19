@@ -61,20 +61,21 @@ impl Cop for RescueStandardError {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let begin_node = match node.as_begin_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let rescue_clause = match begin_node.rescue_clause() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         let enforced_style = config.get_str("EnforcedStyle", "implicit");
 
-        check_rescue_node(self, source, &rescue_clause, enforced_style)
+        diagnostics.extend(check_rescue_node(self, source, &rescue_clause, enforced_style));
     }
 }
 

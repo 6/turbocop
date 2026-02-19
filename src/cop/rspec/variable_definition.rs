@@ -29,16 +29,17 @@ impl Cop for VariableDefinition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Config: EnforcedStyle — "symbols" (default) or "strings"
         let enforced_style = config.get_str("EnforcedStyle", "symbols");
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let method_name = call.name().as_slice();
@@ -47,12 +48,12 @@ impl Cop for VariableDefinition {
             && method_name != b"subject"
             && method_name != b"subject!"
         {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         for arg in args.arguments().iter() {
@@ -64,30 +65,29 @@ impl Cop for VariableDefinition {
                 if arg.as_symbol_node().is_some() {
                     let loc = arg.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use strings for variable names.".to_string(),
-                    )];
+                    ));
                 }
             } else {
                 // Default "symbols" style: flag string names, prefer symbols
                 if arg.as_string_node().is_some() {
                     let loc = arg.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(
+                    diagnostics.push(self.diagnostic(
                         source,
                         line,
                         column,
                         "Use symbols for variable names.".to_string(),
-                    )];
+                    ));
                 }
             }
             break;
         }
 
-        Vec::new()
     }
 }
 

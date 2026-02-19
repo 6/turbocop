@@ -20,7 +20,8 @@ impl Cop for CollectionLiteralLength {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let max = config.get_usize("LengthThreshold", 250);
 
         // Check ArrayNode
@@ -29,12 +30,12 @@ impl Cop for CollectionLiteralLength {
             if count > max {
                 let loc = array.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Collection literal is too long. [{count}/{max}]"),
-                )];
+                ));
             }
         }
 
@@ -44,12 +45,12 @@ impl Cop for CollectionLiteralLength {
             if count > max {
                 let loc = hash.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Collection literal is too long. [{count}/{max}]"),
-                )];
+                ));
             }
         }
 
@@ -59,16 +60,15 @@ impl Cop for CollectionLiteralLength {
             if count > max {
                 let loc = hash.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     format!("Collection literal is too long. [{count}/{max}]"),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

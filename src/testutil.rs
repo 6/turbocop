@@ -199,7 +199,9 @@ pub fn run_cop_with_config(
     config: CopConfig,
 ) -> Vec<Diagnostic> {
     let source = SourceFile::from_bytes("test.rb", source_bytes.to_vec());
-    cop.check_lines(&source, &config)
+    let mut diagnostics = Vec::new();
+    cop.check_lines(&source, &config, &mut diagnostics);
+    diagnostics
 }
 
 /// Run a cop on fixture bytes (with annotations) and assert offenses match.
@@ -217,7 +219,8 @@ pub fn assert_cop_offenses_with_config(cop: &dyn Cop, fixture_bytes: &[u8], conf
     let filename = parsed.filename.as_deref().unwrap_or("test.rb");
     let mut expected = parsed.expected;
     let source = SourceFile::from_bytes(filename, parsed.source);
-    let mut diagnostics = cop.check_lines(&source, &config);
+    let mut diagnostics = Vec::new();
+    cop.check_lines(&source, &config, &mut diagnostics);
 
     // Sort both for order-independent comparison
     expected.sort_by_key(|e| (e.line, e.column));
@@ -269,7 +272,8 @@ pub fn assert_cop_no_offenses(cop: &dyn Cop, source_bytes: &[u8]) {
 /// Assert a cop produces no offenses on the given source bytes with a specific config.
 pub fn assert_cop_no_offenses_with_config(cop: &dyn Cop, source_bytes: &[u8], config: CopConfig) {
     let source = SourceFile::from_bytes("test.rb", source_bytes.to_vec());
-    let diagnostics = cop.check_lines(&source, &config);
+    let mut diagnostics = Vec::new();
+    cop.check_lines(&source, &config, &mut diagnostics);
 
     assert!(
         diagnostics.is_empty(),
@@ -309,10 +313,10 @@ pub fn run_cop_full_internal(
     let mut diagnostics = Vec::new();
 
     // Line-based checks
-    diagnostics.extend(cop.check_lines(&source, &config));
+    cop.check_lines(&source, &config, &mut diagnostics);
 
     // Source-based checks
-    diagnostics.extend(cop.check_source(&source, &parse_result, &code_map, &config));
+    cop.check_source(&source, &parse_result, &code_map, &config, &mut diagnostics);
 
     // AST-based checks
     let mut walker = CopWalker {

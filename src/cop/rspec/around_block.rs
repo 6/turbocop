@@ -31,24 +31,25 @@ impl Cop for AroundBlock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be `around` (receiverless or on config)
         if call.name().as_slice() != b"around" {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Get the block parameter name
@@ -59,21 +60,21 @@ impl Cop for AroundBlock {
                 // No block parameter — flag the whole around call
                 // (unless the body uses _1.run/_1.call or yield)
                 if body_uses_numbered_param_run(&block_node) || body_contains_yield(&block_node) {
-                    return Vec::new();
+                    return;
                 }
                 let loc = node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Test object should be passed to around block.".to_string(),
-                )]
+                ));
             }
             Some(name) => {
                 // Has a block parameter — check if it's used with .run or .call (or yield)
                 if body_uses_param_correctly(&block_node, &name) || body_contains_yield(&block_node) {
-                    return Vec::new();
+                    return;
                 }
 
                 // Flag the parameter itself
@@ -86,20 +87,20 @@ impl Cop for AroundBlock {
                                 let (line, column) =
                                     source.offset_to_line_col(param_loc.start_offset());
                                 let name_str = std::str::from_utf8(&name).unwrap_or("example");
-                                return vec![self.diagnostic(
+                                diagnostics.push(self.diagnostic(
                                     source,
                                     line,
                                     column,
                                     format!(
                                         "You should call `{name_str}.call` or `{name_str}.run`."
                                     ),
-                                )];
+                                ));
                             }
                         }
                     }
                 }
 
-                Vec::new()
+
             }
         }
     }

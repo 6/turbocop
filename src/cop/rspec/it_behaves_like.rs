@@ -31,14 +31,15 @@ impl Cop for ItBehavesLike {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let name = call.name().as_slice();
@@ -51,13 +52,13 @@ impl Cop for ItBehavesLike {
         };
 
         if name != bad_method {
-            return Vec::new();
+            return;
         }
 
         let bad_name = std::str::from_utf8(bad_method).unwrap_or("?");
         let loc = call.location();
         let (line, col) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             col,
@@ -65,7 +66,7 @@ impl Cop for ItBehavesLike {
                 "Prefer `{}` over `{}` when including examples in a nested context.",
                 good_method, bad_name
             ),
-        )]
+        ));
     }
 }
 

@@ -13,7 +13,7 @@ impl Cop for OrderedMagicComments {
         Severity::Warning
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig) -> Vec<Diagnostic> {
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
         let mut encoding_line: Option<usize> = None;
         let mut frozen_string_line: Option<usize> = None;
 
@@ -64,17 +64,16 @@ impl Cop for OrderedMagicComments {
         if let (Some(enc_line), Some(fsl_line)) = (encoding_line, frozen_string_line) {
             if enc_line > fsl_line {
                 // Encoding comment appears after frozen_string_literal
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     enc_line,
                     0,
                     "The encoding magic comment should precede all other magic comments."
                         .to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

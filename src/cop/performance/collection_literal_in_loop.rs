@@ -67,7 +67,8 @@ impl Cop for CollectionLiteralInLoop {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let min_size = config.get_usize("MinSize", 1);
 
         // Build combined method sets
@@ -91,7 +92,7 @@ impl Cop for CollectionLiteralInLoop {
             enumerable_methods: build_method_set(ENUMERABLE_METHODS),
         };
         visitor.visit(&parse_result.node());
-        visitor.diagnostics
+        diagnostics.extend(visitor.diagnostics);
     }
 }
 

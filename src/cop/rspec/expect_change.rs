@@ -29,32 +29,33 @@ impl Cop for ExpectChange {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Config: EnforcedStyle — "method_call" (default) or "block"
         let enforced_style = config.get_str("EnforcedStyle", "method_call");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         if call.name().as_slice() != b"change" {
-            return Vec::new();
+            return;
         }
 
         if enforced_style == "block" {
             // "block" style: flag `change(Obj, :attr)` — prefer block form
             let args = match call.arguments() {
                 Some(a) => a,
-                None => return Vec::new(),
+                None => return,
             };
             let arg_list: Vec<_> = args.arguments().iter().collect();
             if arg_list.len() != 2 {
-                return Vec::new();
+                return;
             }
             // First arg should be a constant or local variable, second a symbol
             let first = &arg_list[0];
@@ -66,66 +67,66 @@ impl Cop for ExpectChange {
                     c.receiver().is_none() && c.arguments().is_none() && c.block().is_none()
                 })
             {
-                return Vec::new();
+                return;
             }
             if arg_list[1].as_symbol_node().is_none() {
-                return Vec::new();
+                return;
             }
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Prefer `change { }` over `change(obj, :attr)`.".to_string(),
-            )];
+            ));
         }
 
         // Default: "method_call" style — flag `change { User.count }`
         // and suggest `change(User, :count)`.
         let block_node_raw = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block = match block_node_raw.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // If it already has positional arguments, it's method_call style — fine
         if call.arguments().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Check if the block body is a simple method call: Receiver.method (no args)
         let body = match block.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmt_list: Vec<_> = stmts.body().iter().collect();
         if stmt_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let inner_call = match stmt_list[0].as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be a method call on a receiver with no arguments
         if inner_call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         if inner_call.arguments().is_some() {
-            return Vec::new();
+            return;
         }
 
         // The receiver must match RuboCop's pattern: a constant or bare method
@@ -139,7 +140,7 @@ impl Cop for ExpectChange {
                 c.receiver().is_none() && c.arguments().is_none() && c.block().is_none()
             }));
         if !is_simple_receiver {
-            return Vec::new();
+            return;
         }
 
         let recv_loc = recv.location();
@@ -151,12 +152,12 @@ impl Cop for ExpectChange {
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!("Prefer `change({recv_text}, :{method})`."),
-        )]
+        ));
     }
 }
 

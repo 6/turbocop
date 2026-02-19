@@ -20,21 +20,22 @@ impl Cop for SpaceInsidePercentLiteralDelimiters {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check array nodes that are %w or %i style
         let array = match node.as_array_node() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let open_loc = match array.opening_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let close_loc = match array.closing_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let open_slice = open_loc.as_slice();
@@ -42,7 +43,7 @@ impl Cop for SpaceInsidePercentLiteralDelimiters {
         if !open_slice.starts_with(b"%w") && !open_slice.starts_with(b"%W")
             && !open_slice.starts_with(b"%i") && !open_slice.starts_with(b"%I")
         {
-            return Vec::new();
+            return;
         }
 
         let bytes = source.as_bytes();
@@ -53,15 +54,14 @@ impl Cop for SpaceInsidePercentLiteralDelimiters {
         let (open_line, _) = source.offset_to_line_col(open_end.saturating_sub(1));
         let (close_line, _) = source.offset_to_line_col(close_start);
         if open_line != close_line {
-            return Vec::new();
+            return;
         }
 
         if close_start <= open_end {
-            return Vec::new();
+            return;
         }
 
         let content = &bytes[open_end..close_start];
-        let mut diagnostics = Vec::new();
 
         // Check for leading spaces
         if !content.is_empty() && content[0] == b' ' {
@@ -86,7 +86,6 @@ impl Cop for SpaceInsidePercentLiteralDelimiters {
             ));
         }
 
-        diagnostics
     }
 }
 

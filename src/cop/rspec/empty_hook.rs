@@ -39,26 +39,27 @@ impl Cop for EmptyHook {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method = call.name().as_slice();
         if !HOOK_METHODS.iter().any(|h| *h == method) {
-            return Vec::new();
+            return;
         }
 
         // Must have no receiver (or be called directly)
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Must have a block
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let is_empty = if let Some(block_node) = block.as_block_node() {
@@ -68,17 +69,17 @@ impl Cop for EmptyHook {
         };
 
         if !is_empty {
-            return Vec::new();
+            return;
         }
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Empty hook detected.".to_string(),
-        )]
+        ));
     }
 }
 

@@ -24,22 +24,23 @@ impl Cop for BeginEndAlignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let style = config.get_str("EnforcedStyleAlignWith", "start_of_line");
 
         let begin_node = match node.as_begin_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let begin_kw_loc = match begin_node.begin_keyword_loc() {
             Some(loc) => loc,
-            None => return Vec::new(), // Implicit begin (method body) — skip
+            None => return, // Implicit begin (method body) — skip
         };
 
         let end_kw_loc = match begin_node.end_keyword_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         let (begin_line, begin_col) = source.offset_to_line_col(begin_kw_loc.start_offset());
@@ -47,7 +48,7 @@ impl Cop for BeginEndAlignment {
 
         // Skip single-line begin..end
         if begin_line == end_line {
-            return Vec::new();
+            return;
         }
 
         let expected_col = match style {
@@ -68,15 +69,14 @@ impl Cop for BeginEndAlignment {
         };
 
         if end_col != expected_col {
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 end_line,
                 end_col,
                 "`end` at 0, 0 is not aligned with `begin` at 0, 0.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

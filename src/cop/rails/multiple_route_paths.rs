@@ -32,25 +32,26 @@ impl Cop for MultipleRoutePaths {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be receiverless HTTP method
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let name = call.name().as_slice();
         if !HTTP_METHODS.iter().any(|m| *m == name) {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Count non-hash arguments (route paths)
@@ -62,17 +63,17 @@ impl Cop for MultipleRoutePaths {
         }
 
         if path_count < 2 {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use separate routes instead of combining multiple route paths in a single route.".to_string(),
-        )]
+        ));
     }
 }
 

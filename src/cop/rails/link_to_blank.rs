@@ -94,20 +94,21 @@ impl Cop for LinkToBlank {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = call.name().as_slice();
         if !LINK_METHODS.iter().any(|m| *m == name) {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Look for hash arguments containing target: '_blank'
@@ -131,15 +132,14 @@ impl Cop for LinkToBlank {
             // Report on the entire hash arg that has target: _blank
             let loc = arg.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Specify a `:rel` option containing noopener.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

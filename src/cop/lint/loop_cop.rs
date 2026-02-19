@@ -24,19 +24,20 @@ impl Cop for Loop {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check WhileNode for begin..end while form
         // Prism sets the PM_LOOP_FLAGS_BEGIN_MODIFIER flag for this pattern.
         if let Some(while_node) = node.as_while_node() {
             if while_node.is_begin_modifier() {
                 let kw_loc = while_node.keyword_loc();
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use `Kernel#loop` with `break` rather than `begin/end/while(until)`.".to_string(),
-                )];
+                ));
             }
         }
 
@@ -45,16 +46,15 @@ impl Cop for Loop {
             if until_node.is_begin_modifier() {
                 let kw_loc = until_node.keyword_loc();
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use `Kernel#loop` with `break` rather than `begin/end/while(until)`.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

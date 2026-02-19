@@ -65,36 +65,37 @@ impl Cop for RaiseException {
         node: &ruby_prism::Node<'_>,
         parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let allowed_namespaces = config.get_string_array("AllowedImplicitNamespaces");
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must be a receiverless raise or fail
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let method_name = call.name().as_slice();
         if method_name != b"raise" && method_name != b"fail" {
-            return Vec::new();
+            return;
         }
 
         let arguments = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let args = arguments.arguments();
         let first_arg = match args.first() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         if !is_exception_reference(&first_arg) {
-            return Vec::new();
+            return;
         }
 
         // AllowedImplicitNamespaces: only apply to bare `Exception` (not `::Exception`)
@@ -111,7 +112,7 @@ impl Cop for RaiseException {
                     };
                     finder.visit(&parse_result.node());
                     if finder.module_names.iter().any(|name| allowed.iter().any(|a| a == name)) {
-                        return Vec::new();
+                        return;
                     }
                 }
             }
@@ -119,12 +120,12 @@ impl Cop for RaiseException {
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use a subclass of `Exception` instead of raising `Exception` directly.".to_string(),
-        )]
+        ));
     }
 }
 

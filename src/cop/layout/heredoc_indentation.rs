@@ -20,21 +20,22 @@ impl Cop for HeredocIndentation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check StringNode and InterpolatedStringNode for heredoc openings.
         let (opening_loc, closing_loc, raw_content_start) =
             if let Some(s) = node.as_string_node() {
                 match (s.opening_loc(), s.closing_loc()) {
                     (Some(o), Some(c)) => (o, c, Some(s.content_loc().start_offset())),
-                    _ => return Vec::new(),
+                    _ => return,
                 }
             } else if let Some(s) = node.as_interpolated_string_node() {
                 match (s.opening_loc(), s.closing_loc()) {
                     (Some(o), Some(c)) => (o, c, None),
-                    _ => return Vec::new(),
+                    _ => return,
                 }
             } else {
-                return Vec::new();
+                return;
             };
 
         let src_bytes = source.as_bytes();
@@ -56,7 +57,7 @@ impl Cop for HeredocIndentation {
         let content_start = if let Some(s) = node.as_interpolated_string_node() {
             let parts = s.parts();
             if parts.is_empty() {
-                return Vec::new();
+                return;
             }
             // For InterpolatedStringNode, use the first part's location
             let first_part_start = parts.iter().next().unwrap().location().start_offset();
@@ -94,7 +95,7 @@ impl Cop for HeredocIndentation {
         };
 
         if content_start >= content_end {
-            return Vec::new();
+            return;
         }
 
         let bytes = source.as_bytes();
@@ -102,7 +103,7 @@ impl Cop for HeredocIndentation {
 
         // Must be a heredoc
         if !opening.starts_with(b"<<") {
-            return Vec::new();
+            return;
         }
 
         // Determine heredoc type
@@ -113,13 +114,13 @@ impl Cop for HeredocIndentation {
             '-'
         } else {
             // Simple heredoc (<<FOO) — no indentation control expected
-            return Vec::new();
+            return;
         };
 
         // Get heredoc body content
         let body = &bytes[content_start..content_end];
         if body.iter().all(|&b| b == b' ' || b == b'\t' || b == b'\n' || b == b'\r') {
-            return Vec::new(); // Empty body
+            return; // Empty body
         }
 
         let indentation_width = config.get_usize("IndentationWidth", 2);
@@ -131,16 +132,16 @@ impl Cop for HeredocIndentation {
             let base_indent = base_indent_level(source, opening_loc.start_offset());
             let expected = base_indent + indentation_width;
             if expected == body_indent {
-                return Vec::new(); // Correctly indented
+                return; // Correctly indented
             }
 
             // Check if adjusting indentation would make lines too long
             if line_too_long_after_adjust(body, expected, body_indent, config) {
-                return Vec::new();
+                return;
             }
 
             let (line, col) = source.offset_to_line_col(content_start);
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 col,
@@ -148,7 +149,7 @@ impl Cop for HeredocIndentation {
                     "Use {} spaces for indentation in a heredoc.",
                     indentation_width,
                 ),
-            )];
+            ));
         }
 
         // For <<- heredocs:
@@ -158,7 +159,7 @@ impl Cop for HeredocIndentation {
         // 3. Otherwise (body is indented, no squish) → no offense
         if body_indent == 0 {
             let (line, col) = source.offset_to_line_col(content_start);
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 col,
@@ -166,7 +167,7 @@ impl Cop for HeredocIndentation {
                     "Use {} spaces for indentation in a heredoc by using `<<~` instead of `<<-`.",
                     indentation_width,
                 ),
-            )];
+            ));
         }
 
         // Check if the heredoc opening is followed by .squish or .squish!
@@ -177,7 +178,7 @@ impl Cop for HeredocIndentation {
             let expected = base_indent + indentation_width;
             if !line_too_long_after_adjust(body, expected, body_indent, config) {
                 let (line, col) = source.offset_to_line_col(content_start);
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     col,
@@ -185,11 +186,10 @@ impl Cop for HeredocIndentation {
                         "Use {} spaces for indentation in a heredoc by using `<<~` instead of `<<-`.",
                         indentation_width,
                     ),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

@@ -38,12 +38,13 @@ impl Cop for SaveBang {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let _allow_implicit_return = config.get_bool("AllowImplicitReturn", true);
         let _allowed_receivers = config.get_string_array("AllowedReceivers");
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -52,12 +53,12 @@ impl Cop for SaveBang {
         let is_find_or_create = FIND_OR_CREATE_METHODS.contains(&method_name);
 
         if !is_persist && !is_find_or_create {
-            return Vec::new();
+            return;
         }
 
         // `destroy` with arguments is not a persistence method
         if method_name == b"destroy" && call.arguments().is_some() {
-            return Vec::new();
+            return;
         }
 
         // `save` or `update` with a string argument (not a hash) is not a persistence call
@@ -66,11 +67,11 @@ impl Cop for SaveBang {
                 let arg_list: Vec<_> = args.arguments().iter().collect();
                 // If has 2+ positional args (like Model.save(1, name: 'Tom')), skip
                 if method_name != b"create" && arg_list.len() >= 2 {
-                    return Vec::new();
+                    return;
                 }
                 // If single arg is a plain string, skip
                 if arg_list.len() == 1 && arg_list[0].as_string_node().is_some() {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -79,14 +80,14 @@ impl Cop for SaveBang {
 
         let msg_loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!(
                 "Use `{method_str}!` instead of `{method_str}` if the return value is not checked."
             ),
-        )]
+        ));
     }
 }
 

@@ -20,40 +20,41 @@ impl Cop for EmptyLambdaParameter {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Check LambdaNode for empty parameters: -> () {}
         let lambda_node = match node.as_lambda_node() {
             Some(l) => l,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if operator is -> (stabby lambda)
         let operator_loc = lambda_node.operator_loc();
         if operator_loc.as_slice() != b"->" {
-            return Vec::new();
+            return;
         }
 
         // Check parameters
         let params = match lambda_node.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         // For lambdas, parameters can be a BlockParametersNode
         // -> () {} would have a BlockParametersNode with opening_loc "(" and empty params
         let bp = match params.as_block_parameters_node() {
             Some(bp) => bp,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have parentheses as opening/closing
         let opening_loc = match bp.opening_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         if opening_loc.as_slice() != b"(" {
-            return Vec::new();
+            return;
         }
 
         // Parameters must be empty
@@ -66,17 +67,17 @@ impl Cop for EmptyLambdaParameter {
                 || inner_params.keyword_rest().is_some()
                 || inner_params.block().is_some();
             if has_params {
-                return Vec::new();
+                return;
             }
         }
 
         let (line, column) = source.offset_to_line_col(opening_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Omit parentheses for the empty lambda parameters.".to_string(),
-        )]
+        ));
     }
 }
 

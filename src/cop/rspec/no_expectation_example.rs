@@ -31,23 +31,24 @@ impl Cop for NoExpectationExample {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Config: AllowedPatterns — description patterns to exempt from this cop
         let allowed_patterns = config.get_string_array("AllowedPatterns");
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
         if !is_rspec_example(method_name) {
-            return Vec::new();
+            return;
         }
 
         // Skip `pending` and `skip` examples -- they intentionally have no expectations
         if method_name == b"pending" || method_name == b"skip" {
-            return Vec::new();
+            return;
         }
 
         // Check AllowedPatterns against the example description
@@ -66,7 +67,7 @@ impl Cop for NoExpectationExample {
                         for pat in patterns {
                             if let Ok(re) = regex::Regex::new(pat) {
                                 if re.is_match(desc) {
-                                    return Vec::new();
+                                    return;
                                 }
                             }
                         }
@@ -79,9 +80,9 @@ impl Cop for NoExpectationExample {
         let block = match call.block() {
             Some(b) => match b.as_block_node() {
                 Some(bn) => bn,
-                None => return Vec::new(),
+                None => return,
             },
-            None => return Vec::new(),
+            None => return,
         };
 
         // Build compiled allowed patterns for method-name matching
@@ -91,6 +92,7 @@ impl Cop for NoExpectationExample {
                 .iter()
                 .filter_map(|p| regex::Regex::new(p).ok())
                 .collect()
+
         } else {
             Vec::new()
         };
@@ -107,14 +109,13 @@ impl Cop for NoExpectationExample {
         if !finder.found {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "No expectation found in this example.".to_string(),
-            )]
-        } else {
-            Vec::new()
+            ));
+
         }
     }
 }

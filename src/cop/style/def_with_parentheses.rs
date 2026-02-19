@@ -20,16 +20,17 @@ impl Cop for DefWithParentheses {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check for empty parentheses — lparen_loc present but no parameters
         let lparen_loc = match def_node.lparen_loc() {
             Some(loc) => loc,
-            None => return Vec::new(),
+            None => return,
         };
 
         // If there are parameters, this is not our concern
@@ -42,7 +43,7 @@ impl Cop for DefWithParentheses {
                 || params.keyword_rest().is_some()
                 || params.block().is_some()
             {
-                return Vec::new();
+                return;
             }
         }
 
@@ -56,7 +57,7 @@ impl Cop for DefWithParentheses {
             let end_off = def_loc.end_offset().saturating_sub(1).max(def_loc.start_offset());
             let end_line = source.offset_to_line_col(end_off).0;
             if start_line == end_line {
-                return Vec::new();
+                return;
             }
         }
 
@@ -68,19 +69,19 @@ impl Cop for DefWithParentheses {
                 let src = source.as_bytes();
                 if rparen_end < src.len() && src[rparen_end] == b'=' {
                     // No space before `=`, don't flag
-                    return Vec::new();
+                    return;
                 }
             }
         }
 
         let (line, column) = source.offset_to_line_col(lparen_loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Omit the parentheses in defs when the method doesn't accept any arguments."
                 .to_string(),
-        )]
+        ));
     }
 }
 

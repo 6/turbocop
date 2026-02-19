@@ -24,12 +24,13 @@ impl Cop for SafeNavigation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let convert_try = config.get_bool("ConvertTry", false);
 
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let name = call.name().as_slice();
@@ -37,10 +38,10 @@ impl Cop for SafeNavigation {
         // Always flag try!
         // Only flag try when ConvertTry is true
         if name == b"try" && !convert_try {
-            return Vec::new();
+            return;
         }
         if name != b"try" && name != b"try!" {
-            return Vec::new();
+            return;
         }
 
         // First argument must be a symbol (method name to call).
@@ -48,19 +49,19 @@ impl Cop for SafeNavigation {
         // If it's a variable or other expression, safe navigation doesn't apply.
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let first_arg = match args.arguments().iter().next() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         if first_arg.as_symbol_node().is_none() {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
@@ -68,7 +69,7 @@ impl Cop for SafeNavigation {
                 "Use safe navigation (`&.`) instead of `{}`.",
                 String::from_utf8_lossy(name),
             ),
-        )]
+        ));
     }
 }
 

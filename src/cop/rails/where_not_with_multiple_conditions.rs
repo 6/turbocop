@@ -61,41 +61,42 @@ impl Cop for WhereNotWithMultipleConditions {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let chain = match util::as_method_chain(node) {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // outer must be `not`, inner must be `where`
         if chain.outer_method != b"not" || chain.inner_method != b"where" {
-            return Vec::new();
+            return;
         }
 
         // The `not` call must have hash arguments with multiple conditions
         let call = node.as_call_node().unwrap();
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         if !hash_has_multiple_pairs(&arg_list[0]) {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Use a SQL statement instead of `where.not` with multiple conditions.".to_string(),
-        )]
+        ));
     }
 }
 

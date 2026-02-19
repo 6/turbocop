@@ -20,37 +20,38 @@ impl Cop for ConcatArrayLiterals {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
         if method_name != "concat" {
-            return Vec::new();
+            return;
         }
 
         // Must have a receiver
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Must have arguments
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         if arg_list.is_empty() {
-            return Vec::new();
+            return;
         }
 
         // All arguments must be array literals
         let all_arrays = arg_list.iter().all(|arg| arg.as_array_node().is_some());
         if !all_arrays {
-            return Vec::new();
+            return;
         }
 
         let loc = call.message_loc().unwrap_or(call.location());
@@ -59,7 +60,7 @@ impl Cop for ConcatArrayLiterals {
         // Build a message about the elements
         let msg = "Use `push` with elements as arguments instead of `concat` with array brackets.";
 
-        vec![self.diagnostic(source, line, column, msg.to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, msg.to_string()));
     }
 }
 

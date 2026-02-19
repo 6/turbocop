@@ -52,10 +52,11 @@ impl Cop for RedundantRegexpEscape {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let re = match node.as_regular_expression_node() {
             Some(re) => re,
-            None => return Vec::new(),
+            None => return,
         };
         let content: Vec<u8> = re.content_loc().as_slice().to_vec();
         let node_loc = node.location();
@@ -78,7 +79,6 @@ impl Cop for RedundantRegexpEscape {
             Vec::new()
         };
 
-        let mut diagnostics = Vec::new();
         let mut i = 0;
         let mut in_char_class = false;
         let mut char_class_start: usize = 0;
@@ -152,7 +152,6 @@ impl Cop for RedundantRegexpEscape {
             i += 1;
         }
 
-        diagnostics
     }
 }
 

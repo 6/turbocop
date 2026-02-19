@@ -31,16 +31,17 @@ impl Cop for RedundantAround {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check for `around` method (with or without receiver like `config.around`)
         let method_name = call.name().as_slice();
         if method_name != b"around" {
-            return Vec::new();
+            return;
         }
 
         // Check for block-pass `around(&:run)`
@@ -52,58 +53,58 @@ impl Cop for RedundantAround {
                         if sym.unescaped() == b"run" {
                             let loc = node.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            return vec![self.diagnostic(
+                            diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 "Remove redundant `around` hook.".to_string(),
-                            )];
+                            ));
                         }
                     }
                 }
-                return Vec::new();
+                return;
             }
         }
 
         // Check for block form `around do |ex| ex.run end`
         let block = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let block_node = match block.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let body = match block_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmt_list: Vec<_> = stmts.body().iter().collect();
         if stmt_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         // The single statement should be `param.run` or `_1.run`
         let stmt = &stmt_list[0];
         let stmt_call = match stmt.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if stmt_call.name().as_slice() != b"run" {
-            return Vec::new();
+            return;
         }
 
         // The receiver should be the block parameter
         let recv = match stmt_call.receiver() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check if receiver is a local variable read (the block param)
@@ -119,17 +120,17 @@ impl Cop for RedundantAround {
         };
 
         if !is_block_param && !is_numbered_param {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Remove redundant `around` hook.".to_string(),
-        )]
+        ));
     }
 }
 

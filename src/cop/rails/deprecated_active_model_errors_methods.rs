@@ -32,7 +32,8 @@ impl Cop for DeprecatedActiveModelErrorsMethods {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Pattern 1: errors[:field] << 'msg'  /  errors[:field].clear  /  errors[:field] = []
         // Pattern 2: errors.messages[:field] << 'msg'  /  etc.
         // Pattern 3: errors.details[:field] << 'msg'  /  etc.
@@ -43,7 +44,7 @@ impl Cop for DeprecatedActiveModelErrorsMethods {
             None => {
                 // Check for assignment: errors[:name] = []
                 // This would be a CallNode with name `[]=` in Prism
-                return Vec::new();
+                return;
             }
         };
 
@@ -55,7 +56,7 @@ impl Cop for DeprecatedActiveModelErrorsMethods {
                 if is_errors_receiver(&recv) {
                     let loc = node.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(source, line, column, MSG.to_string())];
+                    diagnostics.push(self.diagnostic(source, line, column, MSG.to_string()));
                 }
             }
         }
@@ -67,7 +68,7 @@ impl Cop for DeprecatedActiveModelErrorsMethods {
                 if is_errors_bracket_access(&recv) {
                     let loc = node.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    return vec![self.diagnostic(source, line, column, MSG.to_string())];
+                    diagnostics.push(self.diagnostic(source, line, column, MSG.to_string()));
                 }
             }
         }
@@ -75,7 +76,6 @@ impl Cop for DeprecatedActiveModelErrorsMethods {
         // Pattern: errors[:name] = [] (Prism represents as `[]=` call)
         // Already handled above with `[]=` check
 
-        Vec::new()
     }
 }
 

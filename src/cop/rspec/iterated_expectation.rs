@@ -29,60 +29,61 @@ impl Cop for IteratedExpectation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Flag `.each { |x| expect(x)... }` — suggest using `all` matcher
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.name().as_slice() != b"each" {
-            return Vec::new();
+            return;
         }
 
         // Must have a receiver (the array/collection)
         if call.receiver().is_none() {
-            return Vec::new();
+            return;
         }
 
         // Must have a block with a parameter
         let block_raw = match call.block() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block = match block_raw.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have block parameters
         let params = match block.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let block_params = match params.as_block_parameters_node() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let inner_params = match block_params.parameters() {
             Some(p) => p,
-            None => return Vec::new(),
+            None => return,
         };
 
         let requireds: Vec<_> = inner_params.requireds().iter().collect();
         // RuboCop pattern requires exactly one block parameter: (args (arg $_))
         if requireds.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         // Check if the parameter starts with _ (unused)
         if let Some(first_param) = requireds.first() {
             if let Some(req) = first_param.as_required_parameter_node() {
                 if req.name().as_slice().starts_with(b"_") {
-                    return Vec::new();
+                    return;
                 }
             }
         }
@@ -90,7 +91,7 @@ impl Cop for IteratedExpectation {
         // Check if the block body is expect(block_param).to ...
         let body = match block.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Get block parameter name
@@ -98,10 +99,10 @@ impl Cop for IteratedExpectation {
             if let Some(req) = first_param.as_required_parameter_node() {
                 req.name().as_slice().to_vec()
             } else {
-                return Vec::new();
+                return;
             }
         } else {
-            return Vec::new();
+            return;
         };
 
         // RuboCop requires ALL statements in the block body to be
@@ -112,15 +113,14 @@ impl Cop for IteratedExpectation {
             let recv = call.receiver().unwrap();
             let loc = recv.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
                 "Prefer using the `all` matcher instead of iterating over an array.".to_string(),
-            )];
+            ));
         }
 
-        Vec::new()
     }
 }
 

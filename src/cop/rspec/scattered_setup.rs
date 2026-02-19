@@ -29,10 +29,11 @@ impl Cop for ScatteredSetup {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let method_name = call.name().as_slice();
@@ -44,31 +45,30 @@ impl Cop for ScatteredSetup {
         };
 
         if !is_example_group {
-            return Vec::new();
+            return;
         }
 
         let block = match call.block() {
             Some(b) => match b.as_block_node() {
                 Some(bn) => bn,
-                None => return Vec::new(),
+                None => return,
             },
-            None => return Vec::new(),
+            None => return,
         };
 
         let body = match block.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let stmts = match body.as_statements_node() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Collect all direct `before` hooks (same scope type) and flag duplicates
         let mut before_hooks: Vec<(usize, usize)> = Vec::new(); // (line, col)
         let mut after_hooks: Vec<(usize, usize)> = Vec::new();
-        let mut diagnostics = Vec::new();
 
         for stmt in stmts.body().iter() {
             let c = match stmt.as_call_node() {
@@ -139,7 +139,6 @@ impl Cop for ScatteredSetup {
             }
         }
 
-        diagnostics
     }
 }
 

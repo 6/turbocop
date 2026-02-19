@@ -28,32 +28,30 @@ impl Cop for RedundantRegexpQuantifiers {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let regexp = match node.as_regular_expression_node() {
             Some(r) => r,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check for interpolation — skip
         let raw_src = &source.as_bytes()
             [regexp.location().start_offset()..regexp.location().end_offset()];
         if raw_src.windows(2).any(|w| w == b"#{") {
-            return Vec::new();
+            return;
         }
 
         let content = regexp.unescaped();
         let content_str = match std::str::from_utf8(&content) {
             Ok(s) => s,
-            Err(_) => return Vec::new(),
+            Err(_) => return,
         };
-
-        let mut diagnostics = Vec::new();
 
         // Find redundant quantifiers: (?:...Q1)Q2 where both are greedy quantifiers
         // and the group contains only a single element with quantifier Q1
-        check_redundant_quantifiers(self, source, content_str, &regexp, &mut diagnostics);
+        check_redundant_quantifiers(self, source, content_str, &regexp, diagnostics);
 
-        diagnostics
     }
 }
 

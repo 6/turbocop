@@ -38,7 +38,8 @@ impl Cop for HaveHttpStatus {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         // Pattern: expect(response.status).to be(200)
         // AST: CallNode(receiver=CallNode(expect(CallNode(response.status))), name=to,
         //   args=[CallNode(be, args=[IntegerNode(200)])])
@@ -46,58 +47,58 @@ impl Cop for HaveHttpStatus {
         // We look for the runner call (to/not_to/to_not).
         let runner_call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let runner_name = runner_call.name().as_slice();
         if !RUNNERS.iter().any(|r| *r == runner_name) {
-            return Vec::new();
+            return;
         }
 
         // The receiver must be an expect(...) call
         let expect_call = match runner_call.receiver() {
             Some(r) => match r.as_call_node() {
                 Some(c) => c,
-                None => return Vec::new(),
+                None => return,
             },
-            None => return Vec::new(),
+            None => return,
         };
 
         if expect_call.name().as_slice() != b"expect" || expect_call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         // The argument to expect must be response.status or response.code
         let expect_args = match expect_call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let expect_arg_list: Vec<_> = expect_args.arguments().iter().collect();
         if expect_arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let response_status_call = match expect_arg_list[0].as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let accessor = response_status_call.name().as_slice();
         if accessor != b"status" && accessor != b"code" {
-            return Vec::new();
+            return;
         }
 
         // The receiver of .status/.code must be a response method
         let response_recv = match response_status_call.receiver() {
             Some(r) => match r.as_call_node() {
                 Some(c) => c,
-                None => return Vec::new(),
+                None => return,
             },
-            None => return Vec::new(),
+            None => return,
         };
 
         if response_recv.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         let response_method = std::str::from_utf8(response_recv.name().as_slice()).unwrap_or("");
@@ -105,41 +106,41 @@ impl Cop for HaveHttpStatus {
             .get_string_array("ResponseMethods")
             .unwrap_or_else(|| DEFAULT_RESPONSE_METHODS.iter().map(|s| s.to_string()).collect());
         if !response_methods.iter().any(|m| m == response_method) {
-            return Vec::new();
+            return;
         }
 
         // The runner argument must be a matcher call: be/eq/eql/equal with a numeric argument
         let runner_args = match runner_call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let runner_arg_list: Vec<_> = runner_args.arguments().iter().collect();
         if runner_arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let matcher_call = match runner_arg_list[0].as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         let matcher_name = matcher_call.name().as_slice();
         if !EQUALITY_MATCHERS.iter().any(|m| *m == matcher_name) {
-            return Vec::new();
+            return;
         }
 
         if matcher_call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         // Get the status argument
         let matcher_args = match matcher_call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
         let matcher_arg_list: Vec<_> = matcher_args.arguments().iter().collect();
         if matcher_arg_list.len() != 1 {
-            return Vec::new();
+            return;
         }
 
         let status_arg = &matcher_arg_list[0];
@@ -154,11 +155,11 @@ impl Cop for HaveHttpStatus {
             let s = std::str::from_utf8(content.as_ref()).unwrap_or("");
             // Must be purely numeric
             if !s.bytes().all(|b| b.is_ascii_digit()) || s.is_empty() {
-                return Vec::new();
+                return;
             }
             s.to_string()
         } else {
-            return Vec::new();
+            return;
         };
 
         let runner_str = std::str::from_utf8(runner_name).unwrap_or("to");
@@ -172,14 +173,14 @@ impl Cop for HaveHttpStatus {
         )
         .unwrap_or("...");
 
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             format!(
                 "Prefer `expect({response_method}).{runner_str} have_http_status({status_str})` over `{bad_code}`."
             ),
-        )]
+        ));
     }
 }
 

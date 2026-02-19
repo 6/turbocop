@@ -24,23 +24,24 @@ impl Cop for EnumHash {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let call = match node.as_call_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         if call.receiver().is_some() {
-            return Vec::new();
+            return;
         }
 
         if call.name().as_slice() != b"enum" {
-            return Vec::new();
+            return;
         }
 
         let args = match call.arguments() {
             Some(a) => a,
-            None => return Vec::new(),
+            None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
@@ -54,12 +55,12 @@ impl Cop for EnumHash {
                         if assoc.value().as_array_node().is_some() {
                             let loc = node.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            return vec![self.diagnostic(
+                            diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 "Use hash syntax for `enum` values: `enum status: { active: 0, archived: 1 }`.".to_string(),
-                            )];
+                            ));
                         }
                     }
                 }
@@ -72,16 +73,15 @@ impl Cop for EnumHash {
             if arg_list[1].as_array_node().is_some() {
                 let loc = node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                return vec![self.diagnostic(
+                diagnostics.push(self.diagnostic(
                     source,
                     line,
                     column,
                     "Use hash syntax for `enum` values: `enum status: { active: 0, archived: 1 }`.".to_string(),
-                )];
+                ));
             }
         }
 
-        Vec::new()
     }
 }
 

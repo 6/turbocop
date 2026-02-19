@@ -99,10 +99,11 @@ impl Cop for NestedMethodDefinition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let def_node = match node.as_def_node() {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         // AllowedMethods: skip offense if the enclosing method name is in the list
@@ -111,18 +112,18 @@ impl Cop for NestedMethodDefinition {
         let method_name = std::str::from_utf8(def_node.name().as_slice()).unwrap_or("");
         if let Some(allowed) = &allowed_methods {
             if allowed.iter().any(|m| m == method_name) {
-                return Vec::new();
+                return;
             }
         }
         if let Some(patterns) = &allowed_patterns {
             if patterns.iter().any(|p| method_name.contains(p.as_str())) {
-                return Vec::new();
+                return;
             }
         }
 
         let body = match def_node.body() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let mut finder = NestedDefFinder {
@@ -132,7 +133,7 @@ impl Cop for NestedMethodDefinition {
         };
         finder.visit(&body);
 
-        finder
+        diagnostics.extend(finder
             .found
             .iter()
             .map(|&offset| {
@@ -143,8 +144,7 @@ impl Cop for NestedMethodDefinition {
                     column,
                     "Method definitions must not be nested. Use `lambda` instead.".to_string(),
                 )
-            })
-            .collect()
+            }));
     }
 }
 

@@ -34,22 +34,23 @@ impl Cop for MailerName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let class_node = match node.as_class_node() {
             Some(c) => c,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Must have a superclass
         let superclass = match class_node.superclass() {
             Some(s) => s,
-            None => return Vec::new(),
+            None => return,
         };
 
         // Check superclass is a mailer base
         let superclass_name = util::full_constant_path(source, &superclass);
         if !MAILER_BASES.iter().any(|base| *base == superclass_name) {
-            return Vec::new();
+            return;
         }
 
         // Get class name and check if it ends with "Mailer"
@@ -60,17 +61,17 @@ impl Cop for MailerName {
         // Get the last segment of the class name
         let last_segment = class_name_str.rsplit("::").next().unwrap_or(class_name_str);
         if last_segment.ends_with("Mailer") {
-            return Vec::new();
+            return;
         }
 
         let loc = class_name_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        diagnostics.push(self.diagnostic(
             source,
             line,
             column,
             "Mailer should end with `Mailer` suffix.".to_string(),
-        )]
+        ));
     }
 }
 

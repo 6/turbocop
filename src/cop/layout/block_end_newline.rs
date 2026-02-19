@@ -20,10 +20,11 @@ impl Cop for BlockEndNewline {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let block_node = match node.as_block_node() {
             Some(b) => b,
-            None => return Vec::new(),
+            None => return,
         };
 
         let opening_loc = block_node.opening_loc();
@@ -34,7 +35,7 @@ impl Cop for BlockEndNewline {
 
         // Single line block — no offense
         if open_line == close_line {
-            return Vec::new();
+            return;
         }
 
         // Check if `end` or `}` begins its line (only whitespace before it)
@@ -49,7 +50,7 @@ impl Cop for BlockEndNewline {
         let begins_line = before_close.iter().all(|&b| b == b' ' || b == b'\t');
 
         if !begins_line {
-            return vec![self.diagnostic(
+            diagnostics.push(self.diagnostic(
                 source,
                 close_line,
                 close_col,
@@ -58,10 +59,10 @@ impl Cop for BlockEndNewline {
                     close_line,
                     close_col + 1
                 ),
-            )];
+            ));
+            return;
         }
 
-        Vec::new()
     }
 }
 

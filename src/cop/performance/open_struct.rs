@@ -26,19 +26,20 @@ impl Cop for OpenStruct {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    ) -> Vec<Diagnostic> {
+    diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let name = match constant_name(node) {
             Some(n) => n,
-            None => return Vec::new(),
+            None => return,
         };
 
         if name != b"OpenStruct" {
-            return Vec::new();
+            return;
         }
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(source, line, column, "Use `Struct` instead of `OpenStruct`.".to_string())]
+        diagnostics.push(self.diagnostic(source, line, column, "Use `Struct` instead of `OpenStruct`.".to_string()));
     }
 }
 
