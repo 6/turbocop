@@ -10,3 +10,7 @@ target/
 bench/repos/
 bench/results/
 bench/conform.json
+
+# Ruby / Gems
+*.gem
+Gemfile.lock
