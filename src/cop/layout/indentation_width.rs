@@ -2,6 +2,7 @@ use crate::cop::util::expected_indent_for_body;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, IF_NODE, MODULE_NODE, STATEMENTS_NODE, UNTIL_NODE, WHEN_NODE, WHILE_NODE};
 
 pub struct IndentationWidth;
 
@@ -134,6 +135,10 @@ fn base_col_from_end(
 impl Cop for IndentationWidth {
     fn name(&self) -> &'static str {
         "Layout/IndentationWidth"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, IF_NODE, MODULE_NODE, STATEMENTS_NODE, UNTIL_NODE, WHEN_NODE, WHILE_NODE]
     }
 
     fn check_node(

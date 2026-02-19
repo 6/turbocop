@@ -2,6 +2,7 @@ use crate::cop::util::indentation_of;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::ARRAY_NODE;
 
 pub struct FirstArrayElementIndentation;
 
@@ -84,6 +85,10 @@ fn is_direct_argument(source_bytes: &[u8], closing_end_offset: usize) -> bool {
 impl Cop for FirstArrayElementIndentation {
     fn name(&self) -> &'static str {
         "Layout/FirstArrayElementIndentation"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ARRAY_NODE]
     }
 
     fn check_node(

@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::ARRAY_NODE;
 
 pub struct SpaceInsideArrayLiteralBrackets;
 
 impl Cop for SpaceInsideArrayLiteralBrackets {
     fn name(&self) -> &'static str {
         "Layout/SpaceInsideArrayLiteralBrackets"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ARRAY_NODE]
     }
 
     fn check_node(

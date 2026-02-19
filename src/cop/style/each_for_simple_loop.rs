@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, INTEGER_NODE, PARENTHESES_NODE, RANGE_NODE, STATEMENTS_NODE};
 
 pub struct EachForSimpleLoop;
 
 impl Cop for EachForSimpleLoop {
     fn name(&self) -> &'static str {
         "Style/EachForSimpleLoop"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, INTEGER_NODE, PARENTHESES_NODE, RANGE_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

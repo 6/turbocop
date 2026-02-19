@@ -2,6 +2,7 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use std::collections::HashMap;
+use crate::cop::node_type::{ARRAY_NODE, INTERPOLATED_REGULAR_EXPRESSION_NODE, INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, INTERPOLATED_X_STRING_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE, SYMBOL_NODE, X_STRING_NODE};
 
 pub struct PercentLiteralDelimiters;
 
@@ -83,6 +84,10 @@ impl PercentLiteralDelimiters {
 impl Cop for PercentLiteralDelimiters {
     fn name(&self) -> &'static str {
         "Style/PercentLiteralDelimiters"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ARRAY_NODE, INTERPOLATED_REGULAR_EXPRESSION_NODE, INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, INTERPOLATED_X_STRING_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE, SYMBOL_NODE, X_STRING_NODE]
     }
 
     fn check_node(

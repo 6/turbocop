@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, WHILE_NODE};
 
 pub struct NegatedWhile;
 
 impl Cop for NegatedWhile {
     fn name(&self) -> &'static str {
         "Style/NegatedWhile"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, WHILE_NODE]
     }
 
     fn check_node(

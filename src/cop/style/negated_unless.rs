@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, UNLESS_NODE};
 
 pub struct NegatedUnless;
 
 impl Cop for NegatedUnless {
     fn name(&self) -> &'static str {
         "Style/NegatedUnless"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, UNLESS_NODE]
     }
 
     fn check_node(

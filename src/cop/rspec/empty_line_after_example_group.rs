@@ -2,6 +2,7 @@ use crate::cop::util::{is_blank_line, is_rspec_example_group, line_at, RSPEC_DEF
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::CALL_NODE;
 
 pub struct EmptyLineAfterExampleGroup;
 
@@ -16,6 +17,10 @@ impl Cop for EmptyLineAfterExampleGroup {
 
     fn default_include(&self) -> &'static [&'static str] {
         RSPEC_DEFAULT_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE]
     }
 
     fn check_node(

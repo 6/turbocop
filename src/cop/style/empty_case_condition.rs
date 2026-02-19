@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::CASE_NODE;
 
 pub struct EmptyCaseCondition;
 
 impl Cop for EmptyCaseCondition {
     fn name(&self) -> &'static str {
         "Style/EmptyCaseCondition"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CASE_NODE]
     }
 
     fn check_node(

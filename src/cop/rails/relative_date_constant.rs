@@ -2,6 +2,7 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
+use crate::cop::node_type::{CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE};
 
 pub struct RelativeDateConstant;
 
@@ -26,6 +27,10 @@ impl Cop for RelativeDateConstant {
 
     fn default_severity(&self) -> Severity {
         Severity::Convention
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE]
     }
 
     fn check_node(

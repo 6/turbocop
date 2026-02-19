@@ -2,6 +2,7 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
+use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, BREAK_NODE, CALL_NODE, CASE_NODE, ELSE_NODE, EMBEDDED_STATEMENTS_NODE, IF_NODE, INTERPOLATED_STRING_NODE, LOCAL_VARIABLE_READ_NODE, NEXT_NODE, NUMBERED_PARAMETERS_NODE, PARENTHESES_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, UNLESS_NODE, WHEN_NODE};
 
 pub struct UnmodifiedReduceAccumulator;
 
@@ -16,6 +17,10 @@ impl Cop for UnmodifiedReduceAccumulator {
 
     fn default_enabled(&self) -> bool {
         false
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, BREAK_NODE, CALL_NODE, CASE_NODE, ELSE_NODE, EMBEDDED_STATEMENTS_NODE, IF_NODE, INTERPOLATED_STRING_NODE, LOCAL_VARIABLE_READ_NODE, NEXT_NODE, NUMBERED_PARAMETERS_NODE, PARENTHESES_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, UNLESS_NODE, WHEN_NODE]
     }
 
     fn check_node(

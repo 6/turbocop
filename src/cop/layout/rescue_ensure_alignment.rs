@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BEGIN_NODE, DEF_NODE, RESCUE_NODE};
 
 pub struct RescueEnsureAlignment;
 
 impl Cop for RescueEnsureAlignment {
     fn name(&self) -> &'static str {
         "Layout/RescueEnsureAlignment"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BEGIN_NODE, DEF_NODE, RESCUE_NODE]
     }
 
     fn check_node(

@@ -2,6 +2,7 @@ use crate::cop::util::assignment_context_base_col;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CASE_NODE, CLASS_NODE, IF_NODE, MODULE_NODE, UNTIL_NODE, WHILE_NODE};
 
 pub struct EndAlignment;
 
@@ -35,6 +36,10 @@ fn line_indent(source: &SourceFile, offset: usize) -> usize {
 impl Cop for EndAlignment {
     fn name(&self) -> &'static str {
         "Layout/EndAlignment"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CASE_NODE, CLASS_NODE, IF_NODE, MODULE_NODE, UNTIL_NODE, WHILE_NODE]
     }
 
     fn check_node(

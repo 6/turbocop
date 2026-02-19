@@ -2,6 +2,7 @@ use crate::cop::util::{self, is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, CLASS_NODE, CONSTANT_READ_NODE, CONSTANT_WRITE_NODE, MODULE_NODE, STATEMENTS_NODE};
 
 pub struct LeakyConstantDeclaration;
 
@@ -18,6 +19,10 @@ impl Cop for LeakyConstantDeclaration {
 
     fn default_include(&self) -> &'static [&'static str] {
         RSPEC_DEFAULT_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, CALL_NODE, CLASS_NODE, CONSTANT_READ_NODE, CONSTANT_WRITE_NODE, MODULE_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

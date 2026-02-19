@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, INTEGER_NODE, PARENTHESES_NODE, STATEMENTS_NODE};
 
 pub struct BitwisePredicate;
 
 impl Cop for BitwisePredicate {
     fn name(&self) -> &'static str {
         "Style/BitwisePredicate"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, INTEGER_NODE, PARENTHESES_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, INTERPOLATED_REGULAR_EXPRESSION_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, REGULAR_EXPRESSION_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE};
 
 pub struct SelectByRegexp;
 
@@ -81,6 +82,10 @@ impl SelectByRegexp {
 impl Cop for SelectByRegexp {
     fn name(&self) -> &'static str {
         "Style/SelectByRegexp"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, INTERPOLATED_REGULAR_EXPRESSION_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, REGULAR_EXPRESSION_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

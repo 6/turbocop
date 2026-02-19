@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, ELSE_NODE, IF_NODE, TRUE_NODE};
 
 pub struct RedundantCondition;
 
@@ -26,6 +27,10 @@ impl RedundantCondition {
 impl Cop for RedundantCondition {
     fn name(&self) -> &'static str {
         "Style/RedundantCondition"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, ELSE_NODE, IF_NODE, TRUE_NODE]
     }
 
     fn check_node(

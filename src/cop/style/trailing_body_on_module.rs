@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::MODULE_NODE;
 
 pub struct TrailingBodyOnModule;
 
 impl Cop for TrailingBodyOnModule {
     fn name(&self) -> &'static str {
         "Style/TrailingBodyOnModule"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[MODULE_NODE]
     }
 
     fn check_node(

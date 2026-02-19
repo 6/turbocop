@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE, FLOAT_NODE, IF_NODE, INTEGER_NODE, NIL_NODE, OR_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE};
 
 pub struct CaseLikeIf;
 
 impl Cop for CaseLikeIf {
     fn name(&self) -> &'static str {
         "Style/CaseLikeIf"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE, FLOAT_NODE, IF_NODE, INTEGER_NODE, NIL_NODE, OR_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE]
     }
 
     fn check_node(

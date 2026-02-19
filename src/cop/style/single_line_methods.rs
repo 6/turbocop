@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{DEF_NODE, STATEMENTS_NODE};
 
 pub struct SingleLineMethods;
 
 impl Cop for SingleLineMethods {
     fn name(&self) -> &'static str {
         "Style/SingleLineMethods"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[DEF_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

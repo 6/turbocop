@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{DEFINED_NODE, INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, STRING_NODE, SYMBOL_NODE};
 
 /// Checks for calls to `defined?` with strings or symbols as the argument.
 /// Such calls will always return `'expression'`.
@@ -13,6 +14,10 @@ impl Cop for UselessDefined {
 
     fn default_severity(&self) -> Severity {
         Severity::Warning
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[DEFINED_NODE, INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, STRING_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

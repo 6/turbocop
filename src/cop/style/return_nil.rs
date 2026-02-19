@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{NIL_NODE, RETURN_NODE};
 
 pub struct ReturnNil;
 
 impl Cop for ReturnNil {
     fn name(&self) -> &'static str {
         "Style/ReturnNil"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[NIL_NODE, RETURN_NODE]
     }
 
     fn check_node(

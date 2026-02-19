@@ -2,6 +2,7 @@ use crate::cop::util::{class_body_calls, has_keyword_arg, is_dsl_call};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CLASS_NODE, LAMBDA_NODE};
 
 pub struct InverseOf;
 
@@ -12,6 +13,10 @@ impl Cop for InverseOf {
 
     fn default_severity(&self) -> Severity {
         Severity::Convention
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CLASS_NODE, LAMBDA_NODE]
     }
 
     fn check_node(

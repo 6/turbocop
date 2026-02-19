@@ -2,6 +2,7 @@ use crate::cop::util::{is_dsl_call, keyword_arg_value};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ARRAY_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 
 pub struct AttributeDefaultBlockValue;
 
@@ -12,6 +13,10 @@ impl Cop for AttributeDefaultBlockValue {
 
     fn default_severity(&self) -> Severity {
         Severity::Convention
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ARRAY_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE]
     }
 
     fn check_node(

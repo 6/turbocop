@@ -2,6 +2,7 @@ use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::CALL_NODE;
 
 pub struct EnvironmentComparison;
 
@@ -29,6 +30,10 @@ impl Cop for EnvironmentComparison {
 
     fn default_severity(&self) -> Severity {
         Severity::Convention
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE]
     }
 
     fn check_node(

@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ASSOC_NODE, HASH_NODE, IMPLICIT_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, SYMBOL_NODE};
 
 pub struct HashSyntax;
 
 impl Cop for HashSyntax {
     fn name(&self) -> &'static str {
         "Style/HashSyntax"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ASSOC_NODE, HASH_NODE, IMPLICIT_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{AND_NODE, IF_NODE, OR_NODE, UNLESS_NODE, UNTIL_NODE, WHILE_NODE};
 
 pub struct AndOr;
 
 impl Cop for AndOr {
     fn name(&self) -> &'static str {
         "Style/AndOr"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[AND_NODE, IF_NODE, OR_NODE, UNLESS_NODE, UNTIL_NODE, WHILE_NODE]
     }
 
     fn check_node(

@@ -13,6 +13,7 @@ pub mod rspec;
 pub mod rspec_rails;
 pub mod security;
 pub mod style;
+pub mod node_type;
 pub mod util;
 pub mod walker;
 
@@ -212,6 +213,13 @@ pub trait Cop: Send + Sync {
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
         Vec::new()
+    }
+
+    /// Node types this cop handles in `check_node`.
+    /// Return a non-empty slice to opt into selective dispatch (only called for
+    /// matching node types). Return `&[]` to be called for every node (default).
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[]
     }
 
     /// Node-based check — called for every AST node during traversal.

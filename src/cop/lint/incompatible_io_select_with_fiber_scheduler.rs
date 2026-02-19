@@ -2,6 +2,7 @@ use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ARRAY_NODE, CALL_NODE, NIL_NODE};
 
 /// Checks for `IO.select` that is incompatible with Fiber Scheduler.
 /// Suggests using `io.wait_readable` or `io.wait_writable` instead.
@@ -14,6 +15,10 @@ impl Cop for IncompatibleIoSelectWithFiberScheduler {
 
     fn default_severity(&self) -> Severity {
         Severity::Warning
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ARRAY_NODE, CALL_NODE, NIL_NODE]
     }
 
     fn check_node(

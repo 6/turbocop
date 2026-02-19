@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, INTEGER_NODE};
 
 pub struct ZeroLengthPredicate;
 
@@ -36,6 +37,10 @@ impl ZeroLengthPredicate {
 impl Cop for ZeroLengthPredicate {
     fn name(&self) -> &'static str {
         "Style/ZeroLengthPredicate"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, INTEGER_NODE]
     }
 
     fn check_node(

@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, CLASS_VARIABLE_AND_WRITE_NODE, CLASS_VARIABLE_OPERATOR_WRITE_NODE, CLASS_VARIABLE_OR_WRITE_NODE, CLASS_VARIABLE_WRITE_NODE};
 
 pub struct ClassVars;
 
 impl Cop for ClassVars {
     fn name(&self) -> &'static str {
         "Style/ClassVars"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, CLASS_VARIABLE_AND_WRITE_NODE, CLASS_VARIABLE_OPERATOR_WRITE_NODE, CLASS_VARIABLE_OR_WRITE_NODE, CLASS_VARIABLE_WRITE_NODE]
     }
 
     fn check_node(

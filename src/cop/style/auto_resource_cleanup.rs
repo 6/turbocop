@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 
 pub struct AutoResourceCleanup;
 
@@ -18,6 +19,10 @@ fn is_resource_class(node: &ruby_prism::Node<'_>) -> bool {
 impl Cop for AutoResourceCleanup {
     fn name(&self) -> &'static str {
         "Style/AutoResourceCleanup"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_ARGUMENT_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE]
     }
 
     fn check_node(

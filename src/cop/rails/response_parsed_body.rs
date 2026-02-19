@@ -2,6 +2,7 @@ use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE};
 
 pub struct ResponseParsedBody;
 
@@ -21,6 +22,10 @@ impl Cop for ResponseParsedBody {
             "test/controllers/**/*.rb",
             "test/integration/**/*.rb",
         ]
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, CONSTANT_PATH_NODE]
     }
 
     fn check_node(

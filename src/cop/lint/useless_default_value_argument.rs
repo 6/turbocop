@@ -2,6 +2,7 @@ use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, KEYWORD_HASH_NODE};
 
 /// Checks for `fetch` or `Array.new` with both a default value argument and a block.
 /// The block always supersedes the default value argument.
@@ -14,6 +15,10 @@ impl Cop for UselessDefaultValueArgument {
 
     fn default_severity(&self) -> Severity {
         Severity::Warning
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, KEYWORD_HASH_NODE]
     }
 
     fn check_node(

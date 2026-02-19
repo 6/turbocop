@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_PARAMETERS_NODE, LAMBDA_NODE};
 
 pub struct EmptyLambdaParameter;
 
 impl Cop for EmptyLambdaParameter {
     fn name(&self) -> &'static str {
         "Style/EmptyLambdaParameter"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_PARAMETERS_NODE, LAMBDA_NODE]
     }
 
     fn check_node(

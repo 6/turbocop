@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{INTERPOLATED_STRING_NODE, STRING_NODE};
 
 pub struct SquishedSQLHeredocs;
 
@@ -33,6 +34,10 @@ impl Cop for SquishedSQLHeredocs {
 
     fn default_severity(&self) -> Severity {
         Severity::Convention
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[INTERPOLATED_STRING_NODE, STRING_NODE]
     }
 
     fn check_node(

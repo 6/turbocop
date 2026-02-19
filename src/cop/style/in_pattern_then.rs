@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::IN_NODE;
 
 pub struct InPatternThen;
 
 impl Cop for InPatternThen {
     fn name(&self) -> &'static str {
         "Style/InPatternThen"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[IN_NODE]
     }
 
     fn check_node(

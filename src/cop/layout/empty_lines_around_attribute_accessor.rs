@@ -2,6 +2,7 @@ use crate::cop::util::is_blank_line;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::CALL_NODE;
 
 pub struct EmptyLinesAroundAttributeAccessor;
 
@@ -17,6 +18,10 @@ const DEFAULT_ALLOWED_METHODS: &[&str] = &["alias_method", "public", "protected"
 impl Cop for EmptyLinesAroundAttributeAccessor {
     fn name(&self) -> &'static str {
         "Layout/EmptyLinesAroundAttributeAccessor"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE]
     }
 
     fn check_node(

@@ -2,6 +2,7 @@ use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, CLASS_NODE, MODULE_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE};
 
 pub struct AccessModifierIndentation;
 
@@ -10,6 +11,10 @@ const ACCESS_MODIFIERS: &[&[u8]] = &[b"private", b"protected", b"public", b"modu
 impl Cop for AccessModifierIndentation {
     fn name(&self) -> &'static str {
         "Layout/AccessModifierIndentation"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, CLASS_NODE, MODULE_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

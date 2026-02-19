@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, FALSE_NODE, INTEGER_NODE, STRING_NODE, TRUE_NODE};
 
 pub struct RedundantArgument;
 
 impl Cop for RedundantArgument {
     fn name(&self) -> &'static str {
         "Style/RedundantArgument"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, FALSE_NODE, INTEGER_NODE, STRING_NODE, TRUE_NODE]
     }
 
     fn check_node(

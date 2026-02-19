@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, DEF_NODE, SYMBOL_NODE};
 
 pub struct PredicatePrefix;
 
@@ -61,6 +62,10 @@ impl PredicatePrefix {
 impl Cop for PredicatePrefix {
     fn name(&self) -> &'static str {
         "Naming/PredicatePrefix"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, DEF_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

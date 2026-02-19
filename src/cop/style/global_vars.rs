@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{GLOBAL_VARIABLE_AND_WRITE_NODE, GLOBAL_VARIABLE_OPERATOR_WRITE_NODE, GLOBAL_VARIABLE_OR_WRITE_NODE, GLOBAL_VARIABLE_READ_NODE, GLOBAL_VARIABLE_WRITE_NODE};
 
 pub struct GlobalVars;
 
@@ -25,6 +26,10 @@ const BUILTIN_GLOBALS: &[&[u8]] = &[
 impl Cop for GlobalVars {
     fn name(&self) -> &'static str {
         "Style/GlobalVars"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[GLOBAL_VARIABLE_AND_WRITE_NODE, GLOBAL_VARIABLE_OPERATOR_WRITE_NODE, GLOBAL_VARIABLE_OR_WRITE_NODE, GLOBAL_VARIABLE_READ_NODE, GLOBAL_VARIABLE_WRITE_NODE]
     }
 
     fn check_node(

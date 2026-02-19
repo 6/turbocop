@@ -3,6 +3,7 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use std::collections::HashSet;
+use crate::cop::node_type::{ARRAY_NODE, CALL_NODE, CLASS_VARIABLE_READ_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE, FLOAT_NODE, GLOBAL_VARIABLE_READ_NODE, INSTANCE_VARIABLE_READ_NODE, INTEGER_NODE, LOCAL_VARIABLE_READ_NODE, NIL_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE};
 
 /// Checks for duplicate literal, constant, or variable elements in Set.
 pub struct DuplicateSetElement;
@@ -14,6 +15,10 @@ impl Cop for DuplicateSetElement {
 
     fn default_severity(&self) -> Severity {
         Severity::Warning
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ARRAY_NODE, CALL_NODE, CLASS_VARIABLE_READ_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE, FLOAT_NODE, GLOBAL_VARIABLE_READ_NODE, INSTANCE_VARIABLE_READ_NODE, INTEGER_NODE, LOCAL_VARIABLE_READ_NODE, NIL_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE]
     }
 
     fn check_node(

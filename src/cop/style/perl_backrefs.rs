@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BACK_REFERENCE_READ_NODE, NUMBERED_REFERENCE_READ_NODE};
 
 pub struct PerlBackrefs;
 
 impl Cop for PerlBackrefs {
     fn name(&self) -> &'static str {
         "Style/PerlBackrefs"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BACK_REFERENCE_READ_NODE, NUMBERED_REFERENCE_READ_NODE]
     }
 
     fn check_node(

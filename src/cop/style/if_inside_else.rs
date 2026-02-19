@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ELSE_NODE, IF_NODE};
 
 pub struct IfInsideElse;
 
 impl Cop for IfInsideElse {
     fn name(&self) -> &'static str {
         "Style/IfInsideElse"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ELSE_NODE, IF_NODE]
     }
 
     fn check_node(

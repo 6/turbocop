@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ASSOC_NODE, HASH_NODE, KEYWORD_HASH_NODE, STRING_NODE};
 
 pub struct StringHashKeys;
 
 impl Cop for StringHashKeys {
     fn name(&self) -> &'static str {
         "Style/StringHashKeys"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ASSOC_NODE, HASH_NODE, KEYWORD_HASH_NODE, STRING_NODE]
     }
 
     fn check_node(

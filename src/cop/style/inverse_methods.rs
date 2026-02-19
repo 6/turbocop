@@ -2,6 +2,7 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use std::collections::HashMap;
+use crate::cop::node_type::{CALL_NODE, PARENTHESES_NODE, STATEMENTS_NODE};
 
 pub struct InverseMethods;
 
@@ -66,6 +67,10 @@ impl InverseMethods {
 impl Cop for InverseMethods {
     fn name(&self) -> &'static str {
         "Style/InverseMethods"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, PARENTHESES_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

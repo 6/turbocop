@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, REGULAR_EXPRESSION_NODE};
 
 pub struct RedundantRegexpArgument;
 
@@ -19,6 +20,10 @@ const TARGET_METHODS: &[&[u8]] = &[
 impl Cop for RedundantRegexpArgument {
     fn name(&self) -> &'static str {
         "Style/RedundantRegexpArgument"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, REGULAR_EXPRESSION_NODE]
     }
 
     fn check_node(

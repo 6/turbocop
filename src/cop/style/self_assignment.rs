@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{AND_NODE, CALL_NODE, CLASS_VARIABLE_READ_NODE, CLASS_VARIABLE_WRITE_NODE, INSTANCE_VARIABLE_READ_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE};
 
 pub struct SelfAssignment;
 
@@ -39,6 +40,10 @@ impl SelfAssignment {
 impl Cop for SelfAssignment {
     fn name(&self) -> &'static str {
         "Style/SelfAssignment"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[AND_NODE, CALL_NODE, CLASS_VARIABLE_READ_NODE, CLASS_VARIABLE_WRITE_NODE, INSTANCE_VARIABLE_READ_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE]
     }
 
     fn check_node(

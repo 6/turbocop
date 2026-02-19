@@ -2,6 +2,7 @@ use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ARRAY_NODE, CALL_NODE, FLOAT_NODE, HASH_NODE, IMAGINARY_NODE, INTEGER_NODE, INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, KEYWORD_HASH_NODE, RATIONAL_NODE, STRING_NODE, SYMBOL_NODE};
 
 /// Checks for redundant type conversions like `"text".to_s`, `:sym.to_sym`,
 /// `42.to_i`, `[].to_a`, etc.
@@ -14,6 +15,10 @@ impl Cop for RedundantTypeConversion {
 
     fn default_severity(&self) -> Severity {
         Severity::Warning
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ARRAY_NODE, CALL_NODE, FLOAT_NODE, HASH_NODE, IMAGINARY_NODE, INTEGER_NODE, INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, KEYWORD_HASH_NODE, RATIONAL_NODE, STRING_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

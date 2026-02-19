@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{DEF_NODE, REQUIRED_PARAMETER_NODE};
 
 pub struct BinaryOperatorParameterName;
 
@@ -19,6 +20,10 @@ const EXCLUDED_OPERATORS: &[&[u8]] = &[
 impl Cop for BinaryOperatorParameterName {
     fn name(&self) -> &'static str {
         "Naming/BinaryOperatorParameterName"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[DEF_NODE, REQUIRED_PARAMETER_NODE]
     }
 
     fn check_node(

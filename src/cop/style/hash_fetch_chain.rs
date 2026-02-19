@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, NIL_NODE};
 
 pub struct HashFetchChain;
 
@@ -40,6 +41,10 @@ impl HashFetchChain {
 impl Cop for HashFetchChain {
     fn name(&self) -> &'static str {
         "Style/HashFetchChain"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, NIL_NODE]
     }
 
     fn check_node(

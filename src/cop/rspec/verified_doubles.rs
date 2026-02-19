@@ -2,6 +2,7 @@ use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, KEYWORD_HASH_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct VerifiedDoubles;
 
@@ -18,6 +19,10 @@ impl Cop for VerifiedDoubles {
 
     fn default_include(&self) -> &'static [&'static str] {
         RSPEC_DEFAULT_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, KEYWORD_HASH_NODE, STRING_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

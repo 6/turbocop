@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ARRAY_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 
 pub struct MultipleRoutePaths;
 
@@ -19,6 +20,10 @@ impl Cop for MultipleRoutePaths {
 
     fn default_include(&self) -> &'static [&'static str] {
         &["**/config/routes.rb", "**/config/routes/**/*.rb"]
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ARRAY_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE]
     }
 
     fn check_node(

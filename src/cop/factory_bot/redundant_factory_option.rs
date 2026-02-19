@@ -2,6 +2,7 @@ use crate::cop::factory_bot::FACTORY_BOT_SPEC_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ARRAY_NODE, ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE};
 
 pub struct RedundantFactoryOption;
 
@@ -16,6 +17,10 @@ impl Cop for RedundantFactoryOption {
 
     fn default_include(&self) -> &'static [&'static str] {
         FACTORY_BOT_SPEC_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ARRAY_NODE, ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

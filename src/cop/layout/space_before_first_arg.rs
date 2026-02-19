@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::CALL_NODE;
 
 pub struct SpaceBeforeFirstArg;
 
@@ -28,6 +29,10 @@ fn is_setter_method(name: &[u8]) -> bool {
 impl Cop for SpaceBeforeFirstArg {
     fn name(&self) -> &'static str {
         "Layout/SpaceBeforeFirstArg"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE]
     }
 
     fn check_node(

@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::WHEN_NODE;
 
 pub struct MultilineWhenThen;
 
 impl Cop for MultilineWhenThen {
     fn name(&self) -> &'static str {
         "Style/MultilineWhenThen"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[WHEN_NODE]
     }
 
     fn check_node(

@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::REGULAR_EXPRESSION_NODE;
 
 pub struct RedundantRegexpQuantifiers;
 
@@ -15,6 +16,10 @@ impl Cop for RedundantRegexpQuantifiers {
 
     fn default_enabled(&self) -> bool {
         false
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[REGULAR_EXPRESSION_NODE]
     }
 
     fn check_node(

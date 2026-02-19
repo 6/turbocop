@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::SYMBOL_NODE;
 
 pub struct SymbolLiteral;
 
 impl Cop for SymbolLiteral {
     fn name(&self) -> &'static str {
         "Style/SymbolLiteral"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[SYMBOL_NODE]
     }
 
     fn check_node(

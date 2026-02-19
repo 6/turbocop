@@ -2,6 +2,7 @@ use crate::cop::util::{is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, PROGRAM_NODE};
 
 /// RSpec/MultipleDescribes: Flag multiple top-level example groups in a single file.
 pub struct MultipleDescribes;
@@ -17,6 +18,10 @@ impl Cop for MultipleDescribes {
 
     fn default_include(&self) -> &'static [&'static str] {
         RSPEC_DEFAULT_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, PROGRAM_NODE]
     }
 
     fn check_node(

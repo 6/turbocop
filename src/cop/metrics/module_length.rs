@@ -2,6 +2,7 @@ use crate::cop::util::{count_body_lines_full, collect_foldable_ranges};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CLASS_NODE, MODULE_NODE, STATEMENTS_NODE};
 
 pub struct ModuleLength;
 
@@ -53,6 +54,10 @@ fn inner_classlike_ranges(source: &SourceFile, body: &ruby_prism::Node<'_>) -> V
 impl Cop for ModuleLength {
     fn name(&self) -> &'static str {
         "Metrics/ModuleLength"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CLASS_NODE, MODULE_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

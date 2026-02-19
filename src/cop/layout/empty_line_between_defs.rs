@@ -2,6 +2,7 @@ use crate::cop::util::line_at;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, CLASS_NODE, DEF_NODE, MODULE_NODE};
 
 pub struct EmptyLineBetweenDefs;
 
@@ -47,6 +48,10 @@ fn is_comment_line(line: &[u8]) -> bool {
 impl Cop for EmptyLineBetweenDefs {
     fn name(&self) -> &'static str {
         "Layout/EmptyLineBetweenDefs"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, CLASS_NODE, DEF_NODE, MODULE_NODE]
     }
 
     fn check_node(

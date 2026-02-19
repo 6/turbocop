@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::GLOBAL_VARIABLE_READ_NODE;
 
 pub struct SpecialGlobalVars;
 
@@ -57,6 +58,10 @@ fn english_to_perl(name: &[u8]) -> Option<&'static str> {
 impl Cop for SpecialGlobalVars {
     fn name(&self) -> &'static str {
         "Style/SpecialGlobalVars"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[GLOBAL_VARIABLE_READ_NODE]
     }
 
     fn check_node(

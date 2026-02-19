@@ -2,6 +2,7 @@ use crate::cop::util::is_blank_line;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::CALL_NODE;
 
 pub struct EmptyLinesAroundAccessModifier;
 
@@ -79,6 +80,10 @@ fn is_end_line(line: &[u8]) -> bool {
 impl Cop for EmptyLinesAroundAccessModifier {
     fn name(&self) -> &'static str {
         "Layout/EmptyLinesAroundAccessModifier"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE]
     }
 
     fn check_node(

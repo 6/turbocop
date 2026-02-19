@@ -3,6 +3,7 @@ use ruby_prism::Visit;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETER_NODE, CALL_NODE, CASE_NODE, DEF_NODE, ELSE_NODE, IF_NODE, KEYWORD_REST_PARAMETER_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE, REST_PARAMETER_NODE, UNLESS_NODE};
 
 pub struct AbcSize;
 
@@ -351,6 +352,10 @@ fn is_setter_method(name: &[u8]) -> bool {
 impl Cop for AbcSize {
     fn name(&self) -> &'static str {
         "Metrics/AbcSize"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, BLOCK_PARAMETER_NODE, CALL_NODE, CASE_NODE, DEF_NODE, ELSE_NODE, IF_NODE, KEYWORD_REST_PARAMETER_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE, REST_PARAMETER_NODE, UNLESS_NODE]
     }
 
     fn check_node(

@@ -3,6 +3,7 @@ use ruby_prism::Visit;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::DEF_NODE;
 
 pub struct BlockGivenWithExplicitBlock;
 
@@ -13,6 +14,10 @@ impl Cop for BlockGivenWithExplicitBlock {
 
     fn default_severity(&self) -> Severity {
         Severity::Convention
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[DEF_NODE]
     }
 
     fn check_node(

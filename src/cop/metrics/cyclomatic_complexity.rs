@@ -3,6 +3,7 @@ use ruby_prism::Visit;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, DEF_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE};
 
 pub struct CyclomaticComplexity;
 
@@ -142,6 +143,10 @@ impl<'pr> Visit<'pr> for CyclomaticCounter {
 impl Cop for CyclomaticComplexity {
     fn name(&self) -> &'static str {
         "Metrics/CyclomaticComplexity"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, CALL_NODE, DEF_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE]
     }
 
     fn check_node(

@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::REGULAR_EXPRESSION_NODE;
 
 /// Checks for duplicate elements in Regexp character classes.
 /// For example, `/[xyx]/` has a duplicate `x`.
@@ -13,6 +14,10 @@ impl Cop for DuplicateRegexpCharacterClassElement {
 
     fn default_severity(&self) -> Severity {
         Severity::Warning
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[REGULAR_EXPRESSION_NODE]
     }
 
     fn check_node(

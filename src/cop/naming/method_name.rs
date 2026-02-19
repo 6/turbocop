@@ -2,6 +2,7 @@ use crate::cop::util::is_snake_case;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::DEF_NODE;
 
 pub struct MethodName;
 
@@ -13,6 +14,10 @@ fn is_operator_method(name: &[u8]) -> bool {
 impl Cop for MethodName {
     fn name(&self) -> &'static str {
         "Naming/MethodName"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[DEF_NODE]
     }
 
     fn check_node(

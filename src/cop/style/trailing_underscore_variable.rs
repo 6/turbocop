@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{LOCAL_VARIABLE_TARGET_NODE, MULTI_WRITE_NODE, SPLAT_NODE};
 
 pub struct TrailingUnderscoreVariable;
 
 impl Cop for TrailingUnderscoreVariable {
     fn name(&self) -> &'static str {
         "Style/TrailingUnderscoreVariable"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[LOCAL_VARIABLE_TARGET_NODE, MULTI_WRITE_NODE, SPLAT_NODE]
     }
 
     fn check_node(

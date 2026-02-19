@@ -2,6 +2,7 @@ use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, FALSE_NODE, FLOAT_NODE, INTEGER_NODE, NIL_NODE, SYMBOL_NODE, TRUE_NODE};
 
 pub struct BeEql;
 
@@ -16,6 +17,10 @@ impl Cop for BeEql {
 
     fn default_include(&self) -> &'static [&'static str] {
         RSPEC_DEFAULT_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, FALSE_NODE, FLOAT_NODE, INTEGER_NODE, NIL_NODE, SYMBOL_NODE, TRUE_NODE]
     }
 
     fn check_node(

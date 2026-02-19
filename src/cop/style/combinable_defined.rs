@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{AND_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, DEFINED_NODE};
 
 pub struct CombinableDefined;
 
 impl Cop for CombinableDefined {
     fn name(&self) -> &'static str {
         "Style/CombinableDefined"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[AND_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, DEFINED_NODE]
     }
 
     fn check_node(

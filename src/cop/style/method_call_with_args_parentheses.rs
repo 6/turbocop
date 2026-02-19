@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::CALL_NODE;
 
 pub struct MethodCallWithArgsParentheses;
 
@@ -92,6 +93,10 @@ fn is_inside_string_interpolation(source: &SourceFile, call_start: usize) -> boo
 impl Cop for MethodCallWithArgsParentheses {
     fn name(&self) -> &'static str {
         "Style/MethodCallWithArgsParentheses"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE]
     }
 
     fn check_node(

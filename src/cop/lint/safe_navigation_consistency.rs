@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{AND_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE, OR_NODE};
 
 const DEFAULT_ALLOWED_METHODS: &[&str] = &["present?", "blank?", "presence", "try", "try!"];
 
@@ -13,6 +14,10 @@ impl Cop for SafeNavigationConsistency {
 
     fn default_severity(&self) -> Severity {
         Severity::Warning
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[AND_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE, OR_NODE]
     }
 
     fn check_node(

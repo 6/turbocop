@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CLASS_VARIABLE_READ_NODE, CLASS_VARIABLE_WRITE_NODE, GLOBAL_VARIABLE_READ_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_READ_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, OR_NODE};
 
 pub struct OrAssignment;
 
@@ -114,6 +115,10 @@ impl OrAssignment {
 impl Cop for OrAssignment {
     fn name(&self) -> &'static str {
         "Style/OrAssignment"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CLASS_VARIABLE_READ_NODE, CLASS_VARIABLE_WRITE_NODE, GLOBAL_VARIABLE_READ_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_READ_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, OR_NODE]
     }
 
     fn check_node(

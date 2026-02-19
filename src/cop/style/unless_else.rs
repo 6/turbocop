@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::UNLESS_NODE;
 
 pub struct UnlessElse;
 
 impl Cop for UnlessElse {
     fn name(&self) -> &'static str {
         "Style/UnlessElse"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[UNLESS_NODE]
     }
 
     fn check_node(

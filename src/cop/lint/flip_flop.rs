@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::FLIP_FLOP_NODE;
 
 pub struct FlipFlop;
 
@@ -11,6 +12,10 @@ impl Cop for FlipFlop {
 
     fn default_severity(&self) -> Severity {
         Severity::Warning
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[FLIP_FLOP_NODE]
     }
 
     fn check_node(

@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, STRING_NODE};
 
 pub struct FileWrite;
 
@@ -25,6 +26,10 @@ impl FileWrite {
 impl Cop for FileWrite {
     fn name(&self) -> &'static str {
         "Style/FileWrite"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, STRING_NODE]
     }
 
     fn check_node(

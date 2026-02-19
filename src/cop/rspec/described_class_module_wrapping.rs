@@ -2,6 +2,7 @@ use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, MODULE_NODE, STATEMENTS_NODE};
 
 /// RSpec/DescribedClassModuleWrapping: Avoid opening modules and defining specs within them.
 pub struct DescribedClassModuleWrapping;
@@ -17,6 +18,10 @@ impl Cop for DescribedClassModuleWrapping {
 
     fn default_include(&self) -> &'static [&'static str] {
         RSPEC_DEFAULT_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, MODULE_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, PROGRAM_NODE, STATEMENTS_NODE};
 
 pub struct CombinableLoops;
 
 impl Cop for CombinableLoops {
     fn name(&self) -> &'static str {
         "Style/CombinableLoops"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, PROGRAM_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

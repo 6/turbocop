@@ -2,6 +2,7 @@ use crate::cop::rspec_rails::RSPEC_RAILS_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, BLOCK_NODE, CALL_NODE, STATEMENTS_NODE, SYMBOL_NODE};
 
 pub struct TravelAround;
 
@@ -18,6 +19,10 @@ impl Cop for TravelAround {
 
     fn default_include(&self) -> &'static [&'static str] {
         RSPEC_RAILS_DEFAULT_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_ARGUMENT_NODE, BLOCK_NODE, CALL_NODE, STATEMENTS_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

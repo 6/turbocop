@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::CALL_NODE;
 
 pub struct RaiseArgs;
 
@@ -15,6 +16,10 @@ fn extract_const_name(node: &ruby_prism::Node<'_>) -> String {
 impl Cop for RaiseArgs {
     fn name(&self) -> &'static str {
         "Style/RaiseArgs"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE]
     }
 
     fn check_node(

@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{INTERPOLATED_REGULAR_EXPRESSION_NODE, REGULAR_EXPRESSION_NODE};
 
 pub struct RegexpLiteral;
 
 impl Cop for RegexpLiteral {
     fn name(&self) -> &'static str {
         "Style/RegexpLiteral"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[INTERPOLATED_REGULAR_EXPRESSION_NODE, REGULAR_EXPRESSION_NODE]
     }
 
     fn check_node(

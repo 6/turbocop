@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, STATEMENTS_NODE};
 
 pub struct HashTransformValues;
 
 impl Cop for HashTransformValues {
     fn name(&self) -> &'static str {
         "Style/HashTransformValues"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

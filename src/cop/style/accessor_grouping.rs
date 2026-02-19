@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, CLASS_NODE, MODULE_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE};
 
 pub struct AccessorGrouping;
 
@@ -9,6 +10,10 @@ const ACCESSOR_METHODS: &[&str] = &["attr_reader", "attr_writer", "attr_accessor
 impl Cop for AccessorGrouping {
     fn name(&self) -> &'static str {
         "Style/AccessorGrouping"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, CLASS_NODE, MODULE_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

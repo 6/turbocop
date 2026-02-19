@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, SOURCE_FILE_NODE, STRING_NODE};
 
 pub struct ExpandPathArguments;
 
 impl Cop for ExpandPathArguments {
     fn name(&self) -> &'static str {
         "Style/ExpandPathArguments"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, SOURCE_FILE_NODE, STRING_NODE]
     }
 
     fn check_node(

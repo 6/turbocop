@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE};
 
 pub struct Lambda;
 
 impl Cop for Lambda {
     fn name(&self) -> &'static str {
         "Style/Lambda"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, CALL_NODE]
     }
 
     fn check_node(

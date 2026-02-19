@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, MODULE_NODE, STATEMENTS_NODE};
 
 pub struct IndentationConsistency;
 
@@ -154,6 +155,10 @@ impl IndentationConsistency {
 impl Cop for IndentationConsistency {
     fn name(&self) -> &'static str {
         "Layout/IndentationConsistency"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, MODULE_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

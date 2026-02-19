@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::INTEGER_NODE;
 
 pub struct NumericLiteralPrefix;
 
 impl Cop for NumericLiteralPrefix {
     fn name(&self) -> &'static str {
         "Style/NumericLiteralPrefix"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[INTEGER_NODE]
     }
 
     fn check_node(

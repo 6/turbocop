@@ -2,6 +2,7 @@ use crate::cop::util::{class_body_calls, has_keyword_arg, is_dsl_call};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ARRAY_NODE, ASSOC_NODE, CLASS_NODE, DEF_NODE, KEYWORD_HASH_NODE, STATEMENTS_NODE, SYMBOL_NODE};
 
 pub struct LexicallyScopedActionFilter;
 
@@ -25,6 +26,10 @@ impl Cop for LexicallyScopedActionFilter {
 
     fn default_include(&self) -> &'static [&'static str] {
         &["app/controllers/**/*.rb"]
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ARRAY_NODE, ASSOC_NODE, CLASS_NODE, DEF_NODE, KEYWORD_HASH_NODE, STATEMENTS_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

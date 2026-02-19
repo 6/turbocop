@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ASSOC_NODE, IMPLICIT_NODE, SYMBOL_NODE};
 
 pub struct SpaceAfterColon;
 
 impl Cop for SpaceAfterColon {
     fn name(&self) -> &'static str {
         "Layout/SpaceAfterColon"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ASSOC_NODE, IMPLICIT_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::REGULAR_EXPRESSION_NODE;
 
 pub struct RedundantRegexpEscape;
 
@@ -39,6 +40,10 @@ const MEANINGFUL_ESCAPES_IN_CHAR_CLASS: &[u8] = &[
 impl Cop for RedundantRegexpEscape {
     fn name(&self) -> &'static str {
         "Style/RedundantRegexpEscape"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[REGULAR_EXPRESSION_NODE]
     }
 
     fn check_node(

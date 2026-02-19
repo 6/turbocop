@@ -3,12 +3,17 @@ use ruby_prism::Visit;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{AND_NODE, OR_NODE, UNLESS_NODE};
 
 pub struct UnlessLogicalOperators;
 
 impl Cop for UnlessLogicalOperators {
     fn name(&self) -> &'static str {
         "Style/UnlessLogicalOperators"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[AND_NODE, OR_NODE, UNLESS_NODE]
     }
 
     fn check_node(

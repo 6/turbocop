@@ -2,6 +2,7 @@ use crate::cop::factory_bot::{ATTRIBUTE_DEFINING_METHODS, FACTORY_BOT_DEFAULT_IN
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ASSOC_NODE, BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, SELF_NODE, STATEMENTS_NODE, SYMBOL_NODE};
 
 pub struct AttributeDefinedStatically;
 
@@ -71,6 +72,10 @@ impl Cop for AttributeDefinedStatically {
 
     fn default_include(&self) -> &'static [&'static str] {
         FACTORY_BOT_DEFAULT_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ASSOC_NODE, BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, SELF_NODE, STATEMENTS_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

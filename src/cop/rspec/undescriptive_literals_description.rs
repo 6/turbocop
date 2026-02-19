@@ -2,6 +2,7 @@ use crate::cop::util::{self, is_rspec_example, is_rspec_example_group, RSPEC_DEF
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, FLOAT_NODE, INTEGER_NODE, INTERPOLATED_X_STRING_NODE, REGULAR_EXPRESSION_NODE, X_STRING_NODE};
 
 pub struct UndescriptiveLiteralsDescription;
 
@@ -16,6 +17,10 @@ impl Cop for UndescriptiveLiteralsDescription {
 
     fn default_include(&self) -> &'static [&'static str] {
         RSPEC_DEFAULT_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, FLOAT_NODE, INTEGER_NODE, INTERPOLATED_X_STRING_NODE, REGULAR_EXPRESSION_NODE, X_STRING_NODE]
     }
 
     fn check_node(

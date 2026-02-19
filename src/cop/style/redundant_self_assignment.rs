@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE};
 
 pub struct RedundantSelfAssignment;
 
@@ -23,6 +24,10 @@ const INPLACE_METHODS: &[&[u8]] = &[
 impl Cop for RedundantSelfAssignment {
     fn name(&self) -> &'static str {
         "Style/RedundantSelfAssignment"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE]
     }
 
     fn check_node(

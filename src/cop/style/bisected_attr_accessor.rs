@@ -2,12 +2,17 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use std::collections::HashSet;
+use crate::cop::node_type::{CALL_NODE, CLASS_NODE, MODULE_NODE, STATEMENTS_NODE, SYMBOL_NODE};
 
 pub struct BisectedAttrAccessor;
 
 impl Cop for BisectedAttrAccessor {
     fn name(&self) -> &'static str {
         "Style/BisectedAttrAccessor"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, CLASS_NODE, MODULE_NODE, STATEMENTS_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

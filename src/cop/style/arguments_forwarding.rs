@@ -3,12 +3,17 @@ use ruby_prism::Visit;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, DEF_NODE, FORWARDING_PARAMETER_NODE, LOCAL_VARIABLE_READ_NODE, REST_PARAMETER_NODE, SPLAT_NODE};
 
 pub struct ArgumentsForwarding;
 
 impl Cop for ArgumentsForwarding {
     fn name(&self) -> &'static str {
         "Style/ArgumentsForwarding"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_ARGUMENT_NODE, DEF_NODE, FORWARDING_PARAMETER_NODE, LOCAL_VARIABLE_READ_NODE, REST_PARAMETER_NODE, SPLAT_NODE]
     }
 
     fn check_node(

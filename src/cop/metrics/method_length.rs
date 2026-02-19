@@ -2,12 +2,17 @@ use crate::cop::util::{count_body_lines_ex, collect_foldable_ranges, collect_her
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::DEF_NODE;
 
 pub struct MethodLength;
 
 impl Cop for MethodLength {
     fn name(&self) -> &'static str {
         "Metrics/MethodLength"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[DEF_NODE]
     }
 
     fn check_node(

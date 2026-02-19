@@ -2,6 +2,7 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use std::collections::HashMap;
+use crate::cop::node_type::{AND_NODE, BEGIN_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, OR_NODE, PARENTHESES_NODE, STATEMENTS_NODE, UNLESS_NODE};
 
 pub struct InvertibleUnlessCondition;
 
@@ -117,6 +118,10 @@ impl Cop for InvertibleUnlessCondition {
     /// This cop is disabled by default in RuboCop (Enabled: false in vendor config/default.yml).
     fn default_enabled(&self) -> bool {
         false
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[AND_NODE, BEGIN_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, OR_NODE, PARENTHESES_NODE, STATEMENTS_NODE, UNLESS_NODE]
     }
 
     fn check_node(

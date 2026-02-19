@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct SendWithLiteralMethodName;
 
 impl Cop for SendWithLiteralMethodName {
     fn name(&self) -> &'static str {
         "Style/SendWithLiteralMethodName"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, STRING_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

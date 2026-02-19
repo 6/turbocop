@@ -3,6 +3,7 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 use std::collections::HashSet;
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, NUMBERED_PARAMETERS_NODE};
 
 pub struct NumberedParametersLimit;
 
@@ -41,6 +42,10 @@ impl<'pr> Visit<'pr> for NumberedParamFinder {
 impl Cop for NumberedParametersLimit {
     fn name(&self) -> &'static str {
         "Style/NumberedParametersLimit"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, CALL_NODE, NUMBERED_PARAMETERS_NODE]
     }
 
     fn check_node(

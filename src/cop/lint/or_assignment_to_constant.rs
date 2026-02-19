@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CONSTANT_OR_WRITE_NODE, CONSTANT_PATH_OR_WRITE_NODE};
 
 pub struct OrAssignmentToConstant;
 
@@ -11,6 +12,10 @@ impl Cop for OrAssignmentToConstant {
 
     fn default_severity(&self) -> Severity {
         Severity::Warning
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CONSTANT_OR_WRITE_NODE, CONSTANT_PATH_OR_WRITE_NODE]
     }
 
     fn check_node(

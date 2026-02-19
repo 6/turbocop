@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, CALL_NODE};
 
 pub struct MultilineMethodCallBraceLayout;
 
 impl Cop for MultilineMethodCallBraceLayout {
     fn name(&self) -> &'static str {
         "Layout/MultilineMethodCallBraceLayout"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_ARGUMENT_NODE, CALL_NODE]
     }
 
     fn check_node(

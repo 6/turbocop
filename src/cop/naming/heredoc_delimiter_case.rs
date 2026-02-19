@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{INTERPOLATED_STRING_NODE, STRING_NODE};
 
 pub struct HeredocDelimiterCase;
 
 impl Cop for HeredocDelimiterCase {
     fn name(&self) -> &'static str {
         "Naming/HeredocDelimiterCase"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[INTERPOLATED_STRING_NODE, STRING_NODE]
     }
 
     fn check_node(

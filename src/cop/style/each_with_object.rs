@@ -2,6 +2,7 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
+use crate::cop::node_type::{ARRAY_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, FALSE_NODE, FLOAT_NODE, HASH_NODE, IMAGINARY_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, NIL_NODE, RATIONAL_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE};
 
 pub struct EachWithObject;
 
@@ -54,6 +55,10 @@ impl<'pr> Visit<'pr> for AccReassignFinder {
 impl Cop for EachWithObject {
     fn name(&self) -> &'static str {
         "Style/EachWithObject"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ARRAY_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, FALSE_NODE, FLOAT_NODE, HASH_NODE, IMAGINARY_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, NIL_NODE, RATIONAL_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE]
     }
 
     fn check_node(

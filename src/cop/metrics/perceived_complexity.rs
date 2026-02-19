@@ -3,6 +3,7 @@ use ruby_prism::Visit;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, CASE_MATCH_NODE, CASE_NODE, DEF_NODE, ELSE_NODE, IF_NODE, LOCAL_VARIABLE_READ_NODE, UNLESS_NODE};
 
 pub struct PerceivedComplexity;
 
@@ -210,6 +211,10 @@ impl<'pr> Visit<'pr> for PerceivedCounter {
 impl Cop for PerceivedComplexity {
     fn name(&self) -> &'static str {
         "Metrics/PerceivedComplexity"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, CALL_NODE, CASE_MATCH_NODE, CASE_NODE, DEF_NODE, ELSE_NODE, IF_NODE, LOCAL_VARIABLE_READ_NODE, UNLESS_NODE]
     }
 
     fn check_node(

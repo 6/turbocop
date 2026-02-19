@@ -2,12 +2,17 @@ use crate::cop::util::is_snake_case;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::LOCAL_VARIABLE_WRITE_NODE;
 
 pub struct VariableName;
 
 impl Cop for VariableName {
     fn name(&self) -> &'static str {
         "Naming/VariableName"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[LOCAL_VARIABLE_WRITE_NODE]
     }
 
     fn check_node(

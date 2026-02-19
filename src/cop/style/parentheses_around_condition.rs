@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CLASS_VARIABLE_WRITE_NODE, CONSTANT_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE, MULTI_WRITE_NODE, PARENTHESES_NODE, STATEMENTS_NODE, UNTIL_NODE, WHILE_NODE};
 
 pub struct ParenthesesAroundCondition;
 
@@ -43,6 +44,10 @@ fn is_assignment_node(node: &ruby_prism::Node<'_>) -> bool {
 impl Cop for ParenthesesAroundCondition {
     fn name(&self) -> &'static str {
         "Style/ParenthesesAroundCondition"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CLASS_VARIABLE_WRITE_NODE, CONSTANT_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE, MULTI_WRITE_NODE, PARENTHESES_NODE, STATEMENTS_NODE, UNTIL_NODE, WHILE_NODE]
     }
 
     fn check_node(

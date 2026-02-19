@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ARRAY_NODE, CALL_NODE, FALSE_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, INTERPOLATED_STRING_NODE, NIL_NODE, PARENTHESES_NODE, RATIONAL_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE};
 
 pub struct RedundantFreeze;
 
@@ -99,6 +100,10 @@ impl RedundantFreeze {
 impl Cop for RedundantFreeze {
     fn name(&self) -> &'static str {
         "Style/RedundantFreeze"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ARRAY_NODE, CALL_NODE, FALSE_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, INTERPOLATED_STRING_NODE, NIL_NODE, PARENTHESES_NODE, RATIONAL_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE]
     }
 
     fn check_node(

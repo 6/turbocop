@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, SPLAT_NODE};
 
 pub struct SingleArgumentDig;
 
 impl Cop for SingleArgumentDig {
     fn name(&self) -> &'static str {
         "Style/SingleArgumentDig"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_ARGUMENT_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, SPLAT_NODE]
     }
 
     fn check_node(

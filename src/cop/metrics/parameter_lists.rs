@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::DEF_NODE;
 
 pub struct ParameterLists;
 
 impl Cop for ParameterLists {
     fn name(&self) -> &'static str {
         "Metrics/ParameterLists"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[DEF_NODE]
     }
 
     fn check_node(

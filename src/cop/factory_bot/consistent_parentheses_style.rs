@@ -2,6 +2,7 @@ use crate::cop::factory_bot::{is_factory_call, FACTORY_BOT_METHODS, FACTORY_BOT_
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, HASH_NODE, IMPLICIT_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct ConsistentParenthesesStyle;
 
@@ -16,6 +17,10 @@ impl Cop for ConsistentParenthesesStyle {
 
     fn default_include(&self) -> &'static [&'static str] {
         FACTORY_BOT_SPEC_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ASSOC_NODE, CALL_NODE, HASH_NODE, IMPLICIT_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, STRING_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

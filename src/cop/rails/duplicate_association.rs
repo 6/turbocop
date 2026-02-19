@@ -4,6 +4,7 @@ use crate::cop::util::{class_body_calls, is_dsl_call, parent_class_name};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CLASS_NODE, SYMBOL_NODE};
 
 pub struct DuplicateAssociation;
 
@@ -21,6 +22,10 @@ impl Cop for DuplicateAssociation {
 
     fn default_severity(&self) -> Severity {
         Severity::Warning
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CLASS_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

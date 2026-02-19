@@ -2,6 +2,7 @@ use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BREAK_NODE, CALL_NODE, IF_NODE, NEXT_NODE, RETURN_NODE, UNLESS_NODE};
 
 pub struct EmptyLineAfterGuardClause;
 
@@ -11,6 +12,10 @@ const GUARD_METHODS: &[&[u8]] = &[b"return", b"raise", b"fail", b"throw", b"next
 impl Cop for EmptyLineAfterGuardClause {
     fn name(&self) -> &'static str {
         "Layout/EmptyLineAfterGuardClause"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BREAK_NODE, CALL_NODE, IF_NODE, NEXT_NODE, RETURN_NODE, UNLESS_NODE]
     }
 
     fn check_node(

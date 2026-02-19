@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{INTERPOLATED_REGULAR_EXPRESSION_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE};
 
 pub struct UnescapedBracketInRegexp;
 
@@ -15,6 +16,10 @@ impl Cop for UnescapedBracketInRegexp {
 
     fn default_enabled(&self) -> bool {
         false
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[INTERPOLATED_REGULAR_EXPRESSION_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE]
     }
 
     fn check_node(

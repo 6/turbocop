@@ -356,16 +356,11 @@ fn lint_source_inner(
         ast_cops.push((&**cop, cop_config));
     }
 
-    // Single AST walk dispatching to all enabled cops at each node.
+    // Single AST walk dispatching each node only to cops that handle its type.
     if !ast_cops.is_empty() {
         let cop_refs: Vec<(&dyn Cop, &CopConfig)> =
             ast_cops.iter().map(|(c, cfg)| (*c, cfg)).collect();
-        let mut walker = BatchedCopWalker {
-            cops: cop_refs,
-            source,
-            parse_result: &parse_result,
-            diagnostics: Vec::new(),
-        };
+        let mut walker = BatchedCopWalker::new(cop_refs, source, &parse_result);
         walker.visit(&parse_result.node());
         diagnostics.extend(walker.diagnostics);
     }

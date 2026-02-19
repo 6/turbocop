@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE};
 
 pub struct EmptyBlockParameter;
 
 impl Cop for EmptyBlockParameter {
     fn name(&self) -> &'static str {
         "Style/EmptyBlockParameter"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE]
     }
 
     fn check_node(

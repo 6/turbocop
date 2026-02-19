@@ -2,6 +2,7 @@ use crate::cop::util::keyword_arg_value;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::CALL_NODE;
 
 pub struct IgnoredSkipActionFilterOption;
 
@@ -23,6 +24,10 @@ impl Cop for IgnoredSkipActionFilterOption {
 
     fn default_include(&self) -> &'static [&'static str] {
         &["**/app/controllers/**/*.rb", "**/app/mailers/**/*.rb"]
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE]
     }
 
     fn check_node(

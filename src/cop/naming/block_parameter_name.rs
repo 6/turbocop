@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_PARAMETER_NODE};
 
 pub struct BlockParameterName;
 
 impl Cop for BlockParameterName {
     fn name(&self) -> &'static str {
         "Naming/BlockParameterName"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_PARAMETER_NODE]
     }
 
     fn check_node(

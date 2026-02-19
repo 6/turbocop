@@ -2,6 +2,7 @@ use crate::cop::util::keyword_arg_value;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ARRAY_NODE, CALL_NODE, SYMBOL_NODE};
 
 pub struct MatchRoute;
 
@@ -16,6 +17,10 @@ impl Cop for MatchRoute {
 
     fn default_include(&self) -> &'static [&'static str] {
         &["**/config/routes.rb", "**/config/routes/**/*.rb"]
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ARRAY_NODE, CALL_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

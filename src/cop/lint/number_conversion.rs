@@ -2,6 +2,7 @@ use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, RATIONAL_NODE};
 
 /// Warns about unsafe number conversion using `to_i`, `to_f`, `to_c`, `to_r`.
 /// Prefers strict `Integer()`, `Float()`, etc. Disabled by default.
@@ -21,6 +22,10 @@ impl Cop for NumberConversion {
 
     fn default_severity(&self) -> Severity {
         Severity::Warning
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, RATIONAL_NODE]
     }
 
     fn check_node(

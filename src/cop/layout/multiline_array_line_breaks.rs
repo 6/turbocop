@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::ARRAY_NODE;
 
 pub struct MultilineArrayLineBreaks;
 
 impl Cop for MultilineArrayLineBreaks {
     fn name(&self) -> &'static str {
         "Layout/MultilineArrayLineBreaks"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ARRAY_NODE]
     }
 
     fn check_node(

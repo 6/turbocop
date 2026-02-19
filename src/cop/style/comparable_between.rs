@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{AND_NODE, CALL_NODE};
 
 pub struct ComparableBetween;
 
 impl Cop for ComparableBetween {
     fn name(&self) -> &'static str {
         "Style/ComparableBetween"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[AND_NODE, CALL_NODE]
     }
 
     fn check_node(

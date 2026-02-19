@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::BLOCK_NODE;
 
 pub struct BlockEndNewline;
 
 impl Cop for BlockEndNewline {
     fn name(&self) -> &'static str {
         "Layout/BlockEndNewline"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE]
     }
 
     fn check_node(

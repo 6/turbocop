@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CASE_NODE, ELSE_NODE, IF_NODE, NIL_NODE, UNLESS_NODE};
 
 pub struct EmptyElse;
 
 impl Cop for EmptyElse {
     fn name(&self) -> &'static str {
         "Style/EmptyElse"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CASE_NODE, ELSE_NODE, IF_NODE, NIL_NODE, UNLESS_NODE]
     }
 
     fn check_node(

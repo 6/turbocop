@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_NODE, STATEMENTS_NODE};
 
 pub struct EmptyBlock;
 
@@ -67,6 +68,10 @@ impl Cop for EmptyBlock {
 
     fn default_severity(&self) -> Severity {
         Severity::Warning
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

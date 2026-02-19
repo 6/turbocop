@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::STRING_NODE;
 
 pub struct RedundantPercentQ;
 
 impl Cop for RedundantPercentQ {
     fn name(&self) -> &'static str {
         "Style/RedundantPercentQ"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[STRING_NODE]
     }
 
     fn check_node(

@@ -2,6 +2,7 @@ use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ARRAY_NODE, ASSOC_NODE, CALL_NODE, FALSE_NODE, FLOAT_NODE, HASH_NODE, IMAGINARY_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, NIL_NODE, RANGE_NODE, RATIONAL_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE};
 
 pub struct ExpectActual;
 
@@ -16,6 +17,10 @@ impl Cop for ExpectActual {
 
     fn default_include(&self) -> &'static [&'static str] {
         RSPEC_DEFAULT_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ARRAY_NODE, ASSOC_NODE, CALL_NODE, FALSE_NODE, FLOAT_NODE, HASH_NODE, IMAGINARY_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, NIL_NODE, RANGE_NODE, RATIONAL_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE]
     }
 
     fn check_node(

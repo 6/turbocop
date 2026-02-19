@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{DEF_NODE, SELF_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE};
 
 pub struct ClassMethodsDefinitions;
 
 impl Cop for ClassMethodsDefinitions {
     fn name(&self) -> &'static str {
         "Style/ClassMethodsDefinitions"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[DEF_NODE, SELF_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

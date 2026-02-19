@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{AND_NODE, CALL_NODE, ELSE_NODE, FALSE_NODE, IF_NODE, OR_NODE, PARENTHESES_NODE, TRUE_NODE, UNLESS_NODE};
 
 pub struct IfWithBooleanLiteralBranches;
 
 impl Cop for IfWithBooleanLiteralBranches {
     fn name(&self) -> &'static str {
         "Style/IfWithBooleanLiteralBranches"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[AND_NODE, CALL_NODE, ELSE_NODE, FALSE_NODE, IF_NODE, OR_NODE, PARENTHESES_NODE, TRUE_NODE, UNLESS_NODE]
     }
 
     fn check_node(

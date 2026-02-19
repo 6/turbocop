@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ELSE_NODE, IF_NODE, PARENTHESES_NODE, STATEMENTS_NODE};
 
 pub struct NestedTernaryOperator;
 
@@ -35,6 +36,10 @@ fn find_nested_ternary(node: &ruby_prism::Node<'_>, source: &SourceFile) -> Vec<
 impl Cop for NestedTernaryOperator {
     fn name(&self) -> &'static str {
         "Style/NestedTernaryOperator"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ELSE_NODE, IF_NODE, PARENTHESES_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

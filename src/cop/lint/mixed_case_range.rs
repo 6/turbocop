@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{RANGE_NODE, STRING_NODE};
 
 /// Checks for mixed-case character ranges that include unintended characters.
 /// For example, `('A'..'z')` includes `[`, `\`, `]`, `^`, `_`, `` ` ``.
@@ -15,6 +16,10 @@ impl Cop for MixedCaseRange {
 
     fn default_severity(&self) -> Severity {
         Severity::Warning
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[RANGE_NODE, STRING_NODE]
     }
 
     fn check_node(

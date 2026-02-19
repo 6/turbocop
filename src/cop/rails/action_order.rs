@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CLASS_NODE, DEF_NODE, STATEMENTS_NODE};
 
 pub struct ActionOrder;
 
@@ -19,6 +20,10 @@ impl Cop for ActionOrder {
 
     fn default_include(&self) -> &'static [&'static str] {
         &["app/controllers/**/*.rb"]
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CLASS_NODE, DEF_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

@@ -3,6 +3,7 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use std::collections::HashMap;
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
 
 /// RSpec/RepeatedDescription: Don't repeat descriptions within an example group.
 pub struct RepeatedDescription;
@@ -18,6 +19,10 @@ impl Cop for RepeatedDescription {
 
     fn default_include(&self) -> &'static [&'static str] {
         RSPEC_DEFAULT_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, CALL_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

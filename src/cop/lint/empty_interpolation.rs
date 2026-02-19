@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::EMBEDDED_STATEMENTS_NODE;
 
 pub struct EmptyInterpolation;
 
@@ -11,6 +12,10 @@ impl Cop for EmptyInterpolation {
 
     fn default_severity(&self) -> Severity {
         Severity::Warning
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[EMBEDDED_STATEMENTS_NODE]
     }
 
     fn check_node(

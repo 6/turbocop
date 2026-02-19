@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{UNTIL_NODE, WHILE_NODE};
 
 pub struct WhileUntilDo;
 
 impl Cop for WhileUntilDo {
     fn name(&self) -> &'static str {
         "Style/WhileUntilDo"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[UNTIL_NODE, WHILE_NODE]
     }
 
     fn check_node(

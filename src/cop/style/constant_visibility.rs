@@ -2,12 +2,17 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use std::collections::HashSet;
+use crate::cop::node_type::{CALL_NODE, CLASS_NODE, CONSTANT_WRITE_NODE, MODULE_NODE, STATEMENTS_NODE, SYMBOL_NODE};
 
 pub struct ConstantVisibility;
 
 impl Cop for ConstantVisibility {
     fn name(&self) -> &'static str {
         "Style/ConstantVisibility"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, CLASS_NODE, CONSTANT_WRITE_NODE, MODULE_NODE, STATEMENTS_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

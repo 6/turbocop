@@ -2,6 +2,7 @@ use crate::cop::util::{self, has_rspec_focus_metadata, is_rspec_focused, RSPEC_D
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::CALL_NODE;
 
 pub struct Focus;
 
@@ -31,6 +32,10 @@ impl Cop for Focus {
 
     fn default_include(&self) -> &'static [&'static str] {
         RSPEC_DEFAULT_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE]
     }
 
     fn check_node(

@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::RANGE_NODE;
 
 pub struct SpaceInsideRangeLiteral;
 
 impl Cop for SpaceInsideRangeLiteral {
     fn name(&self) -> &'static str {
         "Layout/SpaceInsideRangeLiteral"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[RANGE_NODE]
     }
 
     fn check_node(

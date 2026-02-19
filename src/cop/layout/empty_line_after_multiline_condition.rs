@@ -2,12 +2,17 @@ use crate::cop::util::is_blank_line;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{IF_NODE, UNTIL_NODE, WHILE_NODE};
 
 pub struct EmptyLineAfterMultilineCondition;
 
 impl Cop for EmptyLineAfterMultilineCondition {
     fn name(&self) -> &'static str {
         "Layout/EmptyLineAfterMultilineCondition"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[IF_NODE, UNTIL_NODE, WHILE_NODE]
     }
 
     fn check_node(

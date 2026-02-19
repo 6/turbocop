@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::BLOCK_NODE;
 
 pub struct SingleLineDoEndBlock;
 
 impl Cop for SingleLineDoEndBlock {
     fn name(&self) -> &'static str {
         "Style/SingleLineDoEndBlock"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE]
     }
 
     fn check_node(

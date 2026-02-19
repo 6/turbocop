@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::STRING_NODE;
 
 pub struct RedundantStringEscape;
 
@@ -16,6 +17,10 @@ const MEANINGFUL_ESCAPES: &[u8] = &[
 impl Cop for RedundantStringEscape {
     fn name(&self) -> &'static str {
         "Style/RedundantStringEscape"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[STRING_NODE]
     }
 
     fn check_node(

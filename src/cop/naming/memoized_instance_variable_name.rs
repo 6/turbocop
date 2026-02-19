@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{DEF_NODE, INSTANCE_VARIABLE_OR_WRITE_NODE, STATEMENTS_NODE};
 
 pub struct MemoizedInstanceVariableName;
 
@@ -54,6 +55,10 @@ impl MemoizedInstanceVariableName {
 impl Cop for MemoizedInstanceVariableName {
     fn name(&self) -> &'static str {
         "Naming/MemoizedInstanceVariableName"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[DEF_NODE, INSTANCE_VARIABLE_OR_WRITE_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

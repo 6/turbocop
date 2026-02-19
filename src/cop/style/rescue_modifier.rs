@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::RESCUE_MODIFIER_NODE;
 
 pub struct RescueModifier;
 
 impl Cop for RescueModifier {
     fn name(&self) -> &'static str {
         "Style/RescueModifier"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[RESCUE_MODIFIER_NODE]
     }
 
     fn check_node(

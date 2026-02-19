@@ -2,6 +2,7 @@ use crate::cop::util::{is_rspec_example, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
 
 /// RSpec/RepeatedSubjectCall: Flag calling `subject` multiple times in the same example
 /// when at least one call is inside a block (expect { subject }).
@@ -18,6 +19,10 @@ impl Cop for RepeatedSubjectCall {
 
     fn default_include(&self) -> &'static [&'static str] {
         RSPEC_DEFAULT_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, CALL_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

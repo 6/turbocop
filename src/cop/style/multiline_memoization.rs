@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BEGIN_NODE, CLASS_VARIABLE_OR_WRITE_NODE, CONSTANT_OR_WRITE_NODE, GLOBAL_VARIABLE_OR_WRITE_NODE, INSTANCE_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_OR_WRITE_NODE, PARENTHESES_NODE};
 
 pub struct MultilineMemoization;
 
 impl Cop for MultilineMemoization {
     fn name(&self) -> &'static str {
         "Style/MultilineMemoization"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BEGIN_NODE, CLASS_VARIABLE_OR_WRITE_NODE, CONSTANT_OR_WRITE_NODE, GLOBAL_VARIABLE_OR_WRITE_NODE, INSTANCE_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_OR_WRITE_NODE, PARENTHESES_NODE]
     }
 
     fn check_node(

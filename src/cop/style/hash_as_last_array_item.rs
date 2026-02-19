@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ARRAY_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 
 pub struct HashAsLastArrayItem;
 
 impl Cop for HashAsLastArrayItem {
     fn name(&self) -> &'static str {
         "Style/HashAsLastArrayItem"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ARRAY_NODE, HASH_NODE, KEYWORD_HASH_NODE]
     }
 
     fn check_node(

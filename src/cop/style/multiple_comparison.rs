@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, LOCAL_VARIABLE_READ_NODE, OR_NODE};
 
 pub struct MultipleComparison;
 
@@ -90,6 +91,10 @@ impl MultipleComparison {
 impl Cop for MultipleComparison {
     fn name(&self) -> &'static str {
         "Style/MultipleComparison"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, LOCAL_VARIABLE_READ_NODE, OR_NODE]
     }
 
     fn check_node(

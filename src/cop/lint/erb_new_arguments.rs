@@ -2,6 +2,7 @@ use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 
 /// Checks for deprecated `ERB.new` with positional arguments beyond the first.
 /// Since Ruby 2.6, non-keyword arguments other than the first one are deprecated.
@@ -14,6 +15,10 @@ impl Cop for ErbNewArguments {
 
     fn default_severity(&self) -> Severity {
         Severity::Warning
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE]
     }
 
     fn check_node(

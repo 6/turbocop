@@ -3,12 +3,17 @@ use ruby_prism::Visit;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{DEF_NODE, LOCAL_VARIABLE_READ_NODE};
 
 pub struct BlockForwarding;
 
 impl Cop for BlockForwarding {
     fn name(&self) -> &'static str {
         "Naming/BlockForwarding"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[DEF_NODE, LOCAL_VARIABLE_READ_NODE]
     }
 
     fn check_node(

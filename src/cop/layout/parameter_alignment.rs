@@ -2,12 +2,17 @@ use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::DEF_NODE;
 
 pub struct ParameterAlignment;
 
 impl Cop for ParameterAlignment {
     fn name(&self) -> &'static str {
         "Layout/ParameterAlignment"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[DEF_NODE]
     }
 
     fn check_node(

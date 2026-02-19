@@ -3,6 +3,7 @@ use std::sync::LazyLock;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct DangerousColumnNames;
 
@@ -192,6 +193,10 @@ impl Cop for DangerousColumnNames {
 
     fn default_include(&self) -> &'static [&'static str] {
         &["db/**/*.rb"]
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, STRING_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

@@ -2,6 +2,7 @@ use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE};
 
 /// Checks for the deprecated use of keyword arguments as a default in `Hash.new`.
 /// In Ruby 3.4, keyword arguments will be used to change hash behavior (e.g., `capacity:`).
@@ -14,6 +15,10 @@ impl Cop for HashNewWithKeywordArgumentsAsDefault {
 
     fn default_severity(&self) -> Severity {
         Severity::Warning
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ASSOC_NODE, CALL_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

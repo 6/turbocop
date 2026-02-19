@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{DEF_NODE, FORWARDING_SUPER_NODE, LOCAL_VARIABLE_READ_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, SUPER_NODE};
 
 pub struct UselessMethodDefinition;
 
@@ -11,6 +12,10 @@ impl Cop for UselessMethodDefinition {
 
     fn default_severity(&self) -> Severity {
         Severity::Warning
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[DEF_NODE, FORWARDING_SUPER_NODE, LOCAL_VARIABLE_READ_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, SUPER_NODE]
     }
 
     fn check_node(

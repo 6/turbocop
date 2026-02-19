@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTEGER_NODE};
 
 pub struct FileEmpty;
 
@@ -24,6 +25,10 @@ impl FileEmpty {
 impl Cop for FileEmpty {
     fn name(&self) -> &'static str {
         "Style/FileEmpty"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTEGER_NODE]
     }
 
     fn check_node(

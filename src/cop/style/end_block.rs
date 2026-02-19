@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::POST_EXECUTION_NODE;
 
 pub struct EndBlock;
 
 impl Cop for EndBlock {
     fn name(&self) -> &'static str {
         "Style/EndBlock"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[POST_EXECUTION_NODE]
     }
 
     fn check_node(

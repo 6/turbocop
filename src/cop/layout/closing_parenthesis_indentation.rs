@@ -2,12 +2,17 @@ use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, DEF_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 
 pub struct ClosingParenthesisIndentation;
 
 impl Cop for ClosingParenthesisIndentation {
     fn name(&self) -> &'static str {
         "Layout/ClosingParenthesisIndentation"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, DEF_NODE, HASH_NODE, KEYWORD_HASH_NODE]
     }
 
     fn check_node(

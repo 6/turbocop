@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ELSE_NODE, EMBEDDED_STATEMENTS_NODE, IF_NODE, INTERPOLATED_STRING_NODE, NIL_NODE, STRING_NODE, UNLESS_NODE};
 
 pub struct EmptyStringInsideInterpolation;
 
 impl Cop for EmptyStringInsideInterpolation {
     fn name(&self) -> &'static str {
         "Style/EmptyStringInsideInterpolation"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ELSE_NODE, EMBEDDED_STATEMENTS_NODE, IF_NODE, INTERPOLATED_STRING_NODE, NIL_NODE, STRING_NODE, UNLESS_NODE]
     }
 
     fn check_node(

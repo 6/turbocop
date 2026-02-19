@@ -2,6 +2,7 @@ use crate::cop::util::{count_body_lines, count_body_lines_ex, collect_foldable_r
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 
 pub struct BlockLength;
 
@@ -12,6 +13,10 @@ impl Cop for BlockLength {
 
     fn default_exclude(&self) -> &'static [&'static str] {
         &["**/*.gemspec"]
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE]
     }
 
     fn check_node(

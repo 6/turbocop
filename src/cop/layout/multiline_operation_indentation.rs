@@ -2,6 +2,7 @@ use crate::cop::util::indentation_of;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{AND_NODE, CALL_NODE, OR_NODE};
 
 pub struct MultilineOperationIndentation;
 
@@ -15,6 +16,10 @@ const OPERATOR_METHODS: &[&[u8]] = &[
 impl Cop for MultilineOperationIndentation {
     fn name(&self) -> &'static str {
         "Layout/MultilineOperationIndentation"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[AND_NODE, CALL_NODE, OR_NODE]
     }
 
     fn check_node(

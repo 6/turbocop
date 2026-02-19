@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ELSE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE};
 
 pub struct ConditionalAssignment;
 
 impl Cop for ConditionalAssignment {
     fn name(&self) -> &'static str {
         "Style/ConditionalAssignment"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ELSE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE]
     }
 
     fn check_node(

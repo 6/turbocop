@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{FALSE_NODE, TRUE_NODE, UNTIL_NODE, WHILE_NODE};
 
 pub struct InfiniteLoop;
 
 impl Cop for InfiniteLoop {
     fn name(&self) -> &'static str {
         "Style/InfiniteLoop"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[FALSE_NODE, TRUE_NODE, UNTIL_NODE, WHILE_NODE]
     }
 
     fn check_node(

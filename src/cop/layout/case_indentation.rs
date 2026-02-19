@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CASE_NODE, WHEN_NODE};
 
 pub struct CaseIndentation;
 
 impl Cop for CaseIndentation {
     fn name(&self) -> &'static str {
         "Layout/CaseIndentation"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CASE_NODE, WHEN_NODE]
     }
 
     fn check_node(

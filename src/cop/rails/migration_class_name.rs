@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::CLASS_NODE;
 
 pub struct MigrationClassName;
 
@@ -15,6 +16,10 @@ impl Cop for MigrationClassName {
 
     fn default_include(&self) -> &'static [&'static str] {
         &["db/migrate/**/*.rb"]
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CLASS_NODE]
     }
 
     fn check_node(

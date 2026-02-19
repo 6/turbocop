@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{DEF_NODE, FORWARDING_SUPER_NODE, STATEMENTS_NODE, SUPER_NODE};
 
 pub struct RedundantInitialize;
 
 impl Cop for RedundantInitialize {
     fn name(&self) -> &'static str {
         "Style/RedundantInitialize"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[DEF_NODE, FORWARDING_SUPER_NODE, STATEMENTS_NODE, SUPER_NODE]
     }
 
     fn check_node(

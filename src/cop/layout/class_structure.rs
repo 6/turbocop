@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, CLASS_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE, DEF_NODE, STATEMENTS_NODE, SYMBOL_NODE};
 
 pub struct ClassStructure;
 
@@ -20,6 +21,10 @@ enum ElementCategory {
 impl Cop for ClassStructure {
     fn name(&self) -> &'static str {
         "Layout/ClassStructure"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, CLASS_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE, DEF_NODE, STATEMENTS_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

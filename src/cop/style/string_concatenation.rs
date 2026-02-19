@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, STRING_NODE};
 
 pub struct StringConcatenation;
 
@@ -50,6 +51,10 @@ impl StringConcatenation {
 impl Cop for StringConcatenation {
     fn name(&self) -> &'static str {
         "Style/StringConcatenation"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, STRING_NODE]
     }
 
     fn check_node(

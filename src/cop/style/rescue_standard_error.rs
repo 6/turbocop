@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::BEGIN_NODE;
 
 pub struct RescueStandardError;
 
@@ -48,6 +49,10 @@ fn check_rescue_node(
 impl Cop for RescueStandardError {
     fn name(&self) -> &'static str {
         "Style/RescueStandardError"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BEGIN_NODE]
     }
 
     fn check_node(

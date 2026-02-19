@@ -2,6 +2,7 @@ use crate::cop::util::{is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, KEYWORD_HASH_NODE, PROGRAM_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct SpecFilePathFormat;
 
@@ -16,6 +17,10 @@ impl Cop for SpecFilePathFormat {
 
     fn default_include(&self) -> &'static [&'static str] {
         RSPEC_DEFAULT_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ASSOC_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, KEYWORD_HASH_NODE, PROGRAM_NODE, STRING_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

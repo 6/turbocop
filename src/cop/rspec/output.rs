@@ -2,6 +2,7 @@ use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, GLOBAL_VARIABLE_READ_NODE, KEYWORD_HASH_NODE};
 
 pub struct Output;
 
@@ -28,6 +29,10 @@ impl Cop for Output {
 
     fn default_include(&self) -> &'static [&'static str] {
         RSPEC_DEFAULT_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_ARGUMENT_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, GLOBAL_VARIABLE_READ_NODE, KEYWORD_HASH_NODE]
     }
 
     fn check_node(

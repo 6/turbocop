@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::DEF_NODE;
 
 pub struct FirstMethodParameterLineBreak;
 
 impl Cop for FirstMethodParameterLineBreak {
     fn name(&self) -> &'static str {
         "Layout/FirstMethodParameterLineBreak"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[DEF_NODE]
     }
 
     fn check_node(

@@ -2,6 +2,7 @@ use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, FALSE_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE};
 
 pub struct Pending;
 
@@ -22,6 +23,10 @@ impl Cop for Pending {
 
     fn default_include(&self) -> &'static [&'static str] {
         RSPEC_DEFAULT_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ASSOC_NODE, CALL_NODE, FALSE_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

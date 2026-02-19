@@ -2,6 +2,7 @@ use crate::cop::util::{is_rspec_example, is_rspec_example_group, RSPEC_DEFAULT_I
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, SYMBOL_NODE};
 
 pub struct DuplicatedMetadata;
 
@@ -16,6 +17,10 @@ impl Cop for DuplicatedMetadata {
 
     fn default_include(&self) -> &'static [&'static str] {
         RSPEC_DEFAULT_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

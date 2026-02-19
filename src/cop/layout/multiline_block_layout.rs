@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BEGIN_NODE, BLOCK_NODE};
 
 pub struct MultilineBlockLayout;
 
 impl Cop for MultilineBlockLayout {
     fn name(&self) -> &'static str {
         "Layout/MultilineBlockLayout"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BEGIN_NODE, BLOCK_NODE]
     }
 
     fn check_node(

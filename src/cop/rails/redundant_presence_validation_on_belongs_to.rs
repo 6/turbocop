@@ -2,6 +2,7 @@ use crate::cop::util::{class_body_calls, is_dsl_call, keyword_arg_value};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ASSOC_NODE, CLASS_NODE, FALSE_NODE, HASH_NODE, KEYWORD_HASH_NODE, NIL_NODE, SYMBOL_NODE, TRUE_NODE};
 
 pub struct RedundantPresenceValidationOnBelongsTo;
 
@@ -12,6 +13,10 @@ impl Cop for RedundantPresenceValidationOnBelongsTo {
 
     fn default_severity(&self) -> Severity {
         Severity::Convention
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ASSOC_NODE, CLASS_NODE, FALSE_NODE, HASH_NODE, KEYWORD_HASH_NODE, NIL_NODE, SYMBOL_NODE, TRUE_NODE]
     }
 
     fn check_node(

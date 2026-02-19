@@ -3,6 +3,7 @@ use ruby_prism::Visit;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ASSOC_NODE, BLOCK_ARGUMENT_NODE, BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, HASH_NODE, KEYWORD_HASH_NODE, STATEMENTS_NODE, SYMBOL_NODE};
 
 pub struct ReversibleMigration;
 
@@ -304,6 +305,10 @@ impl Cop for ReversibleMigration {
 
     fn default_include(&self) -> &'static [&'static str] {
         &["db/**/*.rb"]
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ASSOC_NODE, BLOCK_ARGUMENT_NODE, BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, HASH_NODE, KEYWORD_HASH_NODE, STATEMENTS_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

@@ -2,6 +2,7 @@ use crate::cop::factory_bot::{is_factory_bot_receiver, FACTORY_BOT_DEFAULT_INCLU
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, SYMBOL_NODE};
 
 pub struct IdSequence;
 
@@ -16,6 +17,10 @@ impl Cop for IdSequence {
 
     fn default_include(&self) -> &'static [&'static str] {
         FACTORY_BOT_DEFAULT_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

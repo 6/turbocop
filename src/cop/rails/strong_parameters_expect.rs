@@ -2,6 +2,7 @@ use crate::cop::util::as_method_chain;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, LOCAL_VARIABLE_READ_NODE};
 
 pub struct StrongParametersExpect;
 
@@ -27,6 +28,10 @@ impl Cop for StrongParametersExpect {
 
     fn default_include(&self) -> &'static [&'static str] {
         &["**/app/controllers/**/*.rb"]
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, LOCAL_VARIABLE_READ_NODE]
     }
 
     fn check_node(

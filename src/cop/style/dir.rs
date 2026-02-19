@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, SOURCE_FILE_NODE};
 
 pub struct Dir;
 
@@ -26,6 +27,10 @@ fn is_file_keyword(node: &ruby_prism::Node<'_>) -> bool {
 impl Cop for Dir {
     fn name(&self) -> &'static str {
         "Style/Dir"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, SOURCE_FILE_NODE]
     }
 
     fn check_node(

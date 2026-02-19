@@ -3,6 +3,7 @@ use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE};
 
 pub struct FactoryClassName;
 
@@ -19,6 +20,10 @@ impl Cop for FactoryClassName {
 
     fn default_include(&self) -> &'static [&'static str] {
         FACTORY_BOT_DEFAULT_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ASSOC_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

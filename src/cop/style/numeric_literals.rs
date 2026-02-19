@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::INTEGER_NODE;
 
 pub struct NumericLiterals;
 
@@ -28,6 +29,10 @@ fn is_correctly_grouped(text: &str) -> bool {
 impl Cop for NumericLiterals {
     fn name(&self) -> &'static str {
         "Style/NumericLiterals"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[INTEGER_NODE]
     }
 
     fn check_node(

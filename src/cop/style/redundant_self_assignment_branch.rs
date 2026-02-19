@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CASE_NODE, ELSE_NODE, IF_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, WHEN_NODE};
 
 pub struct RedundantSelfAssignmentBranch;
 
 impl Cop for RedundantSelfAssignmentBranch {
     fn name(&self) -> &'static str {
         "Style/RedundantSelfAssignmentBranch"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CASE_NODE, ELSE_NODE, IF_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, WHEN_NODE]
     }
 
     fn check_node(

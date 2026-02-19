@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BEGIN_NODE, BLOCK_NODE, CASE_MATCH_NODE, CASE_NODE, CLASS_NODE, CLASS_VARIABLE_WRITE_NODE, CONSTANT_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, LAMBDA_NODE, LOCAL_VARIABLE_WRITE_NODE, MODULE_NODE, UNLESS_NODE};
 
 pub struct MultilineAssignmentLayout;
 
@@ -42,6 +43,10 @@ fn find_eq_offset(source: &SourceFile, name_end: usize, value_start: usize) -> O
 impl Cop for MultilineAssignmentLayout {
     fn name(&self) -> &'static str {
         "Layout/MultilineAssignmentLayout"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BEGIN_NODE, BLOCK_NODE, CASE_MATCH_NODE, CASE_NODE, CLASS_NODE, CLASS_VARIABLE_WRITE_NODE, CONSTANT_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, LAMBDA_NODE, LOCAL_VARIABLE_WRITE_NODE, MODULE_NODE, UNLESS_NODE]
     }
 
     fn check_node(

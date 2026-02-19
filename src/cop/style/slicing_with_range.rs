@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, INTEGER_NODE, RANGE_NODE};
 
 pub struct SlicingWithRange;
 
@@ -19,6 +20,10 @@ impl SlicingWithRange {
 impl Cop for SlicingWithRange {
     fn name(&self) -> &'static str {
         "Style/SlicingWithRange"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, INTEGER_NODE, RANGE_NODE]
     }
 
     fn check_node(

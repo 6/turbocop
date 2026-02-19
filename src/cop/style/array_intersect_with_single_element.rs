@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ARRAY_NODE, CALL_NODE};
 
 pub struct ArrayIntersectWithSingleElement;
 
 impl Cop for ArrayIntersectWithSingleElement {
     fn name(&self) -> &'static str {
         "Style/ArrayIntersectWithSingleElement"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ARRAY_NODE, CALL_NODE]
     }
 
     fn check_node(

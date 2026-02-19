@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::IT_LOCAL_VARIABLE_READ_NODE;
 
 /// Checks for `it` calls without arguments inside blocks without parameters.
 /// In Ruby 3.4, `it` refers to the first block parameter, so this warns about
@@ -14,6 +15,10 @@ impl Cop for ItWithoutArgumentsInBlock {
 
     fn default_severity(&self) -> Severity {
         Severity::Warning
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[IT_LOCAL_VARIABLE_READ_NODE]
     }
 
     fn check_node(

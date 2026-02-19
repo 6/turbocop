@@ -2,12 +2,17 @@ use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::MODULE_NODE;
 
 pub struct EmptyLinesAroundModuleBody;
 
 impl Cop for EmptyLinesAroundModuleBody {
     fn name(&self) -> &'static str {
         "Layout/EmptyLinesAroundModuleBody"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[MODULE_NODE]
     }
 
     fn check_node(

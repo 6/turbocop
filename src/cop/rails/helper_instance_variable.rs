@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{INSTANCE_VARIABLE_READ_NODE, INSTANCE_VARIABLE_WRITE_NODE};
 
 pub struct HelperInstanceVariable;
 
@@ -15,6 +16,10 @@ impl Cop for HelperInstanceVariable {
 
     fn default_include(&self) -> &'static [&'static str] {
         &["app/helpers/**/*.rb"]
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[INSTANCE_VARIABLE_READ_NODE, INSTANCE_VARIABLE_WRITE_NODE]
     }
 
     fn check_node(

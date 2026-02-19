@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::IF_NODE;
 
 pub struct MultilineTernaryOperator;
 
 impl Cop for MultilineTernaryOperator {
     fn name(&self) -> &'static str {
         "Style/MultilineTernaryOperator"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[IF_NODE]
     }
 
     fn check_node(

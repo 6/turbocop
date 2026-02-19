@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, REQUIRED_PARAMETER_NODE};
 
 pub struct ItBlockParameter;
 
 impl Cop for ItBlockParameter {
     fn name(&self) -> &'static str {
         "Style/ItBlockParameter"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, REQUIRED_PARAMETER_NODE]
     }
 
     fn check_node(

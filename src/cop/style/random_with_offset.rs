@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTEGER_NODE, RANGE_NODE};
 
 pub struct RandomWithOffset;
 
 impl Cop for RandomWithOffset {
     fn name(&self) -> &'static str {
         "Style/RandomWithOffset"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTEGER_NODE, RANGE_NODE]
     }
 
     fn check_node(

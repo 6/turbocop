@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, LAMBDA_NODE, NIL_NODE, RETURN_NODE, STATEMENTS_NODE};
 
 pub struct NilLambda;
 
@@ -68,6 +69,10 @@ impl NilLambda {
 impl Cop for NilLambda {
     fn name(&self) -> &'static str {
         "Style/NilLambda"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, LAMBDA_NODE, NIL_NODE, RETURN_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

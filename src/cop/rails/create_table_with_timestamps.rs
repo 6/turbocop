@@ -3,6 +3,7 @@ use ruby_prism::Visit;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ASSOC_NODE, BLOCK_NODE, CALL_NODE, FALSE_NODE, KEYWORD_HASH_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct CreateTableWithTimestamps;
 
@@ -84,6 +85,10 @@ impl Cop for CreateTableWithTimestamps {
 
     fn default_include(&self) -> &'static [&'static str] {
         &["db/migrate/**/*.rb"]
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ASSOC_NODE, BLOCK_NODE, CALL_NODE, FALSE_NODE, KEYWORD_HASH_NODE, STRING_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

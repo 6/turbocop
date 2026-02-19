@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::BLOCK_NODE;
 
 pub struct SpaceInsideBlockBraces;
 
 impl Cop for SpaceInsideBlockBraces {
     fn name(&self) -> &'static str {
         "Layout/SpaceInsideBlockBraces"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE]
     }
 
     fn check_node(

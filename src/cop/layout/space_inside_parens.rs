@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::PARENTHESES_NODE;
 
 pub struct SpaceInsideParens;
 
 impl Cop for SpaceInsideParens {
     fn name(&self) -> &'static str {
         "Layout/SpaceInsideParens"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[PARENTHESES_NODE]
     }
 
     fn check_node(

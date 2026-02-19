@@ -4,6 +4,7 @@ use crate::cop::factory_bot::{is_factory_call, FACTORY_BOT_SPEC_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ASSOC_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct CreateList;
 
@@ -18,6 +19,10 @@ impl Cop for CreateList {
 
     fn default_include(&self) -> &'static [&'static str] {
         FACTORY_BOT_SPEC_INCLUDE
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ASSOC_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, SYMBOL_NODE};
 
 pub struct AccessModifierDeclarations;
 
@@ -9,6 +10,10 @@ const ACCESS_MODIFIERS: &[&str] = &["private", "protected", "public", "module_fu
 impl Cop for AccessModifierDeclarations {
     fn name(&self) -> &'static str {
         "Style/AccessModifierDeclarations"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

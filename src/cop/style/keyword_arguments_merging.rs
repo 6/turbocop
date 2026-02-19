@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ASSOC_SPLAT_NODE, CALL_NODE, KEYWORD_HASH_NODE};
 
 pub struct KeywordArgumentsMerging;
 
@@ -19,6 +20,10 @@ impl KeywordArgumentsMerging {
 impl Cop for KeywordArgumentsMerging {
     fn name(&self) -> &'static str {
         "Style/KeywordArgumentsMerging"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ASSOC_SPLAT_NODE, CALL_NODE, KEYWORD_HASH_NODE]
     }
 
     fn check_node(

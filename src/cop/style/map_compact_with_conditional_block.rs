@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, IF_NODE, STATEMENTS_NODE};
 
 pub struct MapCompactWithConditionalBlock;
 
 impl Cop for MapCompactWithConditionalBlock {
     fn name(&self) -> &'static str {
         "Style/MapCompactWithConditionalBlock"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, CALL_NODE, IF_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

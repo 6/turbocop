@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE};
 
 pub struct SpaceAroundMethodCallOperator;
 
 impl Cop for SpaceAroundMethodCallOperator {
     fn name(&self) -> &'static str {
         "Layout/SpaceAroundMethodCallOperator"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, CONSTANT_PATH_NODE]
     }
 
     fn check_node(

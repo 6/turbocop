@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, PARENTHESES_NODE, RANGE_NODE, STATEMENTS_NODE};
 
 pub struct RangeInclude;
 
@@ -11,6 +12,10 @@ impl Cop for RangeInclude {
 
     fn default_severity(&self) -> Severity {
         Severity::Convention
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, PARENTHESES_NODE, RANGE_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(

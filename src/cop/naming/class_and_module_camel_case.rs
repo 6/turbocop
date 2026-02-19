@@ -2,12 +2,17 @@ use crate::cop::util::is_camel_case;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CLASS_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, MODULE_NODE};
 
 pub struct ClassAndModuleCamelCase;
 
 impl Cop for ClassAndModuleCamelCase {
     fn name(&self) -> &'static str {
         "Naming/ClassAndModuleCamelCase"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CLASS_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, MODULE_NODE]
     }
 
     fn check_node(

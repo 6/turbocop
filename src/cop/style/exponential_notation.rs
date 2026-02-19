@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::FLOAT_NODE;
 
 pub struct ExponentialNotation;
 
 impl Cop for ExponentialNotation {
     fn name(&self) -> &'static str {
         "Style/ExponentialNotation"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[FLOAT_NODE]
     }
 
     fn check_node(

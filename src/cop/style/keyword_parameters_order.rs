@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, DEF_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE};
 
 pub struct KeywordParametersOrder;
 
 impl Cop for KeywordParametersOrder {
     fn name(&self) -> &'static str {
         "Style/KeywordParametersOrder"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, DEF_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE]
     }
 
     fn check_node(

@@ -2,6 +2,7 @@ use crate::cop::util::has_keyword_arg;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, FALSE_NODE, SYMBOL_NODE};
 
 pub struct NotNullColumn;
 
@@ -16,6 +17,10 @@ impl Cop for NotNullColumn {
 
     fn default_include(&self) -> &'static [&'static str] {
         &["db/migrate/**/*.rb"]
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, FALSE_NODE, SYMBOL_NODE]
     }
 
     fn check_node(

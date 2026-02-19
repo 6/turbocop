@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::CALL_NODE;
 
 pub struct Output;
 
@@ -17,6 +18,10 @@ impl Cop for Output {
 
     fn default_include(&self) -> &'static [&'static str] {
         &["**/app/**/*.rb", "**/config/**/*.rb", "db/**/*.rb", "**/lib/**/*.rb"]
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE]
     }
 
     fn check_node(

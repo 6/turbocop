@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::PRE_EXECUTION_NODE;
 
 pub struct BeginBlock;
 
 impl Cop for BeginBlock {
     fn name(&self) -> &'static str {
         "Style/BeginBlock"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[PRE_EXECUTION_NODE]
     }
 
     fn check_node(

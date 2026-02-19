@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::STRING_NODE;
 
 pub struct StringLiterals;
 
@@ -29,6 +30,10 @@ fn is_inside_interpolation(source_bytes: &[u8], offset: usize) -> bool {
 impl Cop for StringLiterals {
     fn name(&self) -> &'static str {
         "Style/StringLiterals"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[STRING_NODE]
     }
 
     fn check_node(

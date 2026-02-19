@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::FOR_NODE;
 
 pub struct ForCop;
 
 impl Cop for ForCop {
     fn name(&self) -> &'static str {
         "Style/For"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[FOR_NODE]
     }
 
     fn check_node(

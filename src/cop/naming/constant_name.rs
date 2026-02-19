@@ -2,12 +2,17 @@ use crate::cop::util::{is_camel_case, is_screaming_snake_case};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE};
 
 pub struct ConstantName;
 
 impl Cop for ConstantName {
     fn name(&self) -> &'static str {
         "Naming/ConstantName"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE]
     }
 
     fn check_node(

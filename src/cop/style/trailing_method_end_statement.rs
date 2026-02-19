@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BEGIN_NODE, DEF_NODE};
 
 pub struct TrailingMethodEndStatement;
 
@@ -73,6 +74,10 @@ fn body_last_line(source: &SourceFile, body: &ruby_prism::Node<'_>) -> usize {
 impl Cop for TrailingMethodEndStatement {
     fn name(&self) -> &'static str {
         "Style/TrailingMethodEndStatement"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BEGIN_NODE, DEF_NODE]
     }
 
     fn check_node(

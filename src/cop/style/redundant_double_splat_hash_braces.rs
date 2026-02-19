@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{ASSOC_NODE, ASSOC_SPLAT_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 
 pub struct RedundantDoubleSplatHashBraces;
 
 impl Cop for RedundantDoubleSplatHashBraces {
     fn name(&self) -> &'static str {
         "Style/RedundantDoubleSplatHashBraces"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ASSOC_NODE, ASSOC_SPLAT_NODE, HASH_NODE, KEYWORD_HASH_NODE]
     }
 
     fn check_node(

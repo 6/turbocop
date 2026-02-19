@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{INTERPOLATED_STRING_NODE, STRING_NODE};
 
 pub struct HeredocDelimiterNaming;
 
@@ -20,6 +21,10 @@ fn is_forbidden_delimiter(delimiter: &str) -> bool {
 impl Cop for HeredocDelimiterNaming {
     fn name(&self) -> &'static str {
         "Naming/HeredocDelimiterNaming"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[INTERPOLATED_STRING_NODE, STRING_NODE]
     }
 
     fn check_node(

@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::ARRAY_NODE;
 
 pub struct ArrayAlignment;
 
@@ -17,6 +18,10 @@ fn begins_its_line(source: &SourceFile, offset: usize) -> bool {
 impl Cop for ArrayAlignment {
     fn name(&self) -> &'static str {
         "Layout/ArrayAlignment"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[ARRAY_NODE]
     }
 
     fn check_node(

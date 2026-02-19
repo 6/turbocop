@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, FALSE_NODE, FLOAT_NODE, INTEGER_NODE, NIL_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE};
 
 pub struct YodaCondition;
 
@@ -17,6 +18,10 @@ fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
 impl Cop for YodaCondition {
     fn name(&self) -> &'static str {
         "Style/YodaCondition"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, FALSE_NODE, FLOAT_NODE, INTEGER_NODE, NIL_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE]
     }
 
     fn check_node(

@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{INTERPOLATED_X_STRING_NODE, X_STRING_NODE};
 
 pub struct CommandLiteral;
 
 impl Cop for CommandLiteral {
     fn name(&self) -> &'static str {
         "Style/CommandLiteral"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[INTERPOLATED_X_STRING_NODE, X_STRING_NODE]
     }
 
     fn check_node(

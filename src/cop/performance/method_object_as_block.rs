@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, CALL_NODE};
 
 pub struct MethodObjectAsBlock;
 
@@ -11,6 +12,10 @@ impl Cop for MethodObjectAsBlock {
 
     fn default_severity(&self) -> Severity {
         Severity::Convention
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_ARGUMENT_NODE, CALL_NODE]
     }
 
     fn check_node(

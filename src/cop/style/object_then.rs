@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, CALL_NODE};
 
 pub struct ObjectThen;
 
 impl Cop for ObjectThen {
     fn name(&self) -> &'static str {
         "Style/ObjectThen"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[BLOCK_ARGUMENT_NODE, CALL_NODE]
     }
 
     fn check_node(

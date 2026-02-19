@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE};
 
 pub struct StringChars;
 
 impl Cop for StringChars {
     fn name(&self) -> &'static str {
         "Style/StringChars"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE]
     }
 
     fn check_node(

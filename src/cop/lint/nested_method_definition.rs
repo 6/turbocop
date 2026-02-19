@@ -3,6 +3,7 @@ use ruby_prism::Visit;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CALL_NODE, CLASS_NODE, DEF_NODE, MODULE_NODE, SINGLETON_CLASS_NODE};
 
 pub struct NestedMethodDefinition;
 
@@ -86,6 +87,10 @@ impl Cop for NestedMethodDefinition {
 
     fn default_severity(&self) -> Severity {
         Severity::Warning
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CALL_NODE, CLASS_NODE, DEF_NODE, MODULE_NODE, SINGLETON_CLASS_NODE]
     }
 
     fn check_node(

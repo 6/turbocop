@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
 
 pub struct MultilineIfModifier;
 
 impl Cop for MultilineIfModifier {
     fn name(&self) -> &'static str {
         "Style/MultilineIfModifier"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[IF_NODE, UNLESS_NODE]
     }
 
     fn check_node(

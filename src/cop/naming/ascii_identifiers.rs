@@ -2,12 +2,17 @@ use crate::cop::util::is_ascii_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CONSTANT_WRITE_NODE, DEF_NODE, LOCAL_VARIABLE_WRITE_NODE};
 
 pub struct AsciiIdentifiers;
 
 impl Cop for AsciiIdentifiers {
     fn name(&self) -> &'static str {
         "Naming/AsciiIdentifiers"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CONSTANT_WRITE_NODE, DEF_NODE, LOCAL_VARIABLE_WRITE_NODE]
     }
 
     fn check_node(

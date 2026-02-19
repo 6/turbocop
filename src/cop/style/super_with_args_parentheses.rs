@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::SUPER_NODE;
 
 pub struct SuperWithArgsParentheses;
 
 impl Cop for SuperWithArgsParentheses {
     fn name(&self) -> &'static str {
         "Style/SuperWithArgsParentheses"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[SUPER_NODE]
     }
 
     fn check_node(

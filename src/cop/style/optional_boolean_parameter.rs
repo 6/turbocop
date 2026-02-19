@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{DEF_NODE, FALSE_NODE, OPTIONAL_PARAMETER_NODE, TRUE_NODE};
 
 pub struct OptionalBooleanParameter;
 
@@ -10,6 +11,10 @@ const DEFAULT_ALLOWED_METHODS: &[&str] = &["respond_to_missing?"];
 impl Cop for OptionalBooleanParameter {
     fn name(&self) -> &'static str {
         "Style/OptionalBooleanParameter"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[DEF_NODE, FALSE_NODE, OPTIONAL_PARAMETER_NODE, TRUE_NODE]
     }
 
     fn check_node(

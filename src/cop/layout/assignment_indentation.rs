@@ -2,6 +2,7 @@ use crate::cop::util::indentation_of;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::{CLASS_VARIABLE_WRITE_NODE, CONSTANT_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE};
 
 pub struct AssignmentIndentation;
 
@@ -43,6 +44,10 @@ impl AssignmentIndentation {
 impl Cop for AssignmentIndentation {
     fn name(&self) -> &'static str {
         "Layout/AssignmentIndentation"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[CLASS_VARIABLE_WRITE_NODE, CONSTANT_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE]
     }
 
     fn check_node(

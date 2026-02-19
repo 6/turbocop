@@ -1,12 +1,17 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use crate::cop::node_type::OPTIONAL_PARAMETER_NODE;
 
 pub struct SpaceAroundEqualsInParameterDefault;
 
 impl Cop for SpaceAroundEqualsInParameterDefault {
     fn name(&self) -> &'static str {
         "Layout/SpaceAroundEqualsInParameterDefault"
+    }
+
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[OPTIONAL_PARAMETER_NODE]
     }
 
     fn check_node(
