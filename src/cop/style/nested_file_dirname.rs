@@ -129,7 +129,7 @@ fn get_innermost_path_source(node: &ruby_prism::Node<'_>, source: &SourceFile) -
         }
     }
     let loc = node.location();
-    std::str::from_utf8(&source.content[loc.start_offset()..loc.end_offset()])
+    std::str::from_utf8(&source.as_bytes()[loc.start_offset()..loc.end_offset()])
         .unwrap_or("path")
         .to_string()
 }

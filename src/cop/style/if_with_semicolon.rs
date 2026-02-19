@@ -56,7 +56,7 @@ impl Cop for IfWithSemicolon {
                 return Vec::new();
             };
             if pred_end < body_start {
-                let between = &source.content[pred_end..body_start];
+                let between = &source.as_bytes()[pred_end..body_start];
                 // Only flag if semicolon appears before any newline
                 // (single-line if with semicolon vs multi-line if with comments)
                 between.iter().take_while(|&&b| b != b'\n').any(|&b| b == b';')

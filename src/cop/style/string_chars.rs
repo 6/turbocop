@@ -62,7 +62,7 @@ impl Cop for StringChars {
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
 
         let offense_src = std::str::from_utf8(
-            &source.content[msg_loc.start_offset()..node.location().end_offset()],
+            &source.as_bytes()[msg_loc.start_offset()..node.location().end_offset()],
         )
         .unwrap_or("split(...)");
 
