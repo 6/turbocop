@@ -28,27 +28,45 @@ impl Cop for SpaceAroundKeyword {
     ) {
         let bytes = source.as_bytes();
         let len = bytes.len();
+        let mut i = 0;
 
-        for &kw in KEYWORDS {
-            let kw_len = kw.len();
-            let mut i = 0;
-            while i + kw_len < len {
-                if &bytes[i..i + kw_len] == kw && code_map.is_code(i) {
-                    // Verify it's a word boundary before
+        // Single-pass scan: dispatch on first byte to candidate keywords.
+        // Keywords grouped by first letter: c(ase), e(lsif), i(f), r(eturn),
+        // u(nless/ntil), w(hile/hen).
+        while i < len {
+            let candidates: &[&[u8]] = match bytes[i] {
+                b'c' => &[b"case"],
+                b'e' => &[b"elsif"],
+                b'i' => &[b"if"],
+                b'r' => &[b"return"],
+                b'u' => &[b"unless", b"until"],
+                b'w' => &[b"while", b"when"],
+                _ => {
+                    i += 1;
+                    continue;
+                }
+            };
+
+            for &kw in candidates {
+                let kw_len = kw.len();
+                if i + kw_len < len
+                    && &bytes[i..i + kw_len] == kw
+                    && code_map.is_code(i)
+                {
                     let word_before = if i > 0 {
                         bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_'
                     } else {
                         false
                     };
-                    // Check if followed by (
-                    let followed_by_paren = i + kw_len < len && bytes[i + kw_len] == b'(';
+                    let followed_by_paren = bytes[i + kw_len] == b'(';
 
                     if !word_before && followed_by_paren {
-                        // Also check it's at the start of an expression (not inside a method name)
-                        let at_line_start = i == 0 || bytes[i - 1] == b'\n' || bytes[i - 1] == b' ' || bytes[i - 1] == b'\t' || bytes[i - 1] == b';';
-                        // Skip if preceded by `def ` — the keyword is being used as a method name
-                        let preceded_by_def = i >= 4
-                            && &bytes[i - 4..i] == b"def ";
+                        let at_line_start = i == 0
+                            || bytes[i - 1] == b'\n'
+                            || bytes[i - 1] == b' '
+                            || bytes[i - 1] == b'\t'
+                            || bytes[i - 1] == b';';
+                        let preceded_by_def = i >= 4 && &bytes[i - 4..i] == b"def ";
                         if at_line_start && !preceded_by_def {
                             let kw_str = std::str::from_utf8(kw).unwrap_or("");
                             let (line, column) = source.offset_to_line_col(i);
@@ -61,10 +79,9 @@ impl Cop for SpaceAroundKeyword {
                         }
                     }
                 }
-                i += 1;
             }
+            i += 1;
         }
-
     }
 }
 

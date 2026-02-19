@@ -3,6 +3,7 @@ use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 use std::collections::HashSet;
+use std::sync::LazyLock;
 
 pub struct CollectionLiteralInLoop;
 
@@ -52,6 +53,26 @@ fn build_method_set(methods: &[&[u8]]) -> HashSet<Vec<u8>> {
     methods.iter().map(|m| m.to_vec()).collect()
 }
 
+/// Pre-compiled method sets — built once, reused across all files.
+static ARRAY_METHOD_SET: LazyLock<HashSet<Vec<u8>>> = LazyLock::new(|| {
+    let mut set = build_method_set(ENUMERABLE_METHODS);
+    for m in NONMUTATING_ARRAY_METHODS {
+        set.insert(m.to_vec());
+    }
+    set
+});
+
+static HASH_METHOD_SET: LazyLock<HashSet<Vec<u8>>> = LazyLock::new(|| {
+    let mut set = build_method_set(ENUMERABLE_METHODS);
+    for m in NONMUTATING_HASH_METHODS {
+        set.insert(m.to_vec());
+    }
+    set
+});
+
+static ENUMERABLE_METHOD_SET: LazyLock<HashSet<Vec<u8>>> =
+    LazyLock::new(|| build_method_set(ENUMERABLE_METHODS));
+
 impl Cop for CollectionLiteralInLoop {
     fn name(&self) -> &'static str {
         "Performance/CollectionLiteralInLoop"
@@ -71,25 +92,15 @@ impl Cop for CollectionLiteralInLoop {
     ) {
         let min_size = config.get_usize("MinSize", 1);
 
-        // Build combined method sets
-        let mut array_methods = build_method_set(ENUMERABLE_METHODS);
-        for m in NONMUTATING_ARRAY_METHODS {
-            array_methods.insert(m.to_vec());
-        }
-        let mut hash_methods = build_method_set(ENUMERABLE_METHODS);
-        for m in NONMUTATING_HASH_METHODS {
-            hash_methods.insert(m.to_vec());
-        }
-
         let mut visitor = CollectionLiteralVisitor {
             cop: self,
             source,
             diagnostics: Vec::new(),
             loop_depth: 0,
             min_size,
-            array_methods,
-            hash_methods,
-            enumerable_methods: build_method_set(ENUMERABLE_METHODS),
+            array_methods: &ARRAY_METHOD_SET,
+            hash_methods: &HASH_METHOD_SET,
+            enumerable_methods: &ENUMERABLE_METHOD_SET,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -102,9 +113,9 @@ struct CollectionLiteralVisitor<'a, 'src> {
     diagnostics: Vec<Diagnostic>,
     loop_depth: usize,
     min_size: usize,
-    array_methods: HashSet<Vec<u8>>,
-    hash_methods: HashSet<Vec<u8>>,
-    enumerable_methods: HashSet<Vec<u8>>,
+    array_methods: &'a HashSet<Vec<u8>>,
+    hash_methods: &'a HashSet<Vec<u8>>,
+    enumerable_methods: &'a HashSet<Vec<u8>>,
 }
 
 impl<'pr> Visit<'pr> for CollectionLiteralVisitor<'_, '_> {

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::codemap::CodeMap;
@@ -10,7 +12,7 @@ pub struct SpaceAroundOperators;
 /// and byte ranges of operator method names in `def` statements.
 struct ExclusionCollector {
     /// Byte offsets of `=` in default parameter positions.
-    default_param_offsets: Vec<usize>,
+    default_param_offsets: HashSet<usize>,
     /// Byte ranges (start..end) of operator method names in `def` statements.
     /// e.g., `def ==(other)` — the `==` is a method name, not an operator.
     def_method_name_ranges: Vec<std::ops::Range<usize>>,
@@ -19,7 +21,7 @@ struct ExclusionCollector {
 impl<'pr> Visit<'pr> for ExclusionCollector {
     fn visit_optional_parameter_node(&mut self, node: &ruby_prism::OptionalParameterNode<'pr>) {
         let op_loc = node.operator_loc();
-        self.default_param_offsets.push(op_loc.start_offset());
+        self.default_param_offsets.insert(op_loc.start_offset());
     }
 
     fn visit_optional_keyword_parameter_node(
@@ -64,7 +66,7 @@ impl Cop for SpaceAroundOperators {
 
         // Collect default parameter `=` offsets and operator method name ranges
         let mut collector = ExclusionCollector {
-            default_param_offsets: Vec::new(),
+            default_param_offsets: HashSet::new(),
             def_method_name_ranges: Vec::new(),
         };
         collector.visit(&parse_result.node());

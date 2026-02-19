@@ -165,23 +165,24 @@ serving from memory. Zero measurable difference.
 
 ## Proposed Optimizations
 
-### Optimization 9: Fix Other Hot check_source Cops
+### Optimization 9: Fix Other Hot check_source Cops ✅ DONE
 
-**Status:** Not started
-**Expected impact:** ~200-500ms cumulative reduction
-**Category:** Pure speed improvement
+**Status:** Implemented
+**Measured impact:** SpaceAroundKeyword 135ms→20ms (-85%), CollectionLiteralInLoop 27ms→~0ms
 
-Several `check_source` cops have per-file overhead that could be reduced:
+Three fixes applied:
+- **Layout/SpaceAroundKeyword**: Replaced 8 separate full-file scans with single-pass
+  first-byte dispatch. Keywords grouped by first letter (`c`→case, `e`→elsif, etc.).
+- **Performance/CollectionLiteralInLoop**: Moved 3× per-file `HashSet<Vec<u8>>` builds
+  (~150 inserts each) to `static LazyLock` sets compiled once at startup.
+- **Layout/SpaceAroundOperators**: Converted `default_param_offsets` from `Vec` to
+  `HashSet` for O(1) contains checks (minimal impact — byte scan dominates).
 
-| Cop | Cost (rubocop) | Issue |
-|-----|---:|------|
-| Layout/SpaceAroundKeyword | 135ms | Full source byte scan per file |
-| Layout/SpaceAroundOperators | 59ms | Full source byte scan per file |
-| Style/DoubleCopDisableDirective | 41ms | Scans all comments per file |
-| Performance/CollectionLiteralInLoop | 27ms | Per-file config parsing |
-
-These are lower priority — each saves 30-135ms cumulative. The fix pattern is
-similar to Lint/Debugger: avoid per-file config parsing, use pre-compiled patterns.
+| Cop | Before | After | Change |
+|-----|---:|---:|---:|
+| Layout/SpaceAroundKeyword | 135ms | 20ms | -85% |
+| Performance/CollectionLiteralInLoop | 27ms | ~0ms | eliminated |
+| Layout/SpaceAroundOperators | 59ms | 66ms | ~same |
 
 ---
 
@@ -286,9 +287,7 @@ If/when we implement caching:
 4. ~~Hot cop fixes (Debugger, NoExpectationExample)~~ ✅
 5. ~~Pre-computed cop lists~~ ✅ -33 to -50% filter+config time
 6. ~~Naming/InclusiveLanguage fix~~ ✅ -53% cumulative (1337ms → 628ms)
-
-### Next (pure speed, no caching)
-7. **Other hot check_source cops** — incremental gains (~50-100ms wall)
+7. ~~Other hot check_source cops~~ ✅ SpaceAroundKeyword -85%, CollectionLiteralInLoop eliminated
 
 ### Deferred
 8. **File-level result caching** — not now; pure speed gains come first
