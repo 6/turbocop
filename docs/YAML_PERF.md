@@ -239,36 +239,114 @@ load_config(with lockfile)
 
 ---
 
-## What Changes With Lockfile vs. Without?
+## What Changes With Cache vs. Without?
 
-**Without lockfile (using bundle):**
+**Without .rblint.cache (using bundle):**
 - All file I/O timings stay the same
 - All YAML parsing timings stay the same
-- **Add:** 7-8 bundle subprocess calls (~30-100ms each = ~280-800ms total)
-- **Total: 590-1260ms just for config loading**
+- **Add:** 7-8 bundle subprocess calls (~130-440ms each = ~1-2s total)
+- **Total: 1-2.5s just for config loading**
 
-**With lockfile (gem_cache HashMap):**
+**With .rblint.cache (gem_cache HashMap):**
 - Eliminate all bundle calls
 - Direct HashMap lookup for gem paths
-- **Total: 310-460ms** (current observed time)
+- **Total: ~140ms** (warm cache, see measured values below)
 
-This is why the 389ms config loading is acceptable — it's already using the lockfile optimization.
+---
+
+## Measured Config Loading Times (2026-02-19, post-optimization)
+
+After implementing `.rblint.cache` and the batched AST walker, measured config
+loading with warm filesystem cache (median of 3 runs):
+
+| Repo | Plugins | Nested configs | Config loading | Total wall | Config % |
+|------|--------:|---------------:|---------------:|-----------:|---------:|
+| mastodon | 5 | few | **39ms** | 1.36s | 3% |
+| rails | 5 | few | **42ms** | 581ms | 7% |
+| chatwoot | 4 | few | **56ms** | 1.24s | 5% |
+| discourse | 7 | 31 | **140ms** | 775ms | 18% |
+| rubocop | 4 | many | **197ms** | 1.78s | 11% |
+
+**Key insight:** The earlier "389ms" was a cold-cache outlier (first run after
+build). Warm config loading is 2-5x faster. For most repos, config loading is
+under 60ms and NOT the bottleneck — cop execution dominates.
+
+Discourse is the outlier at 140ms because it has 31 nested `.rubocop.yml` files
+(one per plugin directory) that trigger `discover_sub_config_dirs()` tree walking.
+
+---
+
+## Faster YAML Parser Investigation
+
+Investigated whether a faster YAML parser would meaningfully reduce config loading.
+
+### Available options
+
+| Parser | Speed | Language | License | Status |
+|--------|-------|----------|---------|--------|
+| serde_yml (current) | ~10-20 MB/s | Pure Rust | MIT | Stable |
+| yaml-rust2 | ~10-20 MB/s | Pure Rust | MIT/Apache | Stable |
+| rapidyaml (C++) | ~150 MB/s | C++ FFI | MIT | Mature |
+| ryml (Rust bindings) | ~150 MB/s | C++ FFI | **GPLv3** | Alpha, last updated 2023 |
+
+### Why it doesn't matter much
+
+YAML parsing is ~80-120ms of the 140ms config loading time for Discourse, but
+most of that is spread across 40 small files where per-file overhead (filesystem
+`open()` + `read()` syscalls) dominates over parse speed. Even a 10x faster
+parser would only save ~70-100ms on Discourse and ~10-30ms on most other repos.
+
+The `ryml` Rust crate (rapidyaml bindings) is GPLv3-licensed, which is
+incompatible with rblint's license. Writing custom bindings to the MIT-licensed
+C++ rapidyaml library is possible but high effort for marginal gain.
+
+### `GEM_HOME`/`GEM_PATH` investigation
+
+Investigated eliminating all subprocesses by reading `GEM_HOME`/`GEM_PATH`
+environment variables directly:
+
+```
+$ echo $GEM_HOME
+(empty)
+$ echo $GEM_PATH
+(empty)
+```
+
+These variables are **not set** by mise (formerly rtx), which is a popular Ruby
+version manager. Without them, there's no way to find gem install directories
+without calling a Ruby subprocess. This confirms the `.rblint.cache` approach
+(one-time `bundle info` calls cached to disk) is the right design.
+
+---
+
+## Remaining Optimization Opportunities
+
+Config loading is no longer the primary bottleneck for most repos. The main
+remaining opportunities are in the linting engine:
+
+1. **Node-type dispatch table** — skip ~95% of no-op `check_node` calls by
+   routing each AST node type to only the cops that handle it (~620 cops need
+   `interested_node_types()` annotations)
+
+2. **Nested config discovery caching** — for Discourse specifically, the 31
+   nested `.rubocop.yml` tree walk could be cached or skipped when no nested
+   configs exist
+
+3. **Config merge optimization** — replace O(n²) containment checks in exclude
+   arrays with HashSet-based dedup
+
+These are diminishing returns — the biggest wins (lockfile: -850ms, batched
+walker: -15%) are already shipped.
 
 ---
 
 ## Conclusion
 
-The **389ms is NOT wasted**; it's the natural cost of:
-1. Tree-walking a large project for nested configs (50-80ms)
-2. Parsing 40 YAML files (80-120ms)
-3. Merging 37 config layers across 200+ cops (60-100ms)
-4. Performing 40+ file I/O operations (100-120ms)
-5. Version resolution and misc operations (20-40ms)
+Config loading is effectively solved:
+- **Most repos:** 35-60ms (3-7% of total) — not worth optimizing further
+- **Discourse:** 140ms (18% of total) — dominated by nested config tree walk
+- **Without cache:** would be 1-2.5s — the `.rblint.cache` is essential
 
-**To optimize further would require:**
-- Eliminating nested config discovery or caching it
-- Using a faster YAML parser
-- Optimizing the merge algorithm (O(n²) → O(n))
-- Batching file I/O or using memory-mapped files
-
-But realistically, **389ms out of 775ms (50%) is a reasonable cost** for full RuboCop compatibility, especially given that RuboCop's total time is 3500ms.
+The performance bottleneck is now squarely in **cop execution** (75-95% of
+linting time). Further speedups require optimizing the per-node dispatch loop
+in the batched walker, not config loading.
