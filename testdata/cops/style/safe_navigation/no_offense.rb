@@ -34,3 +34,8 @@ foo && foo.name.kind_of?(String)
 config && config.value.present?
 foo && foo.bar.blank?
 portal && portal.custom_domain.present?
+
+# && inside assignment method call (e.g. []=) — unsafe context
+cookies[token] = user && user.remember_me!
+result[key] = obj && obj.value
+foo.bar = baz && baz.qux

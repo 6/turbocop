@@ -23,6 +23,7 @@ impl Cop for RedundantRegexpCharacterClass {
 
         let content_bytes: Vec<u8> = re.content_loc().as_slice().to_vec();
         let node_loc = node.location();
+        let is_extended = re.is_extended();
 
         let mut diagnostics = Vec::new();
         let full_bytes = &source.as_bytes()[node_loc.start_offset()..node_loc.end_offset()];
@@ -68,6 +69,13 @@ impl Cop for RedundantRegexpCharacterClass {
                     let inner = &content_bytes[class_start..i];
                     // Check it's not a special class like [\b] (word boundary in char class = backspace)
                     if inner == b"\\b" {
+                        i += 1;
+                        continue;
+                    }
+
+                    // In extended mode (/x), whitespace in a character class is NOT
+                    // redundant because bare whitespace is ignored outside char classes
+                    if is_extended && inner.len() == 1 && inner[0].is_ascii_whitespace() {
                         i += 1;
                         continue;
                     }

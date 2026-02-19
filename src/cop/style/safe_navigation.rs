@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 pub struct SafeNavigation;
 
@@ -219,11 +220,11 @@ impl Cop for SafeNavigation {
         "Style/SafeNavigation"
     }
 
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::cop::CodeMap,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
         let max_chain_length = config.get_usize("MaxChainLength", 2);
@@ -231,87 +232,182 @@ impl Cop for SafeNavigation {
         let allowed_methods = config.get_string_array("AllowedMethods")
             .or_else(|| Some(vec!["present?".to_string(), "blank?".to_string()]));
 
-        // Pattern 1: foo && foo.bar (AndNode)
-        if let Some(and_node) = node.as_and_node() {
-            let lhs = and_node.left();
-            let rhs = and_node.right();
+        let mut visitor = SafeNavVisitor {
+            cop: self,
+            source,
+            diagnostics: Vec::new(),
+            max_chain_length,
+            allowed_methods,
+            in_unsafe_parent: 0,
+        };
+        visitor.visit(&parse_result.node());
+        visitor.diagnostics
+    }
+}
 
-            // LHS must be a simple variable or bare method
-            if !Self::is_simple_identifier(&lhs) {
-                return Vec::new();
+/// Visitor that tracks whether we're inside a call node whose method is
+/// an assignment method (e.g. `[]=`, `foo=`) or dotless operator (e.g. `+`, `>`).
+/// RuboCop walks ancestors from the method call to detect this context;
+/// we simulate it by tracking depth while visiting.
+struct SafeNavVisitor<'a> {
+    cop: &'a SafeNavigation,
+    source: &'a SourceFile,
+    diagnostics: Vec<Diagnostic>,
+    max_chain_length: usize,
+    allowed_methods: Option<Vec<String>>,
+    in_unsafe_parent: usize,
+}
+
+impl<'a> SafeNavVisitor<'a> {
+    /// Check if a call node is an unsafe parent context for safe navigation.
+    /// This means the call is an assignment method (name ends with `=`) or
+    /// a dotless operator call.
+    fn is_unsafe_parent_call(call: &ruby_prism::CallNode<'_>) -> bool {
+        let name = call.name().as_slice();
+        // Assignment methods: []=, foo=, etc. (but not == or !=)
+        if name.ends_with(b"=") && name != b"==" && name != b"!=" {
+            return true;
+        }
+        // Dotless operator calls (no dot, used as binary/unary operators)
+        if call.call_operator_loc().is_none() {
+            if matches!(
+                name,
+                b"+" | b"-" | b"*" | b"/" | b"%" | b"**"
+                    | b"<" | b">" | b"<=" | b">="
+                    | b"<=>" | b"<<" | b">>" | b"&" | b"|" | b"^"
+            ) {
+                return true;
             }
+        }
+        false
+    }
+}
 
-            // RHS must be a method call chain
-            let rhs_call = match rhs.as_call_node() {
-                Some(c) => c,
-                None => return Vec::new(),
-            };
+impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        let is_unsafe = Self::is_unsafe_parent_call(node);
+        if is_unsafe {
+            self.in_unsafe_parent += 1;
+        }
+        ruby_prism::visit_call_node(self, node);
+        if is_unsafe {
+            self.in_unsafe_parent -= 1;
+        }
+    }
 
-            // The outermost call must use a dot operator
-            if rhs_call.call_operator_loc().is_none() {
-                return Vec::new();
-            }
-
-            // Check if the innermost receiver matches the LHS variable
-            let chain_len = match Self::matches_receiver_chain(&rhs, &lhs) {
-                Some(d) => d,
-                None => return Vec::new(),
-            };
-
-            if chain_len > max_chain_length {
-                return Vec::new();
-            }
-
-            // Skip if any call in the chain uses a dotless operator
-            if Self::has_dotless_operator_in_chain(&rhs) {
-                return Vec::new();
-            }
-
-            // Skip if any method in the chain is unsafe for safe navigation
-            if Self::has_unsafe_method_in_chain(&rhs, &allowed_methods) {
-                return Vec::new();
-            }
-
-            let loc = node.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
-                source,
-                line,
-                column,
-                "Use safe navigation (`&.`) instead of checking if an object exists before calling the method.".to_string(),
-            )];
+    fn visit_and_node(&mut self, node: &ruby_prism::AndNode<'pr>) {
+        // Skip if inside an assignment method or operator call
+        if self.in_unsafe_parent > 0 {
+            ruby_prism::visit_and_node(self, node);
+            return;
         }
 
-        // Pattern 2: Ternary and modifier if/unless forms
-        if let Some(if_node) = node.as_if_node() {
-            // Check if it's a ternary (no `if` keyword location in Prism)
-            if if_node.if_keyword_loc().is_none() {
-                return self.check_ternary(source, node, &if_node, max_chain_length, &allowed_methods);
-            }
+        let lhs = node.left();
+        let rhs = node.right();
 
-            // Check modifier if patterns: `foo.bar if foo`
-            let kw = if_node.if_keyword_loc().unwrap();
-            let is_unless = kw.as_slice() == b"unless";
-
-            // Skip elsif
-            if kw.as_slice() == b"elsif" {
-                return Vec::new();
-            }
-
-            // Must be modifier form (no end keyword)
-            if if_node.end_keyword_loc().is_some() {
-                return Vec::new();
-            }
-
-            // Must not have else/elsif
-            if if_node.subsequent().is_some() {
-                return Vec::new();
-            }
-
-            return self.check_modifier_if(source, node, &if_node, is_unless, max_chain_length, &allowed_methods);
+        // LHS must be a simple variable or bare method
+        if !SafeNavigation::is_simple_identifier(&lhs) {
+            ruby_prism::visit_and_node(self, node);
+            return;
         }
 
-        Vec::new()
+        // RHS must be a method call chain
+        let rhs_call = match rhs.as_call_node() {
+            Some(c) => c,
+            None => {
+                ruby_prism::visit_and_node(self, node);
+                return;
+            }
+        };
+
+        // The outermost call must use a dot operator
+        if rhs_call.call_operator_loc().is_none() {
+            ruby_prism::visit_and_node(self, node);
+            return;
+        }
+
+        // Check if the innermost receiver matches the LHS variable
+        let chain_len = match SafeNavigation::matches_receiver_chain(&rhs, &lhs) {
+            Some(d) => d,
+            None => {
+                ruby_prism::visit_and_node(self, node);
+                return;
+            }
+        };
+
+        if chain_len > self.max_chain_length {
+            ruby_prism::visit_and_node(self, node);
+            return;
+        }
+
+        // Skip if any call in the chain uses a dotless operator
+        if SafeNavigation::has_dotless_operator_in_chain(&rhs) {
+            ruby_prism::visit_and_node(self, node);
+            return;
+        }
+
+        // Skip if any method in the chain is unsafe for safe navigation
+        if SafeNavigation::has_unsafe_method_in_chain(&rhs, &self.allowed_methods) {
+            ruby_prism::visit_and_node(self, node);
+            return;
+        }
+
+        let loc = node.location();
+        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+        self.diagnostics.push(self.cop.diagnostic(
+            self.source,
+            line,
+            column,
+            "Use safe navigation (`&.`) instead of checking if an object exists before calling the method.".to_string(),
+        ));
+
+        // Don't visit children — we already processed this and_node
+    }
+
+    fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
+        // Skip if inside an assignment method or operator call
+        if self.in_unsafe_parent > 0 {
+            ruby_prism::visit_if_node(self, node);
+            return;
+        }
+
+        let if_node = node;
+        let node_loc = if_node.location();
+
+        // Check if it's a ternary (no `if` keyword location in Prism)
+        if if_node.if_keyword_loc().is_none() {
+            let diags = self.cop.check_ternary(self.source, &node_loc, if_node, self.max_chain_length, &self.allowed_methods);
+            self.diagnostics.extend(diags);
+            ruby_prism::visit_if_node(self, node);
+            return;
+        }
+
+        // Check modifier if patterns: `foo.bar if foo`
+        let kw = if_node.if_keyword_loc().unwrap();
+        let is_unless = kw.as_slice() == b"unless";
+
+        // Skip elsif
+        if kw.as_slice() == b"elsif" {
+            ruby_prism::visit_if_node(self, node);
+            return;
+        }
+
+        // Must be modifier form (no end keyword)
+        if if_node.end_keyword_loc().is_some() {
+            ruby_prism::visit_if_node(self, node);
+            return;
+        }
+
+        // Must not have else/elsif
+        if if_node.subsequent().is_some() {
+            ruby_prism::visit_if_node(self, node);
+            return;
+        }
+
+        let diags = self.cop.check_modifier_if(self.source, &node_loc, if_node, is_unless, self.max_chain_length, &self.allowed_methods);
+        self.diagnostics.extend(diags);
+
+        ruby_prism::visit_if_node(self, node);
     }
 }
 
@@ -319,7 +415,7 @@ impl SafeNavigation {
     fn check_ternary(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
+        node_loc: &ruby_prism::Location<'_>,
         if_node: &ruby_prism::IfNode<'_>,
         max_chain_length: usize,
         allowed_methods: &Option<Vec<String>>,
@@ -467,8 +563,7 @@ impl SafeNavigation {
             return Vec::new();
         }
 
-        let loc = node.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        let (line, column) = source.offset_to_line_col(node_loc.start_offset());
         vec![self.diagnostic(
             source,
             line,
@@ -541,7 +636,7 @@ impl SafeNavigation {
     fn check_modifier_if(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
+        node_loc: &ruby_prism::Location<'_>,
         if_node: &ruby_prism::IfNode<'_>,
         is_unless: bool,
         max_chain_length: usize,
@@ -640,8 +735,7 @@ impl SafeNavigation {
             return Vec::new();
         }
 
-        let loc = node.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        let (line, column) = source.offset_to_line_col(node_loc.start_offset());
         vec![self.diagnostic(
             source,
             line,

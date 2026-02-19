@@ -1,8 +1,42 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
+use std::collections::HashSet;
 
 pub struct NumberedParametersLimit;
+
+/// Count unique numbered parameter references (_1.._9) in a block body.
+fn count_unique_numbered_params(node: &ruby_prism::Node<'_>) -> usize {
+    let mut finder = NumberedParamFinder {
+        found: HashSet::new(),
+    };
+    finder.visit(node);
+    finder.found.len()
+}
+
+struct NumberedParamFinder {
+    found: HashSet<u8>,
+}
+
+impl<'pr> Visit<'pr> for NumberedParamFinder {
+    fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
+        let name = node.name().as_slice();
+        // Match _1 through _9
+        if name.len() == 2 && name[0] == b'_' && name[1] >= b'1' && name[1] <= b'9' {
+            self.found.insert(name[1]);
+        }
+    }
+
+    // Don't descend into nested blocks (they have their own numbered params scope)
+    fn visit_block_node(&mut self, _node: &ruby_prism::BlockNode<'pr>) {
+        // Stop recursion into nested blocks
+    }
+
+    fn visit_lambda_node(&mut self, _node: &ruby_prism::LambdaNode<'pr>) {
+        // Stop recursion into nested lambdas
+    }
+}
 
 impl Cop for NumberedParametersLimit {
     fn name(&self) -> &'static str {
@@ -34,29 +68,35 @@ impl Cop for NumberedParametersLimit {
         };
 
         // In Prism, blocks with numbered params have parameters() set to a
-        // NumberedParametersNode which has a maximum() method returning the
-        // highest numbered parameter used. This avoids false positives from
-        // string matching _1.._9 in comments, strings, or variable names.
+        // NumberedParametersNode. Check for it to confirm this is a numbered params block.
         let params = match block_node.parameters() {
             Some(p) => p,
             None => return Vec::new(),
         };
 
-        let numbered = match params.as_numbered_parameters_node() {
-            Some(n) => n,
+        if params.as_numbered_parameters_node().is_none() {
+            return Vec::new();
+        }
+
+        // Count unique numbered parameter references in the block body.
+        // RuboCop counts unique _N references, not the highest N.
+        // So `{ _2 }` has 1 unique param (OK with max=1),
+        // but `{ _1 + _2 }` has 2 unique params (offense with max=1).
+        let body = match block_node.body() {
+            Some(b) => b,
             None => return Vec::new(),
         };
 
-        let highest = numbered.maximum() as usize;
+        let unique_count = count_unique_numbered_params(&body);
 
-        if highest > max {
+        if unique_count > max {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             return vec![self.diagnostic(
                 source,
                 line,
                 column,
-                format!("Avoid using more than {max} numbered parameters; {highest} detected."),
+                format!("Avoid using more than {max} numbered parameters; {unique_count} detected."),
             )];
         }
 

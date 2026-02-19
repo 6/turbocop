@@ -11,3 +11,6 @@ has_and_belongs_to_many :tags, class_name: "CustomTag"
 # Symbol values for class_name are also acceptable
 has_many :associated_articles, class_name: :Article
 belongs_to :root_article, class_name: :Article
+
+# Interpolated strings are still strings
+has_many :events, class_name: "Events::#{name}Event"

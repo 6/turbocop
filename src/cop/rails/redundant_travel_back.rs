@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 pub struct RedundantTravelBack;
 
@@ -13,34 +14,78 @@ impl Cop for RedundantTravelBack {
         Severity::Convention
     }
 
-    fn check_node(
+    fn default_include(&self) -> &'static [&'static str] {
+        &["spec/**/*.rb"]
+    }
+
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::cop::CodeMap,
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let call = match node.as_call_node() {
-            Some(c) => c,
-            None => return Vec::new(),
-        };
-
-        if call.name().as_slice() != b"travel_back" {
-            return Vec::new();
-        }
-
-        if call.receiver().is_some() {
-            return Vec::new();
-        }
-
-        let loc = node.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
+        let mut visitor = TravelBackVisitor {
+            cop: self,
             source,
-            line,
-            column,
-            "Redundant `travel_back` detected. It is automatically called after each test.".to_string(),
-        )]
+            diagnostics: Vec::new(),
+            in_teardown_or_after: false,
+        };
+        visitor.visit(&parse_result.node());
+        visitor.diagnostics
+    }
+}
+
+struct TravelBackVisitor<'a> {
+    cop: &'a RedundantTravelBack,
+    source: &'a SourceFile,
+    diagnostics: Vec<Diagnostic>,
+    in_teardown_or_after: bool,
+}
+
+impl<'a, 'pr> Visit<'pr> for TravelBackVisitor<'a> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        let method_name = node.name().as_slice();
+
+        // Check if we're entering a `teardown` or `after` block
+        let enters_teardown = node.block().is_some()
+            && node.receiver().is_none()
+            && (method_name == b"teardown" || method_name == b"after");
+
+        // Check if this is a `travel_back` call inside teardown/after
+        if self.in_teardown_or_after
+            && method_name == b"travel_back"
+            && node.receiver().is_none()
+        {
+            let loc = node.location();
+            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                "Redundant `travel_back` detected. It is automatically called after each test."
+                    .to_string(),
+            ));
+        }
+
+        let was = self.in_teardown_or_after;
+        if enters_teardown {
+            self.in_teardown_or_after = true;
+        }
+        ruby_prism::visit_call_node(self, node);
+        self.in_teardown_or_after = was;
+    }
+
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        // Also match `def teardown; ... travel_back; end`
+        let is_teardown = node.name().as_slice() == b"teardown";
+
+        let was = self.in_teardown_or_after;
+        if is_teardown {
+            self.in_teardown_or_after = true;
+        }
+        ruby_prism::visit_def_node(self, node);
+        self.in_teardown_or_after = was;
     }
 }
 

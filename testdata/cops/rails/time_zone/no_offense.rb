@@ -16,3 +16,7 @@ Time.parse('2023-05-29 00:00:00 UTC')
 Time.parse('2015-03-02T19:05:37Z')
 Time.parse('2015-03-02T19:05:37+05:00')
 Time.parse('2015-03-02T19:05:37-0500')
+# Time.at/new/now with `in:` keyword argument — timezone offset provided
+Time.at(epoch, in: "UTC")
+Time.now(in: "+09:00")
+Time.new(2023, 1, 1, in: "UTC")

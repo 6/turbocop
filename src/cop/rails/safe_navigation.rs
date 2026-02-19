@@ -38,13 +38,31 @@ impl Cop for SafeNavigation {
             return Vec::new();
         }
 
+        // First argument must be a symbol (method name to call).
+        // e.g., foo.try(:bar) or foo.try!(:baz).
+        // If it's a variable or other expression, safe navigation doesn't apply.
+        let args = match call.arguments() {
+            Some(a) => a,
+            None => return Vec::new(),
+        };
+        let first_arg = match args.arguments().iter().next() {
+            Some(a) => a,
+            None => return Vec::new(),
+        };
+        if first_arg.as_symbol_node().is_none() {
+            return Vec::new();
+        }
+
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         vec![self.diagnostic(
             source,
             line,
             column,
-            "Use safe navigation (`&.`) instead of `try`.".to_string(),
+            format!(
+                "Use safe navigation (`&.`) instead of `{}`.",
+                String::from_utf8_lossy(name),
+            ),
         )]
     }
 }

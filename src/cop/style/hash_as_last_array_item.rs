@@ -76,6 +76,15 @@ impl Cop for HashAsLastArrayItem {
                     if all_expected {
                         return Vec::new();
                     }
+                    // Don't flag if second-to-last element is also a hash
+                    if elements.len() >= 2 {
+                        let second_last = &elements[elements.len() - 2];
+                        if second_last.as_keyword_hash_node().is_some()
+                            || second_last.as_hash_node().is_some()
+                        {
+                            return Vec::new();
+                        }
+                    }
                     let loc = hash.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
                     return vec![self.diagnostic(

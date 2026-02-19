@@ -39,7 +39,11 @@ impl Cop for QuotedSymbols {
 
                     let prefer_single = match style {
                         "single_quotes" => true,
-                        "same_as_string_literals" => true,
+                        "same_as_string_literals" => {
+                            // Look up the Style/StringLiterals EnforcedStyle (injected by config)
+                            let sl_style = config.get_str("StringLiteralsEnforcedStyle", "single_quotes");
+                            sl_style != "double_quotes"
+                        }
                         "double_quotes" => false,
                         _ => true,
                     };

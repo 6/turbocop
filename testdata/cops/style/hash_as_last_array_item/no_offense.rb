@@ -10,3 +10,6 @@ method_call 1, 2, key: value
 
 # All elements are hash nodes WITH braces - not flagged in braces mode
 [{ one: 1 }, { two: 2 }, { three: 3 }]
+
+# Second-to-last element is also a hash - not flagged in no_braces mode
+[{ controller: "foo", action: "bar" }, { controller: "baz", action: "qux" }]

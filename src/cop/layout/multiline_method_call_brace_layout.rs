@@ -60,9 +60,24 @@ impl Cop for MultilineMethodCallBraceLayout {
         let last_arg = arg_list.last().unwrap();
 
         let (first_arg_line, _) = source.offset_to_line_col(first_arg.location().start_offset());
-        let (last_arg_line, _) = source.offset_to_line_col(
-            last_arg.location().end_offset().saturating_sub(1),
-        );
+
+        // Compute the effective end of the last argument. In Prism, `&block`
+        // arguments are stored in the CallNode's `block` field, not in the
+        // arguments list. For `define_method(method, &lambda do...end)`, the
+        // BlockArgumentNode's end offset includes the block's `end`, so use
+        // it when present to correctly determine the last arg's line.
+        let last_arg_end = if let Some(block) = call.block() {
+            if block.as_block_argument_node().is_some() {
+                // &block_arg — its span includes the block content
+                block.location().end_offset().saturating_sub(1)
+            } else {
+                // Regular do...end block — `)` comes before the block, not after
+                last_arg.location().end_offset().saturating_sub(1)
+            }
+        } else {
+            last_arg.location().end_offset().saturating_sub(1)
+        };
+        let (last_arg_line, _) = source.offset_to_line_col(last_arg_end);
 
         let open_same_as_first = open_line == first_arg_line;
         let close_same_as_last = close_line == last_arg_line;

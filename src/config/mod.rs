@@ -1598,6 +1598,19 @@ impl ResolvedConfig {
                 .entry("ActiveSupportExtensionsEnabled".to_string())
                 .or_insert_with(|| Value::Bool(self.active_support_extensions_enabled));
         }
+        // Inject Style/StringLiterals EnforcedStyle for Style/QuotedSymbols
+        // (mirrors RuboCop's `config.for_cop('Style/StringLiterals')` lookup)
+        if name == "Style/QuotedSymbols" {
+            let sl_config = self.cop_configs.get("Style/StringLiterals");
+            let sl_style = sl_config
+                .and_then(|cc| cc.options.get("EnforcedStyle"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("single_quotes");
+            config
+                .options
+                .entry("StringLiteralsEnforcedStyle".to_string())
+                .or_insert_with(|| Value::String(sl_style.to_string()));
+        }
         config
     }
 

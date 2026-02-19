@@ -482,6 +482,7 @@ fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_rational_node().is_some()
         || node.as_imaginary_node().is_some()
         || node.as_hash_node().is_some()
+        || node.as_keyword_hash_node().is_some()
         || node.as_array_node().is_some()
         || node.as_nil_node().is_some()
         || node.as_true_node().is_some()

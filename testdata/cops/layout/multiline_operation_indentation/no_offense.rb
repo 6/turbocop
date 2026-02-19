@@ -44,3 +44,23 @@ end
 !(method_name.start_with?(prefix) &&
     method_name.match?(/^foo/)) ||
   method_name == expected
+
+# Operator inside method call arg list parentheses (not_for_this_cop?)
+foo.permit(
+  [completed_message: %i[title body]] +
+                      [submitters: [%i[uuid]]]
+)
+
+# Operator inside .pick() parenthesized args
+foo.pick(
+  Arel::Nodes.build_quoted(Time.current) -
+   Arel.sql("COALESCE(scheduled_at, created_at)")
+)
+
+# And/Or in keyword condition with double-width indentation
+def find_key
+  if (key_id = request.headers.fetch("KEY", "").presence) &&
+      (signature = request.headers.fetch("SIG", "").presence)
+    use_key(key_id, signature)
+  end
+end

@@ -82,6 +82,29 @@ impl<'pr> Visit<'pr> for LvasgnFinder {
     }
 }
 
+/// Check if a node (or any descendant) contains a nested conditional
+/// (if/unless/ternary). RuboCop's `nested_conditional?` on IfNode checks
+/// whether any branch contains a nested `:if` node (which includes ternaries).
+/// We check the body for any descendant IfNode or UnlessNode.
+fn body_contains_nested_conditional(node: &ruby_prism::Node<'_>) -> bool {
+    let mut finder = NestedConditionalFinder { found: false };
+    finder.visit(node);
+    finder.found
+}
+
+struct NestedConditionalFinder {
+    found: bool,
+}
+
+impl<'pr> Visit<'pr> for NestedConditionalFinder {
+    fn visit_if_node(&mut self, _node: &ruby_prism::IfNode<'pr>) {
+        self.found = true;
+    }
+    fn visit_unless_node(&mut self, _node: &ruby_prism::UnlessNode<'pr>) {
+        self.found = true;
+    }
+}
+
 impl Cop for IfUnlessModifier {
     fn name(&self) -> &'static str {
         "Style/IfUnlessModifier"
@@ -171,10 +194,10 @@ impl Cop for IfUnlessModifier {
             return Vec::new();
         }
 
-        // Skip if the body itself is a conditional (nested conditional).
-        // e.g., `if x; return true if y; end` — RuboCop doesn't suggest modifier form
-        // for the outer if because it already contains an inner conditional.
-        if body_node.as_if_node().is_some() || body_node.as_unless_node().is_some() {
+        // Skip if the body contains any nested conditional (if/unless/ternary).
+        // RuboCop's `nested_conditional?` checks if any branch contains a nested
+        // `:if` node, which includes ternaries (e.g., `a = x ? y : z`).
+        if body_contains_nested_conditional(&body_node) {
             return Vec::new();
         }
 
@@ -261,7 +284,45 @@ impl Cop for IfUnlessModifier {
         // indentation level of the original `if`/`unless` keyword, not at the
         // body's (deeper) indentation.
         let (_, kw_col) = source.offset_to_line_col(kw_loc.start_offset());
-        let modifier_len = kw_col + body_text.len() + 1 + keyword.len() + 1 + cond_text.len();
+
+        // When the if/unless is used as the value of an assignment (e.g.,
+        // `x = if cond; body; end`), RuboCop's `parenthesize?` wraps the modifier
+        // form in parens: `x = (body if cond)`. This adds 2 chars to the line.
+        // Check if the line before the keyword contains an assignment operator.
+        let parens_overhead = {
+            let kw_line_start = kw_loc.start_offset() - kw_col;
+            let before_kw = &source.as_bytes()[kw_line_start..kw_loc.start_offset()];
+            // Check if the content before keyword on the same line is just whitespace;
+            // if not, it might contain assignment context. But the real case is when
+            // the assignment is on the PREVIOUS line (multi-line assignment).
+            // We check the previous non-blank line for a trailing `=`.
+            let before_kw_trimmed = before_kw.iter().copied()
+                .filter(|&b| b != b' ' && b != b'\t')
+                .count();
+            if before_kw_trimmed == 0 && kw_line_start > 0 {
+                // Check the previous line for trailing `=`
+                let lines: Vec<&[u8]> = source.lines().collect();
+                let (kw_line_num, _) = source.offset_to_line_col(kw_loc.start_offset());
+                if kw_line_num >= 2 {
+                    let prev_line = lines[kw_line_num - 2];
+                    let trimmed = prev_line.iter().copied()
+                        .rev()
+                        .skip_while(|&b| b == b' ' || b == b'\t')
+                        .collect::<Vec<_>>();
+                    if trimmed.first() == Some(&b'=') {
+                        2 // add 2 for parentheses: "(" and ")"
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                }
+            } else {
+                0
+            }
+        };
+
+        let modifier_len = kw_col + parens_overhead + body_text.len() + 1 + keyword.len() + 1 + cond_text.len();
 
         if !line_length_enabled || modifier_len <= max_line_length {
             let (line, column) = source.offset_to_line_col(kw_loc.start_offset());

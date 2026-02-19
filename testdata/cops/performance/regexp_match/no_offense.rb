@@ -17,3 +17,10 @@ end
 if str =~ /(\d+)/
   puts $1
 end
+# =~ or !~ inside && chain — not flagged (RuboCop only checks top-level condition)
+if foo && bar =~ /re/
+  do_something
+end
+if request.path !~ /pattern/ && other
+  redirect
+end

@@ -20,7 +20,7 @@ impl Cop for RedundantSplatExpansion {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let _allow_percent = config.get_bool("AllowPercentLiteralArrayArgument", true);
+        let allow_percent = config.get_bool("AllowPercentLiteralArrayArgument", true);
 
         let splat = match node.as_splat_node() {
             Some(s) => s,
@@ -41,6 +41,26 @@ impl Cop for RedundantSplatExpansion {
 
         if !is_literal {
             return Vec::new();
+        }
+
+        // When AllowPercentLiteralArrayArgument is true (default), skip
+        // percent literal arrays used as method arguments.
+        if allow_percent {
+            if let Some(array_node) = child.as_array_node() {
+                // Check if it's a percent literal (%w, %W, %i, %I)
+                if let Some(open_loc) = array_node.opening_loc() {
+                    let open = open_loc.as_slice();
+                    if open.starts_with(b"%w") || open.starts_with(b"%W")
+                        || open.starts_with(b"%i") || open.starts_with(b"%I")
+                    {
+                        // This is a percent literal array — skip it.
+                        // RuboCop only skips when it's a method argument or part of
+                        // an array, but we conservatively skip all percent literal
+                        // splats when the config allows it.
+                        return Vec::new();
+                    }
+                }
+            }
         }
 
         let loc = splat.location();

@@ -20,7 +20,11 @@ impl Cop for ReverseFind {
         let ruby_version = config
             .options
             .get("TargetRubyVersion")
-            .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
+            .and_then(|v| {
+                v.as_f64()
+                    .or_else(|| v.as_u64().map(|u| u as f64))
+                    .or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))
+            })
             .unwrap_or(2.7);
         if ruby_version < 4.0 {
             return Vec::new();

@@ -110,6 +110,10 @@ impl Cop for OutputSafety {
             if arg_list.len() != 1 {
                 return Vec::new();
             }
+            // Exempt raw(t(...)) / raw(I18n.t(...)) etc.
+            if contains_i18n_call(&arg_list[0]) {
+                return Vec::new();
+            }
         } else if name == b"safe_concat" {
             if call.receiver().is_none() {
                 return Vec::new();

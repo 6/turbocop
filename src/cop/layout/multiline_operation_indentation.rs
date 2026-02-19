@@ -34,6 +34,12 @@ impl Cop for MultilineOperationIndentation {
                 return Vec::new();
             }
 
+            // Skip if inside a grouped expression or method call arg list parentheses.
+            // Matches RuboCop's not_for_this_cop? check for operator method calls.
+            if is_inside_parentheses(source, node) {
+                return Vec::new();
+            }
+
             let receiver = match call_node.receiver() {
                 Some(r) => r,
                 None => return Vec::new(),
@@ -187,6 +193,25 @@ fn is_inside_parentheses(source: &SourceFile, node: &ruby_prism::Node<'_>) -> bo
     false
 }
 
+/// Check if the given line starts with a keyword that creates a condition
+/// context (if, elsif, unless, while, until, return, for). RuboCop's
+/// `kw_node_with_special_indentation` doubles the indentation width for
+/// operations inside such conditions.
+fn is_in_keyword_condition(source: &SourceFile, line: usize) -> bool {
+    let line_bytes = source.lines().nth(line - 1).unwrap_or(b"");
+    let trimmed: &[u8] = {
+        let start = line_bytes.iter().position(|&b| b != b' ' && b != b'\t').unwrap_or(line_bytes.len());
+        &line_bytes[start..]
+    };
+    trimmed.starts_with(b"if ")
+        || trimmed.starts_with(b"elsif ")
+        || trimmed.starts_with(b"unless ")
+        || trimmed.starts_with(b"while ")
+        || trimmed.starts_with(b"until ")
+        || trimmed.starts_with(b"return ")
+        || trimmed.starts_with(b"for ")
+}
+
 impl MultilineOperationIndentation {
     fn check_binary_node(
         &self,
@@ -229,11 +254,22 @@ impl MultilineOperationIndentation {
         let right_line_bytes = source.lines().nth(right_line - 1).unwrap_or(b"");
         let line_indent = indentation_of(right_line_bytes);
 
+        // RuboCop's `kw_node_with_special_indentation` doubles the indentation
+        // width when the operation is in a keyword condition (if/elsif/unless/
+        // while/until/return). For `indented` style, accept both normal and
+        // double-width indentation when in such a context.
+        let kw_expected = if is_in_keyword_condition(source, left_line) {
+            Some(left_indent + 2 * width)
+        } else {
+            None
+        };
+
         // For "aligned" style, accept both aligned and indented forms.
         // For "indented" style, also accept:
         // - Line indentation matching expected (leading operator: `&& expr`)
         // - Right col matching left indent (aligned with containing expression)
         // - Right col matching left col (aligned with left operand)
+        // - Keyword-condition double-width indentation
         // For both styles, also accept:
         // - Line indentation matching expected_indented (leading operator: `&& expr`)
         // - Right col matching left indent (aligned with containing expression)
@@ -243,11 +279,13 @@ impl MultilineOperationIndentation {
                 || right_col == expected_indented
                 || line_indent == expected_indented
                 || right_col == left_indent
+                || kw_expected.is_some_and(|kw| right_col == kw || line_indent == kw)
         } else {
             right_col == expected
                 || line_indent == expected
                 || right_col == left_indent
                 || right_col == left_col
+                || kw_expected.is_some_and(|kw| right_col == kw || line_indent == kw)
         };
 
         if !is_ok {

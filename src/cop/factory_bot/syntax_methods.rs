@@ -1,7 +1,10 @@
 use crate::cop::factory_bot::{is_factory_bot_receiver, FACTORY_BOT_METHODS, FACTORY_BOT_SPEC_INCLUDE};
+use crate::cop::util::is_rspec_example_group;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 pub struct SyntaxMethods;
 
@@ -18,60 +21,90 @@ impl Cop for SyntaxMethods {
         FACTORY_BOT_SPEC_INCLUDE
     }
 
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &CodeMap,
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        let call = match node.as_call_node() {
-            Some(c) => c,
-            None => return Vec::new(),
-        };
-
-        let method_name = call.name().as_slice();
-        let method_str = std::str::from_utf8(method_name).unwrap_or("");
-        if !FACTORY_BOT_METHODS.contains(&method_str) {
-            return Vec::new();
-        }
-
-        // Must have FactoryBot/FactoryGirl receiver
-        let recv = match call.receiver() {
-            Some(r) => r,
-            None => return Vec::new(),
-        };
-
-        if !is_factory_bot_receiver(&recv) {
-            return Vec::new();
-        }
-
-        // Must be inside an RSpec example group
-        // We check this by walking ancestors (parent chain)
-        // Since check_node doesn't give us parent, we'll use the SourceFile to check
-        // if we're in a spec file (the Include pattern already filters for spec files)
-        // For accuracy, we should verify this is inside an RSpec block, but the Include
-        // pattern is sufficient for the common case.
-        //
-        // Actually, the vendor cop checks for spec_group? ancestor. Let's approximate
-        // by checking if the file looks like a spec file (which is already guaranteed
-        // by the Include pattern). For the no-offense case outside example groups,
-        // we can't easily detect this without parent traversal, so we'll trust the
-        // Include pattern for now - this matches real-world behavior since factory_bot
-        // calls outside spec files aren't covered by this cop.
-
-        // The offense spans from start of FactoryBot receiver to end of method name
-        let recv_loc = recv.location();
-        let (line, column) = source.offset_to_line_col(recv_loc.start_offset());
-        vec![self.diagnostic(
+        let mut visitor = SyntaxMethodsVisitor {
+            cop: self,
             source,
-            line,
-            column,
-            format!(
-                "Use `{}` from `FactoryBot::Syntax::Methods`.",
-                method_str
-            ),
-        )]
+            in_example_group: false,
+            diagnostics: Vec::new(),
+        };
+        visitor.visit(&parse_result.node());
+        visitor.diagnostics
+    }
+}
+
+struct SyntaxMethodsVisitor<'a> {
+    cop: &'a SyntaxMethods,
+    source: &'a SourceFile,
+    in_example_group: bool,
+    diagnostics: Vec<Diagnostic>,
+}
+
+/// Check if a call node is an RSpec example group (describe/context/feature/etc.)
+/// with the appropriate receiver (nil, RSpec, or ::RSpec).
+fn is_spec_group_call(call: &ruby_prism::CallNode<'_>) -> bool {
+    let method_name = call.name().as_slice();
+    if !is_rspec_example_group(method_name) {
+        return false;
+    }
+
+    // Receiver must be nil (bare call) or RSpec/::RSpec constant
+    match call.receiver() {
+        None => true,
+        Some(recv) => {
+            if let Some(cr) = recv.as_constant_read_node() {
+                cr.name().as_slice() == b"RSpec"
+            } else if let Some(cp) = recv.as_constant_path_node() {
+                cp.parent().is_none()
+                    && cp.name().map_or(false, |n| n.as_slice() == b"RSpec")
+            } else {
+                false
+            }
+        }
+    }
+}
+
+impl<'pr> Visit<'pr> for SyntaxMethodsVisitor<'_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        // Check if this call itself is a FactoryBot.method inside an example group
+        if self.in_example_group {
+            let method_name = node.name().as_slice();
+            let method_str = std::str::from_utf8(method_name).unwrap_or("");
+            if FACTORY_BOT_METHODS.contains(&method_str) {
+                if let Some(recv) = node.receiver() {
+                    if is_factory_bot_receiver(&recv) {
+                        let recv_loc = recv.location();
+                        let (line, column) =
+                            self.source.offset_to_line_col(recv_loc.start_offset());
+                        self.diagnostics.push(self.cop.diagnostic(
+                            self.source,
+                            line,
+                            column,
+                            format!(
+                                "Use `{}` from `FactoryBot::Syntax::Methods`.",
+                                method_str
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Check if this call node with a block is an RSpec example group
+        let enters_example_group = node.block().is_some() && is_spec_group_call(node);
+
+        let was_eg = self.in_example_group;
+        if enters_example_group {
+            self.in_example_group = true;
+        }
+        ruby_prism::visit_call_node(self, node);
+        self.in_example_group = was_eg;
     }
 }
 

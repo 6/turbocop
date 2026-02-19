@@ -62,6 +62,22 @@ impl Cop for TimeZone {
             }
         }
 
+        // Skip Time.new/at/now with `in:` keyword argument (timezone offset provided)
+        if method == b"at" || method == b"now" || method == b"new" {
+            if has_in_keyword_arg(&call) {
+                return Vec::new();
+            }
+        }
+        // Time.new with 7 arguments (last is timezone offset)
+        if method == b"new" {
+            if let Some(args) = call.arguments() {
+                let arg_count = args.arguments().iter().count();
+                if arg_count == 7 {
+                    return Vec::new();
+                }
+            }
+        }
+
         let style = config.get_str("EnforcedStyle", "flexible");
 
         if style == "flexible" {
@@ -91,6 +107,49 @@ impl Cop for TimeZone {
             ),
         )]
     }
+}
+
+/// Check if a call has an `in:` keyword argument (for timezone offset).
+fn has_in_keyword_arg(call: &ruby_prism::CallNode<'_>) -> bool {
+    let args = match call.arguments() {
+        Some(a) => a,
+        None => return false,
+    };
+
+    // Check the last argument for a keyword hash with `in:` key
+    let last_arg = args.arguments().iter().last();
+    if let Some(arg) = last_arg {
+        // Keyword hash argument (keyword args in method calls)
+        if let Some(kw_hash) = arg.as_keyword_hash_node() {
+            for elem in kw_hash.elements().iter() {
+                if let Some(assoc) = elem.as_assoc_node() {
+                    if let Some(sym) = assoc.key().as_symbol_node() {
+                        if &*sym.unescaped() == b"in" {
+                            // Value must not be nil
+                            if assoc.value().as_nil_node().is_none() {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Regular hash argument
+        if let Some(hash) = arg.as_hash_node() {
+            for elem in hash.elements().iter() {
+                if let Some(assoc) = elem.as_assoc_node() {
+                    if let Some(sym) = assoc.key().as_symbol_node() {
+                        if &*sym.unescaped() == b"in" {
+                            if assoc.value().as_nil_node().is_none() {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Check if a string value ends with a timezone specifier.

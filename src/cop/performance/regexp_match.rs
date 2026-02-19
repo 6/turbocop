@@ -120,28 +120,9 @@ fn check_condition(
         }
     }
 
-    // Also check through boolean operators (e.g., `x =~ /re/ && y`)
-    if let Some(and_node) = cond.as_and_node() {
-        check_condition(cop, source, &and_node.left(), body_range, diagnostics);
-        check_condition(cop, source, &and_node.right(), body_range, diagnostics);
-    }
-    if let Some(or_node) = cond.as_or_node() {
-        check_condition(cop, source, &or_node.left(), body_range, diagnostics);
-        check_condition(cop, source, &or_node.right(), body_range, diagnostics);
-    }
-    if let Some(paren) = cond.as_parentheses_node() {
-        if let Some(body) = paren.body() {
-            check_condition(cop, source, &body, body_range, diagnostics);
-        }
-    }
-    // Handle negation: `!x =~ /re/` — the `!` wraps a CallNode
-    if let Some(call) = cond.as_call_node() {
-        if call.name().as_slice() == b"!" {
-            if let Some(recv) = call.receiver() {
-                check_condition(cop, source, &recv, body_range, diagnostics);
-            }
-        }
-    }
+    // NOTE: RuboCop only checks the top-level condition expression, not
+    // sub-expressions within && or || chains. We match that behavior to
+    // avoid false positives on conditions like `a && b =~ /re/ && c`.
 }
 
 /// Check if the source in the given byte range contains references to

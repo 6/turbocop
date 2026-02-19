@@ -430,6 +430,40 @@ fn get_covered_cops() -> HashSet<String> {
         .collect()
 }
 
+/// Detect `TargetRubyVersion` from a repo's `.rubocop.yml`.
+/// Returns the version as a float (e.g. 2.6, 3.1) or None if not specified.
+fn detect_target_ruby_version(repo_dir: &Path) -> Option<f64> {
+    let yml = repo_dir.join(".rubocop.yml");
+    let content = fs::read_to_string(&yml).ok()?;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("TargetRubyVersion") {
+            // Parse "TargetRubyVersion: 2.6" or "TargetRubyVersion: '4.0'"
+            let val = trimmed.split(':').nth(1)?.trim();
+            let val = val.trim_matches(|c| c == '\'' || c == '"');
+            return val.parse::<f64>().ok();
+        }
+    }
+    None
+}
+
+/// Build the set of cops to exclude from conformance for a specific repo.
+/// `Lint/Syntax` is excluded for repos targeting Ruby < 3.0 because Prism
+/// always parses modern Ruby and cannot detect parser-version-specific syntax
+/// errors (e.g. `...` under Ruby 2.6).
+fn per_repo_excluded_cops(repo_dir: &Path) -> HashSet<String> {
+    let mut excluded = HashSet::new();
+    if let Some(ver) = detect_target_ruby_version(repo_dir) {
+        if ver < 3.0 {
+            eprintln!(
+                "  TargetRubyVersion={ver} (< 3.0) — excluding Lint/Syntax from conformance"
+            );
+            excluded.insert("Lint/Syntax".to_string());
+        }
+    }
+    excluded
+}
+
 fn run_conform() -> HashMap<String, ConformResult> {
     let rblint = rblint_binary();
     let results_path = results_dir();
@@ -504,11 +538,15 @@ fn run_conform() -> HashMap<String, ConformResult> {
             }
         };
 
+        // Per-repo cop exclusions (e.g. Lint/Syntax for old-Ruby repos)
+        let repo_excluded = per_repo_excluded_cops(&repo_dir);
+
         type Offense = (String, usize, String); // (path, line, cop_name)
 
         let rblint_set: HashSet<Offense> = rblint_data
             .offenses
             .iter()
+            .filter(|o| !repo_excluded.contains(&o.cop_name))
             .map(|o| {
                 let path = o.path.strip_prefix(&repo_prefix).unwrap_or(&o.path);
                 // Strip leading "./" if present (rblint outputs ./path when run with ".")
@@ -522,7 +560,7 @@ fn run_conform() -> HashMap<String, ConformResult> {
             .iter()
             .flat_map(|f| {
                 f.offenses.iter().filter_map(|o| {
-                    if covered.contains(&o.cop_name) {
+                    if covered.contains(&o.cop_name) && !repo_excluded.contains(&o.cop_name) {
                         Some((f.path.clone(), o.location.start_line, o.cop_name.clone()))
                     } else {
                         None

@@ -120,7 +120,7 @@ fn is_const_reference(node: &ruby_prism::Node<'_>) -> bool {
             return true;
         }
     }
-    // ConstantPathNode (e.g. Foo::BAR) - not treated as a const reference
+    // as_constant_path_node (e.g. Foo::BAR) - not treated as a const reference
     // since each segment would need checking
     false
 }

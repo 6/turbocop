@@ -35,6 +35,12 @@ impl Cop for RedundantTypeConversion {
             return Vec::new();
         }
 
+        // For to_h and to_set, skip if there's a block — the block transforms
+        // the elements, so it's a different operation.
+        if (method_name == b"to_h" || method_name == b"to_set") && call.block().is_some() {
+            return Vec::new();
+        }
+
         let receiver = match call.receiver() {
             Some(r) => r,
             None => return Vec::new(),

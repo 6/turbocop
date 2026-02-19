@@ -93,3 +93,23 @@ end
 if condition
   x ? do_this : do_that
 end
+
+# Ternary nested inside assignment in body (nested_conditional)
+if archived.in?([true, false])
+  @template.archived_at = archived == true ? Time.current : nil
+end
+
+# Ternary nested inside assignment in body (nested_conditional)
+if has_and_mask && !and_mask_bits_for_row.empty?
+  a = and_mask_bits_for_row[x_pixel] == 1 ? 0 : 255
+end
+
+# Multi-line assignment: modifier form would need parens and exceed line length
+class Foo
+  def load_resubmit_submitter
+    @resubmit_submitter =
+      if params[:resubmit].present? && !params[:resubmit].in?([true, 'true'])
+        Submitter.find_by(slug: params[:resubmit])
+      end
+  end
+end

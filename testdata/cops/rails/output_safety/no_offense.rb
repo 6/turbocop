@@ -12,3 +12,7 @@ t('key').html_safe
 I18n.t('some.key', name: user.name).html_safe
 translate('key').html_safe
 I18n.translate('key').html_safe
+# raw() with i18n argument is exempt
+raw t('.owner_html', owner: user)
+raw I18n.t('key')
+raw translate('some.key')

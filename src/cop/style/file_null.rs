@@ -1,6 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 pub struct FileNull;
 
@@ -9,55 +10,109 @@ impl Cop for FileNull {
         "Style/FileNull"
     }
 
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::cop::CodeMap,
         _config: &CopConfig,
     ) -> Vec<Diagnostic> {
-        // Only check simple string nodes (not interpolated, not in arrays/hashes)
-        let string_node = match node.as_string_node() {
-            Some(s) => s,
-            None => return Vec::new(),
-        };
+        // First pass: check if the file contains any "/dev/null" string
+        // (needed for bare "NUL" detection)
+        let root = parse_result.node();
+        let mut dev_null_finder = DevNullFinder { found: false };
+        dev_null_finder.visit(&root);
+        let contain_dev_null = dev_null_finder.found;
 
-        let content_bytes = string_node.unescaped();
+        // Second pass: find offenses
+        let mut visitor = FileNullVisitor {
+            source,
+            cop: self,
+            diagnostics: Vec::new(),
+            contain_dev_null,
+            in_array_or_pair: false,
+        };
+        visitor.visit(&root);
+        visitor.diagnostics
+    }
+}
+
+struct DevNullFinder {
+    found: bool,
+}
+
+impl<'pr> Visit<'pr> for DevNullFinder {
+    fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+        let content = node.unescaped();
+        if let Ok(s) = std::str::from_utf8(&content) {
+            if s.eq_ignore_ascii_case("/dev/null") {
+                self.found = true;
+            }
+        }
+    }
+}
+
+struct FileNullVisitor<'a> {
+    source: &'a SourceFile,
+    cop: &'a FileNull,
+    diagnostics: Vec<Diagnostic>,
+    contain_dev_null: bool,
+    in_array_or_pair: bool,
+}
+
+impl<'a, 'pr> Visit<'pr> for FileNullVisitor<'a> {
+    fn visit_array_node(&mut self, node: &ruby_prism::ArrayNode<'pr>) {
+        let prev = self.in_array_or_pair;
+        self.in_array_or_pair = true;
+        ruby_prism::visit_array_node(self, node);
+        self.in_array_or_pair = prev;
+    }
+
+    fn visit_assoc_node(&mut self, node: &ruby_prism::AssocNode<'pr>) {
+        let prev = self.in_array_or_pair;
+        self.in_array_or_pair = true;
+        ruby_prism::visit_assoc_node(self, node);
+        self.in_array_or_pair = prev;
+    }
+
+    fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+        // Skip strings inside arrays or hash pairs
+        if self.in_array_or_pair {
+            return;
+        }
+
+        let content_bytes = node.unescaped();
         let content_str = match std::str::from_utf8(&content_bytes) {
             Ok(s) => s,
-            Err(_) => return Vec::new(),
+            Err(_) => return,
         };
 
         if content_str.is_empty() {
-            return Vec::new();
+            return;
         }
 
-        // Check if it's a standalone "nul" - only flag if "/dev/null" is also present
-        // Actually per the spec: NUL alone is not flagged, only NUL: or /dev/null are flagged independently
-        // and NUL is flagged only when /dev/null appears in the same file
-        // For simplicity, we flag /dev/null, NUL:, and nul: (case insensitive)
         let lower = content_str.to_lowercase();
 
         let matched = if lower == "/dev/null" {
             Some(content_str)
         } else if lower == "nul:" {
             Some(content_str)
+        } else if lower == "nul" && self.contain_dev_null {
+            Some(content_str)
         } else {
             None
         };
 
         if let Some(matched_str) = matched {
-            let loc = string_node.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
-                source,
+            let loc = node.location();
+            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
                 line,
                 column,
                 format!("Use `File::NULL` instead of `{}`.", matched_str),
-            )];
+            ));
         }
-
-        Vec::new()
     }
 }
 

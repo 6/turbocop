@@ -113,8 +113,12 @@ impl Cop for BlockAlignment {
     }
 }
 
-/// Check if a line has unclosed brackets (more opening than closing).
-/// This detects multiline array literals, hash literals, and argument lists.
+/// Check if a line has unclosed parentheses or brackets (more opening than closing).
+/// This detects multiline argument lists and array/hash literals.
+/// NOTE: We only count `(` and `[`, NOT `{`. Curly braces typically open blocks
+/// or hash literals where each line is a separate statement, not a continuation
+/// of the outer expression. Including `{` would cause false positives when a
+/// `do...end` block is nested inside a brace block (e.g., `lambda { |env| ... }`).
 fn line_has_unclosed_bracket(line: &[u8]) -> bool {
     let mut depth: i32 = 0;
     let mut in_single = false;
@@ -123,8 +127,8 @@ fn line_has_unclosed_bracket(line: &[u8]) -> bool {
         match b {
             b'\'' if !in_double => in_single = !in_single,
             b'"' if !in_single => in_double = !in_double,
-            b'(' | b'[' | b'{' if !in_single && !in_double => depth += 1,
-            b')' | b']' | b'}' if !in_single && !in_double => depth -= 1,
+            b'(' | b'[' if !in_single && !in_double => depth += 1,
+            b')' | b']' if !in_single && !in_double => depth -= 1,
             _ => {}
         }
     }

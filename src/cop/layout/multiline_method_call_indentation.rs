@@ -78,35 +78,36 @@ impl ChainVisitor<'_> {
 
         // RuboCop skips inside parenthesized call arguments, UNLESS the chain
         // is inside a hash pair value (where it applies hash-pair alignment).
+        // However, if we entered NEW paren args inside a hash value (deeper
+        // nesting), we still skip — matching RuboCop's `not_for_this_cop?`.
         if self.in_paren_args && !self.in_hash_value {
             return;
         }
 
         let expected = match self.style {
-            "indented" => {
+            "indented" | "indented_relative_to_receiver" => {
                 let chain_start_line = find_chain_start_line(self.source, &receiver);
                 let chain_line_bytes = self
                     .source
                     .lines()
                     .nth(chain_start_line - 1)
                     .unwrap_or(b"");
-                indentation_of(chain_line_bytes) + self.width
-            }
-            "indented_relative_to_receiver" => {
-                let chain_start_line = find_chain_start_line(self.source, &receiver);
-                let chain_line_bytes = self
-                    .source
-                    .lines()
-                    .nth(chain_start_line - 1)
-                    .unwrap_or(b"");
-                indentation_of(chain_line_bytes) + self.width
+                let base_indent = indentation_of(chain_line_bytes);
+                // RuboCop adds an extra IndentationWidth when the chain is inside
+                // a keyword expression like `return`, `if`, `while`, `until`, `for`.
+                let kw_extra = keyword_extra_indent(self.source, call_node, self.width);
+                base_indent + self.width + kw_extra
             }
             _ => {
                 // "aligned" (default)
                 if self.in_hash_value {
-                    // Inside a hash pair value: align dot with the chain root's
-                    // start column (matching RuboCop's hash pair alignment logic).
-                    find_chain_root_col(self.source, &receiver)
+                    // Inside a hash pair value: try block chain / continuation
+                    // dot alignment first, fall back to chain root's start
+                    // column (matching RuboCop's hash pair alignment logic).
+                    match find_alignment_base_col(self.source, &receiver, msg_line) {
+                        Some(col) => col,
+                        None => find_chain_root_col(self.source, &receiver),
+                    }
                 } else {
                     // Try to find a previous continuation dot to align with.
                     // Also check for block chain continuation.
@@ -168,10 +169,10 @@ impl Visit<'_> for ChainVisitor<'_> {
         let has_parens = node.opening_loc().is_some();
         if let Some(args) = node.arguments() {
             if has_parens {
-                let saved = self.in_paren_args;
+                let saved_paren = self.in_paren_args;
                 self.in_paren_args = true;
                 self.visit(&args.as_node());
-                self.in_paren_args = saved;
+                self.in_paren_args = saved_paren;
             } else {
                 self.visit(&args.as_node());
             }
@@ -185,12 +186,12 @@ impl Visit<'_> for ChainVisitor<'_> {
 
     fn visit_parentheses_node(&mut self, node: &ruby_prism::ParenthesesNode<'_>) {
         // Grouped expressions like `(foo\n  .bar)` — RuboCop skips these too
-        let saved = self.in_paren_args;
+        let saved_paren = self.in_paren_args;
         self.in_paren_args = true;
         if let Some(body) = node.body() {
             self.visit(&body);
         }
-        self.in_paren_args = saved;
+        self.in_paren_args = saved_paren;
     }
 
     fn visit_assoc_node(&mut self, node: &ruby_prism::AssocNode<'_>) {
@@ -199,44 +200,49 @@ impl Visit<'_> for ChainVisitor<'_> {
 
         // Visit value with in_hash_value = true — RuboCop checks chain
         // indentation inside hash pair values even within parenthesized args.
-        let saved = self.in_hash_value;
+        let saved_hash = self.in_hash_value;
         self.in_hash_value = true;
         self.visit(&node.value());
-        self.in_hash_value = saved;
+        self.in_hash_value = saved_hash;
     }
 }
 
 /// For `aligned` style: find the column of a suitable alignment base.
 /// Tries (in order):
-/// 1. A previous continuation dot in the chain on an earlier line
-/// 2. A block chain continuation (single-line block receiver)
+/// 1. A block chain continuation (single-line block receiver)
+/// 2. A previous continuation dot in the chain on an earlier line
+///
+/// Block chain is checked first because when a single-line block is the
+/// receiver, the alignment base should be the block-bearing call's dot,
+/// not an earlier continuation dot from below the block boundary.
 fn find_alignment_base_col(
     source: &SourceFile,
     receiver: &ruby_prism::Node<'_>,
     current_dot_line: usize,
 ) -> Option<usize> {
-    // First try: previous continuation dot in the chain
-    if let Some(col) = find_alignment_dot_col(source, receiver, current_dot_line) {
-        return Some(col);
-    }
-
-    // Second try: block chain continuation — when the receiver is a
-    // single-line call-with-block, align with that call's dot.
-    // In Prism, blocks are children of CallNode (unlike Parser where
-    // BlockNode wraps the send), so we check call.block().is_some().
+    // First try: block chain continuation — when the receiver is a
+    // call-with-block whose dot+method+block is single-line, align with
+    // that call's dot. In Prism, blocks are children of CallNode (unlike
+    // Parser where BlockNode wraps the send).
     // Pattern: `foo.bar { ... }\n  .baz` → align .baz with .bar's dot
+    // We check from the DOT position (not the CallNode start, which includes
+    // the full receiver chain) to the end of the block.
     if let Some(call) = receiver.as_call_node() {
         if call.block().is_some() {
-            let loc = call.location();
-            let (start_line, _) = source.offset_to_line_col(loc.start_offset());
-            let (end_line, _) = source.offset_to_line_col(loc.end_offset());
-            if start_line == end_line && start_line < current_dot_line {
-                if let Some(dot_loc) = call.call_operator_loc() {
-                    let (_, col) = source.offset_to_line_col(dot_loc.start_offset());
-                    return Some(col);
+            if let Some(dot_loc) = call.call_operator_loc() {
+                let (dot_line, dot_col) = source.offset_to_line_col(dot_loc.start_offset());
+                let loc = call.location();
+                let (end_line, _) = source.offset_to_line_col(loc.end_offset());
+                if dot_line == end_line && dot_line < current_dot_line {
+                    return Some(dot_col);
                 }
             }
         }
+    }
+
+    // Second try: previous continuation dot in the chain
+    if let Some(col) = find_alignment_dot_col(source, receiver, current_dot_line) {
+        return Some(col);
     }
 
     None
@@ -351,6 +357,40 @@ fn is_continuation_dot(source: &SourceFile, dot_offset: usize) -> bool {
     true
 }
 
+/// Check if the chain root is inside a keyword expression (return, if, while,
+/// until, for) and return the extra indentation width if so. RuboCop adds an
+/// extra IndentationWidth for chains inside these keyword expressions when
+/// using `indented` style.
+fn keyword_extra_indent(
+    source: &SourceFile,
+    call_node: &ruby_prism::CallNode<'_>,
+    _width: usize,
+) -> usize {
+    // Check the chain start line for a keyword prefix
+    let receiver = match call_node.receiver() {
+        Some(r) => r,
+        None => return 0,
+    };
+    let chain_start_line = find_chain_start_line(source, &receiver);
+    let chain_line_bytes = source
+        .lines()
+        .nth(chain_start_line - 1)
+        .unwrap_or(b"");
+    // Get the text after indentation
+    let trimmed = chain_line_bytes.iter().skip_while(|&&b| b == b' ' || b == b'\t');
+    let text: Vec<u8> = trimmed.copied().collect();
+    // Check for keyword prefixes: return, if, while, until, for, unless
+    let keywords: &[&[u8]] = &[b"return ", b"return(", b"if ", b"while ", b"until ", b"for ", b"unless "];
+    for kw in keywords {
+        if text.starts_with(kw) {
+            // RuboCop adds IndentationWidth for the keyword, but the configured
+            // cop IndentationWidth is what we use. In practice, both are 2.
+            return 2;
+        }
+    }
+    0
+}
+
 /// Find the start column of the chain root (deepest receiver).
 fn find_chain_root_col(source: &SourceFile, node: &ruby_prism::Node<'_>) -> usize {
     if let Some(call) = node.as_call_node() {
@@ -397,15 +437,18 @@ fn find_alignment_base_description(
     receiver: &ruby_prism::Node<'_>,
 ) -> (String, usize) {
     // Check for block chain continuation first — when the receiver is a
-    // single-line call-with-block, the alignment base is that call's dot+selector.
+    // call-with-block whose dot+method+block is single-line, the alignment
+    // base is that call's dot+selector.
     if let Some(call) = receiver.as_call_node() {
-        if call.block().is_some() && call.call_operator_loc().is_some() {
-            let loc = call.location();
-            let (start_line, _) = source.offset_to_line_col(loc.start_offset());
-            let (end_line, _) = source.offset_to_line_col(loc.end_offset());
-            if start_line == end_line {
-                let name = std::str::from_utf8(call.name().as_slice()).unwrap_or("?");
-                return (format!(".{name}"), start_line);
+        if call.block().is_some() {
+            if let Some(dot_loc) = call.call_operator_loc() {
+                let (dot_line, _) = source.offset_to_line_col(dot_loc.start_offset());
+                let loc = call.location();
+                let (end_line, _) = source.offset_to_line_col(loc.end_offset());
+                if dot_line == end_line {
+                    let name = std::str::from_utf8(call.name().as_slice()).unwrap_or("?");
+                    return (format!(".{name}"), dot_line);
+                }
             }
         }
     }

@@ -11,3 +11,6 @@ foo do |item|
   _2_var = item.value
   puts _1_var + _2_var
 end
+# Using only _2 (1 unique param, not 2) — should not fire with Max: 1
+attributes.map { Condition.new(_2) }
+hash.each { use_only_hash_value(_2) }

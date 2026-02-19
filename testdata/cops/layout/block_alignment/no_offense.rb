@@ -50,3 +50,11 @@ end
    no_acceptable_style!].each do |method|
   puts method
 end
+
+# do...end block inside a brace block — end aligns with chain root
+to = lambda { |env|
+  hostess.call(env)
+    .tap do |response|
+      response[1].delete("x-cascade")
+  end
+}

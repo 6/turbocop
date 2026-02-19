@@ -1,8 +1,55 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 pub struct EachWithObject;
+
+/// Check if the accumulator variable is reassigned anywhere in the block body.
+/// This covers `acc = ...`, `acc += ...`, `acc ||= ...`, etc.
+fn accumulator_reassigned_in_body(node: &ruby_prism::Node<'_>, acc_name: &[u8]) -> bool {
+    let mut finder = AccReassignFinder {
+        acc_name: acc_name.to_vec(),
+        found: false,
+    };
+    finder.visit(node);
+    finder.found
+}
+
+struct AccReassignFinder {
+    acc_name: Vec<u8>,
+    found: bool,
+}
+
+impl<'pr> Visit<'pr> for AccReassignFinder {
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
+        if node.name().as_slice() == self.acc_name {
+            self.found = true;
+        }
+        ruby_prism::visit_local_variable_write_node(self, node);
+    }
+
+    fn visit_local_variable_operator_write_node(&mut self, node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>) {
+        if node.name().as_slice() == self.acc_name {
+            self.found = true;
+        }
+        ruby_prism::visit_local_variable_operator_write_node(self, node);
+    }
+
+    fn visit_local_variable_and_write_node(&mut self, node: &ruby_prism::LocalVariableAndWriteNode<'pr>) {
+        if node.name().as_slice() == self.acc_name {
+            self.found = true;
+        }
+        ruby_prism::visit_local_variable_and_write_node(self, node);
+    }
+
+    fn visit_local_variable_or_write_node(&mut self, node: &ruby_prism::LocalVariableOrWriteNode<'pr>) {
+        if node.name().as_slice() == self.acc_name {
+            self.found = true;
+        }
+        ruby_prism::visit_local_variable_or_write_node(self, node);
+    }
+}
 
 impl Cop for EachWithObject {
     fn name(&self) -> &'static str {
@@ -76,6 +123,21 @@ impl Cop for EachWithObject {
             return Vec::new();
         }
 
+        // The initial value must not be a basic literal (integer, float, string, symbol).
+        // RuboCop's `simple_method_arg?` checks `method_arg&.basic_literal?`.
+        let is_basic_literal = initial.as_integer_node().is_some()
+            || initial.as_float_node().is_some()
+            || initial.as_string_node().is_some()
+            || initial.as_symbol_node().is_some()
+            || initial.as_rational_node().is_some()
+            || initial.as_imaginary_node().is_some()
+            || initial.as_nil_node().is_some()
+            || initial.as_true_node().is_some()
+            || initial.as_false_node().is_some();
+        if is_basic_literal {
+            return Vec::new();
+        }
+
         // Check that the block body's last expression returns the accumulator variable.
         // In inject/reduce, the accumulator is the FIRST block parameter: |acc, elem|
         let acc_name = {
@@ -115,6 +177,14 @@ impl Cop for EachWithObject {
                 return Vec::new();
             }
         } else {
+            return Vec::new();
+        }
+
+        // If the accumulator variable is assigned to within the block body,
+        // we can't safely convert to each_with_object. With each_with_object,
+        // the object is passed by reference and reassignment (`acc = ...` or
+        // `acc += ...`) wouldn't propagate back to the caller.
+        if accumulator_reassigned_in_body(&body, &acc_name) {
             return Vec::new();
         }
 

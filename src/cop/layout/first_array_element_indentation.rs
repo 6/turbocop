@@ -6,25 +6,27 @@ use crate::parse::source::SourceFile;
 pub struct FirstArrayElementIndentation;
 
 /// Scan backwards from `bracket_col` on `line_bytes` to find an unmatched `(`
-/// that directly contains this array (not separated by an unmatched `[`).
+/// that directly contains this array (not separated by an unmatched `[` or `{`).
 /// Returns `Some(column)` if found, `None` otherwise.
 ///
-/// This tracks balanced parens AND brackets. If we encounter an unmatched `[`
-/// before finding an unmatched `(`, the array is nested inside another array,
-/// not a direct argument of the method call, so we return `None`.
+/// This tracks balanced parens, brackets, AND braces. If we encounter an
+/// unmatched `[` or `{` before finding an unmatched `(`, the array is nested
+/// inside another array or a hash literal, not a direct argument of the
+/// method call, so we return `None`.
 fn find_left_paren_on_line(line_bytes: &[u8], bracket_col: usize) -> Option<usize> {
     let end = bracket_col.min(line_bytes.len());
     let mut paren_depth: i32 = 0;
     let mut bracket_depth: i32 = 0;
+    let mut brace_depth: i32 = 0;
     for i in (0..end).rev() {
         match line_bytes[i] {
             b')' => paren_depth += 1,
             b'(' => {
                 if paren_depth == 0 {
                     // Found an unmatched `(`. Only return it if we haven't
-                    // passed through an unmatched `[` (which would mean our
-                    // array is nested inside another array argument).
-                    if bracket_depth == 0 {
+                    // passed through an unmatched `[` or `{` (which would mean
+                    // our array is nested inside another array or hash literal).
+                    if bracket_depth == 0 && brace_depth == 0 {
                         return Some(i);
                     }
                     return None;
@@ -35,10 +37,17 @@ fn find_left_paren_on_line(line_bytes: &[u8], bracket_col: usize) -> Option<usiz
             b'[' => {
                 if bracket_depth == 0 {
                     // Unmatched `[` -- our array is inside another array.
-                    // Don't look for a paren beyond this point.
                     return None;
                 }
                 bracket_depth -= 1;
+            }
+            b'}' => brace_depth += 1,
+            b'{' => {
+                if brace_depth == 0 {
+                    // Unmatched `{` -- our array is inside a hash literal or block.
+                    return None;
+                }
+                brace_depth -= 1;
             }
             _ => {}
         }

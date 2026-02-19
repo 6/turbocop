@@ -62,6 +62,27 @@ impl Cop for OperatorMethodCall {
             return Vec::new();
         }
 
+        // Skip `foo.-(bar).baz` pattern: if the call is parenthesized and
+        // the result is chained (used as receiver of another call), converting
+        // would change semantics. RuboCop's `method_call_with_parenthesized_arg?`.
+        if call.opening_loc().is_some() {
+            // The call has parentheses; check if it's chained by looking at
+            // source after the closing paren — if there's a dot/method, skip.
+            if let Some(close) = call.closing_loc() {
+                let end_off = close.start_offset() + close.as_slice().len();
+                let src = source.as_bytes();
+                // Check if there's a dot immediately after the closing paren
+                // (possibly with whitespace/newlines)
+                let mut pos = end_off;
+                while pos < src.len() && (src[pos] == b' ' || src[pos] == b'\t' || src[pos] == b'\n' || src[pos] == b'\r') {
+                    pos += 1;
+                }
+                if pos < src.len() && (src[pos] == b'.' || (pos + 1 < src.len() && src[pos] == b'&' && src[pos + 1] == b'.')) {
+                    return Vec::new();
+                }
+            }
+        }
+
         let (line, column) = source.offset_to_line_col(call_op.start_offset());
         vec![self.diagnostic(
             source,

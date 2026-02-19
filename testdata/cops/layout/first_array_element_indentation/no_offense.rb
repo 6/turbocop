@@ -45,3 +45,8 @@ X = (%i[
   a
   b
 ] + other).freeze
+
+# Array inside a hash literal that is a method argument
+foo(status: 200, body: { "responses" => [
+  "code" => 200, "body" => "OK"
+] }.to_json)

@@ -32,11 +32,14 @@ impl Cop for RescueException {
         while let Some(rescue_node) = rescue_opt {
             for exception in rescue_node.exceptions().iter() {
                 let is_exception = if let Some(const_read) = exception.as_constant_read_node() {
+                    // Bare `Exception`
                     const_read.name().as_slice() == b"Exception"
                 } else if let Some(const_path) = exception.as_constant_path_node() {
-                    const_path
-                        .name()
-                        .is_some_and(|n| n.as_slice() == b"Exception")
+                    // Only match `::Exception` (top-level), not `Gem::Exception` etc.
+                    const_path.parent().is_none()
+                        && const_path
+                            .name()
+                            .is_some_and(|n| n.as_slice() == b"Exception")
                 } else {
                     false
                 };

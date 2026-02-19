@@ -42,3 +42,9 @@ foo(bar: baz
 foo(baz
       .qux
         .quux)
+
+# Hash pair value: chain after single-line block aligns with block-call dot
+foo(bar: items.reject { |e| e.nil? }
+              .sort_by(&:name)
+              .map(&:id))
+
