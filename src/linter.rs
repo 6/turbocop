@@ -21,6 +21,8 @@ struct PhaseTimers {
     parse_ns: AtomicU64,
     codemap_ns: AtomicU64,
     cop_exec_ns: AtomicU64,
+    cop_filter_ns: AtomicU64,
+    cop_ast_ns: AtomicU64,
     disable_ns: AtomicU64,
 }
 
@@ -31,6 +33,8 @@ impl PhaseTimers {
             parse_ns: AtomicU64::new(0),
             codemap_ns: AtomicU64::new(0),
             cop_exec_ns: AtomicU64::new(0),
+            cop_filter_ns: AtomicU64::new(0),
+            cop_ast_ns: AtomicU64::new(0),
             disable_ns: AtomicU64::new(0),
         }
     }
@@ -47,7 +51,11 @@ impl PhaseTimers {
         eprintln!("debug:   file I/O:       {file_io:.0?} (cumulative across threads)");
         eprintln!("debug:   prism parse:    {parse:.0?}");
         eprintln!("debug:   codemap build:  {codemap:.0?}");
+        let cop_filter = std::time::Duration::from_nanos(self.cop_filter_ns.load(Ordering::Relaxed));
+        let cop_ast = std::time::Duration::from_nanos(self.cop_ast_ns.load(Ordering::Relaxed));
         eprintln!("debug:   cop execution:  {cop_exec:.0?}");
+        eprintln!("debug:     filter+config:  {cop_filter:.0?}");
+        eprintln!("debug:     AST walk:       {cop_ast:.0?}");
         eprintln!("debug:   disable filter: {disable:.0?}");
         eprintln!("debug:   accounted:      {accounted:.0?} (sum of per-thread time)");
         eprintln!("debug:   wall clock:     {total:.0?}");
@@ -122,7 +130,18 @@ pub fn lint_source(
     args: &Args,
 ) -> LintResult {
     let cop_filters = config.build_cop_filters(registry);
-    let diagnostics = lint_source_inner(source, config, registry, args, &cop_filters, None);
+    let base_configs = config.precompute_cop_configs(registry);
+    let has_dir_overrides = config.has_dir_overrides();
+    let diagnostics = lint_source_inner(
+        source,
+        config,
+        registry,
+        args,
+        &cop_filters,
+        &base_configs,
+        has_dir_overrides,
+        None,
+    );
     let mut sorted = diagnostics;
     sorted.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
     LintResult {
@@ -140,6 +159,9 @@ pub fn run_linter(
     let wall_start = std::time::Instant::now();
     // Build cop filters once before the parallel loop
     let cop_filters = config.build_cop_filters(registry);
+    // Pre-compute base cop configs once (avoids HashMap clone per cop per file)
+    let base_configs = config.precompute_cop_configs(registry);
+    let has_dir_overrides = config.has_dir_overrides();
 
     let timers = if args.debug {
         Some(PhaseTimers::new())
@@ -149,7 +171,18 @@ pub fn run_linter(
 
     let diagnostics: Vec<Diagnostic> = files
         .par_iter()
-        .flat_map(|path| lint_file(path, config, registry, args, &cop_filters, timers.as_ref()))
+        .flat_map(|path| {
+            lint_file(
+                path,
+                config,
+                registry,
+                args,
+                &cop_filters,
+                &base_configs,
+                has_dir_overrides,
+                timers.as_ref(),
+            )
+        })
         .collect();
 
     let mut sorted = diagnostics;
@@ -171,6 +204,8 @@ fn lint_file(
     registry: &CopRegistry,
     args: &Args,
     cop_filters: &CopFilterSet,
+    base_configs: &[CopConfig],
+    has_dir_overrides: bool,
     timers: Option<&PhaseTimers>,
 ) -> Vec<Diagnostic> {
     // Check global excludes once per file
@@ -191,7 +226,16 @@ fn lint_file(
             .fetch_add(io_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
     }
 
-    lint_source_inner(&source, config, registry, args, cop_filters, timers)
+    lint_source_inner(
+        &source,
+        config,
+        registry,
+        args,
+        cop_filters,
+        base_configs,
+        has_dir_overrides,
+        timers,
+    )
 }
 
 /// Name of the redundant cop disable directive cop.
@@ -296,6 +340,8 @@ fn lint_source_inner(
     registry: &CopRegistry,
     args: &Args,
     cop_filters: &CopFilterSet,
+    base_configs: &[CopConfig],
+    has_dir_overrides: bool,
     timers: Option<&PhaseTimers>,
 ) -> Vec<Diagnostic> {
     // Parse on this thread (ParseResult is !Send)
@@ -316,10 +362,16 @@ fn lint_source_inner(
     let mut diagnostics = Vec::new();
 
     let cop_start = std::time::Instant::now();
+    let filter_start = std::time::Instant::now();
 
     // Collect enabled cops and their configs, run line/source checks eagerly.
     // AST checks are deferred to a single batched walk below.
-    let mut ast_cops: Vec<(&dyn Cop, CopConfig)> = Vec::new();
+    // We use references to pre-computed base configs to avoid cloning.
+    // override_configs stores the rare per-file overrides (only when dir_overrides exist).
+    // We collect cop indices and build ast_cops after the loop to satisfy the borrow checker
+    // (pushing to override_configs invalidates references, so we defer reference creation).
+    let mut ast_cop_indices: Vec<(usize, Option<usize>)> = Vec::new();
+    let mut override_configs: Vec<CopConfig> = Vec::new();
 
     for (i, cop) in registry.cops().iter().enumerate() {
         let name = cop.name();
@@ -345,26 +397,59 @@ fn lint_source_inner(
             continue;
         }
 
-        let cop_config = config.cop_config_for_file(name, &source.path);
+        // Use pre-computed base config; only apply dir overrides when they exist.
+        let override_idx = if has_dir_overrides {
+            config
+                .apply_dir_override(&base_configs[i], name, &source.path)
+                .map(|merged| {
+                    let idx = override_configs.len();
+                    override_configs.push(merged);
+                    idx
+                })
+        } else {
+            None
+        };
+
+        let cop_config = match override_idx {
+            Some(idx) => &override_configs[idx],
+            None => &base_configs[i],
+        };
 
         // Line-based checks
-        diagnostics.extend(cop.check_lines(source, &cop_config));
+        diagnostics.extend(cop.check_lines(source, cop_config));
 
         // Source-based checks (raw byte scanning with CodeMap)
-        diagnostics.extend(cop.check_source(source, &parse_result, &code_map, &cop_config));
+        diagnostics.extend(cop.check_source(source, &parse_result, &code_map, cop_config));
 
-        ast_cops.push((&**cop, cop_config));
+        ast_cop_indices.push((i, override_idx));
     }
 
-    // Single AST walk dispatching each node only to cops that handle its type.
-    if !ast_cops.is_empty() {
-        let cop_refs: Vec<(&dyn Cop, &CopConfig)> =
-            ast_cops.iter().map(|(c, cfg)| (*c, cfg)).collect();
-        let mut walker = BatchedCopWalker::new(cop_refs, source, &parse_result);
+    if let Some(t) = timers {
+        t.cop_filter_ns
+            .fetch_add(filter_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
+    }
+
+    // Build ast_cops from indices (override_configs is now stable — no more pushes).
+    let ast_start = std::time::Instant::now();
+    if !ast_cop_indices.is_empty() {
+        let ast_cops: Vec<(&dyn Cop, &CopConfig)> = ast_cop_indices
+            .iter()
+            .map(|&(i, override_idx)| {
+                let cop: &dyn Cop = &*registry.cops()[i];
+                let cfg = match override_idx {
+                    Some(idx) => &override_configs[idx],
+                    None => &base_configs[i],
+                };
+                (cop, cfg)
+            })
+            .collect();
+        let mut walker = BatchedCopWalker::new(ast_cops, source, &parse_result);
         walker.visit(&parse_result.node());
         diagnostics.extend(walker.diagnostics);
     }
     if let Some(t) = timers {
+        t.cop_ast_ns
+            .fetch_add(ast_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
         t.cop_exec_ns
             .fetch_add(cop_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
     }

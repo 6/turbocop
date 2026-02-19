@@ -1674,6 +1674,49 @@ impl ResolvedConfig {
         config
     }
 
+    /// Whether this config has any directory-specific overrides (nested .rubocop.yml files).
+    pub fn has_dir_overrides(&self) -> bool {
+        !self.dir_overrides.is_empty()
+    }
+
+    /// Pre-compute base CopConfig for each cop in the registry (indexed by cop index).
+    /// This avoids repeated HashMap lookups and cloning in the per-file hot loop.
+    pub fn precompute_cop_configs(&self, registry: &CopRegistry) -> Vec<CopConfig> {
+        registry
+            .cops()
+            .iter()
+            .map(|cop| self.cop_config(cop.name()))
+            .collect()
+    }
+
+    /// Apply directory-specific override onto a base config, if any override matches.
+    /// Returns Some(merged_config) if an override was found, None otherwise.
+    pub fn apply_dir_override(
+        &self,
+        base: &CopConfig,
+        cop_name: &str,
+        file_path: &Path,
+    ) -> Option<CopConfig> {
+        let override_config = self.find_dir_override(cop_name, file_path)?;
+        let mut config = base.clone();
+        for (key, value) in &override_config.options {
+            config.options.insert(key.clone(), value.clone());
+        }
+        if override_config.enabled != EnabledState::Unset {
+            config.enabled = override_config.enabled;
+        }
+        if override_config.severity.is_some() {
+            config.severity = override_config.severity;
+        }
+        if !override_config.include.is_empty() {
+            config.include.clone_from(&override_config.include);
+        }
+        if !override_config.exclude.is_empty() {
+            config.exclude.clone_from(&override_config.exclude);
+        }
+        Some(config)
+    }
+
     /// Find the nearest directory-specific override for a cop, if any.
     /// Checks both the original file path and the path relativized to config_dir.
     fn find_dir_override(&self, cop_name: &str, file_path: &Path) -> Option<CopConfig> {

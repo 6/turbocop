@@ -1,92 +1,79 @@
 # rblint Optimization Ideas
 
-## Current Performance Profile (2026-02-18)
+## Current Performance Profile (2026-02-18, updated)
 
-Benchmarked with `.rblint.cache` (no bundler calls) and batched single-pass AST walker.
+Benchmarked with `.rblint.cache` (no bundler calls), batched single-pass AST walker,
+node-type dispatch table (725 cops annotated), and pre-computed cop configs.
 
 ### Phase Breakdown by Repo
 
-| Repo | Files | Config | File I/O | Parse | Cop Exec | Wall |
-|------|------:|-------:|---------:|------:|---------:|-----:|
-| discourse | 5895 | 162ms | 357ms | 374ms | 4.0s | 662ms |
-| rails | 3320 | 119ms | 502ms | 343ms | 4.0s | 554ms |
-| mastodon | 2540 | 89ms | 522ms | 164ms | 14.0s | 1.09s |
-| chatwoot | 2247 | 173ms | 585ms | 174ms | 13.0s | 1.17s |
-| rubocop | 1669 | 722ms | 528ms | 222ms | 20.0s | 2.72s |
-| rubygems.org | 1239 | 20ms | 234ms | 85ms | 5.0s | 496ms |
-| docuseal | 409 | 14ms | 179ms | 43ms | 2.0s | 269ms |
-| activeadmin | 374 | 13ms | 47ms | 28ms | 150ms | 42ms |
-| good_job | 172 | 13ms | 46ms | 28ms | 1.0s | 191ms |
-| errbit | 217 | 13ms | 38ms | 15ms | 994ms | 131ms |
+| Repo | Files | Config | File I/O | Parse | Cop Exec | filter+config | AST walk | Wall |
+|------|------:|-------:|---------:|------:|---------:|--------------:|---------:|-----:|
+| discourse | 5895 | 399ms | 1s | 440ms | 3s | 642ms | 2s | 460ms |
+| rails | 3320 | 47ms | 232ms | 279ms | 4s | 1s | 2s | 411ms |
+| mastodon | 2540 | 95ms | 723ms | 234ms | 8s | 4s | 3s | 679ms |
+| chatwoot | 2247 | — | — | — | 6s | 2s | 4s | 557ms |
+| rubocop | 1669 | — | — | — | 11s | 5s | 6s | 955ms |
+| rubygems.org | 1239 | — | — | — | 2s | 1s | 1s | 218ms |
+| docuseal | 409 | — | — | — | 1s | 449ms | 570ms | 129ms |
+| activeadmin | 374 | — | — | — | 96ms | 49ms | 47ms | 22ms |
+| good_job | 172 | — | — | — | 779ms | 255ms | 524ms | 118ms |
+| errbit | 217 | — | — | — | 548ms | 214ms | 334ms | 73ms |
 
 Note: File I/O, Parse, and Cop Exec are **cumulative across threads**. Wall time is
 actual elapsed time (parallelized across ~10 cores). Config loading is serial.
+`filter+config` includes cop filter checks, config lookups, and `check_lines`/`check_source`
+calls. `AST walk` is the batched node-type-dispatched tree walk with `check_node` calls.
 
 ### Key Insight
 
-**Cop execution dominates**: 75-95% of cumulative thread time, 60-85% of wall time.
-The batched walker calls all 745 `check_node` cops for every AST node, but each cop
-only cares about 1-3 node types. ~95% of calls are no-ops returning `Vec::new()`.
+**Cop execution dominates**: 75-95% of cumulative thread time.
+After the node-type dispatch table, AST walk time is now reasonable (each cop only
+called for its declared node types). The remaining `filter+config` cost is split between
+the per-cop filter loop (915 cops × N files) and `check_lines`/`check_source` calls.
 
 ---
 
-## Optimization 1: Node-Type Dispatch Table (HIGH IMPACT)
+## Optimization 1: Node-Type Dispatch Table ✅ DONE
 
-**Status:** Not started
-**Expected impact:** 30-50% reduction in cop execution time
+**Status:** Implemented (commit 97aeb09)
+**Measured impact:** 15-38% wall-time improvement
+
+Each cop declares which AST node types it handles via `interested_node_types()`.
+The `BatchedCopWalker` builds a `[Vec<(cop, config)>; 151]` dispatch table indexed
+by node type tag. Only dispatches to relevant cops per node, skipping ~95% of
+no-op `check_node` calls. 725 of 745 cops auto-annotated via source scanning.
+
+| Repo | Before | After | Change |
+|------|-------:|------:|-------:|
+| Discourse | 768ms | 654ms | -15% |
+| Rails | 581ms | 518ms | -11% |
+| Mastodon | 1.36s | 848ms | -38% |
+
+---
+
+## Optimization 1b: Pre-computed Cop Configs ✅ DONE
+
+**Status:** Implemented
+**Measured impact:** 5-23% CPU time reduction
 
 ### Problem
 
-The `BatchedCopWalker` iterates over all 745 AST-checking cops for every node:
-
-```rust
-fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
-    for &(cop, cop_config) in &self.cops {
-        let results = cop.check_node(...);  // 745 vtable calls per node
-        self.diagnostics.extend(results);
-    }
-}
-```
-
-A typical file has 1,000-3,000 AST nodes. That's 745,000-2,235,000 dynamic dispatch
-calls per file, of which ~95% immediately return `Vec::new()`.
+`cop_config_for_file()` was called for every enabled cop × every file, doing a
+HashMap lookup + clone of `CopConfig` (which contains a `HashMap<String, serde_yml::Value>`).
+This accounted for 33-56% of the `filter+config` phase.
 
 ### Solution
 
-Add a `fn node_types(&self) -> &'static [NodeType]` method to the `Cop` trait. Build a
-dispatch table mapping each Prism node type to the cops that handle it. The walker
-only calls cops registered for the current node's type.
+Pre-compute `Vec<CopConfig>` once at startup (indexed by cop registry index).
+In the per-file loop, use references to pre-computed configs instead of cloning.
+Only clone+merge when directory-specific overrides (nested `.rubocop.yml`) match.
 
-```rust
-// Each cop declares what it cares about:
-fn node_types(&self) -> &'static [NodeType] {
-    &[NodeType::CallNode]  // Only called for method calls
-}
-
-// Walker dispatches selectively:
-fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
-    let tag = node_type_tag(&node);
-    if let Some(cops) = self.dispatch_table.get(&tag) {
-        for &(cop, cop_config) in cops {
-            cop.check_node(...);
-        }
-    }
-}
-```
-
-### Implementation
-
-1. Define `NodeType` enum matching Prism's node variants
-2. Add `fn node_types(&self) -> &'static [NodeType]` to Cop trait (default: `&[]` = all)
-3. Annotate 745 cops with their node types (mechanical — each already does `as_*_node()`)
-4. Build dispatch HashMap in walker constructor
-5. Add validation test: ensure declared node_types match actual `as_*_node()` usage
-
-### Effort
-
-High (745 cops to annotate), but each annotation is mechanical:
-- Read cop's `check_node`, find the `as_*_node()` calls, add to `node_types()`
-- A codegen script could auto-generate most annotations from source analysis
+| Repo | Before (User) | After (User) | Change |
+|------|-------------:|------------:|-------:|
+| Discourse | 2998ms | 2709ms | -10% |
+| Mastodon | 7850ms | 6015ms | -23% |
+| Rails | 3659ms | 3403ms | -7% |
 
 ---
 
@@ -135,27 +122,14 @@ Mechanical transformation: `vec![diagnostic]` → `diagnostics.push(diagnostic)`
 
 ---
 
-## Optimization 3: Skip Fully-Disabled Departments (LOW IMPACT)
+## Optimization 3: Skip Fully-Disabled Departments (NO IMPACT)
 
-**Status:** Not started
-**Expected impact:** 5-15% reduction for projects that disable departments
+**Status:** Investigated, not worth pursuing
+**Expected impact:** ~12ms total — unmeasurable
 
-### Problem
-
-All 915 registered cops are checked for enablement individually. If an entire
-department is disabled (e.g., `RSpec:` cops in a non-RSpec project), we still iterate
-over those cops during walker construction.
-
-### Solution
-
-Pre-filter cops by department enablement before building the walker's cop list.
-Currently the config already tracks department-level `Enabled: false`, but cop
-filtering happens per-cop. A department-level pre-filter would skip ~100-200 cops
-for projects that don't use RSpec, Rails, etc.
-
-### Effort
-
-Low — check department enablement once, skip all cops in disabled departments.
+Disabled cops already short-circuit on a boolean flag check in `is_cop_match()` (~10ns each).
+A department-level pre-filter would save ~100-200 boolean checks per file. At 10ns each,
+that's ~2µs/file × 6000 files = 12ms total. Not worth the code complexity.
 
 ---
 
@@ -194,9 +168,10 @@ dedup. Only matters for Discourse (31 nested configs × 200+ cops = many merge o
 
 ## Priority Order
 
-1. **Node-type dispatch table** — highest impact, reduces the dominant bottleneck
-2. **Eliminate per-call Vec allocation** — medium impact, synergizes with #1
-3. **Skip disabled departments** — low effort, quick win
-4. Config merge optimization — diminishing returns
-5. ~~YAML parser~~ — not worth the effort
-6. ~~mmap~~ — no effect
+1. ~~**Node-type dispatch table**~~ ✅ -15 to -38% wall time
+2. ~~**Pre-computed cop configs**~~ ✅ -5 to -23% CPU time
+3. **Eliminate per-call Vec allocation** — medium impact, synergizes with #1
+4. ~~Skip disabled departments~~ — no impact (already short-circuited)
+5. Config merge optimization — diminishing returns
+6. ~~YAML parser~~ — not worth the effort
+7. ~~mmap~~ — no effect
