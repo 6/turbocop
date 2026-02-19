@@ -118,6 +118,31 @@ across vtable calls for the 99%+ of no-op invocations.
 - **RSpec/NoExpectationExample**: Narrowed `interested_node_types` to `CALL_NODE` only,
   compile `AllowedPatterns` regexes once per example instead of twice.
 
+### Optimization 3: Pre-computed Cop Lists (Eliminate Filter Loop) ✅ DONE
+
+**Status:** Implemented (commit 0755276)
+**Measured impact:** filter+config -33% on mastodon, -50% on rails
+
+At startup, cops are partitioned into `universal_cop_indices` (enabled, no Include/Exclude
+patterns) and `pattern_cop_indices` (enabled, has patterns). Universal cops skip
+`is_cop_match()` entirely. Directory override lookup (`find_override_dir_for_file`) runs
+once per file instead of once per cop.
+
+| Repo | Before (filter+config) | After | Change |
+|------|---:|---:|---:|
+| mastodon | 3s | 2s | -33% |
+| rails | 2s | 1s | -50% |
+
+### Optimization 4: Fix Naming/InclusiveLanguage Per-File Regex Compilation ✅ DONE
+
+**Status:** Implemented
+**Measured impact:** 1337ms → 628ms cumulative on rubocop repo (-53%)
+
+Added a global `Mutex<HashMap<usize, Arc<Vec<FlaggedTerm>>>>` cache keyed by
+`CopConfig` pointer. Since base configs are stable for the entire lint run, compiled
+`fancy_regex::Regex` patterns are built once per config and reused for all files.
+The remaining 628ms is inherent line scanning cost (lowercasing + substring search).
+
 ---
 
 ## Investigated & Rejected
@@ -139,80 +164,6 @@ serving from memory. Zero measurable difference.
 ---
 
 ## Proposed Optimizations
-
-### Optimization 7: Pre-computed Cop Lists (Eliminate Filter Loop)
-
-**Status:** Not started
-**Expected impact:** ~1-2s cumulative reduction on mastodon/rubocop, ~100-200ms wall
-**Category:** Pure speed improvement (no caching)
-
-#### Problem
-
-Every file iterates all 915 cops in the filter loop (`linter.rs:443-492`), calling
-`is_cop_match()` for each. But most cops (~600) have no Include/Exclude patterns —
-they match all `.rb` files unconditionally. Only ~200-300 cops need per-file pattern
-matching (RSpec `*_spec.rb`, Rails `app/**`, etc.).
-
-Additionally, `nearest_config_dir()` is called inside `is_cop_match()` for every cop,
-but it only depends on the file path — the result is the same for all 915 cops on the
-same file.
-
-#### Approach
-
-At startup, partition cops into tiers:
-- **`universal_cops`**: enabled, no Include/Exclude patterns → always match `.rb` files.
-  Skip the filter loop entirely for these.
-- **`pattern_cops`**: has Include/Exclude → need per-file pattern matching (~200-300).
-- **`disabled_cops`**: enabled=false → already skipped by boolean check.
-
-Per-file changes:
-1. Compute `nearest_config_dir(path)` once per file, not 915× per file.
-2. Only iterate `pattern_cops` for matching (200-300 instead of 915).
-3. Universal cops are always included — no iteration needed.
-4. For repos with `dir_overrides`, cache override results by directory (files in the
-   same directory get identical overrides).
-
-#### Expected savings by repo
-
-| Repo | Current is_cop_match | Expected | Current dir_override | Expected |
-|------|---:|---:|---:|---:|
-| mastodon | 1s | ~300ms | 956ms | ~200ms |
-| rubocop | 402ms | ~130ms | 24ms | ~8ms |
-| rails | 183ms | ~60ms | 80ms | ~20ms |
-| discourse | 333ms | ~100ms | 8ms | ~3ms |
-
----
-
-### Optimization 8: Fix Naming/InclusiveLanguage Per-File Regex Compilation
-
-**Status:** Not started
-**Expected impact:** ~1.3s cumulative on rubocop repo, ~100ms wall
-**Category:** Pure speed improvement (algorithmic fix)
-
-#### Problem
-
-`Naming/InclusiveLanguage` calls `build_flagged_terms(config)` for every file, which:
-1. Parses `FlaggedTerms` from the YAML config HashMap
-2. Compiles `fancy_regex::Regex` patterns for each term (7 terms in default config)
-3. Allocates `String` objects for term names and suggestions
-
-With 1669 files on the rubocop repo, this compiles 7 regexes × 1669 = 11,683 times.
-Total cost: 1337ms (single-threaded), making it the #1 slowest cop.
-
-#### Approach
-
-Pre-compile flagged terms once. Options:
-- **Static LazyLock**: If only default config terms are used (no custom config),
-  use a `LazyLock<Vec<FlaggedTerm>>` for the default terms.
-- **Constructor-time compilation**: Build the cop struct with pre-compiled terms
-  during registry construction (requires changing cop initialization).
-- **Per-file cache**: Cache compiled terms keyed on config identity (config pointer
-  or hash). Since all files in a repo share the same config, this is effectively
-  compile-once.
-
-Expected reduction: 1337ms → ~30ms (regex matching only, no compilation).
-
----
 
 ### Optimization 9: Fix Other Hot check_source Cops
 
@@ -333,10 +284,10 @@ If/when we implement caching:
 2. ~~Pre-computed cop configs~~ ✅ -5 to -23% CPU time
 3. ~~Eliminate per-call Vec allocation~~ ✅ -3 to -14% wall time
 4. ~~Hot cop fixes (Debugger, NoExpectationExample)~~ ✅
+5. ~~Pre-computed cop lists~~ ✅ -33 to -50% filter+config time
+6. ~~Naming/InclusiveLanguage fix~~ ✅ -53% cumulative (1337ms → 628ms)
 
 ### Next (pure speed, no caching)
-5. **Pre-computed cop lists** — eliminates 915-cop filter loop (~100-200ms wall)
-6. **Naming/InclusiveLanguage fix** — eliminates per-file regex compilation (~100ms wall)
 7. **Other hot check_source cops** — incremental gains (~50-100ms wall)
 
 ### Deferred
