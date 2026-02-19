@@ -1,40 +1,68 @@
 # rblint Optimization Ideas
 
-## Current Performance Profile (2026-02-18, updated)
+## Current Performance Profile (2026-02-19)
 
 Benchmarked with `.rblint.cache` (no bundler calls), batched single-pass AST walker,
-node-type dispatch table (725 cops annotated), and pre-computed cop configs.
+node-type dispatch table (915 cops annotated), pre-computed cop configs, and
+optimized hot cops (Lint/Debugger, RSpec/NoExpectationExample).
 
 ### Phase Breakdown by Repo
 
-| Repo | Files | Config | File I/O | Parse | Cop Exec | filter+config | AST walk | Wall |
-|------|------:|-------:|---------:|------:|---------:|--------------:|---------:|-----:|
-| discourse | 5895 | 399ms | 1s | 440ms | 3s | 642ms | 2s | 460ms |
-| rails | 3320 | 47ms | 232ms | 279ms | 4s | 1s | 2s | 411ms |
-| mastodon | 2540 | 95ms | 723ms | 234ms | 8s | 4s | 3s | 679ms |
-| chatwoot | 2247 | — | — | — | 6s | 2s | 4s | 557ms |
-| rubocop | 1669 | — | — | — | 11s | 5s | 6s | 955ms |
-| rubygems.org | 1239 | — | — | — | 2s | 1s | 1s | 218ms |
-| docuseal | 409 | — | — | — | 1s | 449ms | 570ms | 129ms |
-| activeadmin | 374 | — | — | — | 96ms | 49ms | 47ms | 22ms |
-| good_job | 172 | — | — | — | 779ms | 255ms | 524ms | 118ms |
-| errbit | 217 | — | — | — | 548ms | 214ms | 334ms | 73ms |
+All times are **cumulative across threads** except Wall (actual elapsed).
 
-Note: File I/O, Parse, and Cop Exec are **cumulative across threads**. Wall time is
-actual elapsed time (parallelized across ~10 cores). Config loading is serial.
-`filter+config` includes cop filter checks, config lookups, and `check_lines`/`check_source`
-calls. `AST walk` is the batched node-type-dispatched tree walk with `check_node` calls.
+| Repo | Files | Cops/file | File I/O | Parse | filter+config | AST walk | Wall |
+|------|------:|----------:|---------:|------:|--------------:|---------:|-----:|
+| discourse | 5895 | 57 | 865ms | 386ms | 4s | 486ms | 509ms |
+| rails | 3320 | 85 | 497ms | 305ms | 2s | 1s | 333ms |
+| mastodon | 2540 | 675 | 337ms | 106ms | 5s | 2s | 599ms |
+| rubocop | 1669 | 614 | 272ms | 139ms | 5s | 4s | 719ms |
 
-### Key Insight
+### Filter+Config Sub-Phase Decomposition
 
-**Cop execution dominates**: 75-95% of cumulative thread time.
-After the node-type dispatch table, AST walk time is now reasonable (each cop only
-called for its declared node types). The remaining `filter+config` cost is split between
-the per-cop filter loop (915 cops × N files) and `check_lines`/`check_source` calls.
+The `filter+config` phase includes four distinct costs, profiled per-repo:
+
+| Repo | is_cop_match | dir_override | check_lines | check_source |
+|------|---:|---:|---:|---:|
+| discourse | 333ms | 8ms | 28ms | 260ms |
+| rails | 183ms | 80ms | 80ms | 1s |
+| mastodon | 1s | 956ms | 119ms | 1s |
+| rubocop | 402ms | 24ms | 3s | 2s |
+
+- **is_cop_match**: Glob/regex matching per cop per file (915 cops × N files).
+- **dir_override**: Path comparison + CopConfig cloning for nested `.rubocop.yml` overrides.
+- **check_lines**: Line-by-line scanning (42 cops have implementations).
+- **check_source**: Byte-level source scanning (130 cops have implementations).
+
+### Per-Cop Hot Spots (RBLINT_COP_PROFILE=1)
+
+Top cops by cumulative single-threaded time on the rubocop repo (1669 files):
+
+| Cop | check_lines | check_source | AST | Total |
+|-----|---:|---:|---:|---:|
+| Naming/InclusiveLanguage | 1337ms | 0 | 6ms | 1343ms |
+| RSpec/NoExpectationExample | 0 | 0 | 499ms | 499ms |
+| Layout/EmptyLinesAroundArguments | 0 | 0 | 221ms | 221ms |
+| Layout/EmptyLinesAroundBlockBody | 0 | 0 | 200ms | 200ms |
+| Layout/HeredocIndentation | 0 | 0 | 184ms | 184ms |
+| Style/PercentLiteralDelimiters | 0 | 0 | 151ms | 151ms |
+| Layout/SpaceAroundKeyword | 0 | 135ms | 4ms | 139ms |
+
+### Key Observations
+
+1. **Cops/file varies 12x**: mastodon=675, rubocop=614, rails=85, discourse=57. Repos
+   using rubocop-rspec + rubocop-rails enable far more cops per file.
+2. **check_lines/check_source dominate filter+config**: On rubocop repo, they account
+   for 5s of the 5s filter+config time. Matching overhead (402ms) is secondary.
+3. **Naming/InclusiveLanguage is the #1 hot cop**: 1337ms re-compiling `fancy_regex`
+   patterns for every file. Pre-compiling once would eliminate this.
+4. **is_cop_match + dir_override = 2s on mastodon**: Glob matching 675 cops × 2540
+   files = 1.7M match calls, plus path comparisons for 3 nested config directories.
 
 ---
 
-## Optimization 1: Node-Type Dispatch Table ✅ DONE
+## Completed Optimizations
+
+### Optimization 1: Node-Type Dispatch Table ✅ DONE
 
 **Status:** Implemented (commit 97aeb09)
 **Measured impact:** 15-38% wall-time improvement
@@ -42,7 +70,7 @@ the per-cop filter loop (915 cops × N files) and `check_lines`/`check_source` c
 Each cop declares which AST node types it handles via `interested_node_types()`.
 The `BatchedCopWalker` builds a `[Vec<(cop, config)>; 151]` dispatch table indexed
 by node type tag. Only dispatches to relevant cops per node, skipping ~95% of
-no-op `check_node` calls. 725 of 745 cops auto-annotated via source scanning.
+no-op `check_node` calls. 915 cops annotated via source scanning.
 
 | Repo | Before | After | Change |
 |------|-------:|------:|-------:|
@@ -50,20 +78,10 @@ no-op `check_node` calls. 725 of 745 cops auto-annotated via source scanning.
 | Rails | 581ms | 518ms | -11% |
 | Mastodon | 1.36s | 848ms | -38% |
 
----
-
-## Optimization 1b: Pre-computed Cop Configs ✅ DONE
+### Optimization 1b: Pre-computed Cop Configs ✅ DONE
 
 **Status:** Implemented
 **Measured impact:** 5-23% CPU time reduction
-
-### Problem
-
-`cop_config_for_file()` was called for every enabled cop × every file, doing a
-HashMap lookup + clone of `CopConfig` (which contains a `HashMap<String, serde_yml::Value>`).
-This accounted for 33-56% of the `filter+config` phase.
-
-### Solution
 
 Pre-compute `Vec<CopConfig>` once at startup (indexed by cop registry index).
 In the per-file loop, use references to pre-computed configs instead of cloning.
@@ -75,27 +93,14 @@ Only clone+merge when directory-specific overrides (nested `.rubocop.yml`) match
 | Mastodon | 7850ms | 6015ms | -23% |
 | Rails | 3659ms | 3403ms | -7% |
 
----
-
-## Optimization 2: Eliminate Per-Call Vec Allocation ✅ DONE
+### Optimization 2: Eliminate Per-Call Vec Allocation ✅ DONE
 
 **Status:** Implemented
 **Measured impact:** 3-14% wall-time improvement
 
-### Problem
-
-Every `check_node` call returned `Vec<Diagnostic>`, even when empty (99%+ of calls).
-While `Vec::new()` doesn't heap-allocate, the pattern still involves: construct Vec,
-return it across a vtable call, call `extend()` on the collector, drop the Vec.
-
-### Solution
-
-Changed all three Cop trait methods (`check_node`, `check_lines`, `check_source`) to
-take `diagnostics: &mut Vec<Diagnostic>` and return `()`. Cops push directly into
-the shared collector instead of creating temporary Vecs.
-
-All 930+ cop implementations transformed (mechanical + manual fixes for edge cases).
-Regression test `no_cop_returns_vec_diagnostic` prevents new cops from using the old pattern.
+Changed all Cop trait methods to take `diagnostics: &mut Vec<Diagnostic>` instead
+of returning `Vec<Diagnostic>`. Eliminates temporary Vec construction/destruction
+across vtable calls for the 99%+ of no-op invocations.
 
 | Repo | Before | After | Change |
 |------|-------:|------:|-------:|
@@ -103,58 +108,241 @@ Regression test `no_cop_returns_vec_diagnostic` prevents new cops from using the
 | Rails | 411ms | 397ms | -3% |
 | Mastodon | 679ms | 581ms | -14% |
 
----
+### Optimization 2b: Hot Cop Fixes ✅ DONE
 
-## Optimization 3: Skip Fully-Disabled Departments (NO IMPACT)
+**Status:** Implemented (commit 4669272)
+**Measured impact:** Lint/Debugger ~1000ms→~49ms, RSpec/NoExpectationExample ~264ms→~138ms
 
-**Status:** Investigated, not worth pursuing
-**Expected impact:** ~12ms total — unmeasurable
-
-Disabled cops already short-circuit on a boolean flag check in `is_cop_match()` (~10ns each).
-A department-level pre-filter would save ~100-200 boolean checks per file. At 10ns each,
-that's ~2µs/file × 6000 files = 12ms total. Not worth the code complexity.
-
----
-
-## Optimization 4: Faster YAML Parser (LOW IMPACT)
-
-**Status:** Investigated, not worth pursuing
-**Expected impact:** ~10-30ms for most repos, ~70-100ms for Discourse
-
-Investigated rapidyaml (C++ SIMD, 10-15x faster than serde_yml). The Rust bindings
-(`ryml` crate) are GPLv3-licensed (incompatible). Custom bindings possible but high
-effort. Config loading is only 13-162ms for repos with `.rblint.cache`, so this is
-diminishing returns.
+- **Lint/Debugger**: Static `HashSet<&[u8]>` of default leaf method names for O(1)
+  rejection. Only touches config when method name matches a known debugger leaf.
+- **RSpec/NoExpectationExample**: Narrowed `interested_node_types` to `CALL_NODE` only,
+  compile `AllowedPatterns` regexes once per example instead of twice.
 
 ---
 
-## Optimization 5: mmap for File I/O (NO IMPACT)
+## Investigated & Rejected
 
-**Status:** Investigated and reverted (commits f9a8cdc → eeb29dd)
-**Measured impact:** 0% (768ms vs 775ms, within noise)
+### Skip Fully-Disabled Departments (NO IMPACT)
 
-Ruby source files are 98.4% under 32KB. The mmap path only applied to 1.6% of files.
-Kernel page cache means `read()` is already serving from memory. Added unsafe code
-complexity for zero gain.
+Disabled cops already short-circuit on a boolean flag check (~10ns). Department-level
+pre-filter would save ~12ms total.
+
+### Faster YAML Parser (LOW IMPACT)
+
+Config loading is only 13-162ms with `.rblint.cache`. Not worth the effort.
+
+### mmap for File I/O (NO IMPACT)
+
+98.4% of Ruby files are under 32KB. Kernel page cache means `read()` is already
+serving from memory. Zero measurable difference.
 
 ---
 
-## Optimization 6: Config Merge Optimization (LOW IMPACT)
+## Proposed Optimizations
+
+### Optimization 7: Pre-computed Cop Lists (Eliminate Filter Loop)
 
 **Status:** Not started
-**Expected impact:** ~10-30ms for Discourse, negligible for others
+**Expected impact:** ~1-2s cumulative reduction on mastodon/rubocop, ~100-200ms wall
+**Category:** Pure speed improvement (no caching)
 
-Replace O(n²) containment checks in exclude array deduplication with HashSet-based
-dedup. Only matters for Discourse (31 nested configs × 200+ cops = many merge ops).
+#### Problem
+
+Every file iterates all 915 cops in the filter loop (`linter.rs:443-492`), calling
+`is_cop_match()` for each. But most cops (~600) have no Include/Exclude patterns —
+they match all `.rb` files unconditionally. Only ~200-300 cops need per-file pattern
+matching (RSpec `*_spec.rb`, Rails `app/**`, etc.).
+
+Additionally, `nearest_config_dir()` is called inside `is_cop_match()` for every cop,
+but it only depends on the file path — the result is the same for all 915 cops on the
+same file.
+
+#### Approach
+
+At startup, partition cops into tiers:
+- **`universal_cops`**: enabled, no Include/Exclude patterns → always match `.rb` files.
+  Skip the filter loop entirely for these.
+- **`pattern_cops`**: has Include/Exclude → need per-file pattern matching (~200-300).
+- **`disabled_cops`**: enabled=false → already skipped by boolean check.
+
+Per-file changes:
+1. Compute `nearest_config_dir(path)` once per file, not 915× per file.
+2. Only iterate `pattern_cops` for matching (200-300 instead of 915).
+3. Universal cops are always included — no iteration needed.
+4. For repos with `dir_overrides`, cache override results by directory (files in the
+   same directory get identical overrides).
+
+#### Expected savings by repo
+
+| Repo | Current is_cop_match | Expected | Current dir_override | Expected |
+|------|---:|---:|---:|---:|
+| mastodon | 1s | ~300ms | 956ms | ~200ms |
+| rubocop | 402ms | ~130ms | 24ms | ~8ms |
+| rails | 183ms | ~60ms | 80ms | ~20ms |
+| discourse | 333ms | ~100ms | 8ms | ~3ms |
+
+---
+
+### Optimization 8: Fix Naming/InclusiveLanguage Per-File Regex Compilation
+
+**Status:** Not started
+**Expected impact:** ~1.3s cumulative on rubocop repo, ~100ms wall
+**Category:** Pure speed improvement (algorithmic fix)
+
+#### Problem
+
+`Naming/InclusiveLanguage` calls `build_flagged_terms(config)` for every file, which:
+1. Parses `FlaggedTerms` from the YAML config HashMap
+2. Compiles `fancy_regex::Regex` patterns for each term (7 terms in default config)
+3. Allocates `String` objects for term names and suggestions
+
+With 1669 files on the rubocop repo, this compiles 7 regexes × 1669 = 11,683 times.
+Total cost: 1337ms (single-threaded), making it the #1 slowest cop.
+
+#### Approach
+
+Pre-compile flagged terms once. Options:
+- **Static LazyLock**: If only default config terms are used (no custom config),
+  use a `LazyLock<Vec<FlaggedTerm>>` for the default terms.
+- **Constructor-time compilation**: Build the cop struct with pre-compiled terms
+  during registry construction (requires changing cop initialization).
+- **Per-file cache**: Cache compiled terms keyed on config identity (config pointer
+  or hash). Since all files in a repo share the same config, this is effectively
+  compile-once.
+
+Expected reduction: 1337ms → ~30ms (regex matching only, no compilation).
+
+---
+
+### Optimization 9: Fix Other Hot check_source Cops
+
+**Status:** Not started
+**Expected impact:** ~200-500ms cumulative reduction
+**Category:** Pure speed improvement
+
+Several `check_source` cops have per-file overhead that could be reduced:
+
+| Cop | Cost (rubocop) | Issue |
+|-----|---:|------|
+| Layout/SpaceAroundKeyword | 135ms | Full source byte scan per file |
+| Layout/SpaceAroundOperators | 59ms | Full source byte scan per file |
+| Style/DoubleCopDisableDirective | 41ms | Scans all comments per file |
+| Performance/CollectionLiteralInLoop | 27ms | Per-file config parsing |
+
+These are lower priority — each saves 30-135ms cumulative. The fix pattern is
+similar to Lint/Debugger: avoid per-file config parsing, use pre-compiled patterns.
+
+---
+
+### Optimization 10: File-Level Result Caching (Incremental Linting)
+
+**Status:** Deferred — not implementing now
+**Expected impact:** 10-100x faster for warm re-runs
+**Category:** Caching
+
+#### Decision: Not Now
+
+rblint's cold-run is already faster than RuboCop's warm-cached run. Our benchmarks
+now use `--no-cache` for apples-to-apples cold-run comparison. Caching adds
+significant complexity (invalidation, storage management, corruption handling) and
+is a common source of bugs in RuboCop (`rubocop --cache clear` is a frequent
+troubleshooting step). We should exhaust pure speed optimizations (#7, #8, #9) first —
+these improve both cold and warm performance without correctness risk.
+
+When rblint reaches feature parity and production adoption, caching becomes worthwhile
+for developer workflows (re-running after small edits). At that point, the RuboCop
+implementation details below provide a reference design.
+
+#### Benchmark Note
+
+Our `bench_rblint` benchmark uses `--no-cache` when invoking RuboCop, ensuring an
+apples-to-apples comparison of raw linting speed. Both tools do a full cold-run
+parse + analyze on every file for each hyperfine iteration.
+
+#### RuboCop Cache Implementation Reference
+
+RuboCop has had file-level result caching since v0.35 (2015), enabled by default.
+On a cache hit, it skips parsing and analysis entirely — deserializing cached
+offenses directly.
+
+**Storage location** (in precedence order):
+1. `$RUBOCOP_CACHE_ROOT/rubocop_cache` (env var)
+2. `$XDG_CACHE_HOME/<uid>/rubocop_cache` (env var)
+3. `~/.cache/rubocop_cache` (default)
+4. Configurable via `AllCops.CacheRootDirectory` or `--cache-root DIR`
+
+**Directory structure** — 3-level hierarchy:
+```
+rubocop_cache/
+└── <source_checksum>/          # RuboCop version + loaded features
+    └── <context_checksum>/     # External deps + CLI options
+        └── <file_checksum>     # Per-file cache entry (JSON)
+```
+
+**Cache key composition** — three independent SHA1 checksums:
+
+| Level | Checksum of | Invalidated by |
+|-------|-------------|----------------|
+| Source | `$LOADED_FEATURES` + `exe/` files + RuboCop version + AST version | RuboCop gem update, plugin changes |
+| Context | External dependency checksums (e.g. `db/schema.rb` for Rails cops) + relevant CLI options | Schema changes, option changes |
+| File | File path + file mode + per-file config signature + file content | Any file edit, config change, permission change |
+
+**Cache entry format**: UTF-8 JSON array of offense objects:
+```json
+[{"severity":"warning","location":{"begin_pos":123,"end_pos":156},
+  "message":"...","cop_name":"Dept/Cop","status":"uncorrected"}]
+```
+
+**Eviction**: When cache exceeds `MaxFilesInCache` (default 20,000), removes the
+oldest 50% + 1 of entries by mtime. Batched in groups of 10,000. Empty parent
+directories are cleaned up.
+
+**Config options** (in `AllCops`):
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `UseCache` | `true` | Enable/disable |
+| `CacheRootDirectory` | `~` | Override root path |
+| `MaxFilesInCache` | `20000` | Eviction threshold |
+| `AllowSymlinksInCacheRootDirectory` | `false` | Symlink security check |
+
+**CLI flags**: `--cache true/false`, `--cache-root DIR`
+
+**Key source files** (in `vendor/rubocop/lib/rubocop/`):
+- `result_cache.rb` — checksums, storage, cleanup
+- `cached_data.rb` — JSON serialization of offenses
+- `cache_config.rb` — cache root directory discovery
+- `runner.rb` — cache load/save orchestration (lines 181-200)
+
+#### Future rblint Implementation Notes
+
+If/when we implement caching:
+- Start opt-in (`--cache`), not default, until battle-tested
+- Support `--no-cache` and `--cache-clear` flags
+- Cache key: content SHA256 + config signature + rblint version
+- Storage: `~/.cache/rblint/` (XDG-compliant), or project-local via config
+- Format: bincode or MessagePack (faster than JSON for Rust)
+- Consider storing diagnostic byte offsets rather than line:col to avoid
+  recomputing line tables on cache load
 
 ---
 
 ## Priority Order
 
-1. ~~**Node-type dispatch table**~~ ✅ -15 to -38% wall time
-2. ~~**Pre-computed cop configs**~~ ✅ -5 to -23% CPU time
-3. **Eliminate per-call Vec allocation** — medium impact, synergizes with #1
-4. ~~Skip disabled departments~~ — no impact (already short-circuited)
-5. Config merge optimization — diminishing returns
-6. ~~YAML parser~~ — not worth the effort
-7. ~~mmap~~ — no effect
+### Completed
+1. ~~Node-type dispatch table~~ ✅ -15 to -38% wall time
+2. ~~Pre-computed cop configs~~ ✅ -5 to -23% CPU time
+3. ~~Eliminate per-call Vec allocation~~ ✅ -3 to -14% wall time
+4. ~~Hot cop fixes (Debugger, NoExpectationExample)~~ ✅
+
+### Next (pure speed, no caching)
+5. **Pre-computed cop lists** — eliminates 915-cop filter loop (~100-200ms wall)
+6. **Naming/InclusiveLanguage fix** — eliminates per-file regex compilation (~100ms wall)
+7. **Other hot check_source cops** — incremental gains (~50-100ms wall)
+
+### Deferred
+8. **File-level result caching** — not now; pure speed gains come first
+
+### Rejected
+- Skip disabled departments — no measurable impact
+- Faster YAML parser — diminishing returns
+- mmap file I/O — no effect

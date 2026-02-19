@@ -96,6 +96,16 @@ static REPOS: &[BenchRepo] = &[
         url: "https://github.com/rubygems/rubygems.org.git",
         tag: "master",
     },
+    BenchRepo {
+        name: "doorkeeper",
+        url: "https://github.com/doorkeeper-gem/doorkeeper.git",
+        tag: "v5.8.2",
+    },
+    BenchRepo {
+        name: "fat_free_crm",
+        url: "https://github.com/fatfreecrm/fat_free_crm.git",
+        tag: "v0.25.0",
+    },
 ];
 
 // --- Helpers ---
@@ -339,7 +349,7 @@ fn run_bench(args: &Args) -> HashMap<String, BenchResult> {
             repo_dir.display()
         );
         let rubocop_cmd = format!(
-            "cd {} && bundle exec rubocop --no-color 2>/dev/null",
+            "cd {} && bundle exec rubocop --no-cache --no-color 2>/dev/null",
             repo_dir.display()
         );
 
