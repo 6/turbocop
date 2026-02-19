@@ -9,7 +9,8 @@ use ruby_prism::Visit;
 use crate::cli::Args;
 use crate::config::{CopFilterSet, ResolvedConfig};
 use crate::cop::registry::CopRegistry;
-use crate::cop::walker::CopWalker;
+use crate::cop::walker::BatchedCopWalker;
+use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Location, Severity};
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
@@ -315,6 +316,11 @@ fn lint_source_inner(
     let mut diagnostics = Vec::new();
 
     let cop_start = std::time::Instant::now();
+
+    // Collect enabled cops and their configs, run line/source checks eagerly.
+    // AST checks are deferred to a single batched walk below.
+    let mut ast_cops: Vec<(&dyn Cop, CopConfig)> = Vec::new();
+
     for (i, cop) in registry.cops().iter().enumerate() {
         let name = cop.name();
 
@@ -347,12 +353,17 @@ fn lint_source_inner(
         // Source-based checks (raw byte scanning with CodeMap)
         diagnostics.extend(cop.check_source(source, &parse_result, &code_map, &cop_config));
 
-        // AST-based checks: walk every node
-        let mut walker = CopWalker {
-            cop: &**cop,
+        ast_cops.push((&**cop, cop_config));
+    }
+
+    // Single AST walk dispatching to all enabled cops at each node.
+    if !ast_cops.is_empty() {
+        let cop_refs: Vec<(&dyn Cop, &CopConfig)> =
+            ast_cops.iter().map(|(c, cfg)| (*c, cfg)).collect();
+        let mut walker = BatchedCopWalker {
+            cops: cop_refs,
             source,
             parse_result: &parse_result,
-            cop_config: &cop_config,
             diagnostics: Vec::new(),
         };
         walker.visit(&parse_result.node());
