@@ -43,6 +43,7 @@ pub fn resolve_gem_path(gem_name: &str, working_dir: &Path) -> Result<PathBuf> {
     }
 
     // Run bundle info --path from the working directory
+    let bundle_start = std::time::Instant::now();
     let output = Command::new("bundle")
         .args(["info", "--path", gem_name])
         .current_dir(working_dir)
@@ -54,6 +55,11 @@ pub fn resolve_gem_path(gem_name: &str, working_dir: &Path) -> Result<PathBuf> {
                 gem_name
             )
         })?;
+    let bundle_elapsed = bundle_start.elapsed();
+    eprintln!(
+        "debug: bundle info --path {}: {:.0?}",
+        gem_name, bundle_elapsed
+    );
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

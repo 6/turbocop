@@ -32,9 +32,13 @@ pub fn run(args: Args) -> Result<i32> {
             p.as_path()
         }
     });
+    let config_start = std::time::Instant::now();
     let config = load_config(args.config.as_deref(), target_dir)?;
+    let config_elapsed = config_start.elapsed();
 
     if args.debug {
+        eprintln!("debug: config loading total: {config_elapsed:.0?}");
+
         if let Some(dir) = config.config_dir() {
             eprintln!("debug: config loaded from: {}", dir.display());
         } else {

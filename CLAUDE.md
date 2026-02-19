@@ -16,8 +16,14 @@ cargo build          # full build (includes Prism C FFI)
 cargo test           # run all tests
 cargo run -- .       # lint current directory
 cargo run -- --format json .
-cargo run -- --debug .
+cargo run -- --debug .       # phase-level timing breakdown
 ```
+
+## Performance Profiling
+
+`--debug` prints phase-level timing: bundler shell-outs, config loading, and per-phase linter breakdown (file I/O, Prism parse, CodeMap build, cop execution, disable filtering) using `AtomicU64` counters across rayon threads. See `PERF_ANALYSIS.md` for detailed results.
+
+Key bottleneck: `bundle info --path <gem>` calls during config loading account for 41-48% of wall time. The actual linting engine (723ms for 19K files) is already 4-5x faster than RuboCop — it's masked by spawning Ruby processes for gem resolution.
 
 ## Architecture
 

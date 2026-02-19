@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 
 use rayon::prelude::*;
@@ -12,6 +13,45 @@ use crate::cop::walker::CopWalker;
 use crate::diagnostic::{Diagnostic, Location, Severity};
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
+
+/// Thread-safe phase timing counters (nanoseconds) for profiling.
+struct PhaseTimers {
+    file_io_ns: AtomicU64,
+    parse_ns: AtomicU64,
+    codemap_ns: AtomicU64,
+    cop_exec_ns: AtomicU64,
+    disable_ns: AtomicU64,
+}
+
+impl PhaseTimers {
+    fn new() -> Self {
+        Self {
+            file_io_ns: AtomicU64::new(0),
+            parse_ns: AtomicU64::new(0),
+            codemap_ns: AtomicU64::new(0),
+            cop_exec_ns: AtomicU64::new(0),
+            disable_ns: AtomicU64::new(0),
+        }
+    }
+
+    fn print_summary(&self, total: std::time::Duration, file_count: usize) {
+        let file_io = std::time::Duration::from_nanos(self.file_io_ns.load(Ordering::Relaxed));
+        let parse = std::time::Duration::from_nanos(self.parse_ns.load(Ordering::Relaxed));
+        let codemap = std::time::Duration::from_nanos(self.codemap_ns.load(Ordering::Relaxed));
+        let cop_exec = std::time::Duration::from_nanos(self.cop_exec_ns.load(Ordering::Relaxed));
+        let disable = std::time::Duration::from_nanos(self.disable_ns.load(Ordering::Relaxed));
+        let accounted = file_io + parse + codemap + cop_exec + disable;
+
+        eprintln!("debug: --- linter phase breakdown ({file_count} files) ---");
+        eprintln!("debug:   file I/O:       {file_io:.0?} (cumulative across threads)");
+        eprintln!("debug:   prism parse:    {parse:.0?}");
+        eprintln!("debug:   codemap build:  {codemap:.0?}");
+        eprintln!("debug:   cop execution:  {cop_exec:.0?}");
+        eprintln!("debug:   disable filter: {disable:.0?}");
+        eprintln!("debug:   accounted:      {accounted:.0?} (sum of per-thread time)");
+        eprintln!("debug:   wall clock:     {total:.0?}");
+    }
+}
 
 /// Renamed cops from vendor/rubocop/config/obsoletion.yml.
 /// Maps old cop name -> new cop name (e.g., "Naming/PredicateName" -> "Naming/PredicatePrefix").
@@ -81,7 +121,7 @@ pub fn lint_source(
     args: &Args,
 ) -> LintResult {
     let cop_filters = config.build_cop_filters(registry);
-    let diagnostics = lint_source_inner(source, config, registry, args, &cop_filters);
+    let diagnostics = lint_source_inner(source, config, registry, args, &cop_filters, None);
     let mut sorted = diagnostics;
     sorted.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
     LintResult {
@@ -96,16 +136,27 @@ pub fn run_linter(
     registry: &CopRegistry,
     args: &Args,
 ) -> LintResult {
+    let wall_start = std::time::Instant::now();
     // Build cop filters once before the parallel loop
     let cop_filters = config.build_cop_filters(registry);
 
+    let timers = if args.debug {
+        Some(PhaseTimers::new())
+    } else {
+        None
+    };
+
     let diagnostics: Vec<Diagnostic> = files
         .par_iter()
-        .flat_map(|path| lint_file(path, config, registry, args, &cop_filters))
+        .flat_map(|path| lint_file(path, config, registry, args, &cop_filters, timers.as_ref()))
         .collect();
 
     let mut sorted = diagnostics;
     sorted.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
+
+    if let Some(ref t) = timers {
+        t.print_summary(wall_start.elapsed(), files.len());
+    }
 
     LintResult {
         diagnostics: sorted,
@@ -119,12 +170,14 @@ fn lint_file(
     registry: &CopRegistry,
     args: &Args,
     cop_filters: &CopFilterSet,
+    timers: Option<&PhaseTimers>,
 ) -> Vec<Diagnostic> {
     // Check global excludes once per file
     if cop_filters.is_globally_excluded(path) {
         return Vec::new();
     }
 
+    let io_start = std::time::Instant::now();
     let source = match SourceFile::from_path(path) {
         Ok(s) => s,
         Err(e) => {
@@ -132,8 +185,12 @@ fn lint_file(
             return Vec::new();
         }
     };
+    if let Some(t) = timers {
+        t.file_io_ns
+            .fetch_add(io_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
+    }
 
-    lint_source_inner(&source, config, registry, args, cop_filters)
+    lint_source_inner(&source, config, registry, args, cop_filters, timers)
 }
 
 /// Name of the redundant cop disable directive cop.
@@ -238,13 +295,26 @@ fn lint_source_inner(
     registry: &CopRegistry,
     args: &Args,
     cop_filters: &CopFilterSet,
+    timers: Option<&PhaseTimers>,
 ) -> Vec<Diagnostic> {
     // Parse on this thread (ParseResult is !Send)
+    let parse_start = std::time::Instant::now();
     let parse_result = crate::parse::parse_source(source.as_bytes());
+    if let Some(t) = timers {
+        t.parse_ns
+            .fetch_add(parse_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
+    }
+
+    let codemap_start = std::time::Instant::now();
     let code_map = CodeMap::from_parse_result(source.as_bytes(), &parse_result);
+    if let Some(t) = timers {
+        t.codemap_ns
+            .fetch_add(codemap_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
+    }
 
     let mut diagnostics = Vec::new();
 
+    let cop_start = std::time::Instant::now();
     for (i, cop) in registry.cops().iter().enumerate() {
         let name = cop.name();
 
@@ -288,9 +358,14 @@ fn lint_source_inner(
         walker.visit(&parse_result.node());
         diagnostics.extend(walker.diagnostics);
     }
+    if let Some(t) = timers {
+        t.cop_exec_ns
+            .fetch_add(cop_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
+    }
 
     // Filter out diagnostics suppressed by inline disable comments,
     // and detect redundant disable directives.
+    let disable_start = std::time::Instant::now();
     let mut disabled =
         crate::parse::directives::DisabledRanges::from_comments(source, &parse_result);
 
@@ -354,6 +429,10 @@ fn lint_source_inner(
                 });
             }
         }
+    }
+    if let Some(t) = timers {
+        t.disable_ns
+            .fetch_add(disable_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
     }
 
     diagnostics
