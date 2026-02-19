@@ -45,11 +45,11 @@ pub struct Args {
     #[arg(long, value_name = "PATH")]
     pub stdin: Option<PathBuf>,
 
-    /// Generate .rblint.lock with cached gem paths and exit
+    /// Generate .rblint.cache with cached gem paths and exit
     #[arg(long)]
     pub init: bool,
 
-    /// Skip .rblint.lock requirement (use bundler directly for gem resolution)
+    /// Skip .rblint.cache requirement (use bundler directly for gem resolution)
     #[arg(long)]
-    pub no_lock: bool,
+    pub no_cache: bool,
 }

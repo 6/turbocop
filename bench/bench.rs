@@ -266,7 +266,7 @@ fn init_lockfiles() {
             continue;
         }
 
-        eprintln!("Generating .rblint.lock for {}...", repo.name);
+        eprintln!("Generating .rblint.cache for {}...", repo.name);
         let start = Instant::now();
         let output = Command::new(rblint.as_os_str())
             .args(["--init", repo_dir.to_str().unwrap()])

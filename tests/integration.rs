@@ -42,7 +42,7 @@ fn default_args() -> Args {
         list_cops: false,
         stdin: None,
         init: false,
-        no_lock: false,
+        no_cache: false,
     }
 }
 

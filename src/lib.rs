@@ -45,7 +45,7 @@ pub fn run(args: Args) -> Result<i32> {
         return Ok(0);
     }
 
-    // --init: resolve gem paths and write .rblint.lock
+    // --init: resolve gem paths and write .rblint.cache
     if args.init {
         let config_start = std::time::Instant::now();
         let config = load_config(args.config.as_deref(), target_dir, None)?;
@@ -58,7 +58,7 @@ pub fn run(args: Args) -> Result<i32> {
         config::lockfile::write_lock(&gem_paths, lock_dir)?;
 
         eprintln!(
-            "Created .rblint.lock ({} gems cached in {config_elapsed:.0?})",
+            "Created .rblint.cache ({} gems cached in {config_elapsed:.0?})",
             gem_paths.len()
         );
         for (name, path) in &gem_paths {
@@ -69,11 +69,11 @@ pub fn run(args: Args) -> Result<i32> {
 
     // Determine whether to use lockfile:
     // --no-lock, --rubocop-only, and --stdin bypass the lockfile requirement
-    let use_lockfile = !args.no_lock && !args.rubocop_only && args.stdin.is_none();
+    let use_cache = !args.no_cache && !args.rubocop_only && args.stdin.is_none();
 
     // Load config — use lockfile if available
     let config_start = std::time::Instant::now();
-    let config = if use_lockfile {
+    let config = if use_cache {
         // Try to find config dir for lockfile lookup
         let lock_dir = target_dir.unwrap_or(std::path::Path::new("."));
         match config::lockfile::read_lock(lock_dir) {
@@ -81,7 +81,7 @@ pub fn run(args: Args) -> Result<i32> {
                 config::lockfile::check_freshness(&lock, lock_dir)?;
                 if args.debug {
                     eprintln!(
-                        "debug: using .rblint.lock ({} cached gems)",
+                        "debug: using .rblint.cache ({} cached gems)",
                         lock.gems.len()
                     );
                 }

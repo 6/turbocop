@@ -15,7 +15,7 @@ pub struct RblintLock {
     pub gems: HashMap<String, PathBuf>,
 }
 
-/// Write `.rblint.lock` to the given directory.
+/// Write `.rblint.cache` to the given directory.
 pub fn write_lock(gems: &HashMap<String, PathBuf>, dir: &Path) -> Result<()> {
     let gemfile_lock_sha256 = hash_file(&dir.join("Gemfile.lock"));
 
@@ -27,29 +27,29 @@ pub fn write_lock(gems: &HashMap<String, PathBuf>, dir: &Path) -> Result<()> {
     };
 
     let json = serde_json::to_string_pretty(&lock)?;
-    let lock_path = dir.join(".rblint.lock");
-    std::fs::write(&lock_path, json)
-        .with_context(|| format!("Failed to write {}", lock_path.display()))?;
+    let cache_path = dir.join(".rblint.cache");
+    std::fs::write(&cache_path, json)
+        .with_context(|| format!("Failed to write {}", cache_path.display()))?;
     Ok(())
 }
 
-/// Read and parse `.rblint.lock` from the given directory.
+/// Read and parse `.rblint.cache` from the given directory.
 /// Returns an error if the file is missing.
 pub fn read_lock(dir: &Path) -> Result<RblintLock> {
-    let lock_path = dir.join(".rblint.lock");
-    if !lock_path.exists() {
+    let cache_path = dir.join(".rblint.cache");
+    if !cache_path.exists() {
         anyhow::bail!(
-            "No .rblint.lock found in {}. Run 'rblint --init' first.",
+            "No .rblint.cache found in {}. Run 'rblint --init' first.",
             dir.display()
         );
     }
-    let content = std::fs::read_to_string(&lock_path)
-        .with_context(|| format!("Failed to read {}", lock_path.display()))?;
+    let content = std::fs::read_to_string(&cache_path)
+        .with_context(|| format!("Failed to read {}", cache_path.display()))?;
     let lock: RblintLock = serde_json::from_str(&content)
-        .with_context(|| format!("Failed to parse {}", lock_path.display()))?;
+        .with_context(|| format!("Failed to parse {}", cache_path.display()))?;
     if lock.version != 1 {
         anyhow::bail!(
-            ".rblint.lock has version {} (expected 1). Run 'rblint --init' to regenerate.",
+            ".rblint.cache has version {} (expected 1). Run 'rblint --init' to regenerate.",
             lock.version
         );
     }
@@ -62,7 +62,7 @@ pub fn check_freshness(lock: &RblintLock, dir: &Path) -> Result<()> {
     let current_hash = hash_file(&dir.join("Gemfile.lock"));
     if lock.gemfile_lock_sha256 != current_hash {
         anyhow::bail!(
-            "Stale .rblint.lock (Gemfile.lock changed). Run 'rblint --init' to refresh."
+            "Stale .rblint.cache (Gemfile.lock changed). Run 'rblint --init' to refresh."
         );
     }
     Ok(())
