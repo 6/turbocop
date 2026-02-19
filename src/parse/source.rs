@@ -4,72 +4,19 @@ use anyhow::{Context, Result};
 
 use crate::diagnostic::Location;
 
-/// File content storage: mmap for large files, heap for small ones.
-enum Content {
-    Heap(Vec<u8>),
-    #[cfg(unix)]
-    Mmap {
-        ptr: *mut libc::c_void,
-        len: usize,
-    },
-}
-
-// SAFETY: The mmap is read-only (PROT_READ, MAP_PRIVATE) and the file is not
-// modified during linting. The pointer is stable for the lifetime of the mapping.
-#[cfg(unix)]
-unsafe impl Send for Content {}
-#[cfg(unix)]
-unsafe impl Sync for Content {}
-
-impl Content {
-    fn as_bytes(&self) -> &[u8] {
-        match self {
-            Content::Heap(v) => v,
-            #[cfg(unix)]
-            Content::Mmap { ptr, len } => unsafe {
-                std::slice::from_raw_parts(*ptr as *const u8, *len)
-            },
-        }
-    }
-}
-
-impl Drop for Content {
-    fn drop(&mut self) {
-        #[cfg(unix)]
-        if let Content::Mmap { ptr, len } = self {
-            unsafe {
-                libc::munmap(*ptr, *len);
-            }
-        }
-    }
-}
-
-impl std::fmt::Debug for Content {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Content::Heap(v) => write!(f, "Heap({} bytes)", v.len()),
-            #[cfg(unix)]
-            Content::Mmap { len, .. } => write!(f, "Mmap({len} bytes)"),
-        }
-    }
-}
-
-/// Minimum file size to attempt mmap (below this, heap read is faster).
-const MMAP_THRESHOLD: u64 = 32 * 1024;
-
 #[derive(Debug)]
 pub struct SourceFile {
     pub path: PathBuf,
-    content: Content,
+    pub content: Vec<u8>,
     /// Byte offsets where each line starts (0-indexed into content)
     line_starts: Vec<usize>,
 }
 
 impl SourceFile {
     pub fn from_path(path: &Path) -> Result<Self> {
-        let content = read_file(path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
-        let line_starts = compute_line_starts(content.as_bytes());
+        let content =
+            std::fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
+        let line_starts = compute_line_starts(&content);
         Ok(Self {
             path: path.to_path_buf(),
             content,
@@ -78,12 +25,12 @@ impl SourceFile {
     }
 
     pub fn as_bytes(&self) -> &[u8] {
-        self.content.as_bytes()
+        &self.content
     }
 
     /// Returns an iterator over lines as byte slices (without newline terminators).
     pub fn lines(&self) -> impl Iterator<Item = &[u8]> {
-        self.as_bytes().split(|&b| b == b'\n')
+        self.content.split(|&b| b == b'\n')
     }
 
     /// Convert a byte offset into a (1-indexed line, 0-indexed column) pair.
@@ -112,7 +59,7 @@ impl SourceFile {
         let line_starts = compute_line_starts(&bytes);
         Self {
             path,
-            content: Content::Heap(bytes),
+            content: bytes,
             line_starts,
         }
     }
@@ -123,63 +70,10 @@ impl SourceFile {
         let line_starts = compute_line_starts(&content);
         Self {
             path: PathBuf::from(path),
-            content: Content::Heap(content),
+            content,
             line_starts,
         }
     }
-}
-
-/// Read file content, using mmap for large files and heap allocation for small ones.
-#[cfg(unix)]
-fn read_file(path: &Path) -> Result<Content> {
-    use std::os::unix::io::AsRawFd;
-
-    let file = std::fs::File::open(path)?;
-    let metadata = file.metadata()?;
-    let len = metadata.len();
-
-    if len == 0 {
-        return Ok(Content::Heap(Vec::new()));
-    }
-
-    if len < MMAP_THRESHOLD {
-        let bytes = std::fs::read(path)?;
-        return Ok(Content::Heap(bytes));
-    }
-
-    let mapped_len = len as usize;
-    let ptr = unsafe {
-        libc::mmap(
-            std::ptr::null_mut(),
-            mapped_len,
-            libc::PROT_READ,
-            libc::MAP_PRIVATE,
-            file.as_raw_fd(),
-            0,
-        )
-    };
-
-    if ptr == libc::MAP_FAILED {
-        // mmap failed, fall back to heap read
-        let bytes = std::fs::read(path)?;
-        return Ok(Content::Heap(bytes));
-    }
-
-    // Hint to kernel: sequential access pattern
-    unsafe {
-        libc::madvise(ptr, mapped_len, libc::MADV_SEQUENTIAL);
-    }
-
-    Ok(Content::Mmap {
-        ptr,
-        len: mapped_len,
-    })
-}
-
-#[cfg(not(unix))]
-fn read_file(path: &Path) -> Result<Content> {
-    let bytes = std::fs::read(path)?;
-    Ok(Content::Heap(bytes))
 }
 
 fn compute_line_starts(content: &[u8]) -> Vec<usize> {

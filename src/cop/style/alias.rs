@@ -117,7 +117,7 @@ impl Visit<'_> for AliasVisitor<'_, '_> {
         if self.enforced_style == "prefer_alias_method" {
             if self.alias_method_possible() {
                 let loc = node.location();
-                let kw_slice = &self.source.as_bytes()[loc.start_offset()..];
+                let kw_slice = &self.source.content[loc.start_offset()..];
                 if kw_slice.starts_with(b"alias ") || kw_slice.starts_with(b"alias\t") {
                     let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                     self.diagnostics.push(self.cop.diagnostic(
@@ -134,7 +134,7 @@ impl Visit<'_> for AliasVisitor<'_, '_> {
             if scope == ScopeType::Dynamic {
                 if self.alias_method_possible() {
                     let loc = node.location();
-                    let kw_slice = &self.source.as_bytes()[loc.start_offset()..];
+                    let kw_slice = &self.source.content[loc.start_offset()..];
                     if kw_slice.starts_with(b"alias ") || kw_slice.starts_with(b"alias\t") {
                         let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                         self.diagnostics.push(self.cop.diagnostic(

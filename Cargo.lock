@@ -497,7 +497,6 @@ dependencies = [
  "fancy-regex",
  "globset",
  "ignore",
- "libc",
  "rayon",
  "regex",
  "ruby-prism",

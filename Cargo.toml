@@ -35,9 +35,6 @@ sha2 = "0.10"
 regex = "1"
 fancy-regex = "0.14"
 
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
-
 [profile.release]
 lto = true
 codegen-units = 1

@@ -54,7 +54,7 @@ fn check_loop(
     // Check if there's a `do` keyword
     // In Prism, while/until nodes have a keyword_loc and optionally a "do" keyword
     // We look at source between predicate end and body/closing start for "do"
-    let src = &source.as_bytes()[outer_loc.start_offset()..outer_loc.end_offset()];
+    let src = &source.content[outer_loc.start_offset()..outer_loc.end_offset()];
     let src_str = std::str::from_utf8(src).unwrap_or("");
 
     // Find "do" after the keyword line. Look at first line for "do" at end.

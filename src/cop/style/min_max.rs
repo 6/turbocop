@@ -69,7 +69,7 @@ fn get_receiver_of_method<'a>(
     }
     let recv = call.receiver()?;
     let recv_loc = recv.location();
-    let recv_src = std::str::from_utf8(&source.as_bytes()[recv_loc.start_offset()..recv_loc.end_offset()])
+    let recv_src = std::str::from_utf8(&source.content[recv_loc.start_offset()..recv_loc.end_offset()])
         .unwrap_or("")
         .to_string();
     Some(recv_src)

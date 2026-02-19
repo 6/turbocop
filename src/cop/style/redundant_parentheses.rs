@@ -113,7 +113,7 @@ impl RedundantParensVisitor<'_> {
             if matches!(p.kind, ParentKind::Return | ParentKind::Next | ParentKind::Break) {
                 let open_offset = node.location().start_offset();
                 if open_offset > 0 {
-                    let before = self.source.as_bytes()[open_offset - 1];
+                    let before = self.source.content[open_offset - 1];
                     if before.is_ascii_alphabetic() {
                         return;
                     }
@@ -141,7 +141,7 @@ impl RedundantParensVisitor<'_> {
 
         // Logical expression
         if inner.as_and_node().is_some() || inner.as_or_node().is_some() {
-            if let Some(msg) = check_logical(self.source.as_bytes(), node, inner, parent) {
+            if let Some(msg) = check_logical(&self.source.content, node, inner, parent) {
                 self.add_offense(node, msg);
                 return;
             }
@@ -149,7 +149,7 @@ impl RedundantParensVisitor<'_> {
 
         // Method call
         if inner.as_call_node().is_some() {
-            if let Some(msg) = check_method_call(self.source.as_bytes(), node, inner, parent) {
+            if let Some(msg) = check_method_call(&self.source.content, node, inner, parent) {
                 self.add_offense(node, msg);
             }
         }
