@@ -60,15 +60,14 @@ impl Cop for MultipleDescribes {
             return;
         }
 
-        // Flag all except the last one (RuboCop flags all except the last)
-        for &(line, col) in &example_groups[..example_groups.len() - 1] {
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                col,
-                "Do not use multiple top-level example groups - try to nest them.".to_string(),
-            ));
-        }
+        // RuboCop fires only once per file, on the FIRST top-level example group
+        let (line, col) = example_groups[0];
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            col,
+            "Do not use multiple top-level example groups - try to nest them.".to_string(),
+        ));
 
     }
 }

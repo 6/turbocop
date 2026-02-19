@@ -31,6 +31,13 @@ const EXCEPTION_HIERARCHY: &[(&str, &[&str])] = &[
     ("IOError", &["EOFError"]),
     ("IndexError", &["KeyError", "StopIteration"]),
     ("SignalException", &["Interrupt"]),
+    // Standard library exception hierarchies
+    ("IPAddr::Error", &["IPAddr::InvalidAddressError"]),
+    ("Net::ProtocolError", &["Net::HTTPBadResponse", "Net::HTTPHeaderSyntaxError",
+                              "Net::FTPPermError", "Net::FTPTempError", "Net::FTPProtoError",
+                              "Net::FTPReplyError"]),
+    ("Gem::Exception", &["Gem::LoadError", "Gem::InstallError", "Gem::DependencyError",
+                          "Gem::FormatException", "Gem::CommandLineError"]),
 ];
 
 fn is_ancestor_of(ancestor: &str, descendant: &str) -> bool {

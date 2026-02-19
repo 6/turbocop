@@ -82,6 +82,14 @@ impl Cop for AccessModifierDeclarations {
             }
         }
 
+        // Distinguish between inline modifier declarations and visibility-change calls:
+        // - Inline modifier declaration: `private def foo` (argument is a DefNode) — offense under group style
+        // - Visibility-change call with symbol: `private :foo` — already handled above (AllowModifiersOnSymbols)
+        // - Visibility-change call with method/variable: `public target`, `private method_var` — NOT an offense
+        //   These change visibility of an already-defined method, not inline declarations.
+        let is_inline_modifier = first_arg.as_def_node().is_some()
+            || first_arg.as_symbol_node().is_some();
+
         match enforced_style {
             "inline" => {
                 // Inline style: access modifiers should be applied to individual methods
@@ -92,6 +100,11 @@ impl Cop for AccessModifierDeclarations {
             }
             "group" => {
                 // Group style: access modifiers should not be inlined with method definitions
+                // Only flag actual inline modifier declarations, not visibility-change calls
+                if !is_inline_modifier {
+                    return;
+                }
+
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 diagnostics.push(self.diagnostic(

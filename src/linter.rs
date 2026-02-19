@@ -381,22 +381,10 @@ fn is_directive_redundant(
         }
 
         // Not a renamed cop (or renamed-to cop is also not in registry).
-        // Check if it's known from gem config (has Include/Exclude patterns).
-        // For example, Discourse/* cops from rubocop-discourse have Include
-        // patterns that limit them to spec files — a disable directive in a
-        // non-spec file is redundant. Similarly, cops excluded from certain
-        // paths via Exclude patterns (e.g., **/app/controllers/**) are
-        // redundant to disable in those files.
-        let cop_config = config.cop_config(cop_name);
-        if !cop_config.include.is_empty() || !cop_config.exclude.is_empty() {
-            if !cop_filters.is_path_matched_by_cop_config(&cop_config, path) {
-                return true;
-            }
-        }
-
-        // Unknown cop with no Include/Exclude info, or file IS matched —
-        // don't flag. Could be a custom cop, project-local cop, or the
-        // directive is genuinely needed.
+        // Don't flag unknown cops as redundant — they could be custom cops,
+        // project-local cops, or from plugins we don't implement. RuboCop
+        // only flags directives as redundant when the cop didn't fire any
+        // offenses; it doesn't check Include/Exclude patterns for redundancy.
         false
     }
 }

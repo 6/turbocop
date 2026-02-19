@@ -1,7 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{DEF_NODE, INSTANCE_VARIABLE_OR_WRITE_NODE, STATEMENTS_NODE};
+use crate::cop::node_type::{CALL_NODE, DEF_NODE, IF_NODE, INSTANCE_VARIABLE_OR_WRITE_NODE, INSTANCE_VARIABLE_WRITE_NODE, STATEMENTS_NODE};
 
 pub struct MemoizedInstanceVariableName;
 
@@ -50,6 +50,180 @@ impl MemoizedInstanceVariableName {
 
         Vec::new()
     }
+
+    /// Check the `defined?` memoization pattern and emit offenses on each ivar reference.
+    /// RuboCop emits one offense per ivar occurrence (defined? check, return, assignment).
+    fn check_defined_memoized(
+        &self,
+        source: &SourceFile,
+        body_nodes: &[ruby_prism::Node<'_>],
+        ivar_base: &str,
+        base_name: &str,
+        method_name_str: &str,
+        enforced_style: &str,
+    ) -> Vec<Diagnostic> {
+        let matches = match enforced_style {
+            "required" => {
+                let expected = format!("_{base_name}");
+                ivar_base == expected
+            }
+            "optional" => {
+                let with_underscore = format!("_{base_name}");
+                ivar_base == base_name || ivar_base == with_underscore
+            }
+            _ => {
+                // "disallowed" (default)
+                ivar_base == base_name
+            }
+        };
+
+        if matches {
+            return Vec::new();
+        }
+
+        let suggested = match enforced_style {
+            "required" => format!("_{base_name}"),
+            _ => base_name.to_string(),
+        };
+
+        let msg = format!(
+            "Memoized variable `@{ivar_base}` does not match method name `{method_name_str}`. Use `@{suggested}` instead."
+        );
+
+        // Collect all ivar locations from the defined? pattern:
+        // 1. defined?(@ivar) — the ivar inside defined?
+        // 2. return @ivar — the ivar in the return
+        // 3. @ivar = ... — the assignment
+        let mut diags = Vec::new();
+
+        // The first node should be an if with defined?
+        if let Some(if_node) = body_nodes[0].as_if_node() {
+            // defined?(@ivar) — in the predicate
+            if let Some(call) = if_node.predicate().as_call_node() {
+                if call.name().as_slice() == b"defined?" {
+                    if let Some(args) = call.arguments() {
+                        for arg in args.arguments().iter() {
+                            if arg.as_instance_variable_read_node().is_some() {
+                                let loc = arg.location();
+                                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                diags.push(self.diagnostic(source, line, column, msg.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+            // Also check if the predicate is a DefinedNode
+            if let Some(defined) = if_node.predicate().as_defined_node() {
+                let value = defined.value();
+                if value.as_instance_variable_read_node().is_some() {
+                    let loc = value.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    diags.push(self.diagnostic(source, line, column, msg.clone()));
+                }
+            }
+
+            // return @ivar — in the then/statements
+            if let Some(stmts) = if_node.statements() {
+                for stmt in stmts.body().iter() {
+                    if let Some(ret) = stmt.as_return_node() {
+                        if let Some(args) = ret.arguments() {
+                            for arg in args.arguments().iter() {
+                                if arg.as_instance_variable_read_node().is_some() {
+                                    let loc = arg.location();
+                                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                    diags.push(self.diagnostic(source, line, column, msg.clone()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // The last node should be @ivar = ...
+        let last = &body_nodes[body_nodes.len() - 1];
+        if let Some(ivar_write) = last.as_instance_variable_write_node() {
+            let loc = ivar_write.name_loc();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            diags.push(self.diagnostic(source, line, column, msg));
+        }
+
+        diags
+    }
+}
+
+/// Extract the ivar name from a `defined?` memoization pattern.
+/// Pattern: first statement is `return @ivar if defined?(@ivar)` (modifier if)
+/// and last statement is `@ivar = expression`.
+/// Returns the ivar name (e.g. "@token") if the pattern matches.
+fn extract_defined_memoized_ivar(body_nodes: &[ruby_prism::Node<'_>]) -> Option<String> {
+    if body_nodes.len() < 2 {
+        return None;
+    }
+
+    // First statement: `return @ivar if defined?(@ivar)`
+    // In Prism, this is an IfNode with:
+    //   predicate: DefinedNode or CallNode(`defined?`)
+    //   statements: ReturnNode with ivar argument
+    let first = &body_nodes[0];
+    let if_node = first.as_if_node()?;
+
+    // Check predicate is `defined?(@ivar)`
+    // Note: Prism's name().as_slice() for ivar nodes includes the '@' prefix.
+    // We strip it here to get the base name for comparison.
+    let defined_ivar_base = if let Some(defined) = if_node.predicate().as_defined_node() {
+        // DefinedNode has a .value() that returns the argument
+        let value = defined.value();
+        let ivar = value.as_instance_variable_read_node()?;
+        let full = std::str::from_utf8(ivar.name().as_slice()).ok()?;
+        full.strip_prefix('@').unwrap_or(full).to_string()
+    } else if let Some(call) = if_node.predicate().as_call_node() {
+        // Fallback: CallNode with name `defined?`
+        if call.name().as_slice() != b"defined?" {
+            return None;
+        }
+        let args = call.arguments()?;
+        let arg_list: Vec<_> = args.arguments().iter().collect();
+        if arg_list.len() != 1 {
+            return None;
+        }
+        let ivar = arg_list[0].as_instance_variable_read_node()?;
+        let full = std::str::from_utf8(ivar.name().as_slice()).ok()?;
+        full.strip_prefix('@').unwrap_or(full).to_string()
+    } else {
+        return None;
+    };
+
+    // Check then-body has `return @ivar`
+    let stmts = if_node.statements()?;
+    let stmt_nodes: Vec<_> = stmts.body().iter().collect();
+    if stmt_nodes.len() != 1 {
+        return None;
+    }
+    let ret = stmt_nodes[0].as_return_node()?;
+    let ret_args = ret.arguments()?;
+    let ret_arg_list: Vec<_> = ret_args.arguments().iter().collect();
+    if ret_arg_list.len() != 1 {
+        return None;
+    }
+    let ret_ivar = ret_arg_list[0].as_instance_variable_read_node()?;
+    let ret_full = std::str::from_utf8(ret_ivar.name().as_slice()).ok()?;
+    let ret_ivar_base = ret_full.strip_prefix('@').unwrap_or(ret_full);
+    if ret_ivar_base != defined_ivar_base {
+        return None;
+    }
+
+    // Last statement: `@ivar = expression`
+    let last = &body_nodes[body_nodes.len() - 1];
+    let ivar_write = last.as_instance_variable_write_node()?;
+    let write_full = std::str::from_utf8(ivar_write.name().as_slice()).ok()?;
+    let write_base = write_full.strip_prefix('@').unwrap_or(write_full);
+    if write_base != defined_ivar_base {
+        return None;
+    }
+
+    // Return the base name (without '@')
+    Some(defined_ivar_base)
 }
 
 impl Cop for MemoizedInstanceVariableName {
@@ -58,7 +232,7 @@ impl Cop for MemoizedInstanceVariableName {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[DEF_NODE, INSTANCE_VARIABLE_OR_WRITE_NODE, STATEMENTS_NODE]
+        &[CALL_NODE, DEF_NODE, IF_NODE, INSTANCE_VARIABLE_OR_WRITE_NODE, INSTANCE_VARIABLE_WRITE_NODE, STATEMENTS_NODE]
     }
 
     fn check_node(
@@ -117,8 +291,21 @@ impl Cop for MemoizedInstanceVariableName {
         let last = &body_nodes[body_nodes.len() - 1];
         if let Some(or_write) = last.as_instance_variable_or_write_node() {
             diagnostics.extend(self.check_or_write(source, or_write, base_name, method_name_str, enforced_style));
+            return;
         }
 
+        // Also check the `defined?` memoization pattern:
+        //   return @ivar if defined?(@ivar)
+        //   @ivar = expression
+        // The first statement must be `if defined?(@ivar) then return @ivar end`
+        // and the last statement must be `@ivar = expression`.
+        if body_nodes.len() >= 2 {
+            if let Some(ivar_base) = extract_defined_memoized_ivar(&body_nodes) {
+                diagnostics.extend(
+                    self.check_defined_memoized(source, &body_nodes, &ivar_base, base_name, method_name_str, enforced_style),
+                );
+            }
+        }
     }
 }
 

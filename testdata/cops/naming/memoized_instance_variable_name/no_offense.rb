@@ -26,3 +26,15 @@ def process_url
   @card ||= PreviewCard.new(url: @url)
   attempt_oembed || attempt_opengraph
 end
+
+# defined? memoization pattern with matching name
+def issue_token
+  return @issue_token if defined?(@issue_token)
+  @issue_token = create_token
+end
+
+# defined? with bang method (! stripped)
+def compute!
+  return @compute if defined?(@compute)
+  @compute = heavy_calculation
+end

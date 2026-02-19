@@ -36,3 +36,15 @@ def action_from_button
     end
   end
 end
+
+# Modifier if/unless do not count by default (CountModifierForms: false)
+def respond_to_destroy(method)
+  if method == :ajax
+    if called_from_index_page?
+      if items.blank?
+        items = get_items(page: current_page - 1) if current_page > 1
+        render(:index) && return
+      end
+    end
+  end
+end

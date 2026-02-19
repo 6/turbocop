@@ -8,7 +8,33 @@ use crate::parse::source::SourceFile;
 pub struct FileName;
 
 /// Well-known Ruby files that don't follow snake_case convention.
-const ALLOWED_NAMES: &[&str] = &["Gemfile", "Rakefile", "Guardfile", "Capfile", "Berksfile"];
+/// These correspond to CamelCase entries in AllCops/Include from RuboCop's
+/// default.yml — `allowed_camel_case_file?` skips any file matching an Include
+/// pattern that contains an uppercase letter.
+const ALLOWED_NAMES: &[&str] = &[
+    "Appraisals",
+    "Berksfile",
+    "Brewfile",
+    "Buildfile",
+    "Capfile",
+    "Cheffile",
+    "Dangerfile",
+    "Deliverfile",
+    "Fastfile",
+    "Gemfile",
+    "Guardfile",
+    "Jarfile",
+    "Mavenfile",
+    "Podfile",
+    "Puppetfile",
+    "Rakefile",
+    "Schemafile",
+    "Snapfile",
+    "Steepfile",
+    "Thorfile",
+    "Vagabondfile",
+    "Vagrantfile",
+];
 
 /// Default roots for definition path hierarchy matching.
 const DEFAULT_PATH_ROOTS: &[&str] = &["lib", "spec", "test", "app"];
@@ -246,6 +272,14 @@ mod tests {
         let mut diags = Vec::new();
         FileName.check_lines(&source, &CopConfig::default(), &mut diags);
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn no_offense_vagrantfile() {
+        let source = SourceFile::from_bytes("Vagrantfile", b"Vagrant.configure('2') do |config|\nend\n".to_vec());
+        let mut diags = Vec::new();
+        FileName.check_lines(&source, &CopConfig::default(), &mut diags);
+        assert!(diags.is_empty(), "Vagrantfile should be in allowed CamelCase filenames");
     }
 
     #[test]

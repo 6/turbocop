@@ -262,17 +262,14 @@ fn check_method_call<'a>(
         return None;
     }
 
-    // If the inner call has a do..end block and is an argument to an
-    // unparenthesized method call, the parens are required to prevent
-    // Ruby from binding the do..end block to the outer method call.
+    // If the inner call has a do..end block, the parens may be required
+    // to prevent Ruby from binding the do..end block to the wrong method.
     // e.g. `scope :name, (lambda do |args| ... end)` — removing the parens
     // would make `do..end` attach to `scope` instead of `lambda`.
+    // Also applies in hash values: `default: (lambda do |routes| ... end)`
+    // where without parens the block would bind to the hash method.
     if has_do_end_block(&call) {
-        if let Some(p) = parent {
-            if matches!(p.kind, ParentKind::Call) && !p.call_parenthesized {
-                return None;
-            }
-        }
+        return None;
     }
 
     let has_args = call.arguments().is_some();

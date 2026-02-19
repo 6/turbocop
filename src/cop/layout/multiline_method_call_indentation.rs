@@ -88,12 +88,16 @@ impl ChainVisitor<'_> {
         let expected = match self.style {
             "indented" | "indented_relative_to_receiver" => {
                 let chain_start_line = find_chain_start_line(self.source, &receiver);
-                let chain_line_bytes = self
+                // Walk backwards from the chain start line to find the first
+                // non-continuation-dot line. This matches RuboCop's `left_hand_side`
+                // which walks up through parent nodes to find the topmost chain.
+                let base_line = find_non_continuation_ancestor_line(self.source, chain_start_line);
+                let base_line_bytes = self
                     .source
                     .lines()
-                    .nth(chain_start_line - 1)
+                    .nth(base_line - 1)
                     .unwrap_or(b"");
-                let base_indent = indentation_of(chain_line_bytes);
+                let base_indent = indentation_of(base_line_bytes);
                 // RuboCop adds an extra IndentationWidth when the chain is inside
                 // a keyword expression like `return`, `if`, `while`, `until`, `for`.
                 let kw_extra = keyword_extra_indent(self.source, call_node, self.width);
@@ -137,10 +141,11 @@ impl ChainVisitor<'_> {
                 }
                 _ => {
                     let chain_start_line = find_chain_start_line(self.source, &receiver);
+                    let base_line = find_non_continuation_ancestor_line(self.source, chain_start_line);
                     let chain_line_bytes = self
                         .source
                         .lines()
-                        .nth(chain_start_line - 1)
+                        .nth(base_line - 1)
                         .unwrap_or(b"");
                     let chain_indent = indentation_of(chain_line_bytes);
                     format!(
@@ -408,6 +413,37 @@ fn find_chain_root_col(source: &SourceFile, node: &ruby_prism::Node<'_>) -> usiz
     }
     let (_, col) = source.offset_to_line_col(node.location().start_offset());
     col
+}
+
+/// Walk backwards from a given line to find the first line that does NOT
+/// start with a continuation dot (`.` or `&.` at the start of the trimmed
+/// line). This handles sub-chains that start on continuation dot lines,
+/// matching RuboCop's `left_hand_side` which walks up through parent nodes
+/// to find the topmost chain start.
+fn find_non_continuation_ancestor_line(source: &SourceFile, start_line: usize) -> usize {
+    let lines: Vec<&[u8]> = source.lines().collect();
+    let mut line = start_line;
+    while line >= 1 {
+        if line - 1 >= lines.len() {
+            break;
+        }
+        let line_bytes = lines[line - 1];
+        let trimmed: Vec<u8> = line_bytes
+            .iter()
+            .copied()
+            .skip_while(|&b| b == b' ' || b == b'\t')
+            .collect();
+        if trimmed.starts_with(b".") || trimmed.starts_with(b"&.") {
+            // This line is a continuation dot line; walk backwards
+            if line <= 1 {
+                break;
+            }
+            line -= 1;
+        } else {
+            break;
+        }
+    }
+    line
 }
 
 fn find_chain_start_line(source: &SourceFile, node: &ruby_prism::Node<'_>) -> usize {

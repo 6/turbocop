@@ -8,3 +8,8 @@ foo.reject { |x| x < 0 }
 !foo.present?
 !foo.blank?
 !foo.empty?
+# Class hierarchy checks — Module#< can return nil, so !(A < B) != (A >= B)
+!(routes < AbstractRouter)
+!(Foo > Bar)
+!(Foo::Bar <= Baz::Qux)
+!(klass >= SomeModule)

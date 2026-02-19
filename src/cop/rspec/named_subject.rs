@@ -177,6 +177,27 @@ impl<'pr> Visit<'pr> for BareSubjectFinder<'_> {
             return;
         }
 
+        // Check for `subject` reference (no receiver, no arguments).
+        // RuboCop's `subject_usage` matches `(send nil? :subject)` which finds
+        // ANY bare `subject` call inside example/hook blocks, including
+        // `subject { ... }` (the send node inside the block node). So we don't
+        // check for `node.block().is_none()` — a `subject { ... }` inside a
+        // hook is still a reference, not a definition.
+        if name == b"subject"
+            && node.receiver().is_none()
+            && node.arguments().is_none()
+            && self.should_flag()
+        {
+            let loc = node.location();
+            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+            self.diags.push(self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                "Name your test subject if you need to reference it explicitly.".to_string(),
+            ));
+        }
+
         // When entering any block, check if this scope defines `subject` and
         // push that info onto the stack.
         if let Some(block) = node.block() {
@@ -189,23 +210,6 @@ impl<'pr> Visit<'pr> for BareSubjectFinder<'_> {
                 self.subject_named_stack.pop();
                 return;
             }
-        }
-
-        // Check for bare `subject` reference (no block, no arguments)
-        if name == b"subject"
-            && node.receiver().is_none()
-            && node.block().is_none()
-            && node.arguments().is_none()
-            && self.should_flag()
-        {
-            let loc = node.location();
-            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-            self.diags.push(self.cop.diagnostic(
-                self.source,
-                line,
-                column,
-                "Name your test subject if you need to reference it explicitly.".to_string(),
-            ));
         }
 
         // Continue visiting children

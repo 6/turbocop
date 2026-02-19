@@ -90,6 +90,21 @@ impl Cop for MapCompactWithConditionalBlock {
         };
 
         if is_conditional_with_nil {
+            // Extract the block parameter name
+            let block_param_name = get_block_param_name(&block_node);
+
+            // Only flag when the truthy branch returns the block parameter itself,
+            // making it equivalent to select/reject. If the return value is a
+            // different expression (e.g., Regexp.last_match(1)), skip it because
+            // it can't be replaced with select/reject.
+            if let Some(param_name) = block_param_name {
+                if let Some(if_node) = expr.as_if_node() {
+                    if !truthy_branch_returns_param(source, &if_node, &param_name) {
+                        return;
+                    }
+                }
+            }
+
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             diagnostics.push(self.diagnostic(
@@ -101,6 +116,43 @@ impl Cop for MapCompactWithConditionalBlock {
         }
 
     }
+}
+
+/// Extract the first block parameter name (e.g., `|x|` -> "x").
+fn get_block_param_name(block_node: &ruby_prism::BlockNode<'_>) -> Option<Vec<u8>> {
+    let params = block_node.parameters()?;
+    let block_params = params.as_block_parameters_node()?;
+    let parameters = block_params.parameters()?;
+    let requireds = parameters.requireds();
+    let first = requireds.iter().next()?;
+    let req_param = first.as_required_parameter_node()?;
+    Some(req_param.name().as_slice().to_vec())
+}
+
+/// Check if the truthy branch (then-clause) of an if node returns just the
+/// block parameter variable. Returns true if the truthy branch is a simple
+/// local variable read matching `param_name`.
+fn truthy_branch_returns_param(
+    source: &SourceFile,
+    if_node: &ruby_prism::IfNode<'_>,
+    param_name: &[u8],
+) -> bool {
+    let then_body = match if_node.statements() {
+        Some(s) => s,
+        None => return false,
+    };
+
+    let stmts: Vec<_> = then_body.body().iter().collect();
+    if stmts.len() != 1 {
+        return false;
+    }
+
+    if let Some(lvar) = stmts[0].as_local_variable_read_node() {
+        let _ = source; // suppress unused warning
+        return lvar.name().as_slice() == param_name;
+    }
+
+    false
 }
 
 #[cfg(test)]

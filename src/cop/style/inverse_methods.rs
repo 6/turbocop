@@ -127,6 +127,13 @@ impl Cop for InverseMethods {
         // Check InverseMethods (predicate methods: !foo.any? -> foo.none?)
         let inverse_methods = Self::build_inverse_map(config);
         if let Some(inv) = inverse_methods.get(inner_method) {
+            // Skip comparison operators when either operand is a constant (CamelCase).
+            // Module#< can return nil for unrelated classes, so !(A < B) != (A >= B).
+            // This matches RuboCop's `possible_class_hierarchy_check?`.
+            if is_comparison_operator(inner_method) && has_constant_operand(&inner_call) {
+                return;
+            }
+
             let inner_name = std::str::from_utf8(inner_method).unwrap_or("method");
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -155,6 +162,30 @@ impl Cop for InverseMethods {
         }
 
     }
+}
+
+/// Returns true if the method name is a comparison operator.
+fn is_comparison_operator(method: &[u8]) -> bool {
+    matches!(method, b"<" | b">" | b"<=" | b">=")
+}
+
+/// Returns true if either operand (receiver or first argument) of a call is a constant node,
+/// suggesting a possible class hierarchy check (e.g., `Module < OtherModule`).
+fn has_constant_operand(call: &ruby_prism::CallNode<'_>) -> bool {
+    if let Some(receiver) = call.receiver() {
+        if receiver.as_constant_read_node().is_some() || receiver.as_constant_path_node().is_some()
+        {
+            return true;
+        }
+    }
+    if let Some(args) = call.arguments() {
+        for arg in args.arguments().iter() {
+            if arg.as_constant_read_node().is_some() || arg.as_constant_path_node().is_some() {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[cfg(test)]

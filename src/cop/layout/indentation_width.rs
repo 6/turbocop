@@ -68,6 +68,7 @@ impl IndentationWidth {
         source: &SourceFile,
         keyword_offset: usize,
         base_col: usize,
+        alt_base_col: Option<usize>,
         stmts: Option<ruby_prism::StatementsNode<'_>>,
         width: usize,
     ) -> Vec<Diagnostic> {
@@ -97,6 +98,14 @@ impl IndentationWidth {
         }
 
         if child_col != expected {
+            // If there's an alternative base (e.g., end keyword column differs
+            // from keyword column), also accept indentation relative to it.
+            if let Some(alt) = alt_base_col {
+                let alt_expected = expected_indent_for_body(alt, width);
+                if child_col == alt_expected {
+                    return Vec::new();
+                }
+            }
             let actual_indent = child_col as isize - base_col as isize;
             return vec![self.diagnostic(
                 source,
@@ -113,22 +122,26 @@ impl IndentationWidth {
     }
 }
 
-/// Determine the base column for if/while/until body indentation.
+/// Determine the alternative base column for if/while/until body indentation.
 ///
-/// Uses the `end` keyword column when available, which correctly handles:
-/// - Variable-style assignment context (`x = if ... end` where end aligns with x)
-/// - Keyword-style assignment context (end aligns with if keyword)
-/// - Non-assignment contexts like `x << if ... end`
-/// Falls back to keyword column when no end keyword exists (modifier if/while/until).
-fn base_col_from_end(
+/// The primary base is always the keyword column (`if`/`while`/`until`).
+/// When `end` is at a different column (e.g., variable-style alignment where
+/// `end` aligns with the LHS variable), returns that as an alternative base.
+/// Body indentation is accepted if correct relative to either base.
+fn alt_base_from_end(
     source: &SourceFile,
     kw_col: usize,
     end_offset: Option<usize>,
-) -> usize {
+) -> Option<usize> {
     if let Some(end_off) = end_offset {
-        source.offset_to_line_col(end_off).1
+        let end_col = source.offset_to_line_col(end_off).1;
+        if end_col != kw_col {
+            Some(end_col)
+        } else {
+            None
+        }
     } else {
-        kw_col
+        None
     }
 }
 
@@ -223,14 +236,15 @@ impl Cop for IndentationWidth {
             if let Some(kw_loc) = if_node.if_keyword_loc() {
                 let kw_offset = kw_loc.start_offset();
                 let (_, kw_col) = source.offset_to_line_col(kw_offset);
-                let base_col = base_col_from_end(
+                let alt_base = alt_base_from_end(
                     source, kw_col,
                     if_node.end_keyword_loc().map(|l| l.start_offset()),
                 );
                 diagnostics.extend(self.check_statements_indentation(
                     source,
                     kw_offset,
-                    base_col,
+                    kw_col,
+                    alt_base,
                     if_node.statements(),
                     width,
                 ));
@@ -330,6 +344,7 @@ impl Cop for IndentationWidth {
                 source,
                 kw_offset,
                 kw_col,
+                None,
                 when_node.statements(),
                 width,
             ));
@@ -339,14 +354,15 @@ impl Cop for IndentationWidth {
         if let Some(while_node) = node.as_while_node() {
             let kw_offset = while_node.keyword_loc().start_offset();
             let (_, kw_col) = source.offset_to_line_col(kw_offset);
-            let base_col = base_col_from_end(
+            let alt_base = alt_base_from_end(
                 source, kw_col,
                 while_node.closing_loc().map(|l| l.start_offset()),
             );
             diagnostics.extend(self.check_statements_indentation(
                 source,
                 kw_offset,
-                base_col,
+                kw_col,
+                alt_base,
                 while_node.statements(),
                 width,
             ));
@@ -356,14 +372,15 @@ impl Cop for IndentationWidth {
         if let Some(until_node) = node.as_until_node() {
             let kw_offset = until_node.keyword_loc().start_offset();
             let (_, kw_col) = source.offset_to_line_col(kw_offset);
-            let base_col = base_col_from_end(
+            let alt_base = alt_base_from_end(
                 source, kw_col,
                 until_node.closing_loc().map(|l| l.start_offset()),
             );
             diagnostics.extend(self.check_statements_indentation(
                 source,
                 kw_offset,
-                base_col,
+                kw_col,
+                alt_base,
                 until_node.statements(),
                 width,
             ));
@@ -442,8 +459,9 @@ mod tests {
     #[test]
     fn assignment_context_if_wrong_indent() {
         use crate::testutil::run_cop_full;
-        // Body at column 6 — should be column 2 (LHS 0 + 2)
-        let source = b"x = if foo\n      bar\nend\n";
+        // Body at column 4 — should be column 2 (end 0 + 2) or column 6 (if 4 + 2)
+        // Column 4 matches neither base, so should be flagged.
+        let source = b"x = if foo\n    bar\nend\n";
         let diags = run_cop_full(&IndentationWidth, source);
         assert_eq!(diags.len(), 1, "should flag wrong indentation in assignment context");
     }

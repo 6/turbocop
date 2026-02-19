@@ -24,3 +24,10 @@ end)
 break(value) unless value
 return(result) if done
 next(item) if skip
+# do..end blocks in hash values — parens prevent block binding to outer method
+foo(default: (lambda do |routes|
+  routes
+end))
+bar(key: (proc do
+  something
+end))

@@ -48,3 +48,9 @@ foo(bar: items.reject { |e| e.nil? }
               .sort_by(&:name)
               .map(&:id))
 
+# Sub-chain starting on a continuation dot line (indented style)
+# The `.to` line is a continuation dot; base should be the non-dot ancestor
+expect(subject)
+  .to receive(:method)
+  .and_return(value)
+

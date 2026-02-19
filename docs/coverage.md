@@ -45,7 +45,7 @@ Location-level comparison: file + line + cop_name. Only cops implemented by rbli
 | Repo | rblint | rubocop | Matches | FP (rblint only) | FN (rubocop only) | Match rate |
 |------|-------:|--------:|--------:|-----------------:|------------------:|-----------:|
 | mastodon | 288 | 302 | 288 | 0 | 14 | **95.4%** |
-| discourse | 613 | 613 | 613 | 0 | 0 | **100.0%** |
+| discourse | 7 | 0 | 0 | 7 | 0 | **0.0%** |
 | rails | 6 | 6 | 6 | 0 | 0 | **100.0%** |
 | rubocop | 0 | 0 | 0 | 0 | 0 | **100.0%** |
 | chatwoot | 251 | 251 | 251 | 0 | 0 | **100.0%** |
@@ -61,7 +61,14 @@ Location-level comparison: file + line + cop_name. Only cops implemented by rbli
 
 </details>
 
-**discourse:** All cops match perfectly!
+<details>
+<summary>Divergent cops — discourse (1 of 1 shown)</summary>
+
+| Cop | Matches | FP | FN |
+|-----|--------:|---:|---:|
+| Lint/ShadowingOuterLocalVariable | 0 | 7 | 0 |
+
+</details>
 
 **rails:** All cops match perfectly!
 

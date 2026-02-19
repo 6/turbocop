@@ -15,4 +15,11 @@ RSpec.describe User do
     do_something_with(subject)
                       ^^^^^^^ RSpec/NamedSubject: Name your test subject if you need to reference it explicitly.
   end
+
+  # subject { ... } inside a hook is a reference, not a definition
+  around(:each) do |example|
+    subject { Doorkeeper.configuration }
+    ^^^^^^^ RSpec/NamedSubject: Name your test subject if you need to reference it explicitly.
+    example.run
+  end
 end

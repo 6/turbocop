@@ -45,6 +45,83 @@ fn is_comment_line(line: &[u8]) -> bool {
     trimmed.starts_with(b"#")
 }
 
+/// Check if an `end` keyword on the given line closes a definition
+/// (def/class/module) rather than a block (do..end), conditional (if..end),
+/// loop (while/until/for..end), begin..end, or case..end.
+/// Scans backwards to find the matching opener by tracking nesting.
+fn is_definition_end(source: &SourceFile, end_line: usize) -> bool {
+    let lines: Vec<&[u8]> = source.lines().collect();
+    if end_line < 1 || end_line > lines.len() {
+        return false;
+    }
+
+    let end_indent = {
+        let line = lines[end_line - 1];
+        line.iter().take_while(|&&b| b == b' ' || b == b'\t').count()
+    };
+
+    // Scan backwards looking for the opener at the same indentation level
+    let mut nesting: usize = 0;
+    let mut line_num = end_line - 1; // start from line before `end`
+    while line_num >= 1 {
+        let line = lines[line_num - 1];
+        let trimmed: Vec<u8> = line
+            .iter()
+            .copied()
+            .skip_while(|&b| b == b' ' || b == b'\t')
+            .collect();
+        let indent = line.iter().take_while(|&&b| b == b' ' || b == b'\t').count();
+
+        // Strip trailing whitespace for end-of-line checks
+        let end_trimmed = trimmed
+            .iter()
+            .rposition(|&b| b != b' ' && b != b'\t' && b != b'\n' && b != b'\r')
+            .map_or(&[] as &[u8], |i| &trimmed[..=i]);
+
+        // Check if this line has `end` at the same indent level (nested end)
+        if indent == end_indent && (trimmed == b"end" || trimmed.starts_with(b"end ") || trimmed.starts_with(b"end\t") || trimmed.starts_with(b"end\n") || trimmed.starts_with(b"end\r")) {
+            nesting += 1;
+            line_num -= 1;
+            continue;
+        }
+
+        // Check for openers at matching indent level
+        if indent == end_indent {
+            let is_def_opener = trimmed.starts_with(b"def ")
+                || trimmed.starts_with(b"class ")
+                || trimmed.starts_with(b"module ");
+
+            let is_non_def_opener = trimmed.starts_with(b"if ")
+                || trimmed.starts_with(b"unless ")
+                || trimmed.starts_with(b"while ")
+                || trimmed.starts_with(b"until ")
+                || trimmed.starts_with(b"for ")
+                || trimmed.starts_with(b"case ")
+                || trimmed.starts_with(b"case\n")
+                || trimmed == b"case"
+                || trimmed.starts_with(b"begin")
+                || trimmed.starts_with(b"do")
+                || end_trimmed.ends_with(b" do")
+                || (end_trimmed.ends_with(b"|") && end_trimmed.windows(4).any(|w| w == b" do "));
+
+            if is_def_opener || is_non_def_opener {
+                if nesting == 0 {
+                    return is_def_opener;
+                }
+                nesting -= 1;
+            }
+        }
+
+        if line_num == 0 {
+            break;
+        }
+        line_num -= 1;
+    }
+
+    // Couldn't find a matching opener — conservatively treat as definition
+    true
+}
+
 impl Cop for EmptyLineBetweenDefs {
     fn name(&self) -> &'static str {
         "Layout/EmptyLineBetweenDefs"
@@ -163,6 +240,12 @@ impl Cop for EmptyLineBetweenDefs {
                 .skip_while(|&b| b == b' ' || b == b'\t')
                 .collect();
             if trimmed == b"end" || trimmed.starts_with(b"end ") || trimmed.starts_with(b"end\t") {
+                // Only treat as a previous definition boundary if the `end`
+                // closes a def/class/module (not a block, conditional, etc.)
+                if !is_definition_end(source, check_line) {
+                    // Not a definition end — skip and keep scanning
+                    return;
+                }
                 // Previous definition ended here — check blank line count
                 if blank_count >= number_of_empty_lines {
                     return;

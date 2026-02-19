@@ -21,11 +21,12 @@ impl Cop for BlockNesting {
     ) {
         let max = config.get_usize("Max", 3);
         let _count_blocks = config.get_bool("CountBlocks", false);
-        let _count_modifier_forms = config.get_bool("CountModifierForms", false);
+        let count_modifier_forms = config.get_bool("CountModifierForms", false);
 
         let mut visitor = NestingVisitor {
             source,
             max,
+            count_modifier_forms,
             depth: 0,
             in_method: false,
             diagnostics: Vec::new(),
@@ -54,6 +55,7 @@ impl Cop for BlockNesting {
 struct NestingVisitor<'a> {
     source: &'a SourceFile,
     max: usize,
+    count_modifier_forms: bool,
     depth: usize,
     in_method: bool,
     diagnostics: Vec<Diagnostic>,
@@ -92,17 +94,28 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_> {
             .if_keyword_loc()
             .is_some_and(|kw| kw.as_slice() == b"elsif");
 
-        if !is_elsif {
+        // Modifier if (e.g. `foo if bar`) has no `end` keyword.
+        // Skip if CountModifierForms is false (default).
+        let is_modifier = node.end_keyword_loc().is_none();
+        let should_count = !is_elsif && (self.count_modifier_forms || !is_modifier);
+
+        if should_count {
             self.depth += 1;
             self.check_nesting(&node.location());
         }
         ruby_prism::visit_if_node(self, node);
-        if !is_elsif {
+        if should_count {
             self.depth -= 1;
         }
     }
 
     fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
+        // Modifier unless (e.g. `foo unless bar`) has no `end` keyword.
+        let is_modifier = node.end_keyword_loc().is_none();
+        if !self.count_modifier_forms && is_modifier {
+            ruby_prism::visit_unless_node(self, node);
+            return;
+        }
         self.depth += 1;
         self.check_nesting(&node.location());
         ruby_prism::visit_unless_node(self, node);
@@ -110,6 +123,11 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_> {
     }
 
     fn visit_while_node(&mut self, node: &ruby_prism::WhileNode<'pr>) {
+        let is_modifier = node.closing_loc().is_none();
+        if !self.count_modifier_forms && is_modifier {
+            ruby_prism::visit_while_node(self, node);
+            return;
+        }
         self.depth += 1;
         self.check_nesting(&node.location());
         ruby_prism::visit_while_node(self, node);
@@ -117,6 +135,11 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_> {
     }
 
     fn visit_until_node(&mut self, node: &ruby_prism::UntilNode<'pr>) {
+        let is_modifier = node.closing_loc().is_none();
+        if !self.count_modifier_forms && is_modifier {
+            ruby_prism::visit_until_node(self, node);
+            return;
+        }
         self.depth += 1;
         self.check_nesting(&node.location());
         ruby_prism::visit_until_node(self, node);

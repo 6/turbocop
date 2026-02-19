@@ -15,8 +15,8 @@ impl Cop for ApplicationRecord {
         Severity::Convention
     }
 
-    fn default_include(&self) -> &'static [&'static str] {
-        &["app/models/**/*.rb"]
+    fn default_exclude(&self) -> &'static [&'static str] {
+        &["db/**/*.rb"]
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
@@ -46,14 +46,20 @@ impl Cop for ApplicationRecord {
             None => return,
         };
 
-        if parent == b"ActiveRecord::Base" {
+        // Handle both ActiveRecord::Base and ::ActiveRecord::Base
+        let parent_trimmed = if parent.starts_with(b"::") {
+            &parent[2..]
+        } else {
+            parent
+        };
+        if parent_trimmed == b"ActiveRecord::Base" {
             let loc = class.class_keyword_loc();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
-                "Use `ApplicationRecord` instead of `ActiveRecord::Base`.".to_string(),
+                "Models should subclass `ApplicationRecord`.".to_string(),
             ));
         }
 

@@ -36,6 +36,13 @@ impl Cop for TrailingBodyOnClass {
             let (body_line, body_column) = source.offset_to_line_col(body_loc.start_offset());
 
             if class_line == body_line {
+                // Single-line class definition (end on same line as class) — not an offense
+                let end_loc = class_node.end_keyword_loc();
+                let (end_line, _) = source.offset_to_line_col(end_loc.start_offset());
+                if class_line == end_line {
+                    return;
+                }
+
                 diagnostics.push(self.diagnostic(
                     source,
                     body_line,
@@ -58,6 +65,13 @@ impl Cop for TrailingBodyOnClass {
             let (body_line, body_column) = source.offset_to_line_col(body_loc.start_offset());
 
             if kw_line == body_line {
+                // Single-line singleton class (end on same line as class) — not an offense
+                let end_loc = sclass_node.end_keyword_loc();
+                let (end_line, _) = source.offset_to_line_col(end_loc.start_offset());
+                if kw_line == end_line {
+                    return;
+                }
+
                 diagnostics.push(self.diagnostic(
                     source,
                     body_line,

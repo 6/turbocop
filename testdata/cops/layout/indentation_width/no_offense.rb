@@ -108,3 +108,19 @@ when :references, :belongs_to,
 when :string
   "MyString"
 end
+
+# Misaligned end with body correctly indented from `if` keyword
+# (EndAlignment disabled scenario — end at arbitrary column)
+x = if foo
+      bar
+    end
+
+# Misaligned end with body correctly indented from `while` keyword
+y = while queue.any?
+      queue.pop
+    end
+
+# Misaligned end with body correctly indented from `until` keyword
+z = until done
+      process_next
+    end
