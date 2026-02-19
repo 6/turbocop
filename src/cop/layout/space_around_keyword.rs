@@ -5,14 +5,6 @@ use crate::parse::source::SourceFile;
 
 pub struct SpaceAroundKeyword;
 
-// Keywords that require a space before `(` — `yield`, `break`, `defined?`,
-// `next`, `not`, `rescue`, `super` accept a parenthesis directly after the
-// keyword (ACCEPT_LEFT_PAREN in RuboCop), so they are NOT listed here.
-const KEYWORDS: &[&[u8]] = &[
-    b"if", b"unless", b"while", b"until", b"case", b"when", b"elsif",
-    b"return",
-];
-
 impl Cop for SpaceAroundKeyword {
     fn name(&self) -> &'static str {
         "Layout/SpaceAroundKeyword"

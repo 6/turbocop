@@ -344,12 +344,12 @@ fn run_bench(args: &Args) -> HashMap<String, BenchResult> {
 
         let json_file = results_path.join(format!("{}-bench.json", repo.name));
         let rblint_cmd = format!(
-            "{} {} --no-color 2>/dev/null",
+            "{} {} --no-color",
             rblint.display(),
             repo_dir.display()
         );
         let rubocop_cmd = format!(
-            "cd {} && bundle exec rubocop --no-cache --no-color 2>/dev/null",
+            "cd {} && bundle exec rubocop --no-color",
             repo_dir.display()
         );
 
@@ -723,17 +723,17 @@ fn generate_report(
         writeln!(md).unwrap();
         writeln!(
             md,
-            "Median of {} runs via [hyperfine](https://github.com/sharkdp/hyperfine).",
+            "Median of {} runs via [hyperfine](https://github.com/sharkdp/hyperfine). rblint has no result cache; rubocop uses its built-in file cache (warm after hyperfine warmup runs).",
             args.runs
         )
         .unwrap();
         writeln!(md).unwrap();
         writeln!(
             md,
-            "| Repo | .rb files | rblint | rubocop | Speedup |"
+            "| Repo | .rb files | rblint (no cache) | rubocop (cached) | Speedup |"
         )
         .unwrap();
-        writeln!(md, "|------|----------:|-------:|--------:|--------:|").unwrap();
+        writeln!(md, "|------|----------:|------------------:|-----------------:|--------:|").unwrap();
 
         for repo in REPOS {
             if let Some(r) = bench.get(repo.name) {
