@@ -47,10 +47,13 @@ impl<'a, 'pr> Visit<'pr> for TravelBackVisitor<'a> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         let method_name = node.name().as_slice();
 
-        // Check if we're entering a `teardown` or `after` block
+        // Check if we're entering an `after` block.
+        // RuboCop only matches `after do...end` blocks (not `teardown do...end`).
+        // For teardown, only `def teardown` is matched (handled in visit_def_node).
+        // Shoulda-context `teardown do...end` blocks are NOT flagged by RuboCop.
         let enters_teardown = node.block().is_some()
             && node.receiver().is_none()
-            && (method_name == b"teardown" || method_name == b"after");
+            && method_name == b"after";
 
         // Check if this is a `travel_back` call inside teardown/after
         if self.in_teardown_or_after

@@ -214,6 +214,9 @@ fn references_variable(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
             if node.name().as_slice() == self.var_name {
                 self.found = true;
             }
+            // Must recurse into the value of the write node, otherwise
+            // we miss references inside the RHS (e.g., `entries = src.map { order << x }`)
+            ruby_prism::visit_local_variable_write_node(self, node);
         }
         fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
             // Check receiver and arguments

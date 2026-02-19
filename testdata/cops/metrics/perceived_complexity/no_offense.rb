@@ -60,6 +60,22 @@ def multiple_rescues(x)
   end
 end
 
+# Repeated &. on the same local variable are discounted (only first counts)
+# Max: 8 (default). Base 1 + if 1 + first &. on obj 1 = 3 <= 8.
+# Without discount, 8 &. calls would give base 1 + if 1 + 8 &. = 10 > 8.
+def method_with_repeated_csend
+  if (obj = find_something)
+    a = obj&.foo
+    b = obj&.bar
+    c = obj&.baz
+    d = obj&.qux
+    e = obj&.quux
+    f = obj&.corge
+    g = obj&.grault
+    h = obj&.garply
+  end
+end
+
 # loop do...end blocks do not count toward complexity (not an iterating method)
 def method_with_loop
   if a

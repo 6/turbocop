@@ -31,6 +31,10 @@ struct AbcCounter {
     conditions: usize,
     count_repeated_attributes: bool,
     seen_attributes: std::collections::HashSet<Vec<u8>>,
+    /// Tracks local variable names that have been seen with `&.` (safe navigation).
+    /// RuboCop discounts repeated `&.` on the same variable — only the first counts
+    /// as a condition. When the variable is reassigned, it is removed from the set.
+    seen_csend_vars: std::collections::HashSet<Vec<u8>>,
 }
 
 impl AbcCounter {
@@ -41,7 +45,24 @@ impl AbcCounter {
             conditions: 0,
             count_repeated_attributes,
             seen_attributes: std::collections::HashSet::new(),
+            seen_csend_vars: std::collections::HashSet::new(),
         }
+    }
+
+    /// Check if a &. call on a local variable is a repeat (discount it).
+    /// Returns true if this csend should be discounted (i.e., it's a repeat).
+    fn discount_repeated_csend(&mut self, call: &ruby_prism::CallNode<'_>) -> bool {
+        let receiver = match call.receiver() {
+            Some(r) => r,
+            None => return false,
+        };
+        let lvar = match receiver.as_local_variable_read_node() {
+            Some(l) => l,
+            None => return false,
+        };
+        let var_name = lvar.name().as_slice().to_vec();
+        // Insert returns false if the value was already present (= repeated)
+        !self.seen_csend_vars.insert(var_name)
     }
 
     fn count_node(&mut self, node: &ruby_prism::Node<'_>) {
@@ -51,6 +72,8 @@ impl AbcCounter {
             ruby_prism::Node::LocalVariableWriteNode { .. } => {
                 if let Some(lvar) = node.as_local_variable_write_node() {
                     let name = lvar.name().as_slice();
+                    // Reset csend tracking for this variable on reassignment
+                    self.seen_csend_vars.remove(name);
                     if !name.starts_with(b"_") {
                         self.assignments += 1;
                     }
@@ -193,12 +216,15 @@ impl AbcCounter {
                         self.branches += 1;
                         // Safe navigation (&.) adds an extra condition, matching
                         // RuboCop where csend is both a branch and a condition.
+                        // But repeated &. on the same local variable is discounted.
                         if call.call_operator_loc().map_or(false, |loc| {
                                 let bytes = loc.as_slice();
                                 bytes == b"&."
                             })
                         {
-                            self.conditions += 1;
+                            if !self.discount_repeated_csend(&call) {
+                                self.conditions += 1;
+                            }
                         }
                         // Iterating block: a call with a block to a known iterating method
                         // counts as a condition (block is in RuboCop's CONDITION_NODES).

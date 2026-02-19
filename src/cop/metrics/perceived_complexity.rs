@@ -22,12 +22,25 @@ const KNOWN_ITERATING_METHODS: &[&[u8]] = &[
     b"each_index", b"reverse_each",
 ];
 
-#[derive(Default)]
 struct PerceivedCounter {
     complexity: usize,
     /// Tracks whether we are already inside a rescue chain to avoid
     /// counting subsequent rescue clauses (Prism chains them via `subsequent`).
     in_rescue_chain: bool,
+    /// Tracks local variable names that have been seen with `&.` (safe navigation).
+    /// RuboCop discounts repeated `&.` on the same variable — only the first counts.
+    /// When the variable is reassigned, it is removed from the set (reset).
+    seen_csend_vars: std::collections::HashSet<Vec<u8>>,
+}
+
+impl Default for PerceivedCounter {
+    fn default() -> Self {
+        Self {
+            complexity: 0,
+            in_rescue_chain: false,
+            seen_csend_vars: std::collections::HashSet::new(),
+        }
+    }
 }
 
 impl PerceivedCounter {
@@ -120,9 +133,11 @@ impl PerceivedCounter {
             // CallNode: count &. (safe navigation) and iterating blocks
             ruby_prism::Node::CallNode { .. } => {
                 if let Some(call) = node.as_call_node() {
-                    // Safe navigation (&.) counts
+                    // Safe navigation (&.) counts, but discount repeated &. on the same lvar
                     if call.call_operator_loc().is_some_and(|loc| loc.as_slice() == b"&.") {
-                        self.complexity += 1;
+                        if !self.discount_repeated_csend(&call) {
+                            self.complexity += 1;
+                        }
                     }
                     // Iterating block counts
                     if call.block().is_some_and(|b| b.as_block_node().is_some()) {
@@ -142,6 +157,24 @@ impl PerceivedCounter {
     }
 }
 
+impl PerceivedCounter {
+    /// Check if a &. call on a local variable is a repeat (discount it).
+    /// Returns true if this csend should be discounted (i.e., it's a repeat).
+    fn discount_repeated_csend(&mut self, call: &ruby_prism::CallNode<'_>) -> bool {
+        let receiver = match call.receiver() {
+            Some(r) => r,
+            None => return false,
+        };
+        let lvar = match receiver.as_local_variable_read_node() {
+            Some(l) => l,
+            None => return false,
+        };
+        let var_name = lvar.name().as_slice().to_vec();
+        // Insert returns false if the value was already present (= repeated)
+        !self.seen_csend_vars.insert(var_name)
+    }
+}
+
 impl<'pr> Visit<'pr> for PerceivedCounter {
     fn visit_branch_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
         self.count_node(&node);
@@ -149,6 +182,12 @@ impl<'pr> Visit<'pr> for PerceivedCounter {
 
     fn visit_leaf_node_enter(&mut self, node: ruby_prism::Node<'pr>) {
         self.count_node(&node);
+    }
+
+    // When a local variable is reassigned, reset the csend tracking for it.
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
+        self.seen_csend_vars.remove(node.name().as_slice());
+        ruby_prism::visit_local_variable_write_node(self, node);
     }
 
     // RescueNode is visited via visit_rescue_node (not visit_branch_node_enter)

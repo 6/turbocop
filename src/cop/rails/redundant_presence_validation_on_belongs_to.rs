@@ -1,4 +1,4 @@
-use crate::cop::util::{class_body_calls, has_keyword_arg, is_dsl_call};
+use crate::cop::util::{class_body_calls, is_dsl_call, keyword_arg_value};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -63,7 +63,14 @@ impl Cop for RedundantPresenceValidationOnBelongsTo {
                 continue;
             }
 
-            if !has_keyword_arg(call, b"presence") {
+            // Check that presence: is set to a truthy value.
+            // `presence: false` explicitly disables validation and should not be flagged.
+            let presence_value = match keyword_arg_value(call, b"presence") {
+                Some(v) => v,
+                None => continue,
+            };
+            // Skip if presence: false or presence: nil (explicitly disabling validation)
+            if presence_value.as_false_node().is_some() || presence_value.as_nil_node().is_some() {
                 continue;
             }
 

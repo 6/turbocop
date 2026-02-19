@@ -22,10 +22,30 @@ impl Cop for SymbolProc {
         let _allow_comments = config.get_bool("AllowComments", false);
 
         // Look for blocks like { |x| x.foo } that can be replaced with (&:foo)
-        let block = match node.as_block_node() {
-            Some(b) => b,
+        // We match on CallNode (the method receiving the block) so we can
+        // check AllowedMethods against the outer method name.
+        let call_with_block = match node.as_call_node() {
+            Some(c) => c,
             None => return Vec::new(),
         };
+
+        let block = match call_with_block.block() {
+            Some(b) => match b.as_block_node() {
+                Some(bn) => bn,
+                None => return Vec::new(),
+            },
+            None => return Vec::new(),
+        };
+
+        // Check outer method name against AllowedMethods
+        let outer_method = call_with_block.name().as_slice();
+        if let Some(ref allowed) = allowed_methods {
+            if let Ok(name_str) = std::str::from_utf8(outer_method) {
+                if allowed.iter().any(|m| m == name_str) {
+                    return Vec::new();
+                }
+            }
+        }
 
         // Must have exactly one parameter
         let params = match block.parameters() {
@@ -118,15 +138,7 @@ impl Cop for SymbolProc {
             return Vec::new();
         }
 
-        // Check against allowed methods
         let method_name = call.name().as_slice();
-        if let Some(ref allowed) = allowed_methods {
-            if let Ok(name_str) = std::str::from_utf8(method_name) {
-                if allowed.iter().any(|m| m == name_str) {
-                    return Vec::new();
-                }
-            }
-        }
 
         let loc = block.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -145,5 +157,34 @@ impl Cop for SymbolProc {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::{assert_cop_no_offenses_full_with_config, run_cop_full_with_config};
+
     crate::cop_fixture_tests!(SymbolProc, "cops/style/symbol_proc");
+
+    fn config_with_allowed(methods: &[&str]) -> CopConfig {
+        let mut config = CopConfig::default();
+        let allowed: Vec<serde_yml::Value> = methods
+            .iter()
+            .map(|m| serde_yml::Value::String(m.to_string()))
+            .collect();
+        config
+            .options
+            .insert("AllowedMethods".to_string(), serde_yml::Value::Sequence(allowed));
+        config
+    }
+
+    #[test]
+    fn allowed_methods_skips_outer_method() {
+        let config = config_with_allowed(&["respond_to"]);
+        let source = b"respond_to do |format|\n  format.html\nend\n";
+        assert_cop_no_offenses_full_with_config(&SymbolProc, source, config);
+    }
+
+    #[test]
+    fn non_allowed_method_still_fires() {
+        let config = config_with_allowed(&["respond_to"]);
+        let source = b"items.map { |x| x.to_s }\n";
+        let diags = run_cop_full_with_config(&SymbolProc, source, config);
+        assert_eq!(diags.len(), 1);
+    }
 }

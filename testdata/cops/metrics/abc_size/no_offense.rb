@@ -14,6 +14,22 @@ def one_branch
   foo.bar
 end
 
+# Repeated &. on the same local variable: only first counts as condition.
+# Without discount: A=1, B=8 (8 calls), C=8 (8 safe navs) => sqrt(1+64+64)=11.36 > default 17? No.
+# But with many more calls it could push over. Let's just verify it doesn't overcount.
+def method_with_repeated_csend
+  if (obj = find_something)
+    a = obj&.foo
+    b = obj&.bar
+    c = obj&.baz
+    d = obj&.qux
+    e = obj&.quux
+    f = obj&.corge
+    g = obj&.grault
+    h = obj&.garply
+  end
+end
+
 def moderate_method
   a = 1
   b = 2

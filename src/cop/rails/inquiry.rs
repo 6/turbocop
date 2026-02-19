@@ -29,7 +29,17 @@ impl Cop for Inquiry {
             return Vec::new();
         }
 
-        if call.receiver().is_none() {
+        let receiver = match call.receiver() {
+            Some(r) => r,
+            None => return Vec::new(),
+        };
+
+        // RuboCop only flags inquiry when the receiver is a string literal or array literal.
+        // Method call results (e.g., `ROLES.key(flag)&.inquiry`) are not flagged.
+        let is_string_or_array = receiver.as_string_node().is_some()
+            || receiver.as_interpolated_string_node().is_some()
+            || receiver.as_array_node().is_some();
+        if !is_string_or_array {
             return Vec::new();
         }
 

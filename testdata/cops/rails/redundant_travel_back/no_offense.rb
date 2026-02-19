@@ -12,3 +12,11 @@ end
 
 # travel_back at top level is not flagged
 travel_back
+
+# travel_back inside `teardown do...end` block (shoulda-context) is NOT flagged
+# because RuboCop only matches `def teardown` and `after do...end`
+context "when time is frozen" do
+  teardown do
+    travel_back
+  end
+end

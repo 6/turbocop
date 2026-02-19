@@ -19,3 +19,12 @@ attributes << "Email: #{record.email}"
 records.each do |record|
   attributes << "#{record.key}: #{record.value}"
 end
+# Variable used inside an intermediate assignment's value expression
+order = []
+entries = src.map do |entry|
+  order << entry.full_name
+  transform(entry)
+end
+entries.each do |entry|
+  order << entry.path
+end
