@@ -319,6 +319,38 @@ without calling a Ruby subprocess. This confirms the `.rblint.cache` approach
 
 ---
 
+## mmap Investigation (2026-02-18)
+
+Investigated whether `mmap` for file I/O would reduce linting time by avoiding
+heap allocation and `memcpy` for source files. Implementation used raw
+`libc::mmap` (no external crate) with `PROT_READ`, `MAP_PRIVATE`, and
+`MADV_SEQUENTIAL` hint. Files under 32KB used standard heap read; larger files
+used mmap.
+
+### Results: No measurable improvement
+
+| Metric | Heap (std::fs::read) | mmap (>32KB) |
+|--------|---------------------|-------------|
+| Discourse (5895 files) | 775ms | 768ms |
+| Difference | — | ~1% (within noise) |
+
+### Why it didn't help
+
+File size distribution for Discourse `.rb` files:
+- **18,651 files** (98.4%) under 32KB → heap path
+- **311 files** (1.6%) over 32KB → mmap path
+
+Ruby source files are overwhelmingly small. The mmap path only applies to 1.6%
+of files, and even for those, the kernel's page cache means `read()` is already
+serving from memory. The overhead of `mmap` syscall + page fault handling roughly
+equals the `read()` + `memcpy` cost at these sizes.
+
+**Verdict:** Reverted. Added complexity (unsafe code, platform-specific paths,
+Content enum, Drop impl) for zero measurable gain. Committed as `f9a8cdc` and
+reverted as `eeb29dd` to preserve the investigation in git history.
+
+---
+
 ## Remaining Optimization Opportunities
 
 Config loading is no longer the primary bottleneck for most repos. The main
