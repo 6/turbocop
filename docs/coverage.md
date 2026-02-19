@@ -44,30 +44,24 @@ Location-level comparison: file + line + cop_name. Only cops implemented by rbli
 
 | Repo | rblint | rubocop | Matches | FP (rblint only) | FN (rubocop only) | Match rate |
 |------|-------:|--------:|--------:|-----------------:|------------------:|-----------:|
-| mastodon | 302 | 306 | 302 | 0 | 4 | **98.7%** |
-| discourse | 611 | 613 | 611 | 0 | 2 | **99.7%** |
-| rails | 3 | 3 | 3 | 0 | 0 | **100.0%** |
-| rubocop | 2 | 2 | 2 | 0 | 0 | **100.0%** |
-| chatwoot | 255 | 255 | 255 | 0 | 0 | **100.0%** |
+| mastodon | 288 | 302 | 288 | 0 | 14 | **95.4%** |
+| discourse | 613 | 613 | 613 | 0 | 0 | **100.0%** |
+| rails | 6 | 6 | 6 | 0 | 0 | **100.0%** |
+| rubocop | 0 | 0 | 0 | 0 | 0 | **100.0%** |
+| chatwoot | 251 | 251 | 251 | 0 | 0 | **100.0%** |
 | errbit | 1579 | 1579 | 1579 | 0 | 0 | **100.0%** |
 
 <details>
-<summary>Divergent cops — mastodon (1 of 1 shown)</summary>
+<summary>Divergent cops — mastodon (2 of 2 shown)</summary>
 
 | Cop | Matches | FP | FN |
 |-----|--------:|---:|---:|
-| Lint/RedundantCopDisableDirective | 0 | 0 | 4 |
+| Layout/MultilineMethodCallIndentation | 9 | 0 | 12 |
+| Lint/RedundantCopDisableDirective | 2 | 0 | 2 |
 
 </details>
 
-<details>
-<summary>Divergent cops — discourse (1 of 1 shown)</summary>
-
-| Cop | Matches | FP | FN |
-|-----|--------:|---:|---:|
-| Lint/RedundantCopDisableDirective | 0 | 0 | 2 |
-
-</details>
+**discourse:** All cops match perfectly!
 
 **rails:** All cops match perfectly!
 
