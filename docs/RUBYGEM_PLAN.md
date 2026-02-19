@@ -1,27 +1,27 @@
-# Nitrocop: Rename & RubyGem Distribution Plan
+# Turbocop: Rename & RubyGem Distribution Plan
 
-## 1. Renaming rblint → nitrocop
+## 1. Renaming rblint → turbocop
 
 ### Why
 
-`rblint` is already taken on [rubygems.org](https://rubygems.org/gems/rblint) (dormant since 2017, but squatting the name). We need a clear name for both crates.io and rubygems.org distribution. **`nitrocop`** is available on both.
+`rblint` is already taken on [rubygems.org](https://rubygems.org/gems/rblint) (dormant since 2017, but squatting the name). We need a clear name for both crates.io and rubygems.org distribution. **`turbocop`** is available on both.
 
 ### Checklist
 
 The rename touches ~305 references. A `sed`/`rg` bulk replace handles most of it, but some areas need manual attention.
 
 **Build & metadata:**
-- [ ] `Cargo.toml` — crate name (`rblint` → `nitrocop`), binary names (`rblint` → `nitrocop`, `bench_rblint` → `bench_nitrocop`), `default-run`
-- [ ] GitHub repo rename (`rblint` → `nitrocop`)
+- [ ] `Cargo.toml` — crate name (`rblint` → `turbocop`), binary names (`rblint` → `turbocop`, `bench_rblint` → `bench_turbocop`), `default-run`
+- [ ] GitHub repo rename (`rblint` → `turbocop`)
 
 **Source code (manual review needed):**
-- [ ] `src/cli.rs` — `#[command(name = "rblint")]` → `#[command(name = "nitrocop")]`
-- [ ] `src/main.rs` — `use rblint::` → `use nitrocop::`, `rblint::run()` → `nitrocop::run()`
-- [ ] `src/testutil.rs` — directive parsing for `# rblint-expect:` → `# nitrocop-expect:`, `# rblint-filename:` → `# nitrocop-filename:`
+- [ ] `src/cli.rs` — `#[command(name = "rblint")]` → `#[command(name = "turbocop")]`
+- [ ] `src/main.rs` — `use rblint::` → `use turbocop::`, `rblint::run()` → `turbocop::run()`
+- [ ] `src/testutil.rs` — directive parsing for `# rblint-expect:` → `# turbocop-expect:`, `# rblint-filename:` → `# turbocop-filename:`
 - [ ] `src/parse/directives.rs` — regex pattern for `# rblint:` inline directives, alias handling
-- [ ] `src/cop/style/inline_comment.rs` — skip pattern `starts_with("rblint-")` → `starts_with("nitrocop-")`
+- [ ] `src/cop/style/inline_comment.rs` — skip pattern `starts_with("rblint-")` → `starts_with("turbocop-")`
 - [ ] `src/bin/coverage_table.rs` — output text, variable names (~28 refs)
-- [ ] `src/config/mod.rs` — ~40 temp directory prefixes in tests (`rblint_test_*` → `nitrocop_test_*`)
+- [ ] `src/config/mod.rs` — ~40 temp directory prefixes in tests (`rblint_test_*` → `turbocop_test_*`)
 - [ ] `src/parse/source.rs` — temp dir `rblint_test_source`
 - [ ] `src/fs/mod.rs` — temp dir pattern `rblint_test_fs_*`
 - [ ] `src/cop/lint/script_permission.rs` — temp path `/tmp/rblint-test/`
@@ -48,7 +48,7 @@ The rename touches ~305 references. A `sed`/`rg` bulk replace handles most of it
 ```bash
 # 1. Bulk rename in file contents (covers ~90% of references)
 rg -l 'rblint' --type rust --type ruby --type md --type yaml | \
-  xargs sed -i '' 's/rblint/nitrocop/g; s/RBLINT/NITROCOP/g'
+  xargs sed -i '' 's/rblint/turbocop/g; s/RBLINT/NITROCOP/g'
 
 # 2. Manual review for mixed-case or context-sensitive replacements
 #    (e.g., "rblint" in prose vs code, bench_rblint binary name)
@@ -68,15 +68,15 @@ cargo check && cargo test
 Use the same pattern as [sorbet-static](https://rubygems.org/gems/sorbet-static) and [Nokogiri](https://rubygems.org/gems/nokogiri): **one gem name with platform-specific variants**. RubyGems natively resolves the correct platform at install time.
 
 ```
-nitrocop-0.1.0.gem                    ← source/fallback (no binary)
-nitrocop-0.1.0-arm64-darwin.gem       ← macOS Apple Silicon
-nitrocop-0.1.0-x86_64-darwin.gem      ← macOS Intel
-nitrocop-0.1.0-x86_64-linux.gem       ← Linux x86_64 (GNU)
-nitrocop-0.1.0-x86_64-linux-musl.gem  ← Linux x86_64 (Alpine/musl)
-nitrocop-0.1.0-aarch64-linux.gem      ← Linux ARM64
+turbocop-0.1.0.gem                    ← source/fallback (no binary)
+turbocop-0.1.0-arm64-darwin.gem       ← macOS Apple Silicon
+turbocop-0.1.0-x86_64-darwin.gem      ← macOS Intel
+turbocop-0.1.0-x86_64-linux.gem       ← Linux x86_64 (GNU)
+turbocop-0.1.0-x86_64-linux-musl.gem  ← Linux x86_64 (Alpine/musl)
+turbocop-0.1.0-aarch64-linux.gem      ← Linux ARM64
 ```
 
-When a user runs `gem install nitrocop`, RubyGems picks the matching platform variant automatically.
+When a user runs `gem install turbocop`, RubyGems picks the matching platform variant automatically.
 
 ### Target platforms
 
@@ -92,32 +92,32 @@ When a user runs `gem install nitrocop`, RubyGems picks the matching platform va
 
 ```
 gems/
-└── nitrocop/
-    ├── nitrocop.gemspec          # Main gemspec
+└── turbocop/
+    ├── turbocop.gemspec          # Main gemspec
     ├── lib/
-    │   └── nitrocop.rb           # Version constant + binary locator
+    │   └── turbocop.rb           # Version constant + binary locator
     ├── exe/
-    │   └── nitrocop              # Wrapper script (fallback to source build)
+    │   └── turbocop              # Wrapper script (fallback to source build)
     └── Rakefile                  # gem build tasks
 ```
 
 ### Gemspec
 
 ```ruby
-# gems/nitrocop/nitrocop.gemspec
+# gems/turbocop/turbocop.gemspec
 Gem::Specification.new do |spec|
-  spec.name     = "nitrocop"
+  spec.name     = "turbocop"
   spec.version  = "0.1.0"
   spec.authors  = ["Peter"]
   spec.summary  = "Fast Ruby linter targeting RuboCop compatibility"
-  spec.homepage = "https://github.com/OWNER/nitrocop"
+  spec.homepage = "https://github.com/OWNER/turbocop"
   spec.license  = "MIT"
 
   spec.required_ruby_version = ">= 2.7.0"
 
   spec.files       = Dir["lib/**/*", "exe/**/*", "*.md"]
   spec.bindir      = "exe"
-  spec.executables = ["nitrocop"]
+  spec.executables = ["turbocop"]
 end
 ```
 
@@ -125,12 +125,12 @@ For platform-specific variants, the gemspec adds:
 
 ```ruby
 spec.platform = "arm64-darwin"   # (or x86_64-linux, etc.)
-spec.files    = ["exe/nitrocop"] # Just the precompiled binary
+spec.files    = ["exe/turbocop"] # Just the precompiled binary
 ```
 
-### Wrapper script (`exe/nitrocop`)
+### Wrapper script (`exe/turbocop`)
 
-The base gem's `exe/nitrocop` is a thin Ruby shim:
+The base gem's `exe/turbocop` is a thin Ruby shim:
 
 ```ruby
 #!/usr/bin/env ruby
@@ -140,15 +140,15 @@ require "rubygems"
 
 # Find the precompiled binary from the platform-specific gem
 gem_dir = File.expand_path("..", __dir__)
-binary  = File.join(gem_dir, "exe", "nitrocop")
+binary  = File.join(gem_dir, "exe", "turbocop")
 
 if File.executable?(binary) && !File.read(binary, 2).start_with?("#!")
   # We ARE the platform gem — exec the real binary
   exec(binary, *ARGV)
 else
   # Fallback: tell the user to install from source
-  warn "nitrocop: no precompiled binary for #{RUBY_PLATFORM}"
-  warn "Install Rust and run: cargo install nitrocop"
+  warn "turbocop: no precompiled binary for #{RUBY_PLATFORM}"
+  warn "Install Rust and run: cargo install turbocop"
   exit 1
 end
 ```
@@ -191,7 +191,7 @@ jobs:
           fi
 
       - name: Package platform gem
-        run: ruby script/build_platform_gem.rb ${{ matrix.platform }} target/${{ matrix.target }}/release/nitrocop
+        run: ruby script/build_platform_gem.rb ${{ matrix.platform }} target/${{ matrix.target }}/release/turbocop
 
       - uses: actions/upload-artifact@v4
         with:
@@ -210,17 +210,17 @@ jobs:
           GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
         run: |
           # Publish base gem first, then platform variants
-          gem push gems/nitrocop-*.gem --force 2>/dev/null || true
-          for f in gems/nitrocop-*-*.gem; do gem push "$f"; done
+          gem push gems/turbocop-*.gem --force 2>/dev/null || true
+          for f in gems/turbocop-*-*.gem; do gem push "$f"; done
 ```
 
 ### Also publish on crates.io
 
 ```bash
-cargo publish   # publishes to crates.io as "nitrocop"
+cargo publish   # publishes to crates.io as "turbocop"
 ```
 
-Users who have Rust installed can also `cargo install nitrocop`.
+Users who have Rust installed can also `cargo install turbocop`.
 
 ---
 
@@ -232,30 +232,30 @@ You cannot "reserve" a gem name — you must publish. Create a minimal 0.0.1.pre
 
 ```bash
 # 1. Create a minimal gemspec
-mkdir -p /tmp/nitrocop-placeholder/lib
-cat > /tmp/nitrocop-placeholder/lib/nitrocop.rb << 'RUBY'
-module Nitrocop
+mkdir -p /tmp/turbocop-placeholder/lib
+cat > /tmp/turbocop-placeholder/lib/turbocop.rb << 'RUBY'
+module Turbocop
   VERSION = "0.0.1.pre"
 end
 RUBY
 
-cat > /tmp/nitrocop-placeholder/nitrocop.gemspec << 'RUBY'
+cat > /tmp/turbocop-placeholder/turbocop.gemspec << 'RUBY'
 Gem::Specification.new do |s|
-  s.name     = "nitrocop"
+  s.name     = "turbocop"
   s.version  = "0.0.1.pre"
   s.summary  = "Fast Ruby linter targeting RuboCop compatibility (coming soon)"
   s.authors  = ["Peter"]
   s.license  = "MIT"
-  s.homepage = "https://github.com/OWNER/nitrocop"
-  s.files    = ["lib/nitrocop.rb"]
+  s.homepage = "https://github.com/OWNER/turbocop"
+  s.files    = ["lib/turbocop.rb"]
   s.required_ruby_version = ">= 2.7.0"
 end
 RUBY
 
 # 2. Build and push
-cd /tmp/nitrocop-placeholder
-gem build nitrocop.gemspec
-gem push nitrocop-0.0.1.pre.gem
+cd /tmp/turbocop-placeholder
+gem build turbocop.gemspec
+gem push turbocop-0.0.1.pre.gem
 ```
 
 **Note:** You need a rubygems.org account. Sign up at https://rubygems.org/sign_up and run `gem signin` first.
@@ -267,7 +267,7 @@ gem push nitrocop-0.0.1.pre.gem
 # Add required fields to Cargo.toml:
 #   description = "Fast Ruby linter targeting RuboCop compatibility"
 #   license = "MIT"
-#   repository = "https://github.com/OWNER/nitrocop"
+#   repository = "https://github.com/OWNER/turbocop"
 
 cargo publish --dry-run   # verify it works
 cargo publish             # claims the name
