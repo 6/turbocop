@@ -657,10 +657,22 @@ fn run_conform() -> HashMap<String, ConformResult> {
 
 // --- Report generation ---
 
+fn format_elapsed(secs: f64) -> String {
+    let total_secs = secs as u64;
+    let minutes = total_secs / 60;
+    let seconds = total_secs % 60;
+    if minutes > 0 {
+        format!("{}m {:02}s", minutes, seconds)
+    } else {
+        format!("{:.0}s", secs)
+    }
+}
+
 fn generate_report(
     bench: &HashMap<String, BenchResult>,
     conform: &HashMap<String, ConformResult>,
     args: &Args,
+    total_elapsed: Option<f64>,
 ) -> String {
     let platform = shell_output("uname", &["-sm"]);
     let date = shell_output("date", &["-u", "+%Y-%m-%d %H:%M UTC"]);
@@ -690,6 +702,9 @@ fn generate_report(
         args.runs, args.warmup
     )
     .unwrap();
+    if let Some(elapsed) = total_elapsed {
+        writeln!(md, "**Total benchmark time:** {}", format_elapsed(elapsed)).unwrap();
+    }
     writeln!(md).unwrap();
 
     // --- Performance table ---
@@ -930,14 +945,17 @@ fn main() {
             setup_repos();
         }
         "bench" => {
+            let start = Instant::now();
             build_rblint();
             init_lockfiles();
             let bench = run_bench(&args);
-            let md = generate_report(&bench, &HashMap::new(), &args);
+            let elapsed = start.elapsed().as_secs_f64();
+            let md = generate_report(&bench, &HashMap::new(), &args, Some(elapsed));
             fs::write(&output_path, &md).unwrap();
             eprintln!("\nWrote {}", output_path.display());
         }
         "conform" => {
+            let start = Instant::now();
             build_rblint();
             init_lockfiles();
             let conform = run_conform();
@@ -948,7 +966,8 @@ fn main() {
             eprintln!("\nWrote {}", json_path.display());
             // Also write human-readable markdown
             let bench = load_cached_bench();
-            let md = generate_report(&bench, &conform, &args);
+            let elapsed = start.elapsed().as_secs_f64();
+            let md = generate_report(&bench, &conform, &args, Some(elapsed));
             fs::write(&output_path, &md).unwrap();
             eprintln!("Wrote {}", output_path.display());
         }
@@ -956,11 +975,12 @@ fn main() {
             let bench = load_cached_bench();
             // For conformance, we'd need to re-parse the JSON files.
             // For now, just regenerate from bench data.
-            let md = generate_report(&bench, &HashMap::new(), &args);
+            let md = generate_report(&bench, &HashMap::new(), &args, None);
             fs::write(&output_path, &md).unwrap();
             eprintln!("\nWrote {}", output_path.display());
         }
         "all" => {
+            let start = Instant::now();
             setup_repos();
             build_rblint();
             init_lockfiles();
@@ -970,7 +990,8 @@ fn main() {
             let json = serde_json::to_string_pretty(&conform).unwrap();
             fs::write(&json_path, &json).unwrap();
             eprintln!("\nWrote {}", json_path.display());
-            let md = generate_report(&bench, &conform, &args);
+            let elapsed = start.elapsed().as_secs_f64();
+            let md = generate_report(&bench, &conform, &args, Some(elapsed));
             fs::write(&output_path, &md).unwrap();
             eprintln!("Wrote {}", output_path.display());
         }

@@ -21,9 +21,26 @@ cargo run -- --debug .       # phase-level timing breakdown
 
 ## Performance Profiling
 
-`--debug` prints phase-level timing: bundler shell-outs, config loading, and per-phase linter breakdown (file I/O, Prism parse, CodeMap build, cop execution, disable filtering) using `AtomicU64` counters across rayon threads. See `PERF_ANALYSIS.md` for detailed results.
+`--debug` prints phase-level timing: bundler shell-outs, config loading, and per-phase linter breakdown (file I/O, Prism parse, CodeMap build, cop execution split into filter+config vs AST walk, disable filtering) using `AtomicU64` counters across rayon threads.
 
-Key bottleneck: `bundle info --path <gem>` calls during config loading account for 41-48% of wall time. The actual linting engine (723ms for 19K files) is already 4-5x faster than RuboCop — it's masked by spawning Ruby processes for gem resolution.
+`RBLINT_COP_PROFILE=1` enables per-cop timing (requires `--debug`). Re-runs all files single-threaded and reports the top 30 slowest cops broken down by `check_lines`, `check_source`, and `check_node` (AST walk) time. Example:
+
+```
+RBLINT_COP_PROFILE=1 cargo run --release -- --debug bench/repos/mastodon
+```
+
+## Debugging & Benchmarking Tips
+
+- **Isolate a single cop** to measure its cost or debug its behavior:
+  ```
+  cargo run --release -- --debug --only Style/SymbolProc bench/repos/mastodon
+  ```
+- **Per-cop profiling** is available via `RBLINT_COP_PROFILE=1` (see Performance Profiling above).
+- **Comparative benchmarking** with hyperfine:
+  ```
+  hyperfine --warmup 2 --runs 5 'cargo run --release -- bench/repos/mastodon'
+  ```
+- **Note on `--debug` timing:** The phase-level timings for filter+config and AST walk show cumulative thread time summed across all rayon workers, not wall time. This means the reported values will exceed wall clock time on multi-core machines.
 
 ## Architecture
 

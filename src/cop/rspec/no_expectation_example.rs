@@ -4,7 +4,7 @@ use crate::cop::util::{is_rspec_example, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, KEYWORD_HASH_NODE, STRING_NODE};
+use crate::cop::node_type::CALL_NODE;
 
 pub struct NoExpectationExample;
 
@@ -22,7 +22,7 @@ impl Cop for NoExpectationExample {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE, KEYWORD_HASH_NODE, STRING_NODE]
+        &[CALL_NODE]
     }
 
     fn check_node(
@@ -33,9 +33,6 @@ impl Cop for NoExpectationExample {
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
     ) {
-        // Config: AllowedPatterns — description patterns to exempt from this cop
-        let allowed_patterns = config.get_string_array("AllowedPatterns");
-
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return,
@@ -51,24 +48,30 @@ impl Cop for NoExpectationExample {
             return;
         }
 
+        // Config: AllowedPatterns — description patterns to exempt from this cop
+        let allowed_patterns = config.get_string_array("AllowedPatterns");
+
+        // Compile regexes once per example (not per-method-call inside the body).
+        // Most configs have 0-2 patterns, so this is typically very cheap.
+        let compiled_patterns: Vec<regex::Regex> = match &allowed_patterns {
+            Some(patterns) => patterns
+                .iter()
+                .filter_map(|p| regex::Regex::new(p).ok())
+                .collect(),
+            None => Vec::new(),
+        };
+
         // Check AllowedPatterns against the example description
-        if let Some(ref patterns) = allowed_patterns {
+        if !compiled_patterns.is_empty() {
             if let Some(args) = call.arguments() {
                 for arg in args.arguments().iter() {
                     if arg.as_keyword_hash_node().is_some() {
                         continue;
                     }
-                    let desc_text = if let Some(s) = arg.as_string_node() {
-                        Some(std::str::from_utf8(s.unescaped()).unwrap_or("").to_string())
-                    } else {
-                        None
-                    };
-                    if let Some(ref desc) = desc_text {
-                        for pat in patterns {
-                            if let Ok(re) = regex::Regex::new(pat) {
-                                if re.is_match(desc) {
-                                    return;
-                                }
+                    if let Some(s) = arg.as_string_node() {
+                        if let Ok(desc) = std::str::from_utf8(s.unescaped()) {
+                            if compiled_patterns.iter().any(|re| re.is_match(desc)) {
+                                return;
                             }
                         }
                     }
@@ -85,22 +88,10 @@ impl Cop for NoExpectationExample {
             None => return,
         };
 
-        // Build compiled allowed patterns for method-name matching
-        // Default patterns are ^expect_ and ^assert_ (from rubocop-rspec default config)
-        let method_patterns: Vec<regex::Regex> = if let Some(ref patterns) = allowed_patterns {
-            patterns
-                .iter()
-                .filter_map(|p| regex::Regex::new(p).ok())
-                .collect()
-
-        } else {
-            Vec::new()
-        };
-
         // Check if the block body contains any expectation
         let mut finder = ExpectationFinder {
             found: false,
-            method_patterns: &method_patterns,
+            method_patterns: &compiled_patterns,
         };
         if let Some(body) = block.body() {
             finder.visit(&body);
@@ -115,7 +106,6 @@ impl Cop for NoExpectationExample {
                 column,
                 "No expectation found in this example.".to_string(),
             ));
-
         }
     }
 }

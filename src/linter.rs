@@ -192,6 +192,73 @@ pub fn run_linter(
         t.print_summary(wall_start.elapsed(), files.len());
     }
 
+    // Per-cop timing: enabled by RBLINT_COP_PROFILE=1
+    if std::env::var("RBLINT_COP_PROFILE").is_ok() {
+        use std::sync::Mutex;
+        let cop_timings: Vec<Mutex<(u64, u64, u64)>> = (0..registry.cops().len())
+            .map(|_| Mutex::new((0u64, 0u64, 0u64)))
+            .collect();
+        // Re-run single-threaded for profiling
+        for path in files {
+            if cop_filters.is_globally_excluded(path) {
+                continue;
+            }
+            let source = match SourceFile::from_path(path) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let parse_result = crate::parse::parse_source(source.as_bytes());
+            let code_map = CodeMap::from_parse_result(source.as_bytes(), &parse_result);
+            for (i, cop) in registry.cops().iter().enumerate() {
+                if !cop_filters.is_cop_match(i, &source.path) {
+                    continue;
+                }
+                let cop_config = &base_configs[i];
+                let t0 = std::time::Instant::now();
+                let mut d = Vec::new();
+                cop.check_lines(&source, cop_config, &mut d);
+                let lines_ns = t0.elapsed().as_nanos() as u64;
+                let t1 = std::time::Instant::now();
+                cop.check_source(&source, &parse_result, &code_map, cop_config, &mut d);
+                let source_ns = t1.elapsed().as_nanos() as u64;
+                let t2 = std::time::Instant::now();
+                // check_node via single-cop walker
+                if !cop.interested_node_types().is_empty() || cop.name().contains('/') {
+                    let ast_cops: Vec<(&dyn Cop, &CopConfig)> = vec![(&**cop, cop_config)];
+                    let mut walker = BatchedCopWalker::new(ast_cops, &source, &parse_result);
+                    walker.visit(&parse_result.node());
+                }
+                let ast_ns = t2.elapsed().as_nanos() as u64;
+                let mut m = cop_timings[i].lock().unwrap();
+                m.0 += lines_ns;
+                m.1 += source_ns;
+                m.2 += ast_ns;
+            }
+        }
+        let mut entries: Vec<(String, u64, u64, u64)> = registry
+            .cops()
+            .iter()
+            .enumerate()
+            .map(|(i, cop)| {
+                let m = cop_timings[i].lock().unwrap();
+                (cop.name().to_string(), m.0, m.1, m.2)
+            })
+            .filter(|(_, l, s, a)| *l + *s + *a > 0)
+            .collect();
+        entries.sort_by(|a, b| (b.1 + b.2 + b.3).cmp(&(a.1 + a.2 + a.3)));
+        eprintln!("\n=== Per-cop timing (top 30) ===");
+        eprintln!("{:<50} {:>10} {:>10} {:>10} {:>10}", "Cop", "lines", "source", "ast", "total");
+        for (name, l, s, a) in entries.iter().take(30) {
+            let lms = *l as f64 / 1_000_000.0;
+            let sms = *s as f64 / 1_000_000.0;
+            let ams = *a as f64 / 1_000_000.0;
+            let total = lms + sms + ams;
+            eprintln!("{:<50} {:>9.1}ms {:>9.1}ms {:>9.1}ms {:>9.1}ms", name, lms, sms, ams, total);
+        }
+        let total_all: u64 = entries.iter().map(|(_, l, s, a)| l + s + a).sum();
+        eprintln!("{:<50} {:>10} {:>10} {:>10} {:>9.1}ms", "TOTAL", "", "", "", total_all as f64 / 1_000_000.0);
+    }
+
     LintResult {
         diagnostics: sorted,
         file_count: files.len(),
