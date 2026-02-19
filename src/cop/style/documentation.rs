@@ -24,7 +24,7 @@ fn extract_short_name(node: &ruby_prism::Node<'_>) -> String {
 }
 
 /// Check if a class/module body is "namespace-only" — contains only other
-/// class/module definitions, constant assignments, and include/extend/prepend calls.
+/// class/module definitions, constant assignments, and constant visibility declarations.
 /// RuboCop exempts these from the documentation requirement.
 /// `is_class` distinguishes: empty classes don't need docs, but empty modules do.
 fn is_namespace_only(body: &Option<ruby_prism::Node<'_>>, is_class: bool) -> bool {
@@ -36,14 +36,36 @@ fn is_namespace_only(body: &Option<ruby_prism::Node<'_>>, is_class: bool) -> boo
         Some(s) => s,
         None => {
             // Body is a single node (e.g., a begin block)
-            return is_namespace_statement(body);
+            return is_constant_declaration(body);
         }
     };
-    stmts.body().iter().all(|node| is_namespace_statement(&node))
+    stmts.body().iter().all(|node| is_constant_declaration(&node))
 }
 
-/// Check if a single statement is "namespace-like" (class, module, constant, include/extend/prepend).
-fn is_namespace_statement(node: &ruby_prism::Node<'_>) -> bool {
+/// Check if a class/module body contains only include/extend/prepend statements.
+/// RuboCop exempts these from the documentation requirement separately from namespace check.
+fn is_include_only(body: &Option<ruby_prism::Node<'_>>) -> bool {
+    let body = match body {
+        Some(b) => b,
+        None => return false,
+    };
+    is_include_statement_only(body)
+}
+
+/// Recursively check if a node (or group of statements) is entirely include/extend/prepend calls.
+fn is_include_statement_only(node: &ruby_prism::Node<'_>) -> bool {
+    if is_include_extend_prepend(node) {
+        return true;
+    }
+    if let Some(stmts) = node.as_statements_node() {
+        return stmts.body().iter().all(|child| is_include_statement_only(&child));
+    }
+    false
+}
+
+/// Check if a single statement is a constant definition (class, module, casgn)
+/// or a constant visibility declaration (private_constant, public_constant).
+fn is_constant_declaration(node: &ruby_prism::Node<'_>) -> bool {
     if node.as_class_node().is_some()
         || node.as_module_node().is_some()
         || node.as_constant_write_node().is_some()
@@ -51,12 +73,21 @@ fn is_namespace_statement(node: &ruby_prism::Node<'_>) -> bool {
     {
         return true;
     }
-    // include/extend/prepend/private_constant calls
+    // private_constant/public_constant calls
     if let Some(call) = node.as_call_node() {
         let name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
-        if matches!(name, "include" | "extend" | "prepend" | "private_constant" | "public_constant") {
+        if matches!(name, "private_constant" | "public_constant") {
             return true;
         }
+    }
+    false
+}
+
+/// Check if a node is an include/extend/prepend call.
+fn is_include_extend_prepend(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(call) = node.as_call_node() {
+        let name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
+        return matches!(name, "include" | "extend" | "prepend");
     }
     false
 }
@@ -205,8 +236,13 @@ impl Cop for Documentation {
                 return;
             }
 
-            // Check if namespace-only (body has only other classes, modules, constants, includes)
+            // Check if namespace-only (body has only other classes, modules, constants)
             if is_namespace_only(&class_node.body(), true) {
+                return;
+            }
+
+            // Check if include/extend/prepend only
+            if is_include_only(&class_node.body()) {
                 return;
             }
 
@@ -231,6 +267,11 @@ impl Cop for Documentation {
 
             // Check if namespace-only
             if is_namespace_only(&module_node.body(), false) {
+                return;
+            }
+
+            // Check if include/extend/prepend only
+            if is_include_only(&module_node.body()) {
                 return;
             }
 

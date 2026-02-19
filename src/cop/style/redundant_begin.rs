@@ -1,7 +1,8 @@
+use ruby_prism::Visit;
+
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BEGIN_NODE, DEF_NODE, STATEMENTS_NODE};
 
 pub struct RedundantBegin;
 
@@ -10,24 +11,33 @@ impl Cop for RedundantBegin {
         "Style/RedundantBegin"
     }
 
-    fn interested_node_types(&self) -> &'static [u8] {
-        &[BEGIN_NODE, DEF_NODE, STATEMENTS_NODE]
-    }
-
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
+        diagnostics: &mut Vec<Diagnostic>,
     ) {
-        let def_node = match node.as_def_node() {
-            Some(d) => d,
-            None => return,
+        let mut visitor = RedundantBeginVisitor {
+            cop: self,
+            source,
+            diagnostics: Vec::new(),
         };
+        visitor.visit(&parse_result.node());
+        diagnostics.extend(visitor.diagnostics);
+    }
+}
 
-        let body = match def_node.body() {
+struct RedundantBeginVisitor<'a> {
+    cop: &'a RedundantBegin,
+    source: &'a SourceFile,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl<'pr> Visit<'pr> for RedundantBeginVisitor<'_> {
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        let body = match node.body() {
             Some(b) => b,
             None => return,
         };
@@ -39,29 +49,68 @@ impl Cop for RedundantBegin {
         } else if let Some(stmts) = body.as_statements_node() {
             let body_nodes: Vec<_> = stmts.body().into_iter().collect();
             if body_nodes.len() != 1 {
+                // Continue visiting children for nested defs/begins
+                for child in body_nodes.iter() {
+                    self.visit(child);
+                }
                 return;
             }
             match body_nodes[0].as_begin_node() {
                 Some(b) => b,
-                None => return,
+                None => {
+                    self.visit(&body_nodes[0]);
+                    return;
+                }
             }
         } else {
+            self.visit(&body);
             return;
         };
 
-        // The begin is redundant if it's the only statement in the method body
+        // Must have an explicit `begin` keyword
         let begin_kw_loc = match begin_node.begin_keyword_loc() {
             Some(loc) => loc,
-            None => return,
+            None => {
+                // Visit the begin body for nested checks
+                if let Some(stmts) = begin_node.statements() {
+                    for child in stmts.body().iter() {
+                        self.visit(&child);
+                    }
+                }
+                return;
+            }
         };
 
-        let (line, column) = source.offset_to_line_col(begin_kw_loc.start_offset());
-        diagnostics.push(self.diagnostic(
-            source,
+        let offset = begin_kw_loc.start_offset();
+        let (line, column) = self.source.offset_to_line_col(offset);
+        self.diagnostics.push(self.cop.diagnostic(
+            self.source,
             line,
             column,
             "Redundant `begin` block detected.".to_string(),
         ));
+
+        // Visit the begin body for nested checks
+        if let Some(stmts) = begin_node.statements() {
+            for child in stmts.body().iter() {
+                self.visit(&child);
+            }
+        }
+    }
+
+    fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
+        // Continue visiting children to find nested begin nodes (e.g. nested defs)
+        if let Some(stmts) = node.statements() {
+            for child in stmts.body().iter() {
+                self.visit(&child);
+            }
+        }
+        if let Some(rescue) = node.rescue_clause() {
+            self.visit_rescue_node(&rescue);
+        }
+        if let Some(ensure) = node.ensure_clause() {
+            self.visit_ensure_node(&ensure);
+        }
     }
 }
 

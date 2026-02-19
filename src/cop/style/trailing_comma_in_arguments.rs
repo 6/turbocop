@@ -75,18 +75,70 @@ impl Cop for TrailingCommaInArguments {
         }
 
         // Check for a trailing comma between the last argument and closing paren.
-        // Ensure only whitespace surrounds the comma — reject ranges that contain
-        // heredoc content or other code (which may have incidental commas).
-        if last_end >= closing_start || closing_start > bytes.len() {
+        if closing_start > bytes.len() {
             return;
         }
-        let search_range = &bytes[last_end..closing_start];
-        let has_comma = is_only_whitespace_and_comma(search_range);
+
+        let has_comma = if last_end < closing_start {
+            let search_range = &bytes[last_end..closing_start];
+            is_only_whitespace_and_comma(search_range)
+        } else {
+            false
+        };
 
         let style = config.get_str("EnforcedStyleForMultiline", "no_comma");
-        let last_line = source.offset_to_line_col(last_end).0;
+
+        // Determine if the call is multiline and whether a trailing comma should be present
         let close_line = source.offset_to_line_col(closing_start).0;
-        let is_multiline = close_line > last_line;
+        let call_start_line = source.offset_to_line_col(call_node.location().start_offset()).0;
+        let call_is_multiline = close_line > call_start_line;
+
+        // For single-argument calls where closing bracket is on the same line as
+        // the end of the argument, RuboCop does not consider it multiline
+        let effective_args = arg_list.len();
+        if effective_args == 1 {
+            let last_arg_end_line = source.offset_to_line_col(last_end).0;
+            if close_line == last_arg_end_line {
+                // Single arg with closing bracket on same line — not considered multiline
+                // for trailing comma purposes (but unwanted commas still detected below)
+                if has_comma && last_end < closing_start {
+                    let search_range = &bytes[last_end..closing_start];
+                    if let Some(comma_offset) = search_range.iter().position(|&b| b == b',') {
+                        let abs_offset = last_end + comma_offset;
+                        let (line, column) = source.offset_to_line_col(abs_offset);
+                        diagnostics.push(self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Avoid comma after the last parameter of a method call.".to_string(),
+                        ));
+                    }
+                }
+                return;
+            }
+        }
+
+        let is_multiline = match style {
+            "consistent_comma" => {
+                // For consistent_comma: multiline means the call spans multiple lines
+                // AND the method name is NOT on the same line as the last argument's last line.
+                // This mirrors RuboCop's method_name_and_arguments_on_same_line? check.
+                if !call_is_multiline {
+                    false
+                } else {
+                    // Get the method name line (message_loc or call start)
+                    let method_line = call_node.message_loc()
+                        .map(|loc| source.offset_to_line_col(loc.start_offset()).0)
+                        .unwrap_or(call_start_line);
+                    let last_arg_end_line = source.offset_to_line_col(last_end).0;
+                    method_line != last_arg_end_line
+                }
+            }
+            _ => {
+                let last_line = source.offset_to_line_col(last_end).0;
+                close_line > last_line
+            }
+        };
 
         match style {
             "comma" | "consistent_comma" => {
@@ -102,7 +154,8 @@ impl Cop for TrailingCommaInArguments {
                 }
             }
             _ => {
-                if has_comma {
+                if has_comma && last_end < closing_start {
+                    let search_range = &bytes[last_end..closing_start];
                     if let Some(comma_offset) =
                         search_range.iter().position(|&b| b == b',')
                     {
@@ -125,9 +178,51 @@ impl Cop for TrailingCommaInArguments {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::run_cop_full_with_config;
 
     crate::cop_fixture_tests!(
         TrailingCommaInArguments,
         "cops/style/trailing_comma_in_arguments"
     );
+
+    fn consistent_comma_config() -> CopConfig {
+        use std::collections::HashMap;
+        CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyleForMultiline".into(), serde_yml::Value::String("consistent_comma".into())),
+            ]),
+            ..CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn consistent_comma_multiline_closing_on_same_line_as_last_arg() {
+        // The closing paren is on the same line as the last arg, but the method name
+        // is on a different line — this should require a trailing comma.
+        let source = b"matching_token_for(\n  application, resource_owner, scopes, include_expired: false)\n";
+        let diags = run_cop_full_with_config(&TrailingCommaInArguments, source, consistent_comma_config());
+        assert_eq!(diags.len(), 1, "consistent_comma should flag multiline call even when ) is on same line as last arg");
+    }
+
+    #[test]
+    fn consistent_comma_multiline_positional_args_closing_same_line() {
+        // Same pattern but with only positional args (no keyword hash)
+        let source = b"foo(\n  1, 2, 3)\n";
+        let diags = run_cop_full_with_config(&TrailingCommaInArguments, source, consistent_comma_config());
+        assert_eq!(diags.len(), 1, "consistent_comma should flag multiline positional args");
+    }
+
+    #[test]
+    fn consistent_comma_single_line_no_offense() {
+        let source = b"foo(1, 2, 3)\n";
+        let diags = run_cop_full_with_config(&TrailingCommaInArguments, source, consistent_comma_config());
+        assert!(diags.is_empty(), "Single line should not require trailing comma");
+    }
+
+    #[test]
+    fn consistent_comma_multiline_with_comma_no_offense() {
+        let source = b"foo(\n  1,\n  2,\n)\n";
+        let diags = run_cop_full_with_config(&TrailingCommaInArguments, source, consistent_comma_config());
+        assert!(diags.is_empty(), "Multiline with trailing comma should be ok");
+    }
 }

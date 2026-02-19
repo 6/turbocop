@@ -22,10 +22,18 @@ impl Cop for EmptyLines {
 
         let mut consecutive_blanks = 0;
         let mut byte_offset: usize = 0;
+        let lines: Vec<&[u8]> = source.lines().collect();
+        let total_lines = lines.len();
 
-        for (i, line) in source.lines().enumerate() {
+        for (i, line) in lines.iter().enumerate() {
             let line_len = line.len() + 1; // +1 for newline
             if line.iter().all(|&b| b == b' ' || b == b'\t' || b == b'\r') {
+                // Skip the trailing empty element from split() — RuboCop's
+                // EmptyLines cop doesn't flag trailing blank lines at EOF
+                // (that's Layout/TrailingEmptyLines).
+                if i + 1 >= total_lines {
+                    break;
+                }
                 // Skip blank lines inside non-code regions (heredocs, strings)
                 if !code_map.is_code(byte_offset) {
                     byte_offset += line_len;

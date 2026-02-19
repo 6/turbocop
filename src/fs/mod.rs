@@ -114,7 +114,30 @@ fn is_ruby_file(path: &Path) -> bool {
             return true;
         }
     }
+    // For extensionless files not in the known list, check for Ruby shebang.
+    // This catches scripts like bin/console, bin/rails, etc.
+    if path.extension().is_none() {
+        if has_ruby_shebang(path) {
+            return true;
+        }
+    }
     false
+}
+
+/// Check if a file starts with a Ruby shebang line (e.g. `#!/usr/bin/env ruby`).
+/// Only reads the first line to avoid expensive I/O during file discovery.
+fn has_ruby_shebang(path: &Path) -> bool {
+    use std::io::{BufRead, BufReader};
+    let file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+    let mut reader = BufReader::new(file);
+    let mut first_line = String::new();
+    if reader.read_line(&mut first_line).is_err() {
+        return false;
+    }
+    first_line.starts_with("#!") && first_line.contains("ruby")
 }
 
 #[cfg(test)]
@@ -181,6 +204,31 @@ mod tests {
             .map(|f| f.file_name().unwrap().to_str().unwrap().to_string())
             .collect();
         assert_eq!(names, vec!["a.rb", "m.rb", "z.rb"]);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn discovers_ruby_shebang_files() {
+        let dir = setup_dir("shebang");
+        let bin = dir.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        fs::write(dir.join("app.rb"), "puts 'hi'").unwrap();
+        fs::write(bin.join("console"), "#!/usr/bin/env ruby\nputs 'hi'\n").unwrap();
+        fs::write(bin.join("setup"), "#!/bin/bash\necho hi\n").unwrap();
+        fs::write(bin.join("server"), "#!/usr/bin/env ruby\nputs 'serve'\n").unwrap();
+
+        let config = load_config(Some(Path::new("/nonexistent")), None, None).unwrap();
+        let files = discover_files(&[dir.clone()], &config).unwrap();
+
+        assert_eq!(files.len(), 3, "Should find app.rb + 2 ruby shebang scripts");
+        let names: Vec<_> = files
+            .iter()
+            .map(|f| f.file_name().unwrap().to_str().unwrap().to_string())
+            .collect();
+        assert!(names.contains(&"app.rb".to_string()));
+        assert!(names.contains(&"console".to_string()));
+        assert!(names.contains(&"server".to_string()));
+        assert!(!names.contains(&"setup".to_string()));
         fs::remove_dir_all(&dir).ok();
     }
 

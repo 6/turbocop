@@ -202,15 +202,15 @@ fn starts_with_keyword(content: &[u8], keyword: &[u8]) -> bool {
 }
 
 fn is_guard_line(content: &[u8]) -> bool {
+    // RuboCop's guard_clause? matches:
+    // 1. Bare guard statements: return, next, break, raise, fail, throw
+    // 2. Modifier form: `return x if cond`, `raise "..." unless something`
     for keyword in GUARD_METHODS {
-        if content.starts_with(keyword) {
-            if let Some(rest) = content.get(keyword.len()..) {
-                if rest.is_empty() || rest.starts_with(b" ") || rest.starts_with(b"(") {
-                    return true;
-                }
-            }
+        if starts_with_keyword(content, keyword) {
+            return true;
         }
     }
+    // Also check modifier if/unless containing a guard
     if contains_modifier_guard(content) {
         return true;
     }

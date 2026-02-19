@@ -25,3 +25,8 @@ submission.template_submitters
           .group_by.with_index { |s, index| s['order'] || index }
           .sort_by(&:first).pluck(1)
           ^^^ Layout/MultilineMethodCallIndentation: Align `.sort_by` with `.with_index` on line 21.
+
+# Hash pair value: chain should align with chain root start column
+foo(key: receiver.chained
+                          .misaligned)
+                          ^^^ Layout/MultilineMethodCallIndentation: Align `.misaligned` with `receiver` on line 25.

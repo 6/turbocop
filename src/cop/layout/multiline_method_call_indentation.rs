@@ -106,12 +106,24 @@ impl ChainVisitor<'_> {
             _ => {
                 // "aligned" (default)
                 if self.in_hash_value {
-                    // Inside a hash pair value: try block chain / continuation
-                    // dot alignment first, fall back to chain root's start
-                    // column (matching RuboCop's hash pair alignment logic).
-                    match find_alignment_base_col(self.source, &receiver, msg_line) {
-                        Some(col) => col,
-                        None => find_chain_root_col(self.source, &receiver),
+                    // Inside a hash pair value: RuboCop uses the chain root's
+                    // start column as the alignment base, BUT with two escape
+                    // hatches:
+                    //
+                    // 1. `aligned_with_first_line_dot?`: if the current dot's
+                    //    column matches an inline dot on the chain's first line,
+                    //    RuboCop considers it aligned and skips.
+                    let chain_root_line = find_chain_start_line(self.source, &receiver);
+                    if has_matching_dot_on_line(self.source, &receiver, chain_root_line, msg_col) {
+                        return;
+                    }
+                    // 2. Block chain continuation: when the receiver is a
+                    //    call-with-block (single-line block), the block-bearing
+                    //    call's dot column is the alignment base.
+                    if let Some(col) = find_block_chain_col(self.source, &receiver, msg_line) {
+                        col
+                    } else {
+                        find_chain_root_col(self.source, &receiver)
                     }
                 } else {
                     // Try to find a previous continuation dot to align with.
@@ -254,6 +266,29 @@ fn find_alignment_base_col(
     None
 }
 
+/// Block chain alignment ONLY (no continuation dot search). Used for hash
+/// pair values where continuation dot alignment is NOT wanted, but block
+/// chain continuation IS.
+fn find_block_chain_col(
+    source: &SourceFile,
+    receiver: &ruby_prism::Node<'_>,
+    current_dot_line: usize,
+) -> Option<usize> {
+    if let Some(call) = receiver.as_call_node() {
+        if call.block().is_some() {
+            if let Some(dot_loc) = call.call_operator_loc() {
+                let (dot_line, dot_col) = source.offset_to_line_col(dot_loc.start_offset());
+                let loc = call.location();
+                let (end_line, _) = source.offset_to_line_col(loc.end_offset());
+                if dot_line == end_line && dot_line < current_dot_line {
+                    return Some(dot_col);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Find the column of the last continuation-style dot on a given line.
 /// This handles block chain patterns like `foo.bar { }.baz` where we need
 /// to find `.bar`'s dot column.
@@ -361,6 +396,63 @@ fn is_continuation_dot(source: &SourceFile, dot_offset: usize) -> bool {
         pos += 1;
     }
     true
+}
+
+/// RuboCop's `aligned_with_first_line_dot?`: check whether the first call
+/// with a dot in the receiver chain (walking from root up) has a dot on
+/// `line` at column `target_col`. Used for hash pair value alignment.
+///
+/// RuboCop's logic: `first_call = first_call_has_a_dot(node);
+/// return false if first_call == node.receiver`. If the first call IS the
+/// direct receiver (2-call chain like `receiver.where.or`), returns false.
+/// If there are deeper calls (3+ chain like `template.subs.where.or`),
+/// checks the first call's dot.
+fn has_matching_dot_on_line(
+    source: &SourceFile,
+    receiver: &ruby_prism::Node<'_>,
+    line: usize,
+    target_col: usize,
+) -> bool {
+    // Find the first call with a dot in the chain (deepest call from root).
+    let first_call_dot = find_first_call_dot(source, receiver);
+    if let Some((fc_line, fc_col, fc_offset)) = first_call_dot {
+        // Check `first_call == node.receiver`: if the first call's dot
+        // belongs to the direct receiver, skip (return false).
+        if let Some(call) = receiver.as_call_node() {
+            if let Some(dot_loc) = call.call_operator_loc() {
+                if dot_loc.start_offset() == fc_offset {
+                    // first_call IS the direct receiver — RuboCop returns false
+                    return false;
+                }
+            }
+        }
+        // first_call differs from direct receiver — check dot position
+        return fc_line == line && fc_col == target_col;
+    }
+    false
+}
+
+/// Walk down the receiver chain to find the root (node with no receiver),
+/// then return the first call with a dot above it (the deepest call in
+/// the chain that has a dot operator). Returns (line, col, byte_offset).
+fn find_first_call_dot(
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+) -> Option<(usize, usize, usize)> {
+    if let Some(call) = node.as_call_node() {
+        if let Some(recv) = call.receiver() {
+            // Try deeper first
+            if let Some(deeper) = find_first_call_dot(source, &recv) {
+                return Some(deeper);
+            }
+        }
+        // This is the deepest call with a dot (or the only call)
+        if let Some(dot_loc) = call.call_operator_loc() {
+            let (dot_line, dot_col) = source.offset_to_line_col(dot_loc.start_offset());
+            return Some((dot_line, dot_col, dot_loc.start_offset()));
+        }
+    }
+    None
 }
 
 /// Check if the chain root is inside a keyword expression (return, if, while,

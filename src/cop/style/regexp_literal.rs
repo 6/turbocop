@@ -54,25 +54,12 @@ impl Cop for RegexpLiteral {
         let is_slash = open_bytes == b"/";
         let is_percent_r = open_bytes.starts_with(b"%r");
 
-        // Check if content contains unescaped forward slashes.
-        // Need to properly handle consecutive backslashes: `\\/` has an unescaped slash
-        // because `\\` is an escaped backslash, leaving `/` unescaped.
-        let has_slash = {
-            let mut found = false;
-            let mut i = 0;
-            while i < content_bytes.len() {
-                if content_bytes[i] == b'\\' {
-                    i += 2; // skip escaped character
-                    continue;
-                }
-                if content_bytes[i] == b'/' {
-                    found = true;
-                    break;
-                }
-                i += 1;
-            }
-            found
-        };
+        // Check if content contains forward slashes (escaped or unescaped).
+        // RuboCop counts escaped slashes (`\/`) as inner slashes too, because
+        // using `%r{}` would eliminate the need for escaping them.
+        // In slash-delimited regexps, slashes are always escaped as `\/`.
+        // In %r-delimited regexps, slashes appear as bare `/`.
+        let has_slash = content_bytes.contains(&b'/');
 
         let is_multiline = {
             let (start_line, _) = source.offset_to_line_col(node_start);

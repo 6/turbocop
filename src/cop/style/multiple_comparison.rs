@@ -60,16 +60,30 @@ impl MultipleComparison {
                 let lhs_src = lhs.location().as_slice();
                 let rhs_src = rhs.location().as_slice();
 
-                // Determine which side is the variable (lvar or call) and which is the value
+                // Determine which side is the variable (lvar or method call)
+                // and which is the value.
+                // RuboCop treats both local variables and method calls as the
+                // "variable" side of the comparison. The AllowMethodComparison
+                // config controls whether comparisons where the VALUE is a
+                // method call are counted.
                 let (var_src, value_is_call) =
                     if lhs.as_local_variable_read_node().is_some() {
                         (lhs_src, rhs.as_call_node().is_some())
                     } else if rhs.as_local_variable_read_node().is_some() {
                         (rhs_src, lhs.as_call_node().is_some())
-                    } else if !allow_method && lhs.as_call_node().is_some() {
-                        (lhs_src, rhs.as_call_node().is_some())
-                    } else if !allow_method && rhs.as_call_node().is_some() {
-                        (rhs_src, lhs.as_call_node().is_some())
+                    } else if lhs.as_call_node().is_some() && rhs.as_call_node().is_none() {
+                        // lhs is a method call (the "variable"), rhs is a literal value
+                        (lhs_src, false)
+                    } else if rhs.as_call_node().is_some() && lhs.as_call_node().is_none() {
+                        // rhs is a method call (the "variable"), lhs is a literal value
+                        (rhs_src, false)
+                    } else if lhs.as_call_node().is_some() && rhs.as_call_node().is_some() {
+                        // Both sides are method calls — lhs is the variable, rhs is the value
+                        if allow_method {
+                            (lhs_src, true)
+                        } else {
+                            (lhs_src, true)
+                        }
                     } else {
                         return None;
                     };

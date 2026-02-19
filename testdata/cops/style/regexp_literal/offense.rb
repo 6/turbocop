@@ -6,3 +6,6 @@
 
 %r(bar)
 ^^^^^^^ Style/RegexpLiteral: Use `//` around regular expression.
+
+/foo\/bar/
+^^^^^^^^^^ Style/RegexpLiteral: Use `%r` around regular expression.

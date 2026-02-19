@@ -8,6 +8,50 @@ pub struct EmptyLinesAroundExceptionHandlingKeywords;
 
 const KEYWORDS: &[&[u8]] = &[b"rescue", b"ensure", b"else"];
 
+/// Check if an `else` on this line is part of a rescue block (not if/case/etc.).
+/// Scan backwards from the `else` to find whether we hit `rescue` (rescue-else)
+/// or `if`/`unless`/`case`/`when`/`elsif` (regular else) at the same indentation.
+fn is_rescue_else(lines: &[&[u8]], else_idx: usize, else_indent: usize) -> bool {
+    for i in (0..else_idx).rev() {
+        let line = lines[i];
+        let start = match line.iter().position(|&b| b != b' ' && b != b'\t') {
+            Some(p) => p,
+            None => continue,
+        };
+        let content = &line[start..];
+        // Only consider lines at the same or less indentation
+        if start > else_indent {
+            continue;
+        }
+        // Check for rescue at the same indent
+        if start == else_indent && starts_with_kw(content, b"rescue") {
+            return true;
+        }
+        // If we hit a structural keyword at the same or less indentation, it's not rescue-else
+        if starts_with_kw(content, b"if")
+            || starts_with_kw(content, b"unless")
+            || starts_with_kw(content, b"case")
+            || starts_with_kw(content, b"when")
+            || starts_with_kw(content, b"elsif")
+        {
+            return false;
+        }
+        // def/begin/class/module at same or less indent = scope boundary, check if rescue exists
+        if starts_with_kw(content, b"def")
+            || starts_with_kw(content, b"begin")
+            || starts_with_kw(content, b"class")
+            || starts_with_kw(content, b"module")
+        {
+            return false;
+        }
+    }
+    false
+}
+
+fn starts_with_kw(content: &[u8], kw: &[u8]) -> bool {
+    content.starts_with(kw) && (content.len() == kw.len() || !content[kw.len()].is_ascii_alphanumeric() && content[kw.len()] != b'_')
+}
+
 impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
     fn name(&self) -> &'static str {
         "Layout/EmptyLinesAroundExceptionHandlingKeywords"
@@ -59,6 +103,12 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
 
             // Skip keywords inside strings/heredocs/regexps/symbols
             if !code_map.is_not_string(byte_offset + trimmed_start) {
+                byte_offset += line_len;
+                continue;
+            }
+
+            // For `else`, only flag if it's part of a rescue block (not if/case/etc.)
+            if keyword == b"else" && !is_rescue_else(&lines, i, trimmed_start) {
                 byte_offset += line_len;
                 continue;
             }

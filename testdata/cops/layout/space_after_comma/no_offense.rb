@@ -14,3 +14,7 @@ items.each { |key,| puts key }
 items.all? do |detected_sequence,|
   detected_sequence.valid?
 end
+
+# Trailing comma before closing delimiters
+foo(a, b,)
+[1, 2,]

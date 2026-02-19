@@ -11,3 +11,10 @@ a == "x" || a == "y" || a == "z"
 # With method call comparisons mixed in (method calls are skipped but non-method comparisons count)
 a == foo.bar || a == 'x' || a == 'y'
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MultipleComparison: Avoid comparing a variable with multiple items in a conditional, use `Array#include?` instead.
+
+# Method call as the "variable" being compared
+name == :invalid_client || name == :unauthorized_client
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MultipleComparison: Avoid comparing a variable with multiple items in a conditional, use `Array#include?` instead.
+
+foo.bar == "a" || foo.bar == "b"
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Style/MultipleComparison: Avoid comparing a variable with multiple items in a conditional, use `Array#include?` instead.

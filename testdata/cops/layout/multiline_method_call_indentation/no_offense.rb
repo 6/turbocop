@@ -48,6 +48,10 @@ foo(bar: items.reject { |e| e.nil? }
               .sort_by(&:name)
               .map(&:id))
 
+# Hash pair value: continuation dot aligned with first inline dot (3+ chain)
+method(key: template.submissions.where(x: 1)
+                    .or(template.submissions.where(y: 2)))
+
 # Sub-chain starting on a continuation dot line (indented style)
 # The `.to` line is a continuation dot; base should be the non-dot ancestor
 expect(subject)

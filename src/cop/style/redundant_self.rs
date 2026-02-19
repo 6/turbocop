@@ -201,7 +201,14 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
             }
         }
 
-        // Visit arguments and block but NOT the receiver (already handled)
+        // Visit receiver (for chained calls like self.name.demodulize — we need to
+        // check the inner self.name), arguments, and block.
+        if let Some(receiver) = node.receiver() {
+            // Only visit non-self receivers (self is already handled above)
+            if receiver.as_self_node().is_none() {
+                self.visit(&receiver);
+            }
+        }
         if let Some(args) = node.arguments() {
             for arg in args.arguments().iter() {
                 self.visit(&arg);
@@ -212,9 +219,33 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
         }
     }
 
-    // Don't recurse into class/module (separate scope for self)
-    fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
-    fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
+    // Class/module bodies have a different `self` context.
+    // We still need to visit them to find `self.` calls within method definitions.
+    fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
+        // Push a new scope for the class body (local variables from the enclosing scope
+        // are not visible inside a class body).
+        self.local_scopes.push(HashSet::new());
+        if let Some(body) = node.body() {
+            self.visit(&body);
+        }
+        self.local_scopes.pop();
+    }
+
+    fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
+        self.local_scopes.push(HashSet::new());
+        if let Some(body) = node.body() {
+            self.visit(&body);
+        }
+        self.local_scopes.pop();
+    }
+
+    fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
+        self.local_scopes.push(HashSet::new());
+        if let Some(body) = node.body() {
+            self.visit(&body);
+        }
+        self.local_scopes.pop();
+    }
 }
 
 #[cfg(test)]

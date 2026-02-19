@@ -31,3 +31,16 @@ x = <<~RUBY
 RUBY
 
 NODES = %i[if while rescue ensure else].freeze
+
+# else in if/case is NOT exception handling — should not be flagged
+if condition
+
+else
+  handle
+end
+
+case x
+
+else
+  default
+end

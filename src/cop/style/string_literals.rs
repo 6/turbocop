@@ -225,6 +225,23 @@ mod tests {
     }
 
     #[test]
+    fn double_quotes_flags_string_inside_hash() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("double_quotes".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let source = b"foo(custom_attributes: { tenant_id: 'different' })\n";
+        let diags = run_cop_full_with_config(&StringLiterals, source, config);
+        assert_eq!(diags.len(), 1, "Should flag single-quoted string inside hash arg: {:?}", diags);
+    }
+
+
+    #[test]
     fn consistent_multiline_skips_multiline_strings() {
         use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;

@@ -56,6 +56,92 @@ fn find_left_paren_on_line(line_bytes: &[u8], bracket_col: usize) -> Option<usiz
     None
 }
 
+/// Check if the array is the value of a hash pair (e.g. `key: [...]`).
+/// If so, return the column of the hash key. This implements RuboCop's
+/// `hash_pair_where_value_beginning_with` / `:parent_hash_key` logic.
+///
+/// Scans backwards from the `[` position on the same line to find a hash
+/// key-value separator (`: ` or ` => `).
+fn find_hash_pair_key_col(line_bytes: &[u8], bracket_col: usize) -> Option<usize> {
+    if bracket_col == 0 {
+        return None;
+    }
+    // Scan backwards from the bracket, skip whitespace
+    let mut i = bracket_col - 1;
+    while i > 0 && (line_bytes[i] == b' ' || line_bytes[i] == b'\t') {
+        i -= 1;
+    }
+    // Check for symbol-style key `: ` pattern — the byte at i should be `:`
+    // But NOT `::` (constant path)
+    if line_bytes[i] == b':' && (i == 0 || line_bytes[i - 1] != b':') {
+        // Found `key: [` — scan backwards from `:` to find the key start
+        if i == 0 {
+            return None;
+        }
+        let mut key_end = i - 1;
+        // Skip whitespace between key and `:` for `key :` style (rocket `=>` is separate)
+        while key_end > 0 && (line_bytes[key_end] == b' ' || line_bytes[key_end] == b'\t') {
+            key_end -= 1;
+        }
+        // Key identifier: word chars
+        let mut key_start = key_end;
+        while key_start > 0
+            && (line_bytes[key_start - 1].is_ascii_alphanumeric() || line_bytes[key_start - 1] == b'_')
+        {
+            key_start -= 1;
+        }
+        if key_start <= key_end
+            && (line_bytes[key_start].is_ascii_alphabetic() || line_bytes[key_start] == b'_')
+        {
+            return Some(key_start);
+        }
+    }
+    // Check for hashrocket `=> [` pattern
+    if i >= 1 && line_bytes[i] == b'>' && line_bytes[i - 1] == b'=' {
+        // Found `=> ` — scan backwards from `=` to find the key start
+        let mut j = i - 2;
+        while j > 0 && (line_bytes[j] == b' ' || line_bytes[j] == b'\t') {
+            j -= 1;
+        }
+        // Key could be a symbol `:foo`, string `"foo"`, or identifier
+        // For simplicity, find the first non-whitespace start of the key
+        let mut key_start = j;
+        while key_start > 0
+            && line_bytes[key_start - 1] != b' '
+            && line_bytes[key_start - 1] != b'\t'
+            && line_bytes[key_start - 1] != b'{'
+            && line_bytes[key_start - 1] != b','
+        {
+            key_start -= 1;
+        }
+        return Some(key_start);
+    }
+    None
+}
+
+/// Check if the array has a right sibling hash pair on a subsequent line.
+/// Looks at bytes after the array's closing `]` for a `,` followed by
+/// a newline (indicating more hash pairs follow).
+fn has_right_sibling_on_next_line(source_bytes: &[u8], closing_end_offset: usize) -> bool {
+    let mut i = closing_end_offset;
+    let len = source_bytes.len();
+    // Skip whitespace after `]`
+    while i < len && (source_bytes[i] == b' ' || source_bytes[i] == b'\t') {
+        i += 1;
+    }
+    // Expect a comma followed eventually by a newline (right sibling exists)
+    if i < len && source_bytes[i] == b',' {
+        i += 1;
+        while i < len && (source_bytes[i] == b' ' || source_bytes[i] == b'\t') {
+            i += 1;
+        }
+        if i >= len || source_bytes[i] == b'\n' || source_bytes[i] == b'\r' {
+            return true;
+        }
+    }
+    false
+}
+
 /// Check if the array is used as a direct argument (not as a receiver of
 /// a method chain or part of a binary expression). Checks the source bytes
 /// immediately after the array's closing bracket `]`.
@@ -138,16 +224,16 @@ impl Cop for FirstArrayElementIndentation {
             "align_brackets" => open_col,
             _ => {
                 // "special_inside_parentheses" (default):
-                // If the `[` is on the same line as a method call's `(`,
-                // and the array is a direct argument (not part of a chain
-                // like `[...].join()` or `[...] + other`), indent relative
-                // to the position after `(`.
-                // Otherwise, indent relative to line start.
                 let closing_end = array_node
                     .closing_loc()
                     .map(|loc| loc.end_offset())
                     .unwrap_or(0);
+
                 if let Some(paren_col) = find_left_paren_on_line(open_line_bytes, open_col) {
+                    // If the `[` is on the same line as a method call's `(`,
+                    // and the array is a direct argument (not part of a chain
+                    // like `[...].join()` or `[...] + other`), indent relative
+                    // to the position after `(`.
                     if is_direct_argument(source.as_bytes(), closing_end) {
                         paren_col + 1 + width
                     } else {

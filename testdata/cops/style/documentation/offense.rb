@@ -25,3 +25,14 @@ end
 module Test
 ^^^^^^ Style/Documentation: Missing top-level documentation comment for `module`.
 end
+
+module MixedConcern
+^^^^^^ Style/Documentation: Missing top-level documentation comment for `module`.
+  extend ActiveSupport::Concern
+
+  module ClassMethods
+  ^^^^^^ Style/Documentation: Missing top-level documentation comment for `module`.
+    def some_method
+    end
+  end
+end
