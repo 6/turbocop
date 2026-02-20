@@ -72,4 +72,20 @@ pub struct Args {
     /// Apply AllCops.Exclude to explicitly-passed files (by default, explicit files bypass exclusion)
     #[arg(long)]
     pub force_exclusion: bool,
+
+    /// Print files that would be linted, then exit
+    #[arg(short = 'L', long)]
+    pub list_target_files: bool,
+
+    /// Display cop names in offense output (accepted for RuboCop compatibility; always enabled)
+    #[arg(short = 'D', long)]
+    pub display_cop_names: bool,
+
+    /// Use parallel processing (accepted for RuboCop compatibility; always enabled)
+    #[arg(short = 'P', long)]
+    pub parallel: bool,
+
+    /// Load additional Ruby files (accepted for RuboCop compatibility; ignored)
+    #[arg(short = 'r', long = "require")]
+    pub require_libs: Vec<String>,
 }

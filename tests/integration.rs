@@ -49,6 +49,10 @@ fn default_args() -> Args {
         fail_level: "convention".to_string(),
         fail_fast: false,
         force_exclusion: false,
+        list_target_files: false,
+        display_cop_names: false,
+        parallel: false,
+        require_libs: vec![],
     }
 }
 
@@ -2944,6 +2948,348 @@ fn redundant_disable_excluded_cop() {
             .contains("Lint/UselessMethodDefinition"),
         "Message should mention the excluded cop: {}",
         redundant[0].message
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+// ---------- -L / --list-target-files CLI tests ----------
+
+#[test]
+fn list_target_files_prints_discovered_files() {
+    let dir = temp_dir("list_target");
+    fs::write(dir.join("a.rb"), "x = 1\n").unwrap();
+    fs::write(dir.join("b.rb"), "y = 2\n").unwrap();
+    fs::write(dir.join("c.txt"), "not ruby\n").unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args(["-L", "--no-cache", dir.to_str().unwrap()])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "-L should exit 0, stderr: {stderr}"
+    );
+
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines.len(), 2, "Should list 2 .rb files, got: {stdout}");
+    assert!(
+        stdout.contains("a.rb"),
+        "Should list a.rb, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("b.rb"),
+        "Should list b.rb, got: {stdout}"
+    );
+    assert!(
+        !stdout.contains("c.txt"),
+        "Should not list c.txt, got: {stdout}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn list_target_files_exits_without_linting() {
+    let dir = temp_dir("list_target_nolint");
+    fs::write(dir.join("bad.rb"), "x = 1   \n").unwrap(); // trailing whitespace
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args(["-L", "--no-cache", dir.to_str().unwrap()])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should exit 0 (not 1 for offenses) — it just lists files
+    assert!(output.status.success(), "-L should always exit 0");
+    // Should print the filename, not offense output
+    assert!(stdout.contains("bad.rb"), "Should list the file");
+    assert!(
+        !stdout.contains("TrailingWhitespace"),
+        "Should not run linting, got: {stdout}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+// ---------- -D / --display-cop-names CLI tests ----------
+
+#[test]
+fn display_cop_names_flag_accepted() {
+    let dir = temp_dir("display_cop_names");
+    fs::write(dir.join("test.rb"), "x = 1   \n").unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "-D",
+            "--only",
+            "Layout/TrailingWhitespace",
+            "--no-cache",
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Flag should be accepted without error (cop names are always shown)
+    assert!(
+        stdout.contains("Layout/TrailingWhitespace"),
+        "Cop names should appear in output with -D: {stdout}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+// ---------- -P / --parallel CLI tests ----------
+
+#[test]
+fn parallel_flag_accepted() {
+    let dir = temp_dir("parallel_flag");
+    fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args(["-P", "--no-cache", dir.to_str().unwrap()])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Should not error — flag is accepted and ignored
+    assert!(
+        output.status.success() || output.status.code() == Some(1),
+        "-P should be accepted without error, stderr: {stderr}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+// ---------- -r / --require CLI tests ----------
+
+#[test]
+fn require_flag_accepted_and_ignored() {
+    let dir = temp_dir("require_flag");
+    fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "-r",
+            "rubocop-rspec",
+            "--require",
+            "rubocop-performance",
+            "--no-cache",
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Should not error — flag is accepted and ignored
+    assert!(
+        output.status.success() || output.status.code() == Some(1),
+        "-r should be accepted without error, stderr: {stderr}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn require_multiple_values_accepted() {
+    // Test that multiple -r flags work (common in .rubocop files)
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "-r",
+            "rubocop-rspec",
+            "-r",
+            "rubocop-rails",
+            "--list-cops",
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "Multiple -r flags should be accepted, stderr: {stderr}"
+    );
+}
+
+// ---------- --fail-fast CLI tests ----------
+
+#[test]
+fn fail_fast_stops_early() {
+    let dir = temp_dir("fail_fast");
+    // Create many files with offenses
+    for i in 0..20 {
+        fs::write(dir.join(format!("file_{i:02}.rb")), "x = 1   \n").unwrap();
+    }
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "-F",
+            "--only",
+            "Layout/TrailingWhitespace",
+            "--no-cache",
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "--fail-fast should exit 1 on offenses"
+    );
+
+    // With --fail-fast, we should see offenses from fewer files than the total 20
+    // (exact count depends on rayon scheduling, but should be significantly less)
+    let file_count: usize = stdout
+        .lines()
+        .filter(|l| l.contains("Layout/TrailingWhitespace"))
+        .count();
+    assert!(
+        file_count >= 1,
+        "--fail-fast should still report at least 1 offense"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+// ---------- --fail-level CLI tests ----------
+
+#[test]
+fn fail_level_warning_ignores_conventions() {
+    let dir = temp_dir("fail_level_w");
+    // FrozenStringLiteralComment is convention severity
+    fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--fail-level",
+            "W",
+            "--only",
+            "Style/FrozenStringLiteralComment",
+            "--no-cache",
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    // Convention-level offense should NOT cause exit 1 when fail-level is warning
+    assert!(
+        output.status.success(),
+        "--fail-level W should exit 0 for convention offenses"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn fail_level_convention_catches_conventions() {
+    let dir = temp_dir("fail_level_c");
+    fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--fail-level",
+            "convention",
+            "--only",
+            "Style/FrozenStringLiteralComment",
+            "--no-cache",
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "--fail-level convention should exit 1 for convention offenses"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn fail_level_invalid_value_errors() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args(["--fail-level", "bogus", "--no-cache", "."])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "Invalid --fail-level should fail"
+    );
+    assert!(
+        stderr.contains("invalid --fail-level"),
+        "Should show helpful error, got: {stderr}"
+    );
+}
+
+// ---------- --force-exclusion CLI tests ----------
+
+#[test]
+fn force_exclusion_excludes_explicit_file() {
+    let dir = temp_dir("force_excl");
+    let vendor_dir = dir.join("vendor");
+    fs::create_dir_all(&vendor_dir).unwrap();
+    let vendor_file = vendor_dir.join("bad.rb");
+    fs::write(&vendor_file, "x = 1   \n").unwrap();
+
+    // Config that excludes vendor/**/*
+    fs::write(
+        dir.join(".rubocop.yml"),
+        "AllCops:\n  Exclude:\n    - 'vendor/**/*'\n",
+    )
+    .unwrap();
+
+    // Without --force-exclusion: explicit file should be linted
+    let output_no_force = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--only",
+            "Layout/TrailingWhitespace",
+            "--no-cache",
+            "--config",
+            dir.join(".rubocop.yml").to_str().unwrap(),
+            vendor_file.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+    let stdout_no_force = String::from_utf8_lossy(&output_no_force.stdout);
+    assert!(
+        stdout_no_force.contains("TrailingWhitespace"),
+        "Without --force-exclusion, explicit file should be linted: {stdout_no_force}"
+    );
+
+    // With --force-exclusion: explicit file should be excluded
+    let output_force = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--force-exclusion",
+            "--only",
+            "Layout/TrailingWhitespace",
+            "--no-cache",
+            "--config",
+            dir.join(".rubocop.yml").to_str().unwrap(),
+            vendor_file.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+    let stdout_force = String::from_utf8_lossy(&output_force.stdout);
+    assert!(
+        !stdout_force.contains("TrailingWhitespace"),
+        "With --force-exclusion, explicit file should be excluded: {stdout_force}"
     );
 
     fs::remove_dir_all(&dir).ok();

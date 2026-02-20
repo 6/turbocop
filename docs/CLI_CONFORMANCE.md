@@ -16,15 +16,15 @@ RuboCop CLI flags that turbocop should accept for drop-in compatibility.
 | `--fail-level SEVERITY` | `--fail-level` | Same (convention/C, warning/W, error/E, fatal/F) |
 | `-F` / `--fail-fast` | `--fail-fast` | Stop after first file with offenses |
 | `--force-exclusion` | `--force-exclusion` | Apply AllCops.Exclude to explicitly-passed files (default: explicit files bypass excludes) |
+| `-L` / `--list-target-files` | `--list-target-files` | Print files that would be linted (respecting excludes), then exit |
+| `-D` / `--display-cop-names` | `--display-cop-names` | Accepted silently (cop names always shown) |
+| `-P` / `--parallel` | `--parallel` | Accepted silently (always parallel) |
+| `-r` / `--require LIB` | `--require` | Accepted and ignored (plugins handled via config) |
 
 ## Not Yet Implemented
 
 | Flag | Impact | Difficulty | Notes |
 |------|--------|------------|-------|
-| `-L` / `--list-target-files` | Low-Medium | Easy | Print files that would be linted, then exit. File discovery already exists. |
-| `-D` / `--display-cop-names` | Cosmetic | Trivial | Already shown by default. Accept flag silently to avoid "unknown flag" errors. |
-| `-P` / `--parallel` | Cosmetic | Trivial | Already always parallel. Accept and ignore. |
-| `-r` / `--require` | Medium | Easy | Accept and ignore (plugins handled via config). Avoids errors from `.rubocop` options files. |
 | `--force-default-config` | Low | Easy | Ignore all config files, use built-in defaults only. |
 | `--ignore-disable-comments` | Low | Easy | Ignore `# rubocop:disable` directives. |
 | `-a` / `--autocorrect` | High | Hard | Safe autocorrect only. Requires fixer infrastructure (M7). |

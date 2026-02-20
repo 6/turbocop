@@ -453,6 +453,10 @@ mod tests {
             fail_level: "convention".to_string(),
             fail_fast: false,
             force_exclusion: false,
+            list_target_files: false,
+            display_cop_names: false,
+            parallel: false,
+            require_libs: vec![],
         }
     }
 

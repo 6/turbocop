@@ -90,8 +90,9 @@ pub fn run(args: Args) -> Result<i32> {
     }
 
     // Determine whether to use lockfile:
-    // --no-lock, --rubocop-only, and --stdin bypass the lockfile requirement
-    let use_cache = !args.no_cache && !args.rubocop_only && args.stdin.is_none();
+    // --no-lock, --rubocop-only, --list-target-files, and --stdin bypass the lockfile requirement
+    let use_cache =
+        !args.no_cache && !args.rubocop_only && !args.list_target_files && args.stdin.is_none();
 
     // Load config — use lockfile if available
     let config_start = std::time::Instant::now();
@@ -166,6 +167,25 @@ pub fn run(args: Args) -> Result<i32> {
     }
 
     let discovered = discover_files(&args.paths, &config)?;
+
+    // --list-target-files (-L): print files that would be linted, then exit
+    if args.list_target_files {
+        let cop_filters = config.build_cop_filters(&registry);
+        for file in &discovered.files {
+            if cop_filters.is_globally_excluded(file) {
+                let is_explicit = discovered.explicit.contains(file)
+                    || file
+                        .canonicalize()
+                        .ok()
+                        .is_some_and(|c| discovered.explicit.contains(&c));
+                if args.force_exclusion || !is_explicit {
+                    continue;
+                }
+            }
+            println!("{}", file.display());
+        }
+        return Ok(0);
+    }
 
     if args.debug {
         eprintln!("debug: {} files to lint", discovered.files.len());
