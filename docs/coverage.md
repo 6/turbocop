@@ -44,7 +44,7 @@ Location-level comparison: file + line + cop_name. Only cops implemented by turb
 
 | Repo | turbocop | rubocop | Matches | FP (turbocop only) | FN (rubocop only) | Match rate |
 |------|-------:|--------:|--------:|-----------------:|------------------:|-----------:|
-| mastodon | 300 | 302 | 300 | 0 | 2 | **99.3%** |
+| mastodon | 302 | 302 | 302 | 0 | 0 | **100.0%** |
 | discourse | 0 | 0 | 0 | 0 | 0 | **100.0%** |
 | rails | 6 | 6 | 6 | 0 | 0 | **100.0%** |
 | rubocop | 0 | 0 | 0 | 0 | 0 | **100.0%** |
@@ -57,14 +57,7 @@ Location-level comparison: file + line + cop_name. Only cops implemented by turb
 | doorkeeper | 624 | 624 | 624 | 0 | 0 | **100.0%** |
 | fat_free_crm | 0 | 0 | 0 | 0 | 0 | **100.0%** |
 
-<details>
-<summary>Divergent cops — mastodon (1 of 1 shown)</summary>
-
-| Cop | Matches | FP | FN |
-|-----|--------:|---:|---:|
-| Lint/RedundantCopDisableDirective | 2 | 0 | 2 |
-
-</details>
+**mastodon:** All cops match perfectly!
 
 **discourse:** All cops match perfectly!
 

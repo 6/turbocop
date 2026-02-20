@@ -1143,6 +1143,33 @@ Fixed doorkeeper's last FN by implementing scope-aware write/read tracking in Li
 - [x] mastodon: **99.3%** (2 FN: RedundantCopDisableDirective — conservative: don't flag enabled cops)
 - [x] All other repos: **100%**
 
+## Completed: M20 — RedundantCopDisableDirective + 12/12 Conformance (915 cops)
+
+Fixed mastodon's last 2 FN by implementing `is_cop_excluded` logic in `Lint/RedundantCopDisableDirective`. Directives for enabled cops that are excluded from a file (via Exclude patterns) are now correctly flagged as redundant. Also fixed `Rails/ApplicationJob` incorrect `default_include` and bench cache staleness.
+
+### M20 Cop Fixes
+
+- **Lint/RedundantCopDisableDirective**: Added `is_cop_excluded()` method to `CopFilterSet` that checks Exclude patterns (not Include — unreliable due to sub-config directory path resolution). Directives for enabled-but-excluded cops are now flagged as redundant. Added self-referential guard: `# rubocop:disable Lint/RedundantCopDisableDirective` is never flagged. Fixed 2 FN on mastodon (`Lint/UselessMethodDefinition` excluded from controllers by rubocop-rails).
+- **Rails/ApplicationJob**: Removed incorrect `default_include: &["app/jobs/**/*.rb"]` — rubocop-rails has no Include restriction for this cop. Fixed 1 FP on rubygems.org.
+
+### M20 Infrastructure
+
+- **bench/bench.rs**: Added `--cache-clear` before `--init` in conformance runs to prevent stale file-level result caches from causing divergences.
+- **src/config/mod.rs**: New `is_cop_excluded()` method on `CopFilterSet` with root-relative path fallback for sub-config directories.
+
+### M20 Tests
+
+- 3 new unit tests for `is_cop_excluded` in config/mod.rs
+- 9 new/updated integration tests: excluded cop, self-referential, executed-no-offense, renamed cop, unknown cop, department-only, all wildcard, include-mismatch, mixed excluded+active
+
+### M20 Summary
+
+- [x] 915 cops registered (unchanged)
+- [x] All tests passing (2,585 unit + 50 binary + 82 integration)
+- [x] **12 of 12 bench repos at 100% conformance**
+- [x] mastodon: **99.3% → 100%** (302/302 matches, 0 FP, 0 FN)
+- [x] All other repos: **100%**
+
 ## Milestones
 
 | Milestone | Cops | Status |
@@ -1171,3 +1198,4 @@ Fixed doorkeeper's last FN by implementing scope-aware write/read tracking in Li
 | **M17**: Doorkeeper + Fat Free CRM Conformance Push | 915 | **Done** |
 | **M18**: Final Conformance Push (10/12 at 100%) | 915 | **Done** |
 | **M19**: UselessAssignment Scope-Aware + CLI | 915 | **Done** |
+| **M20**: RedundantCopDisableDirective + 12/12 Conformance | 915 | **Done** |

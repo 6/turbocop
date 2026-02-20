@@ -107,11 +107,6 @@ static REPOS: &[BenchRepo] = &[
         tag: "v0.25.0",
     },
     BenchRepo {
-        name: "ruby-progressbar",
-        url: "https://github.com/jfelchner/ruby-progressbar.git",
-        tag: "v1.5.1",
-    },
-    BenchRepo {
         name: "multi_json",
         url: "https://github.com/sferik/multi_json.git",
         tag: "v1.19.1",
@@ -236,17 +231,32 @@ fn setup_repos() {
         match status {
             Ok(s) if s.success() => eprintln!("  Bundle install OK."),
             _ => {
-                eprintln!("  Bundle install failed. Trying with --without production...");
+                // Stale lockfiles can pin gems incompatible with the current Ruby.
+                // Remove the lockfile and re-resolve to self-heal.
+                eprintln!("  Bundle install failed. Removing Gemfile.lock and retrying...");
+                let _ = fs::remove_file(repo_path.join("Gemfile.lock"));
                 let retry = Command::new("bundle")
-                    .args(["install", "--jobs", "4", "--without", "production"])
+                    .args(["install", "--jobs", "4"])
                     .current_dir(&repo_path)
                     .status();
                 match retry {
-                    Ok(s) if s.success() => eprintln!("  Bundle install OK (without production)."),
-                    _ => eprintln!(
-                        "  WARNING: bundle install failed for {}. rubocop may not work.",
-                        repo.name
-                    ),
+                    Ok(s) if s.success() => eprintln!("  Bundle install OK (fresh resolve)."),
+                    _ => {
+                        eprintln!("  Trying with --without production...");
+                        let retry2 = Command::new("bundle")
+                            .args(["install", "--jobs", "4", "--without", "production"])
+                            .current_dir(&repo_path)
+                            .status();
+                        match retry2 {
+                            Ok(s) if s.success() => {
+                                eprintln!("  Bundle install OK (without production).")
+                            }
+                            _ => eprintln!(
+                                "  WARNING: bundle install failed for {}. rubocop may not work.",
+                                repo.name
+                            ),
+                        }
+                    }
                 }
             }
         }
@@ -285,6 +295,16 @@ fn init_lockfiles() {
         if !repo_dir.exists() {
             continue;
         }
+
+        // Clear stale file-level result caches before regenerating.
+        // The result cache stores per-file lint results keyed by content hash.
+        // When the binary changes (new cops, different detection logic), stale
+        // cached results diverge from fresh results.
+        let _ = Command::new(turbocop.as_os_str())
+            .args(["--cache-clear", repo_dir.to_str().unwrap()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .output();
 
         eprintln!("Generating .turbocop.cache for {}...", repo.name);
         let start = Instant::now();

@@ -250,6 +250,30 @@ impl CopFilterSet {
         true
     }
 
+    /// Check whether a cop is explicitly excluded from a file by its Exclude
+    /// patterns. Only checks Exclude — does NOT check Include patterns or
+    /// enabled status. Used for RedundantCopDisableDirective to distinguish
+    /// "cop excluded from this file" (safe to flag) from "cop didn't match
+    /// Include" (sub-config path issues, not safe to flag).
+    pub fn is_cop_excluded(&self, index: usize, path: &Path) -> bool {
+        let filter = &self.filters[index];
+
+        let nearest_dir = self.nearest_config_dir(path);
+        let rel_to_nearest = nearest_dir.and_then(|cd| path.strip_prefix(cd).ok());
+
+        // Also check against the root config dir for Exclude patterns
+        // relative to the project root (e.g., **/app/controllers/**/*.rb).
+        let rel_to_root = self
+            .config_dir
+            .as_deref()
+            .filter(|root| nearest_dir.is_some_and(|n| n != *root))
+            .and_then(|cd| path.strip_prefix(cd).ok());
+
+        filter.is_excluded(path)
+            || rel_to_nearest.is_some_and(|rel| filter.is_excluded(rel))
+            || rel_to_root.is_some_and(|rel| filter.is_excluded(rel))
+    }
+
     /// Check whether a file path would be matched (not excluded) by a cop's
     /// Include/Exclude patterns from its `CopConfig`. This is used for cops
     /// NOT in the registry (unimplemented cops from gem configs) to determine
@@ -3537,6 +3561,74 @@ mod tests {
             pattern_cop_indices: Vec::new(),
         };
         assert!(!filter_set.is_cop_match(0, Path::new("anything.rb")));
+    }
+
+    #[test]
+    fn is_cop_excluded_checks_exclude_only() {
+        // is_cop_excluded only checks Exclude patterns, not Include.
+        // A cop with Include that doesn't match should NOT be reported as excluded.
+        let filter = make_filter(true, &["db/migrate/**/*.rb"], &[]);
+        let filter_set = CopFilterSet {
+            global_exclude: GlobSet::empty(),
+            global_exclude_re: None,
+            filters: vec![filter],
+            config_dir: Some(PathBuf::from("/project")),
+            sub_config_dirs: Vec::new(),
+            universal_cop_indices: Vec::new(),
+            pattern_cop_indices: Vec::new(),
+        };
+        // File doesn't match Include, but is_cop_excluded only checks Exclude
+        assert!(
+            !filter_set.is_cop_excluded(0, Path::new("/project/app/models/user.rb")),
+            "Include mismatch should not count as excluded"
+        );
+    }
+
+    #[test]
+    fn is_cop_excluded_detects_exclude_pattern() {
+        let filter = make_filter(true, &[], &["**/app/controllers/**/*.rb"]);
+        let filter_set = CopFilterSet {
+            global_exclude: GlobSet::empty(),
+            global_exclude_re: None,
+            filters: vec![filter],
+            config_dir: Some(PathBuf::from("/project")),
+            sub_config_dirs: Vec::new(),
+            universal_cop_indices: Vec::new(),
+            pattern_cop_indices: Vec::new(),
+        };
+        assert!(
+            filter_set.is_cop_excluded(0, Path::new("/project/app/controllers/test.rb")),
+            "File matching Exclude should be detected"
+        );
+        assert!(
+            !filter_set.is_cop_excluded(0, Path::new("/project/app/models/test.rb")),
+            "File not matching Exclude should not be detected"
+        );
+    }
+
+    #[test]
+    fn is_cop_excluded_with_sub_config_dir() {
+        // When a file is in a sub-config directory (e.g., db/migrate/),
+        // Exclude patterns relative to the root should still match.
+        let filter = make_filter(true, &[], &["**/app/controllers/**/*.rb"]);
+        let filter_set = CopFilterSet {
+            global_exclude: GlobSet::empty(),
+            global_exclude_re: None,
+            filters: vec![filter],
+            config_dir: Some(PathBuf::from("bench/repos/mastodon")),
+            sub_config_dirs: vec![PathBuf::from("bench/repos/mastodon/app/controllers")],
+            universal_cop_indices: Vec::new(),
+            pattern_cop_indices: Vec::new(),
+        };
+        // File in sub-config dir: nearest_config_dir is the sub-dir,
+        // but root-relative path should still match the Exclude pattern.
+        assert!(
+            filter_set.is_cop_excluded(
+                0,
+                Path::new("bench/repos/mastodon/app/controllers/auth/test.rb")
+            ),
+            "Exclude should match via root-relative path even in sub-config dir"
+        );
     }
 
     mod prop_tests {

@@ -417,7 +417,6 @@ fn is_directive_redundant(
     cop_name: &str,
     registry: &CopRegistry,
     cop_filters: &CopFilterSet,
-    config: &ResolvedConfig,
     path: &Path,
 ) -> bool {
     // "all" is a wildcard — never flag (too broad to determine redundancy)
@@ -427,6 +426,12 @@ fn is_directive_redundant(
 
     // Department-only name (no '/') — never flag (too broad to check)
     if !cop_name.contains('/') {
+        return false;
+    }
+
+    // Self-referential: disabling RedundantCopDisableDirective itself is
+    // legitimate (used in RuboCop's own source, for example).
+    if cop_name == REDUNDANT_DISABLE_COP {
         return false;
     }
 
@@ -442,15 +447,20 @@ fn is_directive_redundant(
         let filter = cop_filters.cop_filter(idx);
         if !filter.is_enabled() {
             // Cop is explicitly disabled — the disable directive is redundant.
-            true
-        } else {
-            // Cop is enabled — don't flag.
-            // Conservative: turbocop may have detection gaps vs. RuboCop,
-            // so an unused directive for a running cop might still be
-            // needed for RuboCop compatibility. Flagging enabled cops
-            // requires per-cop offense tracking (see TODO_conformance.md).
-            false
+            return true;
         }
+        // Cop is enabled. Check if it's explicitly excluded from this file
+        // by Exclude patterns (e.g., Lint/UselessMethodDefinition excluded
+        // from app/controllers/**). Only check Exclude, NOT Include — Include
+        // mismatches can arise from sub-config directory path issues and are
+        // not reliable indicators of redundancy.
+        if cop_filters.is_cop_excluded(idx, path) {
+            return true;
+        }
+        // Cop is enabled and not explicitly excluded — don't flag.
+        // Conservative: even if the cop didn't execute (Include mismatch),
+        // sub-config path resolution issues could cause false positives.
+        false
     } else {
         // Cop is NOT in the registry. Check if it's a renamed cop whose new
         // name IS in the registry and is enabled. RuboCop treats disable
@@ -634,11 +644,13 @@ fn lint_source_inner(
     //
     // Flag a directive as redundant when:
     //   - The referenced cop is in the registry AND explicitly disabled (Enabled: false)
-    //   - The referenced cop is in the registry, enabled, but excluded from this
-    //     file by Include/Exclude patterns
+    //   - The referenced cop is in the registry, enabled, but didn't execute on
+    //     this file (excluded by Include/Exclude patterns)
     //   - The referenced cop is a renamed cop (old name is obsolete)
-    //   - The referenced cop is from a gem config with Include/Exclude patterns
-    //     that exclude this file
+    //   - The referenced cop disables RedundantCopDisableDirective itself (never flag)
+    //
+    // NOT flagged when the cop executed but produced no offenses (conservative:
+    // turbocop may have detection gaps vs RuboCop).
     //
     // Only run when:
     // 1. There are disable directives to check
@@ -665,7 +677,6 @@ fn lint_source_inner(
                     &directive.cop_name,
                     registry,
                     cop_filters,
-                    config,
                     &source.path,
                 ) {
                     continue;

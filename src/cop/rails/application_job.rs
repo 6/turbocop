@@ -15,10 +15,6 @@ impl Cop for ApplicationJob {
         Severity::Convention
     }
 
-    fn default_include(&self) -> &'static [&'static str] {
-        &["app/jobs/**/*.rb"]
-    }
-
     fn interested_node_types(&self) -> &'static [u8] {
         &[CLASS_NODE]
     }
