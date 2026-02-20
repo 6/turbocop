@@ -67,6 +67,10 @@ turbocop compiles ALL cops into the binary, including cops from plugin gems (rub
 
 When turbocop processes `require: [rubocop-rspec]`, it runs `bundle info --path rubocop-rspec` in the target project to find the *installed* gem version, then loads that gem's `config/default.yml`. Plugin cops not mentioned in the installed gem's `config/default.yml` should be treated as non-existent (disabled), because the target project's gem version doesn't include them. This matches RuboCop's behavior where only cops that exist in the installed gem are registered.
 
+## Standardrb Support
+
+turbocop supports projects using standardrb. The config loader recognizes `standard`, `standard-performance`, `standard-rails`, and `standard-custom` as gem families and resolves their version-specific config files (e.g., `config/ruby-3.2.yml`). This handles both pure `.standard.yml` projects and hybrid setups that `require: standard` inside `.rubocop.yml`.
+
 ## Keeping in Sync with RuboCop
 
 RuboCop is a moving target — new cops, changed behavior, and evolving NodePattern definitions. The vendor submodules (`vendor/rubocop`, `vendor/rubocop-rails`, etc.) pin specific release tags. **Submodules must always point to a proper release tag** (e.g., `v1.84.2`, `v2.34.3`), never arbitrary commits on `master`.
