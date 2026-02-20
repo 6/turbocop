@@ -180,6 +180,10 @@ Results are written to `bench/results.md` (checked in). Quick bench results go t
 
 Conformance filters RuboCop offenses to only cops in turbocop's registry (`--list-cops`). Unsupported plugin cops (e.g., minitest, rake, thread_safety) are automatically excluded from comparison — no per-repo handling needed.
 
+## RubyGem Distribution
+
+See [docs/rubygem.md](docs/rubygem.md) for the gem build/release pipeline, platform variants, and build scripts.
+
 ## Coverage Reporting
 
 ```
