@@ -103,8 +103,6 @@ jobs:
           tar czf ../../../turbocop-${{ matrix.target }}.tar.gz turbocop
 
       - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.3"
 
       - name: Package platform gem
         run: ruby script/build_platform_gem.rb ${{ inputs.version }} ${{ matrix.platform }} target/${{ matrix.target }}/release/turbocop
@@ -164,8 +162,6 @@ jobs:
           ref: v${{ inputs.version }}
 
       - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.3"
 
       - uses: actions/download-artifact@v4
         with:
