@@ -3538,4 +3538,205 @@ mod tests {
         };
         assert!(!filter_set.is_cop_match(0, Path::new("anything.rb")));
     }
+
+    mod prop_tests {
+        use super::*;
+        use proptest::prelude::*;
+
+        fn enabled_state_strategy() -> impl Strategy<Value = EnabledState> {
+            prop::sample::select(vec![
+                EnabledState::True,
+                EnabledState::False,
+                EnabledState::Pending,
+                EnabledState::Unset,
+            ])
+        }
+
+        fn string_list_strategy() -> impl Strategy<Value = Vec<String>> {
+            prop::collection::vec("[a-z]{1,8}", 0..5)
+        }
+
+        fn cop_config_strategy() -> impl Strategy<Value = CopConfig> {
+            (
+                enabled_state_strategy(),
+                prop::option::of(prop::sample::select(vec![
+                    Severity::Convention,
+                    Severity::Warning,
+                    Severity::Error,
+                ])),
+                string_list_strategy(),
+                string_list_strategy(),
+            )
+                .prop_map(|(enabled, severity, exclude, include)| CopConfig {
+                    enabled,
+                    severity,
+                    exclude,
+                    include,
+                    options: HashMap::new(),
+                })
+        }
+
+        fn inherit_mode_strategy() -> impl Strategy<Value = Option<InheritMode>> {
+            prop_oneof![
+                Just(None),
+                Just(Some(InheritMode::default())),
+                Just(Some(InheritMode {
+                    merge: HashSet::from(["Include".to_string()]),
+                    override_keys: HashSet::new(),
+                })),
+                Just(Some(InheritMode {
+                    merge: HashSet::new(),
+                    override_keys: HashSet::from(["Exclude".to_string()]),
+                })),
+                Just(Some(InheritMode {
+                    merge: HashSet::from(["Include".to_string()]),
+                    override_keys: HashSet::from(["Exclude".to_string()]),
+                })),
+            ]
+        }
+
+        proptest! {
+            #[test]
+            fn merge_enabled_last_writer_wins(
+                base in cop_config_strategy(),
+                overlay in cop_config_strategy(),
+                inherit_mode in inherit_mode_strategy(),
+            ) {
+                let mut merged = base.clone();
+                merge_cop_config(&mut merged, &overlay, inherit_mode.as_ref());
+                if overlay.enabled != EnabledState::Unset {
+                    prop_assert_eq!(merged.enabled, overlay.enabled,
+                        "overlay enabled {:?} should override base {:?}",
+                        overlay.enabled, base.enabled);
+                } else {
+                    prop_assert_eq!(merged.enabled, base.enabled,
+                        "base enabled should persist when overlay is Unset");
+                }
+            }
+
+            #[test]
+            fn merge_severity_last_writer_wins(
+                base in cop_config_strategy(),
+                overlay in cop_config_strategy(),
+                inherit_mode in inherit_mode_strategy(),
+            ) {
+                let mut merged = base.clone();
+                merge_cop_config(&mut merged, &overlay, inherit_mode.as_ref());
+                if overlay.severity.is_some() {
+                    prop_assert_eq!(merged.severity, overlay.severity);
+                } else {
+                    prop_assert_eq!(merged.severity, base.severity);
+                }
+            }
+
+            #[test]
+            fn merge_exclude_default_appends(
+                base in cop_config_strategy(),
+                overlay in cop_config_strategy(),
+            ) {
+                // No inherit_mode and no override -> Exclude appends (union)
+                let mut merged = base.clone();
+                merge_cop_config(&mut merged, &overlay, None);
+                // All base excludes should still be present
+                for exc in &base.exclude {
+                    prop_assert!(merged.exclude.contains(exc),
+                        "base exclude '{}' lost after merge", exc);
+                }
+                // All overlay excludes should be present
+                for exc in &overlay.exclude {
+                    prop_assert!(merged.exclude.contains(exc),
+                        "overlay exclude '{}' not added", exc);
+                }
+            }
+
+            #[test]
+            fn merge_exclude_override_replaces(
+                base in cop_config_strategy(),
+                overlay in cop_config_strategy(),
+            ) {
+                let im = InheritMode {
+                    merge: HashSet::new(),
+                    override_keys: HashSet::from(["Exclude".to_string()]),
+                };
+                let mut merged = base.clone();
+                merge_cop_config(&mut merged, &overlay, Some(&im));
+                if !overlay.exclude.is_empty() {
+                    prop_assert_eq!(merged.exclude, overlay.exclude,
+                        "override should replace exclude entirely");
+                } else {
+                    // Empty overlay doesn't replace
+                    prop_assert_eq!(merged.exclude, base.exclude);
+                }
+            }
+
+            #[test]
+            fn merge_include_default_replaces(
+                base in cop_config_strategy(),
+                overlay in cop_config_strategy(),
+            ) {
+                let mut merged = base.clone();
+                merge_cop_config(&mut merged, &overlay, None);
+                if !overlay.include.is_empty() {
+                    prop_assert_eq!(merged.include, overlay.include,
+                        "default should replace include");
+                } else {
+                    prop_assert_eq!(merged.include, base.include,
+                        "empty overlay include should leave base unchanged");
+                }
+            }
+
+            #[test]
+            fn merge_include_with_merge_mode_appends(
+                base in cop_config_strategy(),
+                overlay in cop_config_strategy(),
+            ) {
+                let im = InheritMode {
+                    merge: HashSet::from(["Include".to_string()]),
+                    override_keys: HashSet::new(),
+                };
+                let mut merged = base.clone();
+                merge_cop_config(&mut merged, &overlay, Some(&im));
+                if !overlay.include.is_empty() {
+                    // All base includes should be preserved
+                    for inc in &base.include {
+                        prop_assert!(merged.include.contains(inc),
+                            "base include '{}' lost in merge mode", inc);
+                    }
+                    // All overlay includes should be present
+                    for inc in &overlay.include {
+                        prop_assert!(merged.include.contains(inc),
+                            "overlay include '{}' not appended", inc);
+                    }
+                }
+            }
+
+            #[test]
+            fn merge_does_not_introduce_new_duplicate_excludes(
+                base in cop_config_strategy(),
+                overlay in cop_config_strategy(),
+            ) {
+                let mut merged = base.clone();
+                merge_cop_config(&mut merged, &overlay, None);
+                // Each overlay exclude should appear at most once more than in base
+                for exc in &overlay.exclude {
+                    let count_in_merged = merged.exclude.iter().filter(|e| *e == exc).count();
+                    let count_in_base = base.exclude.iter().filter(|e| *e == exc).count();
+                    prop_assert!(count_in_merged <= count_in_base.max(1),
+                        "overlay exclude '{}' duplicated: {} in merged vs {} in base",
+                        exc, count_in_merged, count_in_base);
+                }
+            }
+
+            #[test]
+            fn merge_preserves_base_when_overlay_empty(base in cop_config_strategy()) {
+                let overlay = CopConfig::default();
+                let mut merged = base.clone();
+                merge_cop_config(&mut merged, &overlay, None);
+                prop_assert_eq!(merged.enabled, base.enabled);
+                prop_assert_eq!(merged.severity, base.severity);
+                prop_assert_eq!(merged.exclude, base.exclude);
+                prop_assert_eq!(merged.include, base.include);
+            }
+        }
+    }
 }

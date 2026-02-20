@@ -147,4 +147,90 @@ mod tests {
         assert!(d1.sort_key() < d2.sort_key());
         assert!(d2.sort_key() < d3.sort_key());
     }
+
+    mod prop_tests {
+        use super::*;
+        use proptest::prelude::*;
+
+        fn severity_strategy() -> impl Strategy<Value = Severity> {
+            prop::sample::select(vec![
+                Severity::Convention,
+                Severity::Warning,
+                Severity::Error,
+                Severity::Fatal,
+            ])
+        }
+
+        fn diagnostic_strategy() -> impl Strategy<Value = Diagnostic> {
+            (
+                "[a-z]{1,5}\\.rb",
+                1usize..500,
+                0usize..200,
+                severity_strategy(),
+                "[A-Z][a-z]+/[A-Z][a-z]+",
+                "[a-z ]{1,30}",
+            )
+                .prop_map(|(path, line, column, severity, cop_name, message)| {
+                    Diagnostic {
+                        path,
+                        location: Location { line, column },
+                        severity,
+                        cop_name,
+                        message,
+                    }
+                })
+        }
+
+        proptest! {
+            #[test]
+            fn sort_key_ordering_is_transitive(
+                a in diagnostic_strategy(),
+                b in diagnostic_strategy(),
+                c in diagnostic_strategy(),
+            ) {
+                if a.sort_key() < b.sort_key() && b.sort_key() < c.sort_key() {
+                    prop_assert!(a.sort_key() < c.sort_key());
+                }
+            }
+
+            #[test]
+            fn sort_produces_correct_order(mut diagnostics in prop::collection::vec(diagnostic_strategy(), 0..20)) {
+                diagnostics.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
+                for pair in diagnostics.windows(2) {
+                    prop_assert!(pair[0].sort_key() <= pair[1].sort_key());
+                }
+            }
+
+            #[test]
+            fn display_contains_all_fields(d in diagnostic_strategy()) {
+                let output = format!("{d}");
+                prop_assert!(output.contains(&d.path));
+                prop_assert!(output.contains(&d.location.line.to_string()));
+                prop_assert!(output.contains(&d.location.column.to_string()));
+                prop_assert!(output.contains(&d.severity.letter().to_string()));
+                prop_assert!(output.contains(&d.cop_name));
+                prop_assert!(output.contains(&d.message));
+            }
+
+            #[test]
+            fn severity_from_str_roundtrip(sev in severity_strategy()) {
+                let name = match sev {
+                    Severity::Convention => "convention",
+                    Severity::Warning => "warning",
+                    Severity::Error => "error",
+                    Severity::Fatal => "fatal",
+                };
+                prop_assert_eq!(Severity::from_str(name), Some(sev));
+            }
+
+            #[test]
+            fn severity_from_str_rejects_random(s in "[a-z]{6,20}") {
+                // Random strings of 6+ lowercase chars won't match any severity name
+                let valid = ["convention", "warning", "error", "fatal"];
+                if !valid.contains(&s.as_str()) {
+                    prop_assert_eq!(Severity::from_str(&s), None);
+                }
+            }
+        }
+    }
 }

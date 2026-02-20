@@ -314,3 +314,150 @@ macro_rules! cop_scenario_fixture_tests {
         }
     };
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod prop_tests {
+        use super::*;
+        use proptest::prelude::*;
+        use serde_yml::Value;
+
+        fn config_with(options: HashMap<String, Value>) -> CopConfig {
+            CopConfig {
+                options,
+                ..CopConfig::default()
+            }
+        }
+
+        /// Strategy for serde_yml::Value that exercises the type branches.
+        fn yaml_value_strategy() -> impl Strategy<Value = Value> {
+            prop_oneof![
+                any::<bool>().prop_map(Value::Bool),
+                any::<u64>().prop_map(|n| Value::Number(serde_yml::Number::from(n))),
+                "[a-z]{0,20}".prop_map(Value::String),
+                Just(Value::Null),
+                prop::collection::vec("[a-z]{1,10}".prop_map(Value::String), 0..5)
+                    .prop_map(Value::Sequence),
+            ]
+        }
+
+        proptest! {
+            #[test]
+            fn get_str_missing_key_returns_default(default in "[a-z]{1,10}") {
+                let cfg = config_with(HashMap::new());
+                prop_assert_eq!(cfg.get_str("NoSuchKey", &default), default.as_str());
+            }
+
+            #[test]
+            fn get_str_present_string(key in "[A-Z][a-z]{1,8}", val in "[a-z]{1,20}") {
+                let cfg = config_with(HashMap::from([
+                    (key.clone(), Value::String(val.clone())),
+                ]));
+                prop_assert_eq!(cfg.get_str(&key, "fallback"), val.as_str());
+            }
+
+            #[test]
+            fn get_str_wrong_type_returns_default(key in "[A-Z][a-z]{1,8}", n in any::<u64>()) {
+                let cfg = config_with(HashMap::from([
+                    (key.clone(), Value::Number(serde_yml::Number::from(n))),
+                ]));
+                prop_assert_eq!(cfg.get_str(&key, "default"), "default");
+            }
+
+            #[test]
+            fn get_usize_missing_key_returns_default(default in any::<usize>()) {
+                let cfg = config_with(HashMap::new());
+                prop_assert_eq!(cfg.get_usize("NoSuchKey", default), default);
+            }
+
+            #[test]
+            fn get_usize_present_number(key in "[A-Z][a-z]{1,8}", n in 0u64..1_000_000) {
+                let cfg = config_with(HashMap::from([
+                    (key.clone(), Value::Number(serde_yml::Number::from(n))),
+                ]));
+                prop_assert_eq!(cfg.get_usize(&key, 999), n as usize);
+            }
+
+            #[test]
+            fn get_usize_wrong_type_returns_default(key in "[A-Z][a-z]{1,8}", s in "[a-z]{1,10}") {
+                let cfg = config_with(HashMap::from([
+                    (key.clone(), Value::String(s)),
+                ]));
+                prop_assert_eq!(cfg.get_usize(&key, 42), 42);
+            }
+
+            #[test]
+            fn get_bool_missing_key_returns_default(default in any::<bool>()) {
+                let cfg = config_with(HashMap::new());
+                prop_assert_eq!(cfg.get_bool("NoSuchKey", default), default);
+            }
+
+            #[test]
+            fn get_bool_present_bool(key in "[A-Z][a-z]{1,8}", val in any::<bool>()) {
+                let cfg = config_with(HashMap::from([
+                    (key.clone(), Value::Bool(val)),
+                ]));
+                prop_assert_eq!(cfg.get_bool(&key, !val), val);
+            }
+
+            #[test]
+            fn get_bool_wrong_type_returns_default(key in "[A-Z][a-z]{1,8}", s in "[a-z]{1,10}") {
+                let cfg = config_with(HashMap::from([
+                    (key.clone(), Value::String(s)),
+                ]));
+                prop_assert_eq!(cfg.get_bool(&key, true), true);
+            }
+
+            #[test]
+            fn get_string_array_missing_returns_none(key in "[A-Z][a-z]{1,8}") {
+                let cfg = config_with(HashMap::new());
+                prop_assert!(cfg.get_string_array(&key).is_none());
+            }
+
+            #[test]
+            fn get_string_array_present(
+                key in "[A-Z][a-z]{1,8}",
+                items in prop::collection::vec("[a-z]{1,10}", 0..10),
+            ) {
+                let seq: Vec<Value> = items.iter().map(|s| Value::String(s.clone())).collect();
+                let cfg = config_with(HashMap::from([
+                    (key.clone(), Value::Sequence(seq)),
+                ]));
+                let result = cfg.get_string_array(&key).unwrap();
+                prop_assert_eq!(result, items);
+            }
+
+            #[test]
+            fn get_string_array_filters_non_strings(key in "[A-Z][a-z]{1,8}") {
+                let seq = vec![
+                    Value::String("keep".to_string()),
+                    Value::Bool(true),
+                    Value::Number(serde_yml::Number::from(42u64)),
+                    Value::String("also_keep".to_string()),
+                ];
+                let cfg = config_with(HashMap::from([
+                    (key.clone(), Value::Sequence(seq)),
+                ]));
+                let result = cfg.get_string_array(&key).unwrap();
+                prop_assert_eq!(result, vec!["keep".to_string(), "also_keep".to_string()]);
+            }
+
+            #[test]
+            fn no_panic_on_arbitrary_values(
+                key in "[A-Z][a-z]{1,8}",
+                val in yaml_value_strategy(),
+            ) {
+                let cfg = config_with(HashMap::from([(key.clone(), val)]));
+                // None of these should panic regardless of value type
+                let _ = cfg.get_str(&key, "default");
+                let _ = cfg.get_usize(&key, 0);
+                let _ = cfg.get_bool(&key, false);
+                let _ = cfg.get_string_array(&key);
+                let _ = cfg.get_string_hash(&key);
+                let _ = cfg.get_flat_string_values(&key);
+            }
+        }
+    }
+}

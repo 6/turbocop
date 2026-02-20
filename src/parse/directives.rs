@@ -460,4 +460,145 @@ mod tests {
         assert_eq!(unused.len(), 1);
         assert_eq!(unused[0].cop_name, "Baz/Qux");
     }
+
+    mod prop_tests {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// Build a DisabledRanges synthetically from a map of cop name -> ranges.
+        fn synthetic_ranges(map: HashMap<String, Vec<(usize, usize)>>) -> DisabledRanges {
+            let empty = map.is_empty();
+            DisabledRanges {
+                ranges: map,
+                empty,
+                directives: Vec::new(),
+            }
+        }
+
+        /// Strategy for cop names like "Dept/CopName".
+        fn cop_name_strategy() -> impl Strategy<Value = String> {
+            let depts = prop::sample::select(vec![
+                "Layout", "Style", "Lint", "Metrics", "Naming", "Rails", "RSpec",
+            ]);
+            let cops = prop::sample::select(vec![
+                "Foo", "Bar", "Baz", "LineLength", "MethodLength", "AbcSize",
+            ]);
+            (depts, cops).prop_map(|(d, c)| format!("{d}/{c}"))
+        }
+
+        /// Strategy for non-overlapping sorted ranges (1-indexed lines).
+        fn line_ranges_strategy() -> impl Strategy<Value = Vec<(usize, usize)>> {
+            prop::collection::vec((1usize..200, 1usize..50), 0..8).prop_map(|pairs| {
+                let mut ranges: Vec<(usize, usize)> = pairs
+                    .into_iter()
+                    .map(|(start, len)| (start, start + len))
+                    .collect();
+                ranges.sort_unstable();
+                ranges
+            })
+        }
+
+        proptest! {
+            #[test]
+            fn in_range_lines_are_disabled(
+                cop in cop_name_strategy(),
+                ranges in line_ranges_strategy(),
+            ) {
+                let map = HashMap::from([(cop.clone(), ranges.clone())]);
+                let dr = synthetic_ranges(map);
+                for &(start, end) in &ranges {
+                    for line in start..=end.min(start + 5) {
+                        prop_assert!(dr.is_disabled(&cop, line),
+                            "{} should be disabled at line {} (range {}-{})", cop, line, start, end);
+                    }
+                }
+            }
+
+            #[test]
+            fn out_of_range_lines_are_not_disabled(
+                cop in cop_name_strategy(),
+                ranges in line_ranges_strategy(),
+            ) {
+                let map = HashMap::from([(cop.clone(), ranges.clone())]);
+                let dr = synthetic_ranges(map);
+                // Test lines that should NOT be disabled (gaps between ranges)
+                for line in 1usize..300 {
+                    let in_any_range = ranges.iter().any(|&(s, e)| line >= s && line <= e);
+                    if !in_any_range {
+                        prop_assert!(!dr.check_ranges(&cop, line),
+                            "{} should NOT be disabled at line {} (exact key)", cop, line);
+                    }
+                }
+            }
+
+            #[test]
+            fn department_fallback(
+                dept in prop::sample::select(vec!["Layout", "Style", "Lint", "Metrics"]),
+                cop_suffix in prop::sample::select(vec!["Foo", "Bar", "Baz"]),
+                ranges in line_ranges_strategy(),
+            ) {
+                // Disable a department, verify cop in that department is disabled
+                let cop_name = format!("{dept}/{cop_suffix}");
+                let map = HashMap::from([(dept.to_string(), ranges.clone())]);
+                let dr = synthetic_ranges(map);
+                for &(start, end) in &ranges {
+                    for line in start..=end.min(start + 5) {
+                        prop_assert!(dr.is_disabled(&cop_name, line),
+                            "{} should be disabled via department {} at line {}",
+                            cop_name, dept, line);
+                    }
+                }
+            }
+
+            #[test]
+            fn all_disables_everything(
+                cop in cop_name_strategy(),
+                ranges in line_ranges_strategy(),
+            ) {
+                let map = HashMap::from([("all".to_string(), ranges.clone())]);
+                let dr = synthetic_ranges(map);
+                for &(start, end) in &ranges {
+                    for line in start..=end.min(start + 5) {
+                        prop_assert!(dr.is_disabled(&cop, line),
+                            "{} should be disabled via 'all' at line {}", cop, line);
+                    }
+                }
+            }
+
+            #[test]
+            fn unrelated_cop_not_disabled(
+                ranges in line_ranges_strategy(),
+            ) {
+                // Disable "Foo/Bar", verify "Baz/Qux" is not disabled
+                let map = HashMap::from([("Foo/Bar".to_string(), ranges.clone())]);
+                let dr = synthetic_ranges(map);
+                for &(start, end) in &ranges {
+                    for line in start..=end.min(start + 5) {
+                        prop_assert!(!dr.is_disabled("Baz/Qux", line),
+                            "Baz/Qux should NOT be disabled when only Foo/Bar is");
+                    }
+                }
+            }
+
+            #[test]
+            fn empty_ranges_never_disabled(cop in cop_name_strategy(), line in 1usize..1000) {
+                let dr = synthetic_ranges(HashMap::new());
+                prop_assert!(!dr.is_disabled(&cop, line));
+                prop_assert!(dr.is_empty());
+            }
+
+            #[test]
+            fn is_disabled_is_deterministic(
+                cop in cop_name_strategy(),
+                ranges in line_ranges_strategy(),
+                line in 1usize..300,
+            ) {
+                let map = HashMap::from([(cop.clone(), ranges)]);
+                let dr = synthetic_ranges(map);
+                let first = dr.is_disabled(&cop, line);
+                let second = dr.is_disabled(&cop, line);
+                prop_assert_eq!(first, second, "is_disabled not deterministic");
+            }
+        }
+    }
 }
