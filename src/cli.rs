@@ -92,4 +92,8 @@ pub struct Args {
     /// Ignore all `# rubocop:disable` inline comments
     #[arg(long)]
     pub ignore_disable_comments: bool,
+
+    /// Ignore all config files and use built-in defaults only
+    #[arg(long)]
+    pub force_default_config: bool,
 }

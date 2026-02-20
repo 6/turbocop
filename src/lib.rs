@@ -97,13 +97,19 @@ pub fn run(args: Args) -> Result<i32> {
     }
 
     // Determine whether to use lockfile:
-    // --no-lock, --rubocop-only, --list-target-files, and --stdin bypass the lockfile requirement
-    let use_cache =
-        !args.no_cache && !args.rubocop_only && !args.list_target_files && args.stdin.is_none();
+    // --no-lock, --rubocop-only, --list-target-files, --force-default-config, and --stdin
+    // bypass the lockfile requirement
+    let use_cache = !args.no_cache
+        && !args.rubocop_only
+        && !args.list_target_files
+        && !args.force_default_config
+        && args.stdin.is_none();
 
     // Load config — use lockfile if available
     let config_start = std::time::Instant::now();
-    let config = if use_cache {
+    let config = if args.force_default_config {
+        config::ResolvedConfig::empty()
+    } else if use_cache {
         // Try to find config dir for lockfile lookup
         let lock_dir = target_dir.unwrap_or(std::path::Path::new("."));
         match config::lockfile::read_lock(lock_dir) {

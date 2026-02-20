@@ -54,6 +54,7 @@ fn default_args() -> Args {
         parallel: false,
         require_libs: vec![],
         ignore_disable_comments: false,
+        force_default_config: false,
     }
 }
 
@@ -2908,23 +2909,20 @@ fn cache_preserves_all_severity_types() {
 }
 
 #[test]
-fn redundant_disable_excluded_cop() {
-    // A cop that is enabled but excluded from the file's path via Exclude
-    // patterns doesn't execute on that file. A disable directive for it is
-    // therefore redundant and should be flagged.
-    let dir = temp_dir("redundant_disable_excluded_cop");
-    let sub = dir.join("app").join("controllers");
-    fs::create_dir_all(&sub).unwrap();
+fn redundant_disable_for_disabled_cop() {
+    // A cop that is explicitly disabled in config has its disable directive
+    // flagged as redundant — disabling an already-disabled cop is pointless.
+    let dir = temp_dir("redundant_disable_disabled_cop");
     let file = write_file(
         &dir,
-        "app/controllers/test_controller.rb",
+        "test.rb",
         b"# frozen_string_literal: true\n\ndef edit # rubocop:disable Lint/UselessMethodDefinition\n  super\nend\n",
     );
-    // Config that excludes Lint/UselessMethodDefinition from app/controllers/**
+    // Config that explicitly disables the cop
     write_file(
         &dir,
         ".rubocop.yml",
-        b"Lint/UselessMethodDefinition:\n  Exclude:\n    - 'app/controllers/**/*'\n",
+        b"Lint/UselessMethodDefinition:\n  Enabled: false\n",
     );
     let config = load_config(None, Some(&dir), None).unwrap();
     let registry = CopRegistry::default_registry();
@@ -2940,14 +2938,14 @@ fn redundant_disable_excluded_cop() {
     assert_eq!(
         redundant.len(),
         1,
-        "Expected 1 redundant disable for excluded cop, got: {:?}",
+        "Expected 1 redundant disable for disabled cop, got: {:?}",
         redundant
     );
     assert!(
         redundant[0]
             .message
             .contains("Lint/UselessMethodDefinition"),
-        "Message should mention the excluded cop: {}",
+        "Message should mention the disabled cop: {}",
         redundant[0].message
     );
 
@@ -3372,6 +3370,56 @@ fn ignore_disable_comments_skips_redundant_disable_check() {
     assert!(
         !stdout.contains("RedundantCopDisableDirective"),
         "Should not report redundant disables when ignoring comments: {stdout}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+// ---------- --force-default-config CLI tests ----------
+
+#[test]
+fn force_default_config_ignores_config_file() {
+    let dir = temp_dir("force_default");
+    // Config disables TrailingWhitespace
+    fs::write(
+        dir.join(".rubocop.yml"),
+        "Layout/TrailingWhitespace:\n  Enabled: false\n",
+    )
+    .unwrap();
+    fs::write(dir.join("test.rb"), "x = 1   \n").unwrap();
+
+    // Without flag: config disables the cop, no offense
+    let output_normal = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--only",
+            "Layout/TrailingWhitespace",
+            "--no-cache",
+            "--config",
+            dir.join(".rubocop.yml").to_str().unwrap(),
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+    let stdout_normal = String::from_utf8_lossy(&output_normal.stdout);
+    assert!(
+        !stdout_normal.contains("TrailingWhitespace"),
+        "Config should disable cop: {stdout_normal}"
+    );
+
+    // With --force-default-config: config is ignored, cop fires
+    let output_force = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--force-default-config",
+            "--only",
+            "Layout/TrailingWhitespace",
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+    let stdout_force = String::from_utf8_lossy(&output_force.stdout);
+    assert!(
+        stdout_force.contains("TrailingWhitespace"),
+        "With --force-default-config, cop should fire: {stdout_force}"
     );
 
     fs::remove_dir_all(&dir).ok();

@@ -21,12 +21,12 @@ RuboCop CLI flags that turbocop should accept for drop-in compatibility.
 | `-P` / `--parallel` | `--parallel` | Accepted silently (always parallel) |
 | `-r` / `--require LIB` | `--require` | Accepted with warning (plugins handled via `require:` in config) |
 | `--ignore-disable-comments` | `--ignore-disable-comments` | Ignore all `# rubocop:disable` inline directives |
+| `--force-default-config` | `--force-default-config` | Ignore all config files, use built-in defaults only |
 
 ## Not Yet Implemented
 
 | Flag | Impact | Difficulty | Notes |
 |------|--------|------------|-------|
-| `--force-default-config` | Low | Easy | Ignore all config files, use built-in defaults only. |
 | `-a` / `--autocorrect` | High | Hard | Safe autocorrect only. Requires fixer infrastructure (M7). |
 | `-A` / `--autocorrect-all` | High | Hard | All autocorrects including unsafe. Same dependency on M7. |
 | `--auto-gen-config` | Medium | Hard | Generate `.rubocop_todo.yml`. Needs offense counting + YAML generation. |

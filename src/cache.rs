@@ -461,6 +461,7 @@ mod tests {
             parallel: false,
             require_libs: vec![],
             ignore_disable_comments: false,
+            force_default_config: false,
         }
     }
 
