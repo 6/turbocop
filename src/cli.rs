@@ -68,4 +68,8 @@ pub struct Args {
     /// Stop after first file with offenses
     #[arg(short = 'F', long)]
     pub fail_fast: bool,
+
+    /// Apply AllCops.Exclude to explicitly-passed files (by default, explicit files bypass exclusion)
+    #[arg(long)]
+    pub force_exclusion: bool,
 }

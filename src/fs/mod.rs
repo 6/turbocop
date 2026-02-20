@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -5,14 +6,25 @@ use ignore::WalkBuilder;
 
 use crate::config::ResolvedConfig;
 
+/// Result of file discovery, including which files were explicitly passed.
+pub struct DiscoveredFiles {
+    pub files: Vec<PathBuf>,
+    /// Files passed directly on the command line (not discovered via directory walk).
+    /// These bypass AllCops.Exclude unless --force-exclusion is set.
+    pub explicit: HashSet<PathBuf>,
+}
+
 /// Discover Ruby files from the given paths, respecting .gitignore
 /// and AllCops.Exclude patterns.
-pub fn discover_files(paths: &[PathBuf], config: &ResolvedConfig) -> Result<Vec<PathBuf>> {
+pub fn discover_files(paths: &[PathBuf], config: &ResolvedConfig) -> Result<DiscoveredFiles> {
     let mut files = Vec::new();
+    let mut explicit = HashSet::new();
 
     for path in paths {
         if path.is_file() {
             // Direct file paths bypass extension filtering
+            let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
+            explicit.insert(canonical);
             files.push(path.clone());
         } else if path.is_dir() {
             let dir_files = walk_directory(path, config)?;
@@ -24,7 +36,7 @@ pub fn discover_files(paths: &[PathBuf], config: &ResolvedConfig) -> Result<Vec<
 
     files.sort();
     files.dedup();
-    Ok(files)
+    Ok(DiscoveredFiles { files, explicit })
 }
 
 /// Exposed for testing only.
@@ -153,10 +165,10 @@ mod tests {
         fs::write(dir.join("c.txt"), "").unwrap();
 
         let config = load_config(Some(Path::new("/nonexistent")), None, None).unwrap();
-        let files = discover_files(&[dir.clone()], &config).unwrap();
+        let discovered = discover_files(&[dir.clone()], &config).unwrap();
 
-        assert_eq!(files.len(), 2);
-        assert!(files.iter().all(|f| f.extension().unwrap() == "rb"));
+        assert_eq!(discovered.files.len(), 2);
+        assert!(discovered.files.iter().all(|f| f.extension().unwrap() == "rb"));
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -167,10 +179,10 @@ mod tests {
         fs::write(&txt, "puts 'hi'").unwrap();
 
         let config = load_config(Some(Path::new("/nonexistent")), None, None).unwrap();
-        let files = discover_files(&[txt.clone()], &config).unwrap();
+        let discovered = discover_files(&[txt.clone()], &config).unwrap();
 
-        assert_eq!(files.len(), 1);
-        assert_eq!(files[0], txt);
+        assert_eq!(discovered.files.len(), 1);
+        assert_eq!(discovered.files[0], txt);
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -189,9 +201,9 @@ mod tests {
         fs::write(dir.join("m.rb"), "").unwrap();
 
         let config = load_config(Some(Path::new("/nonexistent")), None, None).unwrap();
-        let files = discover_files(&[dir.clone()], &config).unwrap();
+        let discovered = discover_files(&[dir.clone()], &config).unwrap();
 
-        let names: Vec<_> = files
+        let names: Vec<_> = discovered.files
             .iter()
             .map(|f| f.file_name().unwrap().to_str().unwrap().to_string())
             .collect();
@@ -210,10 +222,10 @@ mod tests {
         fs::write(bin.join("server"), "#!/usr/bin/env ruby\nputs 'serve'\n").unwrap();
 
         let config = load_config(Some(Path::new("/nonexistent")), None, None).unwrap();
-        let files = discover_files(&[dir.clone()], &config).unwrap();
+        let discovered = discover_files(&[dir.clone()], &config).unwrap();
 
-        assert_eq!(files.len(), 3, "Should find app.rb + 2 ruby shebang scripts");
-        let names: Vec<_> = files
+        assert_eq!(discovered.files.len(), 3, "Should find app.rb + 2 ruby shebang scripts");
+        let names: Vec<_> = discovered.files
             .iter()
             .map(|f| f.file_name().unwrap().to_str().unwrap().to_string())
             .collect();
@@ -310,9 +322,9 @@ mod tests {
         fs::write(sub.join("nested.rb"), "").unwrap();
 
         let config = load_config(Some(Path::new("/nonexistent")), None, None).unwrap();
-        let files = discover_files(&[dir.clone()], &config).unwrap();
+        let discovered = discover_files(&[dir.clone()], &config).unwrap();
 
-        assert_eq!(files.len(), 2);
+        assert_eq!(discovered.files.len(), 2);
         fs::remove_dir_all(&dir).ok();
     }
 }

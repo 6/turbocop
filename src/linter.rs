@@ -13,6 +13,7 @@ use crate::cop::registry::CopRegistry;
 use crate::cop::walker::BatchedCopWalker;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Location, Severity};
+use crate::fs::DiscoveredFiles;
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
@@ -152,11 +153,12 @@ pub fn lint_source(
 }
 
 pub fn run_linter(
-    files: &[std::path::PathBuf],
+    discovered: &DiscoveredFiles,
     config: &ResolvedConfig,
     registry: &CopRegistry,
     args: &Args,
 ) -> LintResult {
+    let files = &discovered.files;
     let wall_start = std::time::Instant::now();
     // Build cop filters once before the parallel loop
     let cop_filters = config.build_cop_filters(registry);
@@ -210,6 +212,7 @@ pub fn run_linter(
                 &cache_stat_hits,
                 &cache_content_hits,
                 &cache_misses,
+                &discovered.explicit,
             );
             if args.fail_fast && !result.is_empty() {
                 found_offense.store(true, Ordering::Relaxed);
@@ -325,12 +328,22 @@ fn lint_file(
     cache_stat_hits: &std::sync::atomic::AtomicUsize,
     cache_content_hits: &std::sync::atomic::AtomicUsize,
     cache_misses: &std::sync::atomic::AtomicUsize,
+    explicit_files: &HashSet<std::path::PathBuf>,
 ) -> Vec<Diagnostic> {
     use crate::cache::CacheLookup;
 
-    // Check global excludes once per file
+    // Check global excludes once per file.
+    // Explicitly-passed files bypass AllCops.Exclude (matching RuboCop default)
+    // unless --force-exclusion is set.
     if cop_filters.is_globally_excluded(path) {
-        return Vec::new();
+        let is_explicit = explicit_files.contains(path)
+            || path
+                .canonicalize()
+                .ok()
+                .is_some_and(|c| explicit_files.contains(&c));
+        if args.force_exclusion || !is_explicit {
+            return Vec::new();
+        }
     }
 
     // Tier 1: stat check (mtime + size) — no file read needed

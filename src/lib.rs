@@ -165,14 +165,14 @@ pub fn run(args: Args) -> Result<i32> {
         };
     }
 
-    let files = discover_files(&args.paths, &config)?;
+    let discovered = discover_files(&args.paths, &config)?;
 
     if args.debug {
-        eprintln!("debug: {} files to lint", files.len());
+        eprintln!("debug: {} files to lint", discovered.files.len());
         eprintln!("debug: {} cops registered", registry.len());
     }
 
-    let result = run_linter(&files, &config, &registry, &args);
+    let result = run_linter(&discovered, &config, &registry, &args);
     let formatter = create_formatter(&args.format);
     formatter.print(&result.diagnostics, result.file_count);
 

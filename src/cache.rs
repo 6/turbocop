@@ -452,6 +452,7 @@ mod tests {
             cache_clear: false,
             fail_level: "convention".to_string(),
             fail_fast: false,
+            force_exclusion: false,
         }
     }
 
