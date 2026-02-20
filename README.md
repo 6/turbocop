@@ -18,7 +18,7 @@ Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (
 - Uses [Prism](https://github.com/ruby/prism) (Ruby's official parser) via `ruby-prism` crate
 - Parallel file processing with [rayon](https://github.com/rayon-rs/rayon)
 
-## Quick Start
+## Quick Start (Work in progress 🚧)
 
 Requires Rust 1.85+ (edition 2024).
 
@@ -64,7 +64,7 @@ Every cop reads its RuboCop YAML config options and has fixture-based test cover
 
 ## Conformance
 
-Location-level conformance against RuboCop on 13 open source benchmark repos:
+We run both turbocop and RuboCop on 13 popular open source repos and compare every offense (file, line, column, cop name, message). Match rate is the percentage of RuboCop offenses that turbocop reproduces exactly:
 
 | Repo | Match rate |
 |------|----------:|
