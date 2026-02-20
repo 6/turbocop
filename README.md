@@ -11,7 +11,7 @@ Quick benchmark on the codebase of [rubygems.org](https://github.com/rubygems/ru
 
 **Features**
 
-- **915 cops** across 14 departments (Layout, Lint, Style, Metrics, Naming, Security, Bundler, Gemspec, Migration, Rails, Performance, RSpec, RSpecRails, FactoryBot)
+- **915 cops** from 6 RuboCop gems (rubocop, rubocop-rails, rubocop-performance, rubocop-rspec, rubocop-rspec_rails, rubocop-factory_bot)
 - **18x faster** than RuboCop (cached), **84x faster** uncached on [rubygems.org](https://github.com/rubygems/rubygems.org) (1,222 files)
 - **100% conformance** against RuboCop on 13 benchmark repos
 - Reads your existing `.rubocop.yml` — no migration needed
@@ -49,24 +49,16 @@ Config auto-discovery walks up from the target directory to find `.rubocop.yml`.
 
 ## Cops
 
-915 cops organized by department:
+turbocop supports 915 cops from 6 RuboCop gems:
 
-| Department | Cops | Examples |
-|------------|-----:|---------|
-| Style | 289 | FrozenStringLiteralComment, HashSyntax, StringLiterals |
-| Lint | 152 | Debugger, DeprecatedClassMethods, SuppressedException |
-| Rails | 136 | TimeZone, FindBy, HttpStatus, Validation |
-| RSpec | 113 | Focus, DescribedClass, ExampleLength, PredicateMatcher |
-| Layout | 100 | LineLength, IndentationWidth, TrailingWhitespace |
-| Performance | 52 | FlatMap, Detect, Sum, StartWith |
-| Naming | 19 | MethodName, VariableName, FileName |
-| FactoryBot | 11 | CreateList, ConsistentParenthesesStyle |
-| Metrics | 10 | MethodLength, AbcSize, CyclomaticComplexity |
-| Gemspec | 10 | RequiredRubyVersion, DuplicatedAssignment |
-| RSpecRails | 8 | HttpStatus, InferredSpecType |
-| Security | 7 | Eval, Open, YAMLLoad |
-| Bundler | 7 | OrderedGems, GemComment, DuplicatedGem |
-| Migration | 1 | DepartmentName |
+| Gem | Version | Cops | Coverage | Departments |
+|-----|---------|-----:|---------:|-------------|
+| [rubocop](https://github.com/rubocop/rubocop) | 1.84.2 | 595 | 100% | Layout, Lint, Style, Metrics, Naming, Security, Bundler, Gemspec, Migration |
+| [rubocop-rails](https://github.com/rubocop/rubocop-rails) | 2.34.3 | 136 | 99% | Rails |
+| [rubocop-performance](https://github.com/rubocop/rubocop-performance) | 1.26.1 | 52 | 100% | Performance |
+| [rubocop-rspec](https://github.com/rubocop/rubocop-rspec) | 3.9.0 | 113 | 100% | RSpec |
+| [rubocop-rspec_rails](https://github.com/rubocop/rubocop-rspec_rails) | 2.32.0 | 8 | 100% | RSpecRails |
+| [rubocop-factory_bot](https://github.com/rubocop/rubocop-factory_bot) | 2.28.0 | 11 | 100% | FactoryBot |
 
 Every cop reads its RuboCop YAML config options and has fixture-based test coverage.
 

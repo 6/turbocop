@@ -28,6 +28,7 @@ struct Args {
 struct VendorSource {
     dir: &'static str,
     owned_departments: &'static [&'static str],
+    version_file: &'static str,
 }
 
 static VENDOR_SOURCES: &[VendorSource] = &[
@@ -37,12 +38,13 @@ static VENDOR_SOURCES: &[VendorSource] = &[
             "Layout", "Lint", "Style", "Metrics", "Naming",
             "Security", "Bundler", "Gemspec", "Migration",
         ],
+        version_file: "lib/rubocop/version.rb",
     },
-    VendorSource { dir: "rubocop-rails", owned_departments: &["Rails"] },
-    VendorSource { dir: "rubocop-performance", owned_departments: &["Performance"] },
-    VendorSource { dir: "rubocop-rspec", owned_departments: &["RSpec"] },
-    VendorSource { dir: "rubocop-rspec_rails", owned_departments: &["RSpecRails"] },
-    VendorSource { dir: "rubocop-factory_bot", owned_departments: &["FactoryBot"] },
+    VendorSource { dir: "rubocop-rails", owned_departments: &["Rails"], version_file: "lib/rubocop/rails/version.rb" },
+    VendorSource { dir: "rubocop-performance", owned_departments: &["Performance"], version_file: "lib/rubocop/performance/version.rb" },
+    VendorSource { dir: "rubocop-rspec", owned_departments: &["RSpec"], version_file: "lib/rubocop/rspec/version.rb" },
+    VendorSource { dir: "rubocop-rspec_rails", owned_departments: &["RSpecRails"], version_file: "lib/rubocop/rspec_rails/version.rb" },
+    VendorSource { dir: "rubocop-factory_bot", owned_departments: &["FactoryBot"], version_file: "lib/rubocop/factory_bot/version.rb" },
 ];
 
 /// Repo display order for conformance table (matches bench_turbocop REPOS order).
@@ -97,6 +99,15 @@ fn parse_vendor_cops(vendor_dir: &Path, source: &VendorSource) -> BTreeMap<Strin
         }
     }
     dept_cops
+}
+
+/// Read the version string (e.g. "1.84.2") from a vendor gem's version.rb.
+fn parse_vendor_version(vendor_dir: &Path, source: &VendorSource) -> Option<String> {
+    let path = vendor_dir.join(source.dir).join(source.version_file);
+    let content = fs::read_to_string(path).ok()?;
+    // Match: STRING = '1.84.2' or VERSION = '3.9.0'
+    let re = regex::Regex::new(r#"(?:STRING|VERSION)\s*=\s*['"](\d+\.\d+\.\d+)['"]"#).unwrap();
+    re.captures(&content).map(|c| c[1].to_string())
 }
 
 fn display_dept(dept: &str) -> &str {
@@ -214,6 +225,33 @@ fn main() {
     writeln!(out, "## Cop Coverage").unwrap();
     writeln!(out).unwrap();
     writeln!(out, "**turbocop cops:** {}", registry.len()).unwrap();
+    writeln!(out).unwrap();
+
+    // Gem-level summary table
+    writeln!(out, "### By Gem").unwrap();
+    writeln!(out).unwrap();
+    writeln!(out, "| Gem | Version | Departments | RuboCop | turbocop | Coverage |").unwrap();
+    writeln!(out, "|-----|---------|-------------|--------:|-------:|---------:|").unwrap();
+
+    for source in VENDOR_SOURCES {
+        let version = parse_vendor_version(&vendor_dir, source).unwrap_or_else(|| "?".into());
+        let depts_list = source.owned_departments.join(", ");
+        let v: usize = source.owned_departments.iter()
+            .map(|d| vendor_cops.get(*d).map_or(0, |s| s.len()))
+            .sum();
+        let r: usize = source.owned_departments.iter()
+            .map(|d| turbocop_cops.get(*d).map_or(0, |s| s.len()))
+            .sum();
+        let pct = if r >= v && v > 0 { "**100%**".to_string() }
+            else if v > 0 { format!("{:.0}%", r as f64 / v as f64 * 100.0) }
+            else { "100%".to_string() };
+        writeln!(out, "| {} | {version} | {depts_list} | {v} | {r} | {pct} |", source.dir).unwrap();
+    }
+
+    writeln!(out).unwrap();
+
+    // Per-department detail table
+    writeln!(out, "### By Department").unwrap();
     writeln!(out).unwrap();
     writeln!(out, "| Department | RuboCop | turbocop | Coverage |").unwrap();
     writeln!(out, "|------------|--------:|-------:|---------:|").unwrap();
