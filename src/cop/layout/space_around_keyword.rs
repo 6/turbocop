@@ -10,6 +10,10 @@ impl Cop for SpaceAroundKeyword {
         "Layout/SpaceAroundKeyword"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_source(
         &self,
         source: &SourceFile,
@@ -17,7 +21,7 @@ impl Cop for SpaceAroundKeyword {
         code_map: &CodeMap,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let bytes = source.as_bytes();
         let len = bytes.len();
@@ -63,12 +67,23 @@ impl Cop for SpaceAroundKeyword {
                         if at_line_start && !preceded_by_def {
                             let kw_str = std::str::from_utf8(kw).unwrap_or("");
                             let (line, column) = source.offset_to_line_col(i);
-                            diagnostics.push(self.diagnostic(
+                            let mut diag = self.diagnostic(
                                 source,
                                 line,
                                 column,
                                 format!("Space missing after keyword `{kw_str}`."),
-                            ));
+                            );
+                            if let Some(ref mut corr) = corrections {
+                                corr.push(crate::correction::Correction {
+                                    start: i + kw_len,
+                                    end: i + kw_len,
+                                    replacement: " ".to_string(),
+                                    cop_name: self.name(),
+                                    cop_index: 0,
+                                });
+                                diag.corrected = true;
+                            }
+                            diagnostics.push(diag);
                         }
                     }
                 }
@@ -83,4 +98,14 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(SpaceAroundKeyword, "cops/layout/space_around_keyword");
+
+    #[test]
+    fn autocorrect_insert_space() {
+        let input = b"if(x)\n  y\nend\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&SpaceAroundKeyword, input);
+        assert!(!corrections.is_empty());
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"if (x)\n  y\nend\n");
+    }
 }

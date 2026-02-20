@@ -9,24 +9,35 @@ impl Cop for Encoding {
         "Style/Encoding"
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, mut corrections: Option<&mut Vec<crate::correction::Correction>>) {
+        let total_len = source.as_bytes().len();
+        let mut byte_offset: usize = 0;
 
         // Only check the first 3 lines (line 1, optional shebang pushes encoding to line 2,
         // and possibly line 3 with multiple magic comments)
         for (i, line) in source.lines().enumerate() {
+            let line_len = line.len() + 1; // +1 for newline
             if i >= 3 {
                 break;
             }
 
             let line_str = match std::str::from_utf8(line) {
                 Ok(s) => s.trim(),
-                Err(_) => continue,
+                Err(_) => {
+                    byte_offset += line_len;
+                    continue;
+                }
             };
 
             // Skip non-comment lines (but allow shebang on first line)
             if !line_str.starts_with('#') {
                 // If it's the first line and a shebang, or blank, continue
                 if i == 0 && line_str.starts_with("#!") {
+                    byte_offset += line_len;
                     continue;
                 }
                 // If it's a code line, stop checking (encoding must be at the top)
@@ -41,13 +52,27 @@ impl Cop for Encoding {
 
             // Check for various encoding comment formats
             if is_utf8_encoding_comment(line_str) {
-                diagnostics.push(self.diagnostic(
+                let mut diag = self.diagnostic(
                     source,
                     i + 1,
                     0,
                     "Unnecessary utf-8 encoding comment.".to_string(),
-                ));
+                );
+                if let Some(ref mut corr) = corrections {
+                    let end = std::cmp::min(byte_offset + line_len, total_len);
+                    corr.push(crate::correction::Correction {
+                        start: byte_offset,
+                        end,
+                        replacement: String::new(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                    diag.corrected = true;
+                }
+                diagnostics.push(diag);
             }
+
+            byte_offset += line_len;
         }
 
     }
@@ -128,4 +153,14 @@ mod tests {
         mixed_case = "mixed_case.rb",
         after_shebang = "after_shebang.rb",
     );
+
+    #[test]
+    fn autocorrect_remove_encoding() {
+        let input = b"# encoding: utf-8\nx = 1\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&Encoding, input);
+        assert!(!corrections.is_empty());
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"x = 1\n");
+    }
 }

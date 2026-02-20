@@ -15,10 +15,17 @@ impl Cop for DuplicateMagicComment {
         Severity::Warning
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, mut corrections: Option<&mut Vec<crate::correction::Correction>>) {
         let mut seen_keys = HashSet::new();
+        let total_len = source.as_bytes().len();
+        let mut byte_offset: usize = 0;
 
         for (i, line) in source.lines().enumerate() {
+            let line_len = line.len() + 1; // +1 for newline
             let trimmed = line
                 .iter()
                 .position(|&b| b != b' ' && b != b'\t')
@@ -27,11 +34,13 @@ impl Cop for DuplicateMagicComment {
 
             // Only check leading comments (magic comments must be at top of file)
             if trimmed.is_empty() {
+                byte_offset += line_len;
                 continue;
             }
 
             // Shebang line
             if trimmed.starts_with(b"#!") {
+                byte_offset += line_len;
                 continue;
             }
 
@@ -85,14 +94,28 @@ impl Cop for DuplicateMagicComment {
                 );
 
                 if is_magic && !seen_keys.insert(key_lower) {
-                    diagnostics.push(self.diagnostic(
+                    let mut diag = self.diagnostic(
                         source,
                         i + 1,
                         0,
                         "Duplicate magic comment detected.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        let end = std::cmp::min(byte_offset + line_len, total_len);
+                        corr.push(crate::correction::Correction {
+                            start: byte_offset,
+                            end,
+                            replacement: String::new(),
+                            cop_name: self.name(),
+                            cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
             }
+
+            byte_offset += line_len;
         }
 
     }
@@ -102,4 +125,14 @@ impl Cop for DuplicateMagicComment {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(DuplicateMagicComment, "cops/lint/duplicate_magic_comment");
+
+    #[test]
+    fn autocorrect_remove_duplicate() {
+        let input = b"# frozen_string_literal: true\n# frozen_string_literal: true\nx = 1\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&DuplicateMagicComment, input);
+        assert!(!corrections.is_empty());
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"# frozen_string_literal: true\nx = 1\n");
+    }
 }

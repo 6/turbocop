@@ -259,22 +259,42 @@ Files are independent — rayon parallelism at file level. Per-file iterations a
 - File writing after correction
 - `BatchedCopWalker` corrections buffer (currently passes `None`; will pass `Some(&mut vec)` when autocorrect is active)
 
-### Phase 1: Trivial Cops (byte-range deletions and insertions)
+### Phase 1: Trivial Cops (byte-range deletions and insertions) ✅ COMPLETE
 
 **Goal:** First cops that actually correct files. Validates the full pipeline: detection → correction → file write → re-lint convergence.
 
-**Difficulty: Easy.** Each cop is 5-15 lines of correction code on top of existing detection logic.
+**Status:** All 6 cops implemented. Iteration loop, file writing, and `BatchedCopWalker` corrections buffer implemented.
 
-| Cop | Correction | Notes |
-|-----|-----------|-------|
-| `Layout/TrailingWhitespace` | Delete trailing whitespace bytes | Simplest possible: `Correction::remove(start, end)` |
-| `Layout/TrailingEmptyLines` | Add/remove trailing newlines | Slightly tricky: may need to insert `\n` or remove multiple |
-| `Layout/LeadingEmptyLines` | Remove leading blank lines | Delete from offset 0 |
-| `Style/FrozenStringLiteralComment` | Insert `# frozen_string_literal: true\n` at top | `Correction::insert_before(0, ...)` |
-| `Layout/IndentationStyle` | Replace tabs with spaces | Per-line byte replacement |
-| `Style/Encoding` | Remove/add encoding comment | Line-level insert/delete |
+| Cop | Correction | Status |
+|-----|-----------|--------|
+| `Layout/TrailingWhitespace` | Delete trailing whitespace bytes | ✅ |
+| `Layout/TrailingEmptyLines` | Add/remove trailing newlines | ✅ |
+| `Layout/LeadingEmptyLines` | Remove leading blank lines | ✅ |
+| `Style/FrozenStringLiteralComment` | Insert `# frozen_string_literal: true\n` at top | ✅ |
+| `Layout/IndentationStyle` | Replace tabs with spaces (or spaces with tabs) | ✅ |
+| `Style/Encoding` | Remove unnecessary encoding comment | ✅ |
 
-**Verification:** `corrected.rb` fixtures for each cop. Manual test on a real repo.
+### Phase 1b: Layout Spacing + Line Cops ✅ COMPLETE
+
+**Goal:** Extend autocorrect to simple spacing and line-deletion cops.
+
+**Status:** 13 additional cops implemented across two batches.
+
+| Cop | Correction | Status |
+|-----|-----------|--------|
+| `Layout/SpaceAfterComma` | Insert space after `,` | ✅ |
+| `Layout/SpaceAfterSemicolon` | Insert space after `;` | ✅ |
+| `Layout/SpaceBeforeComma` | Remove space before `,` | ✅ |
+| `Layout/SpaceBeforeSemicolon` | Remove space before `;` | ✅ |
+| `Layout/EmptyLines` | Delete consecutive blank lines | ✅ |
+| `Layout/EndOfLine` | Normalize line endings | ✅ |
+| `Layout/InitialIndentation` | Remove initial indentation | ✅ |
+| `Layout/EmptyLineAfterMagicComment` | Insert blank line after magic comment | ✅ |
+| `Layout/LeadingCommentSpace` | Insert space after `#` | ✅ |
+| `Layout/SpaceBeforeComment` | Insert space before inline `#` | ✅ |
+| `Layout/SpaceAroundKeyword` | Insert space after keyword | ✅ |
+| `Layout/EmptyComment` | Delete empty comment lines | ✅ |
+| `Lint/DuplicateMagicComment` | Delete duplicate magic comment lines | ✅ |
 
 ### Phase 2: Simple Token Replacements
 

@@ -10,6 +10,10 @@ impl Cop for SpaceBeforeComment {
         "Layout/SpaceBeforeComment"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_source(
         &self,
         source: &SourceFile,
@@ -17,7 +21,7 @@ impl Cop for SpaceBeforeComment {
         _code_map: &CodeMap,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let bytes = source.as_bytes();
 
@@ -46,12 +50,23 @@ impl Cop for SpaceBeforeComment {
             // Inline comment: check for space before #
             if prev != b' ' && prev != b'\t' {
                 let (line, column) = source.offset_to_line_col(start);
-                diagnostics.push(self.diagnostic(
+                let mut diag = self.diagnostic(
                     source,
                     line,
                     column,
                     "Put a space before an end-of-line comment.".to_string(),
-                ));
+                );
+                if let Some(ref mut corr) = corrections {
+                    corr.push(crate::correction::Correction {
+                        start,
+                        end: start,
+                        replacement: " ".to_string(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                    diag.corrected = true;
+                }
+                diagnostics.push(diag);
             }
         }
 
@@ -63,4 +78,14 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(SpaceBeforeComment, "cops/layout/space_before_comment");
+
+    #[test]
+    fn autocorrect_insert_space() {
+        let input = b"x = 1# comment\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&SpaceBeforeComment, input);
+        assert!(!corrections.is_empty());
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"x = 1 # comment\n");
+    }
 }

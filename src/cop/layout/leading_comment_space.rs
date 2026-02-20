@@ -9,6 +9,10 @@ impl Cop for LeadingCommentSpace {
         "Layout/LeadingCommentSpace"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_source(
         &self,
         source: &SourceFile,
@@ -16,7 +20,7 @@ impl Cop for LeadingCommentSpace {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _allow_doxygen = config.get_bool("AllowDoxygenCommentStyle", false);
         let _allow_gemfile_ruby = config.get_bool("AllowGemfileRubyComment", false);
@@ -63,12 +67,23 @@ impl Cop for LeadingCommentSpace {
                     continue;
                 }
                 let (line, column) = source.offset_to_line_col(start);
-                diagnostics.push(self.diagnostic(
+                let mut diag = self.diagnostic(
                     source,
                     line,
                     column,
                     "Missing space after `#`.".to_string(),
-                ));
+                );
+                if let Some(ref mut corr) = corrections {
+                    corr.push(crate::correction::Correction {
+                        start: start + 1,
+                        end: start + 1,
+                        replacement: " ".to_string(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                    diag.corrected = true;
+                }
+                diagnostics.push(diag);
             }
         }
 
@@ -80,4 +95,14 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(LeadingCommentSpace, "cops/layout/leading_comment_space");
+
+    #[test]
+    fn autocorrect_insert_space() {
+        let input = b"#comment\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&LeadingCommentSpace, input);
+        assert!(!corrections.is_empty());
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"# comment\n");
+    }
 }

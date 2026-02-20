@@ -10,6 +10,10 @@ impl Cop for EmptyComment {
         "Layout/EmptyComment"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_source(
         &self,
         source: &SourceFile,
@@ -17,7 +21,7 @@ impl Cop for EmptyComment {
         code_map: &CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_border = config.get_bool("AllowBorderComment", true);
         let allow_margin = config.get_bool("AllowMarginComment", true);
@@ -25,9 +29,9 @@ impl Cop for EmptyComment {
         let lines: Vec<&[u8]> = source.lines().collect();
 
         if allow_margin {
-            diagnostics.extend(check_with_grouping(&lines, allow_border, source, code_map, self));
+            check_with_grouping(&lines, allow_border, source, code_map, self, diagnostics, corrections.as_deref_mut());
         } else {
-            diagnostics.extend(check_without_grouping(&lines, allow_border, source, code_map, self));
+            check_without_grouping(&lines, allow_border, source, code_map, self, diagnostics, corrections.as_deref_mut());
         }
     }
 }
@@ -57,18 +61,20 @@ fn check_with_grouping(
     source: &SourceFile,
     code_map: &CodeMap,
     cop: &EmptyComment,
-) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
+    diagnostics: &mut Vec<Diagnostic>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+) {
+    let total_len = source.as_bytes().len();
 
-    // Build list of (line_index, column, is_empty, is_border) for comment lines
-    // Skip lines inside non-code regions (heredocs, strings)
-    let mut comment_lines: Vec<(usize, usize, bool, bool)> = Vec::new();
+    // Build list of (line_index, column, is_empty, is_border, line_byte_offset, line_byte_len)
+    // for comment lines. Skip lines inside non-code regions (heredocs, strings).
+    let mut comment_lines: Vec<(usize, usize, bool, bool, usize, usize)> = Vec::new();
     let mut byte_offset: usize = 0;
     for (i, line) in lines.iter().enumerate() {
         let line_len = line.len() + 1; // +1 for newline
         if code_map.is_not_string(byte_offset) {
             if let Some((col, is_empty, is_border)) = classify_line(line) {
-                comment_lines.push((i, col, is_empty, is_border));
+                comment_lines.push((i, col, is_empty, is_border, byte_offset, line_len));
             }
         }
         byte_offset += line_len;
@@ -91,28 +97,38 @@ fn check_with_grouping(
 
         // Check if the entire group is only empty/border comments
         let group = &comment_lines[group_start..group_end];
-        let all_empty_or_border = group.iter().all(|&(_, _, is_empty, is_border)| {
+        let all_empty_or_border = group.iter().all(|&(_, _, is_empty, is_border, _, _)| {
             is_empty || (!allow_border && is_border)
         });
 
         if all_empty_or_border {
             // Flag each empty/border comment in the group
-            for &(line_idx, col, is_empty, is_border) in group {
+            for &(line_idx, col, is_empty, is_border, line_offset, line_byte_len) in group {
                 if is_empty || (!allow_border && is_border) {
-                    diagnostics.push(cop.diagnostic(
+                    let mut diag = cop.diagnostic(
                         source,
                         line_idx + 1,
                         col,
                         "Source code comment is empty.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        let end = std::cmp::min(line_offset + line_byte_len, total_len);
+                        corr.push(crate::correction::Correction {
+                            start: line_offset,
+                            end,
+                            replacement: String::new(),
+                            cop_name: cop.name(),
+                            cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
             }
         }
 
         group_start = group_end;
     }
-
-    diagnostics
 }
 
 /// Check without grouping (AllowMarginComment: false).
@@ -122,8 +138,10 @@ fn check_without_grouping(
     source: &SourceFile,
     code_map: &CodeMap,
     cop: &EmptyComment,
-) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
+    diagnostics: &mut Vec<Diagnostic>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+) {
+    let total_len = source.as_bytes().len();
     let mut byte_offset: usize = 0;
 
     for (i, line) in lines.iter().enumerate() {
@@ -131,19 +149,29 @@ fn check_without_grouping(
         if code_map.is_not_string(byte_offset) {
             if let Some((col, is_empty, is_border)) = classify_line(line) {
                 if is_empty || (!allow_border && is_border) {
-                    diagnostics.push(cop.diagnostic(
+                    let mut diag = cop.diagnostic(
                         source,
                         i + 1,
                         col,
                         "Source code comment is empty.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        let end = std::cmp::min(byte_offset + line_len, total_len);
+                        corr.push(crate::correction::Correction {
+                            start: byte_offset,
+                            end,
+                            replacement: String::new(),
+                            cop_name: cop.name(),
+                            cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
             }
         }
         byte_offset += line_len;
     }
-
-    diagnostics
 }
 
 #[cfg(test)]
@@ -151,6 +179,16 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(EmptyComment, "cops/layout/empty_comment");
+
+    #[test]
+    fn autocorrect_remove_empty_comment() {
+        let input = b"x = 1\n#\ny = 2\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&EmptyComment, input);
+        assert!(!corrections.is_empty());
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"x = 1\ny = 2\n");
+    }
 
     #[test]
     fn skip_empty_comment_in_heredoc() {

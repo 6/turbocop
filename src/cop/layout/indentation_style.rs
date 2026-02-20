@@ -10,6 +10,10 @@ impl Cop for IndentationStyle {
         "Layout/IndentationStyle"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_source(
         &self,
         source: &SourceFile,
@@ -17,10 +21,10 @@ impl Cop for IndentationStyle {
         code_map: &CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "spaces");
-        let _indent_width = config.get_usize("IndentationWidth", 2);
+        let indent_width = config.get_usize("IndentationWidth", 2);
 
         let mut offset = 0;
 
@@ -44,12 +48,27 @@ impl Cop for IndentationStyle {
                     let tab_offset = line_start + tab_col;
                     // Double-check the specific tab character is in a code region
                     if code_map.is_code(tab_offset) {
-                        diagnostics.push(self.diagnostic(
+                        let mut diag = self.diagnostic(
                             source,
                             line_num,
                             tab_col,
                             "Tab detected in indentation.".to_string(),
-                        ));
+                        );
+                        if let Some(ref mut corr) = corrections {
+                            // Calculate visual width of the mixed indent region
+                            let visual_width = indent.iter().fold(0usize, |w, &b| {
+                                if b == b'\t' { (w / indent_width + 1) * indent_width } else { w + 1 }
+                            });
+                            corr.push(crate::correction::Correction {
+                                start: line_start,
+                                end: line_start + indent_end,
+                                replacement: " ".repeat(visual_width),
+                                cop_name: self.name(),
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                        diagnostics.push(diag);
                     }
                 }
             } else {
@@ -60,12 +79,30 @@ impl Cop for IndentationStyle {
                     let space_col = indent.iter().position(|&b| b == b' ').unwrap_or(0);
                     let space_offset = line_start + space_col;
                     if code_map.is_code(space_offset) {
-                        diagnostics.push(self.diagnostic(
+                        let mut diag = self.diagnostic(
                             source,
                             line_num,
                             space_col,
                             "Space detected in indentation.".to_string(),
-                        ));
+                        );
+                        if let Some(ref mut corr) = corrections {
+                            // Count leading spaces and convert to tabs
+                            let space_count = indent.iter().filter(|&&b| b == b' ').count();
+                            let tab_count = indent.iter().filter(|&&b| b == b'\t').count();
+                            let total_tabs = tab_count + space_count / indent_width;
+                            let remaining_spaces = space_count % indent_width;
+                            let mut replacement = "\t".repeat(total_tabs);
+                            replacement.push_str(&" ".repeat(remaining_spaces));
+                            corr.push(crate::correction::Correction {
+                                start: line_start,
+                                end: line_start + indent_end,
+                                replacement,
+                                cop_name: self.name(),
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                        diagnostics.push(diag);
                     }
                 }
             }
@@ -79,4 +116,31 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(IndentationStyle, "cops/layout/indentation_style");
+
+    #[test]
+    fn autocorrect_tab_to_spaces() {
+        let input = b"\tx = 1\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&IndentationStyle, input);
+        assert!(!corrections.is_empty());
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"  x = 1\n");
+    }
+
+    #[test]
+    fn autocorrect_spaces_to_tab() {
+        use std::collections::HashMap;
+        let config = crate::cop::CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("tabs".into())),
+            ]),
+            ..crate::cop::CopConfig::default()
+        };
+        let input = b"  x = 1\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect_with_config(&IndentationStyle, input, config);
+        assert!(!corrections.is_empty());
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"\tx = 1\n");
+    }
 }
