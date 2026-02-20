@@ -178,6 +178,8 @@ cargo run --release --bin bench_turbocop -- quick        # quick bench: rubygems
 
 Results are written to `bench/results.md` (checked in). Quick bench results go to `bench/quick_results.md`. Conformance data is also written to `bench/conform.json` (gitignored) as structured data for the coverage table. Benchmark repos are cloned to `bench/repos/` (gitignored).
 
+Conformance filters RuboCop offenses to only cops in turbocop's registry (`--list-cops`). Unsupported plugin cops (e.g., minitest, rake, thread_safety) are automatically excluded from comparison — no per-repo handling needed.
+
 ## Coverage Reporting
 
 ```

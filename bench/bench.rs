@@ -106,6 +106,16 @@ static REPOS: &[BenchRepo] = &[
         url: "https://github.com/fatfreecrm/fat_free_crm.git",
         tag: "v0.25.0",
     },
+    BenchRepo {
+        name: "ruby-progressbar",
+        url: "https://github.com/jfelchner/ruby-progressbar.git",
+        tag: "v1.5.1",
+    },
+    BenchRepo {
+        name: "multi_json",
+        url: "https://github.com/sferik/multi_json.git",
+        tag: "v1.19.1",
+    },
 ];
 
 // --- Helpers ---
