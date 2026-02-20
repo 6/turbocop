@@ -741,6 +741,13 @@ fn per_repo_excluded_cops(repo_dir: &Path) -> HashSet<String> {
             excluded.insert(cop.to_string());
         }
     }
+    // multi_json: `require: standard` sets EmptyClassDefinition Enabled: false,
+    // but RuboCop still fires it (shows Enabled: pending). Likely a RuboCop quirk
+    // where `require:` runtime config injection interacts with `NewCops: enable`
+    // differently than YAML inheritance. See docs/TODO_EXCLUDED_COPS.md.
+    if repo_dir.ends_with("multi_json") {
+        excluded.insert("Style/EmptyClassDefinition".to_string());
+    }
     excluded
 }
 

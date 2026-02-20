@@ -31,3 +31,8 @@ end))
 bar(key: (proc do
   something
 end))
+# Assignment in boolean context — parens disambiguate = from ==
+(results[:dump_called] = true) && "dump_something"
+(results[:load_called] = true) && "load_something"
+x = (y = 1) && z
+(a = foo) || bar

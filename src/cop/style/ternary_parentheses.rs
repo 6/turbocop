@@ -42,6 +42,8 @@ fn is_complex_condition(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_false_node().is_some()
         || node.as_nil_node().is_some()
         || node.as_self_node().is_some()
+        || node.as_defined_node().is_some()
+        || node.as_yield_node().is_some()
     {
         return false;
     }
@@ -169,6 +171,27 @@ mod tests {
         let source = b"(x = y) ? 'a' : 'b'\n";
         let diags = run_cop_full(&TernaryParentheses, source);
         assert!(diags.is_empty(), "Should allow safe assignment parens");
+    }
+
+    #[test]
+    fn defined_is_not_complex() {
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("require_parentheses_when_complex".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // defined? is non-complex — should not require parens
+        let source = b"x = defined?(Foo) ? Foo : nil\n";
+        let diags = run_cop_full_with_config(&TernaryParentheses, source, config.clone());
+        assert!(diags.is_empty(), "defined? should not be considered complex: {:?}", diags);
+
+        // yield is non-complex
+        let source2 = b"x = yield ? 1 : 0\n";
+        let diags2 = run_cop_full_with_config(&TernaryParentheses, source2, config);
+        assert!(diags2.is_empty(), "yield should not be considered complex: {:?}", diags2);
     }
 
     #[test]

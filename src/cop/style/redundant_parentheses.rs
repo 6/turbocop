@@ -135,6 +135,16 @@ impl RedundantParensVisitor<'_> {
             }
         }
 
+        // Assignment in boolean context — parens disambiguate = from ==
+        // RuboCop only flags (assignment) as redundant when parent is nil/begin,
+        // not when used in boolean expressions like `(x = 1) && y`.
+        if is_assignment(inner) {
+            if parent.is_none() {
+                self.add_offense(node, "an assignment");
+            }
+            return;
+        }
+
         if let Some(msg) = classify_simple(inner) {
             self.add_offense(node, msg);
             return;
@@ -501,6 +511,26 @@ fn is_keyword_value(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_source_file_node().is_some()
         || node.as_source_line_node().is_some()
         || node.as_source_encoding_node().is_some()
+}
+
+fn is_assignment(node: &ruby_prism::Node<'_>) -> bool {
+    // Variable write nodes
+    if node.as_local_variable_write_node().is_some()
+        || node.as_instance_variable_write_node().is_some()
+        || node.as_class_variable_write_node().is_some()
+        || node.as_global_variable_write_node().is_some()
+        || node.as_constant_write_node().is_some()
+        || node.as_constant_path_write_node().is_some()
+    {
+        return true;
+    }
+    // []= calls (index assignment)
+    if let Some(call) = node.as_call_node() {
+        if call.name().as_slice() == b"[]=" {
+            return true;
+        }
+    }
+    false
 }
 
 fn is_constant(node: &ruby_prism::Node<'_>) -> bool {
