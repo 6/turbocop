@@ -32,6 +32,7 @@ impl Cop for NestedGroups {
         parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Only trigger on top-level RSpec.describe or top-level describe
         let call = match node.as_call_node() {

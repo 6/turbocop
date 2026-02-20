@@ -17,6 +17,7 @@ impl Cop for RedundantLineBreak {
         code_map: &CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _inspect_blocks = config.get_bool("InspectBlocks", false);
         let max_line_length = config.get_usize("MaxLineLength", 120);

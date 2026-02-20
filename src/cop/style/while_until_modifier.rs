@@ -46,6 +46,7 @@ impl Cop for WhileUntilModifier {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let (kw_loc, statements, keyword) = if let Some(while_node) = node.as_while_node() {
             (while_node.keyword_loc(), while_node.statements(), "while")

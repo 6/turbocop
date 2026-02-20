@@ -34,6 +34,7 @@ impl Cop for CommentAnnotation {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let require_colon = config.get_bool("RequireColon", true);
         let keywords_opt = config.get_string_array("Keywords");

@@ -32,6 +32,7 @@ impl Cop for LeakyConstantDeclaration {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for describe/context/shared_examples blocks and check their body
         let call = match node.as_call_node() {

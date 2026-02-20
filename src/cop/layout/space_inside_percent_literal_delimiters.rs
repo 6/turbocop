@@ -21,6 +21,7 @@ impl Cop for SpaceInsidePercentLiteralDelimiters {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check array nodes that are %w or %i style
         let array = match node.as_array_node() {

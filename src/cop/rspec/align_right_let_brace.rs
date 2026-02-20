@@ -18,7 +18,7 @@ impl Cop for AlignRightLetBrace {
         RSPEC_DEFAULT_INCLUDE
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
         let lines: Vec<&[u8]> = source.lines().collect();
 
         // Step 1: Collect all single-line let positions (1-indexed line, close_brace_col)

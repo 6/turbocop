@@ -21,6 +21,7 @@ impl Cop for SpaceAroundEqualsInParameterDefault {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let opt = match node.as_optional_parameter_node() {
             Some(o) => o,

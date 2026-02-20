@@ -57,6 +57,7 @@ impl Cop for TransactionExitStatement {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let transaction_methods = config.get_string_array("TransactionMethods");
 

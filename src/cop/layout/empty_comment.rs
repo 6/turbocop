@@ -17,6 +17,7 @@ impl Cop for EmptyComment {
         code_map: &CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_border = config.get_bool("AllowBorderComment", true);
         let allow_margin = config.get_bool("AllowMarginComment", true);

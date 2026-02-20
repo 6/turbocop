@@ -25,6 +25,7 @@ impl Cop for RescueException {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Match BeginNode to get rescue_clause
         let begin_node = match node.as_begin_node() {

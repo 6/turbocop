@@ -106,6 +106,7 @@ impl Cop for MethodCallWithArgsParentheses {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let ignore_macros = config.get_bool("IgnoreMacros", true);
         let allowed_methods = config.get_string_array("AllowedMethods");

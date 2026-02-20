@@ -57,6 +57,7 @@ impl Cop for SpaceAroundOperators {
         code_map: &CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_for_alignment = config.get_bool("AllowForAlignment", true);
         let _enforced_style_exponent =

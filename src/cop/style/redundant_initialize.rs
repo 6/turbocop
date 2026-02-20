@@ -21,6 +21,7 @@ impl Cop for RedundantInitialize {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_comments = config.get_bool("AllowComments", true);
 

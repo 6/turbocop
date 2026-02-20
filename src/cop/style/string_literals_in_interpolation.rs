@@ -18,6 +18,7 @@ impl Cop for StringLiteralsInInterpolation {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "single_quotes").to_string();
 

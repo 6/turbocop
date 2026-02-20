@@ -19,6 +19,7 @@ impl Cop for NestedFileDirname {
         _code_map: &CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // minimum_target_ruby_version 3.1
         let ruby_ver = config

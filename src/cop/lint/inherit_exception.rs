@@ -26,6 +26,7 @@ impl Cop for InheritException {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "standard_error");
         let _supported = config.get_string_array("SupportedStyles");

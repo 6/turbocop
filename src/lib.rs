@@ -2,6 +2,7 @@ pub mod cache;
 pub mod cli;
 pub mod config;
 pub mod cop;
+pub mod correction;
 pub mod diagnostic;
 pub mod formatter;
 pub mod fs;
@@ -158,6 +159,15 @@ pub fn run(args: Args) -> Result<i32> {
         remaining.sort();
         println!("{}", remaining.join(","));
         return Ok(0);
+    }
+
+    if args.debug {
+        eprintln!("debug: autocorrect mode: {:?}", args.autocorrect_mode());
+    }
+
+    // --stdin + autocorrect: not yet supported
+    if args.stdin.is_some() && args.autocorrect_mode() != cli::AutocorrectMode::Off {
+        eprintln!("warning: autocorrect is not supported with --stdin, ignoring");
     }
 
     // --stdin: read from stdin and lint a single file

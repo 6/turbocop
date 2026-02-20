@@ -17,6 +17,7 @@ impl Cop for GuardClause {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let min_body_length = config.get_usize("MinBodyLength", 1);
         let _allow_consecutive = config.get_bool("AllowConsecutiveConditionals", false);

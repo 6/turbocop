@@ -25,6 +25,7 @@ impl Cop for RedundantDirGlobSort {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // RuboCop: minimum_target_ruby_version 3.0
         // Dir.glob and Dir[] return sorted results in Ruby 3.0+, so `.sort` is

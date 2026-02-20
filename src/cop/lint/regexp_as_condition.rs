@@ -25,6 +25,7 @@ impl Cop for RegexpAsCondition {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // MatchLastLineNode is what Prism creates for bare regexp in conditions
         let match_node = match node.as_match_last_line_node() {

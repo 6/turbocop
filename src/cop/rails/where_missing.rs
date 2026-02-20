@@ -154,6 +154,7 @@ impl Cop for WhereMissing {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // We look for a method chain that contains both:
         // 1. left_joins(:assoc) or left_outer_joins(:assoc)

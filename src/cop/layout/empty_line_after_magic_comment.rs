@@ -37,7 +37,7 @@ impl Cop for EmptyLineAfterMagicComment {
         "Layout/EmptyLineAfterMagicComment"
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
         let lines: Vec<&[u8]> = source.lines().collect();
         let mut last_magic_line = None;
 

@@ -32,6 +32,7 @@ impl Cop for VerifiedDoubles {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: IgnoreNameless — ignore doubles without a name argument
         let ignore_nameless = config.get_bool("IgnoreNameless", true);

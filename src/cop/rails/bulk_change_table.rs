@@ -170,6 +170,7 @@ impl Cop for BulkChangeTable {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // RuboCop only fires when the database adapter is known to support bulk ALTER.
         // The `Database` config key can be "mysql" or "postgresql". When not set, rubocop

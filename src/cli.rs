@@ -2,6 +2,15 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutocorrectMode {
+    Off,
+    /// `-a` / `--autocorrect`: safe corrections only.
+    Safe,
+    /// `-A` / `--autocorrect-all`: all corrections including unsafe.
+    All,
+}
+
 #[derive(Parser, Debug)]
 #[command(name = "turbocop", version, about = "A fast Ruby linter")]
 pub struct Args {
@@ -96,4 +105,26 @@ pub struct Args {
     /// Ignore all config files and use built-in defaults only
     #[arg(long)]
     pub force_default_config: bool,
+
+    /// Autocorrect offenses (safe cops only)
+    #[arg(short = 'a', long = "autocorrect")]
+    pub autocorrect: bool,
+
+    /// Autocorrect offenses (all cops, including unsafe)
+    #[arg(short = 'A', long = "autocorrect-all")]
+    pub autocorrect_all: bool,
+}
+
+impl Args {
+    /// Resolve the autocorrect mode from CLI flags.
+    /// `-A` takes precedence over `-a` (matching RuboCop behavior).
+    pub fn autocorrect_mode(&self) -> AutocorrectMode {
+        if self.autocorrect_all {
+            AutocorrectMode::All
+        } else if self.autocorrect {
+            AutocorrectMode::Safe
+        } else {
+            AutocorrectMode::Off
+        }
+    }
 }

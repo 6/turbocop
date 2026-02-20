@@ -21,6 +21,7 @@ impl Cop for MapToSet {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Looking for: foo.map { ... }.to_set  or  foo.collect { ... }.to_set
         let call = match node.as_call_node() {

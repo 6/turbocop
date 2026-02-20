@@ -242,6 +242,7 @@ impl Cop for MemoizedInstanceVariableName {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyleForLeadingUnderscores", "disallowed");
 

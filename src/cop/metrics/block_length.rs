@@ -26,6 +26,7 @@ impl Cop for BlockLength {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // We check CallNode (not BlockNode) so we can read the method name
         // for AllowedMethods/AllowedPatterns filtering.

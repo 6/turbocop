@@ -39,6 +39,7 @@ impl Cop for GlobalVars {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed = config.get_string_array("AllowedVariables");
 

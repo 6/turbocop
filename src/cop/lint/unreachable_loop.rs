@@ -21,6 +21,7 @@ impl Cop for UnreachableLoop {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _allowed_patterns = config.get_string_array("AllowedPatterns");
         let mut visitor = UnreachableLoopVisitor {

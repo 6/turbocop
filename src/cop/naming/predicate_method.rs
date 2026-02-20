@@ -55,6 +55,7 @@ impl Cop for PredicateMethod {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mode = config.get_str("Mode", "conservative");
         let conservative = mode == "conservative";

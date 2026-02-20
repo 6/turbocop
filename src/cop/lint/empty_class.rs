@@ -25,6 +25,7 @@ impl Cop for EmptyClass {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Handle both ClassNode and SingletonClassNode (metaclass)
         let (body_empty, kw_loc, start_line, end_line) =

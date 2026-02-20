@@ -22,6 +22,7 @@ impl Cop for RescueType {
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = RescueTypeVisitor {
             cop: self,

@@ -25,6 +25,7 @@ impl Cop for EnumSyntax {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // minimum_target_rails_version 7.0
         // New enum syntax `enum :status, { ... }` was introduced in Rails 7.0.

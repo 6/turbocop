@@ -25,6 +25,7 @@ impl Cop for Presence {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         if let Some(if_node) = node.as_if_node() {
             // Skip elsif nodes

@@ -66,6 +66,7 @@ impl Cop for RaiseException {
         parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed_namespaces = config.get_string_array("AllowedImplicitNamespaces");
         let call = match node.as_call_node() {

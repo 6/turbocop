@@ -9,7 +9,7 @@ impl Cop for LeadingEmptyLines {
         "Layout/LeadingEmptyLines"
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
         let bytes = source.as_bytes();
         if bytes.is_empty() {
             return;
@@ -42,7 +42,7 @@ mod tests {
     fn empty_file() {
         let source = SourceFile::from_bytes("test.rb", b"".to_vec());
         let mut diags = Vec::new();
-        LeadingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags);
+        LeadingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert!(diags.is_empty());
     }
 }

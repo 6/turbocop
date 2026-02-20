@@ -49,6 +49,15 @@ impl SourceFile {
         Location { line, column }
     }
 
+    /// Convert a (1-indexed line, 0-indexed column) pair to a byte offset.
+    /// Returns `None` if line is out of range.
+    pub fn line_col_to_offset(&self, line: usize, col: usize) -> Option<usize> {
+        if line == 0 || line > self.line_starts.len() {
+            return None;
+        }
+        Some(self.line_starts[line - 1] + col)
+    }
+
     pub fn path_str(&self) -> &str {
         self.path.to_str().unwrap_or("<non-utf8 path>")
     }
@@ -174,6 +183,22 @@ mod tests {
     }
 
     #[test]
+    fn line_col_to_offset_basic() {
+        let sf = source("abc\ndef\nghi");
+        assert_eq!(sf.line_col_to_offset(1, 0), Some(0));
+        assert_eq!(sf.line_col_to_offset(1, 2), Some(2));
+        assert_eq!(sf.line_col_to_offset(2, 0), Some(4));
+        assert_eq!(sf.line_col_to_offset(3, 1), Some(9));
+    }
+
+    #[test]
+    fn line_col_to_offset_out_of_range() {
+        let sf = source("abc\ndef");
+        assert_eq!(sf.line_col_to_offset(0, 0), None);
+        assert_eq!(sf.line_col_to_offset(3, 0), None); // only 2 lines
+    }
+
+    #[test]
     fn from_path_nonexistent() {
         let result = SourceFile::from_path(Path::new("/nonexistent/file.rb"));
         assert!(result.is_err());
@@ -231,6 +256,18 @@ mod tests {
                     prop_assert!(line >= 1 && line <= num_lines,
                         "line {} out of range [1, {}] for offset {}",
                         line, num_lines, offset);
+                }
+            }
+
+            #[test]
+            fn line_col_to_offset_roundtrip(content in prop::collection::vec(any::<u8>(), 1..500)) {
+                let sf = SourceFile::from_bytes("test.rb", content.clone());
+                for offset in 0..content.len() {
+                    let (line, col) = sf.offset_to_line_col(offset);
+                    let back = sf.line_col_to_offset(line, col);
+                    prop_assert_eq!(back, Some(offset),
+                        "roundtrip failed: offset {} -> ({}, {}) -> {:?}",
+                        offset, line, col, back);
                 }
             }
 

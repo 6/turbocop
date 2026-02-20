@@ -21,6 +21,7 @@ impl Cop for SpaceInsideHashLiteralBraces {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Note: keyword_hash_node (keyword args like `foo(a: 1)`) intentionally not
         // handled — this cop only applies to hash literals with `{ }` braces.

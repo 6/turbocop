@@ -23,6 +23,7 @@ impl Cop for MissingCopEnableDirective {
         code_map: &CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let max_range = get_max_range_size(config);
         // Track open disables: cop_name -> (line_number, column)

@@ -21,6 +21,7 @@ impl Cop for RedundantRegexpCharacterClass {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let re = match node.as_regular_expression_node() {
             Some(re) => re,

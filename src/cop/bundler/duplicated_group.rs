@@ -98,7 +98,7 @@ impl Cop for DuplicatedGroup {
         &["**/*.gemfile", "**/Gemfile", "**/gems.rb"]
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
         // Maps group key -> first occurrence line (1-indexed)
         let mut seen: HashMap<String, usize> = HashMap::new();
 

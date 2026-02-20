@@ -21,6 +21,7 @@ impl Cop for SingleLineBlockChain {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // We are looking for: receiver.method where receiver is a single-line block
         // e.g. example.select { |item| item.cond? }.join('-')

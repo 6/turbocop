@@ -29,6 +29,7 @@ impl Cop for RedundantEqualityComparisonBlock {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_regexp_match = config.get_bool("AllowRegexpMatch", true);
         let call = match node.as_call_node() {

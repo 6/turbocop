@@ -15,7 +15,7 @@ impl Cop for GemFilename {
         &["**/Gemfile", "**/gems.rb"]
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
         let enforced_style = config.get_str("EnforcedStyle", "Gemfile");
         let path = Path::new(source.path_str());
         let file_name = path

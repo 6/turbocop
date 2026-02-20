@@ -46,6 +46,8 @@ mod tests {
             severity: Severity::Convention,
             cop_name: "Style/Test".to_string(),
             message: "test offense".to_string(),
+
+            corrected: false,
         }]
     }
 
@@ -137,6 +139,7 @@ mod tests {
                         severity,
                         cop_name,
                         message,
+                        corrected: false,
                     }
                 })
         }

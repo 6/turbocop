@@ -47,6 +47,7 @@ impl Cop for SquishedSQLHeredocs {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check for heredocs with SQL tag that don't have .squish
         // Could be a StringNode or InterpolatedStringNode

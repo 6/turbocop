@@ -21,6 +21,7 @@ impl Cop for PerlBackrefs {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check for numbered backreferences: $1, $2, ..., $9
         if let Some(back_ref) = node.as_numbered_reference_read_node() {

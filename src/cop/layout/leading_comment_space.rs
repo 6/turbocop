@@ -16,6 +16,7 @@ impl Cop for LeadingCommentSpace {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _allow_doxygen = config.get_bool("AllowDoxygenCommentStyle", false);
         let _allow_gemfile_ruby = config.get_bool("AllowGemfileRubyComment", false);

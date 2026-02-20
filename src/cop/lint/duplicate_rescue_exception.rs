@@ -27,6 +27,7 @@ impl Cop for DuplicateRescueException {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let begin_node = match node.as_begin_node() {
             Some(n) => n,

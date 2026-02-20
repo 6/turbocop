@@ -23,6 +23,7 @@ impl Cop for ArgumentsForwarding {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_only_rest = config.get_bool("AllowOnlyRestArgument", true);
         let _use_anonymous = config.get_bool("UseAnonymousForwarding", true);

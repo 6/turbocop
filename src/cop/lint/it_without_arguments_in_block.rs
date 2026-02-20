@@ -28,6 +28,7 @@ impl Cop for ItWithoutArgumentsInBlock {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // RuboCop: maximum_target_ruby_version 3.3
         // In Ruby 3.4+, `it` is the official anonymous block parameter, so this

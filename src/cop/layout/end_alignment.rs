@@ -49,6 +49,7 @@ impl Cop for EndAlignment {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyleAlignWith", "keyword");
         if let Some(class_node) = node.as_class_node() {

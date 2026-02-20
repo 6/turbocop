@@ -35,6 +35,7 @@ impl Cop for MissingSuper {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed_parent_classes: Vec<Vec<u8>> = config
             .get_string_array("AllowedParentClasses")

@@ -33,6 +33,7 @@ impl Cop for RepeatedExampleGroupBody {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // We need to look at sibling example groups within a common parent.
         // The parent can be a ProgramNode (top-level) or any block body.

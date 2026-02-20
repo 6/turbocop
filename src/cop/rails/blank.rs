@@ -25,6 +25,7 @@ impl Cop for Blank {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Sub-cop toggles
         let nil_or_empty = config.get_bool("NilOrEmpty", true);

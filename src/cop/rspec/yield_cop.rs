@@ -31,6 +31,7 @@ impl Cop for Yield {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for receive(:method) { |&block| block.call ... }
         // The node structure: CallNode(receive) with a BlockNode

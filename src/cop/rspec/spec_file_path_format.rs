@@ -30,6 +30,7 @@ impl Cop for SpecFilePathFormat {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: CustomTransform — hash of class name to file path overrides (complex; pass-through)
         let custom_transform = config.get_string_hash("CustomTransform").unwrap_or_default();

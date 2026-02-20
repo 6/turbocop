@@ -22,6 +22,7 @@ impl Cop for AsciiIdentifiers {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // AsciiConstants: when true (default), also flag non-ASCII constants
         let ascii_constants = config.get_bool("AsciiConstants", true);

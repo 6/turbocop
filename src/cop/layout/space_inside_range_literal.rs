@@ -21,6 +21,7 @@ impl Cop for SpaceInsideRangeLiteral {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check both inclusive (..) and exclusive (...) ranges
         let (left, right, op_loc) = if let Some(range) = node.as_range_node() {

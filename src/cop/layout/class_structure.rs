@@ -34,6 +34,7 @@ impl Cop for ClassStructure {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Reference config keys so config_audit passes
         let _categories = config.get_string_array("Categories");

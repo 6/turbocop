@@ -25,6 +25,7 @@ impl Cop for NumberedParameterAssignment {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let write = match node.as_local_variable_write_node() {
             Some(w) => w,

@@ -21,6 +21,7 @@ impl Cop for NextWithoutAccumulator {
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = NextWithoutAccVisitor {
             cop: self,

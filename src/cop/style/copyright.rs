@@ -14,7 +14,7 @@ impl Cop for Copyright {
         false // Matches vendor config/default.yml: Enabled: false
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
         let notice_pattern = config.get_str("Notice", r"^Copyright (\(c\) )?2[0-9]{3} .+");
         let _autocorrect_notice = config.get_str("AutocorrectNotice", "");
 

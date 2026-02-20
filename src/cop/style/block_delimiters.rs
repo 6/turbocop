@@ -18,6 +18,7 @@ impl Cop for BlockDelimiters {
         _code_map: &CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "line_count_based");
         let _procedural_methods = config.get_string_array("ProceduralMethods");

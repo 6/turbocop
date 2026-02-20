@@ -21,6 +21,7 @@ impl Cop for BlockParameterName {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let min_length = config.get_usize("MinNameLength", 1);
         let _allow_numbers = config.get_bool("AllowNamesEndingInNumbers", true);

@@ -21,6 +21,7 @@ impl Cop for ItAssignment {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Detect assignment to `it` variable: it = something
         let write_node = match node.as_local_variable_write_node() {

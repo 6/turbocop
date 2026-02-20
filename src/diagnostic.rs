@@ -52,6 +52,9 @@ pub struct Diagnostic {
     pub severity: Severity,
     pub cop_name: String,
     pub message: String,
+    /// Whether this offense was corrected by autocorrect.
+    #[serde(default)]
+    pub corrected: bool,
 }
 
 impl Diagnostic {
@@ -62,6 +65,9 @@ impl Diagnostic {
 
 impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.corrected {
+            write!(f, "[Corrected] ")?;
+        }
         write!(
             f,
             "{}:{}:{}: {}: {}: {}",
@@ -122,6 +128,8 @@ mod tests {
             severity: Severity::Convention,
             cop_name: "Style/Foo".to_string(),
             message: "bad style".to_string(),
+
+            corrected: false,
         };
         assert_eq!(format!("{d}"), "foo.rb:3:5: C: Style/Foo: bad style");
     }
@@ -134,6 +142,8 @@ mod tests {
             severity: Severity::Convention,
             cop_name: "X".to_string(),
             message: "m".to_string(),
+
+            corrected: false,
         };
         let d2 = Diagnostic {
             path: "a.rb".to_string(),
@@ -141,6 +151,8 @@ mod tests {
             severity: Severity::Convention,
             cop_name: "X".to_string(),
             message: "m".to_string(),
+
+            corrected: false,
         };
         let d3 = Diagnostic {
             path: "b.rb".to_string(),
@@ -148,6 +160,8 @@ mod tests {
             severity: Severity::Convention,
             cop_name: "X".to_string(),
             message: "m".to_string(),
+
+            corrected: false,
         };
         assert!(d1.sort_key() < d2.sort_key());
         assert!(d2.sort_key() < d3.sort_key());
@@ -182,6 +196,7 @@ mod tests {
                         severity,
                         cop_name,
                         message,
+                        corrected: false,
                     }
                 })
         }

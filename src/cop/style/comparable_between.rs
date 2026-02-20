@@ -21,6 +21,7 @@ impl Cop for ComparableBetween {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check for `x >= min && x <= max` pattern
         if let Some(and_node) = node.as_and_node() {

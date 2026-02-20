@@ -25,6 +25,7 @@ impl Cop for DynamicFindBy {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // AllowedMethods (Whitelist is deprecated alias)
         let allowed = config.get_string_array("AllowedMethods");

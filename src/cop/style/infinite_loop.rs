@@ -21,6 +21,7 @@ impl Cop for InfiniteLoop {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check `while true`
         if let Some(while_node) = node.as_while_node() {

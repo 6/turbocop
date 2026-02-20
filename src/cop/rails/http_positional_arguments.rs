@@ -26,6 +26,7 @@ impl Cop for HttpPositionalArguments {
         _code_map: &CodeMap,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // First, check if the file includes Rack::Test::Methods — if so, skip entirely
         let mut checker = RackTestChecker { found: false };

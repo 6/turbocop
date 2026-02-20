@@ -21,6 +21,7 @@ impl Cop for OpenStructUse {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check ConstantReadNode (OpenStruct)
         if let Some(cr) = node.as_constant_read_node() {

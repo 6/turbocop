@@ -13,7 +13,7 @@ impl Cop for EmptyFile {
         Severity::Warning
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
         let allow_comments = config.get_bool("AllowComments", true);
 
         let src = source.as_bytes();

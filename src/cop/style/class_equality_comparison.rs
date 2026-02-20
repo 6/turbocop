@@ -17,6 +17,7 @@ impl Cop for ClassEqualityComparison {
         _code_map: &crate::cop::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed_methods: Vec<String> = config
             .get_string_array("AllowedMethods")

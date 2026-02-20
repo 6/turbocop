@@ -26,6 +26,7 @@ impl Cop for VariableNumber {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "normalcase");
         let check_method_names = config.get_bool("CheckMethodNames", true);

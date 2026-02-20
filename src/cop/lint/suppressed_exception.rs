@@ -25,6 +25,7 @@ impl Cop for SuppressedException {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // RescueNode is visited via visit_begin_node's specific method,
         // not via the generic visit() dispatch. So we match BeginNode

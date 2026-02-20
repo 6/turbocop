@@ -21,6 +21,7 @@ impl Cop for RedundantInterpolationUnfreeze {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // minimum_target_ruby_version 3.0 — only applies for Ruby 3.0+
         let ruby_version = config

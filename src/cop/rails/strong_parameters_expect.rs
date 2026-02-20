@@ -41,6 +41,7 @@ impl Cop for StrongParametersExpect {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // minimum_target_rails_version 8.0
         // params.expect(...) was introduced in Rails 8.0; skip for older versions.

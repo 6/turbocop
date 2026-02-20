@@ -21,6 +21,7 @@ impl Cop for KeywordParametersOrder {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check both def and block parameters
         let parameters = if let Some(def_node) = node.as_def_node() {

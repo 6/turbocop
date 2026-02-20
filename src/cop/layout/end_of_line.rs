@@ -9,7 +9,7 @@ impl Cop for EndOfLine {
         "Layout/EndOfLine"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
         let style = config.get_str("EnforcedStyle", "native");
 
         match style {
@@ -74,7 +74,7 @@ mod tests {
     fn crlf_detected() {
         let source = SourceFile::from_bytes("test.rb", b"x = 1\r\ny = 2\r\n".to_vec());
         let mut diags = Vec::new();
-        EndOfLine.check_lines(&source, &CopConfig::default(), &mut diags);
+        EndOfLine.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert_eq!(diags.len(), 2);
         assert_eq!(diags[0].location.line, 1);
         assert_eq!(diags[0].location.column, 5);
@@ -87,7 +87,7 @@ mod tests {
     fn lf_only_no_offense() {
         let source = SourceFile::from_bytes("test.rb", b"x = 1\ny = 2\n".to_vec());
         let mut diags = Vec::new();
-        EndOfLine.check_lines(&source, &CopConfig::default(), &mut diags);
+        EndOfLine.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert!(diags.is_empty());
     }
 
@@ -95,7 +95,7 @@ mod tests {
     fn mixed_line_endings() {
         let source = SourceFile::from_bytes("test.rb", b"x = 1\r\ny = 2\n".to_vec());
         let mut diags = Vec::new();
-        EndOfLine.check_lines(&source, &CopConfig::default(), &mut diags);
+        EndOfLine.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].location.line, 1);
     }
@@ -104,7 +104,7 @@ mod tests {
     fn cr_only_at_end() {
         let source = SourceFile::from_bytes("test.rb", b"x = 1\r".to_vec());
         let mut diags = Vec::new();
-        EndOfLine.check_lines(&source, &CopConfig::default(), &mut diags);
+        EndOfLine.check_lines(&source, &CopConfig::default(), &mut diags, None);
         // No \n split, so entire content is one line ending with \r
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].location.line, 1);
@@ -122,7 +122,7 @@ mod tests {
         };
         let source = SourceFile::from_bytes("test.rb", b"x = 1\r\ny = 2\r\n".to_vec());
         let mut diags = Vec::new();
-        EndOfLine.check_lines(&source, &config, &mut diags);
+        EndOfLine.check_lines(&source, &config, &mut diags, None);
         assert!(diags.is_empty(), "crlf style should accept CRLF line endings");
     }
 
@@ -137,7 +137,7 @@ mod tests {
         };
         let source = SourceFile::from_bytes("test.rb", b"x = 1\ny = 2\n".to_vec());
         let mut diags = Vec::new();
-        EndOfLine.check_lines(&source, &config, &mut diags);
+        EndOfLine.check_lines(&source, &config, &mut diags, None);
         assert_eq!(diags.len(), 2, "crlf style should flag LF-only lines");
         assert_eq!(diags[0].message, "Carriage return character missing.");
     }

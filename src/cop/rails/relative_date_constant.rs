@@ -40,6 +40,7 @@ impl Cop for RelativeDateConstant {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let value = if let Some(cw) = node.as_constant_write_node() {
             cw.value()

@@ -25,6 +25,7 @@ impl Cop for BinaryOperatorWithIdenticalOperands {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Handle `&&` and `||` (AndNode / OrNode)
         if let Some(and_node) = node.as_and_node() {

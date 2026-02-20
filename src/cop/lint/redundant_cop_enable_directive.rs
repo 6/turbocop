@@ -25,6 +25,7 @@ impl Cop for RedundantCopEnableDirective {
         code_map: &CodeMap,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Track which cops/departments are currently disabled
         let mut disabled: HashSet<String> = HashSet::new();

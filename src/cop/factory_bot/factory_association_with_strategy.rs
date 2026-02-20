@@ -34,6 +34,7 @@ impl Cop for FactoryAssociationWithStrategy {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Match on CallNode for `factory` or `trait`
         let outer_call = match node.as_call_node() {
@@ -124,6 +125,8 @@ impl<'pr> Visit<'pr> for StrategyFinder<'_> {
                                                 severity: Severity::Convention,
                                                 cop_name: self.cop_name.to_string(),
                                                 message: "Use an implicit, explicit or inline definition instead of hard coding a strategy for setting association within factory.".to_string(),
+
+                                                corrected: false,
                                             });
                                         }
                                     }

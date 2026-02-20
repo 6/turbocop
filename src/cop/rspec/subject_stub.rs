@@ -32,6 +32,7 @@ impl Cop for SubjectStub {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for top-level describe/context blocks and track subject names
         let call = match node.as_call_node() {

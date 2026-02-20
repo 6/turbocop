@@ -145,6 +145,45 @@ impl CopConfig {
         }
         if result.is_empty() { None } else { Some(result) }
     }
+
+    /// Whether the cop itself is considered safe (default: true).
+    pub fn is_safe(&self) -> bool {
+        self.get_bool("Safe", true)
+    }
+
+    /// Whether the cop's autocorrect is considered safe (default: true).
+    pub fn is_safe_autocorrect(&self) -> bool {
+        self.get_bool("SafeAutoCorrect", true)
+    }
+
+    /// Read the `AutoCorrect` config key. RuboCop supports both boolean and
+    /// string values ("always", "contextual", "disabled"). Default: "always".
+    pub fn autocorrect_setting(&self) -> &str {
+        if let Some(v) = self.options.get("AutoCorrect") {
+            // Boolean true -> "always", false -> "disabled"
+            if let Some(b) = v.as_bool() {
+                return if b { "always" } else { "disabled" };
+            }
+            if let Some(s) = v.as_str() {
+                return s;
+            }
+        }
+        "always"
+    }
+
+    /// Whether this cop should autocorrect given the current CLI mode.
+    pub fn should_autocorrect(&self, mode: crate::cli::AutocorrectMode) -> bool {
+        use crate::cli::AutocorrectMode;
+        match mode {
+            AutocorrectMode::Off => false,
+            AutocorrectMode::Safe => {
+                self.is_safe() && self.is_safe_autocorrect() && self.autocorrect_setting() != "disabled"
+            }
+            AutocorrectMode::All => {
+                self.autocorrect_setting() != "disabled"
+            }
+        }
+    }
 }
 
 /// A lint rule. Implementations must be Send + Sync so they can be shared
@@ -193,7 +232,18 @@ pub trait Cop: Send + Sync {
             severity: self.default_severity(),
             cop_name: self.name().to_string(),
             message,
+            corrected: false,
         }
+    }
+
+    /// Whether this cop can produce autocorrections.
+    fn supports_autocorrect(&self) -> bool {
+        false
+    }
+
+    /// Whether this cop's autocorrections are safe (won't change semantics).
+    fn safe_autocorrect(&self) -> bool {
+        true
     }
 
     /// Line-based check — runs before AST traversal.
@@ -203,6 +253,7 @@ pub trait Cop: Send + Sync {
         source: &SourceFile,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
+        corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
     }
 
@@ -218,6 +269,7 @@ pub trait Cop: Send + Sync {
         code_map: &CodeMap,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
+        corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
     }
 
@@ -237,6 +289,7 @@ pub trait Cop: Send + Sync {
         parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
+        corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
     }
 }

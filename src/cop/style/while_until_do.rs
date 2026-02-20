@@ -21,6 +21,7 @@ impl Cop for WhileUntilDo {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check while ... do
         if let Some(while_node) = node.as_while_node() {

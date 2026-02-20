@@ -30,6 +30,7 @@ impl Cop for ExpectOutput {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Only process at program level to walk the full AST with context
         let program = match node.as_program_node() {
@@ -83,6 +84,7 @@ impl<'a> ExpectOutputVisitor<'a> {
                         message: format!(
                             "Use `expect {{ ... }}.to output(...).to_{stream}` instead of mutating ${stream}."
                         ),
+                        corrected: false,
                     });
                 }
             }

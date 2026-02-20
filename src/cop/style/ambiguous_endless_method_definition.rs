@@ -9,7 +9,7 @@ impl Cop for AmbiguousEndlessMethodDefinition {
         "Style/AmbiguousEndlessMethodDefinition"
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
 
         let low_precedence_ops = [" and ", " or ", " if ", " unless ", " while ", " until "];
 

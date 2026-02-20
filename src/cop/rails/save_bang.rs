@@ -39,6 +39,7 @@ impl Cop for SaveBang {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _allow_implicit_return = config.get_bool("AllowImplicitReturn", true);
         let _allowed_receivers = config.get_string_array("AllowedReceivers");

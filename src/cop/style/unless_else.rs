@@ -21,6 +21,7 @@ impl Cop for UnlessElse {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let unless_node = match node.as_unless_node() {
             Some(n) => n,

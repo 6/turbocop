@@ -40,6 +40,7 @@ impl Cop for CommentIndentation {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_for_alignment = config.get_bool("AllowForAlignment", false);
         let indent_width = config.get_usize("IndentationWidth", 2);

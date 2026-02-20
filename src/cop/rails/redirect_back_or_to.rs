@@ -26,6 +26,7 @@ impl Cop for RedirectBackOrTo {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // minimum_target_rails_version 7.0
         // redirect_back_or_to was introduced in Rails 7.0; skip for older versions.

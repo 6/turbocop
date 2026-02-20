@@ -470,6 +470,8 @@ pub fn check_empty_lines_around_body(
                 severity: Severity::Convention,
                 cop_name: cop_name.to_string(),
                 message: format!("Extra empty line detected at {body_kind} body beginning."),
+
+                corrected: false,
             });
         }
     }
@@ -486,6 +488,8 @@ pub fn check_empty_lines_around_body(
                         severity: Severity::Convention,
                         cop_name: cop_name.to_string(),
                         message: format!("Extra empty line detected at {body_kind} body end."),
+
+                        corrected: false,
                     });
                 }
             }
@@ -524,6 +528,8 @@ pub fn check_missing_empty_lines_around_body(
                 severity: Severity::Convention,
                 cop_name: cop_name.to_string(),
                 message: format!("Empty line missing at {body_kind} body beginning."),
+
+                corrected: false,
             });
         }
     }
@@ -540,6 +546,8 @@ pub fn check_missing_empty_lines_around_body(
                         severity: Severity::Convention,
                         cop_name: cop_name.to_string(),
                         message: format!("Empty line missing at {body_kind} body end."),
+
+                        corrected: false,
                     });
                 }
             }
@@ -581,6 +589,8 @@ pub fn check_keyword_end_alignment(
             severity: Severity::Convention,
             cop_name: cop_name.to_string(),
             message: format!("Align `end` with `{keyword_name}`."),
+
+            corrected: false,
         }];
     }
 
@@ -636,6 +646,7 @@ pub fn check_first_element_indentation(
                 width,
                 elem_col.saturating_sub(open_indent)
             ),
+            corrected: false,
         }];
     }
 

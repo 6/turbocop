@@ -30,6 +30,7 @@ impl Cop for RedundantStringEscape {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Only check double-quoted strings
         let (opening_loc, content_loc) = if let Some(s) = node.as_string_node() {

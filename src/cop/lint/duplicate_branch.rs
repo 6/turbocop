@@ -29,6 +29,7 @@ impl Cop for DuplicateBranch {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _ignore_literal = config.get_bool("IgnoreLiteralBranches", false);
         let _ignore_constant = config.get_bool("IgnoreConstantBranches", false);

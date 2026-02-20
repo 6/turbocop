@@ -50,6 +50,7 @@ impl Cop for TrivialAccessors {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let exact_name_match = config.get_bool("ExactNameMatch", true);
         let allow_predicates = config.get_bool("AllowPredicates", true);

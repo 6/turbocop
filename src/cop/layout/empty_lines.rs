@@ -17,6 +17,7 @@ impl Cop for EmptyLines {
         code_map: &CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let max = config.get_usize("Max", 1);
 

@@ -44,6 +44,7 @@ impl Cop for AmbiguousOperatorPrecedence {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Handle `a || b && c` pattern
         if let Some(or_node) = node.as_or_node() {

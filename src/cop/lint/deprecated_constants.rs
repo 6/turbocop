@@ -32,6 +32,7 @@ impl Cop for DeprecatedConstants {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Handle ConstantReadNode (bare constants like NIL, TRUE, FALSE)
         if let Some(const_read) = node.as_constant_read_node() {

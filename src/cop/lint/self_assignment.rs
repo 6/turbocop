@@ -25,6 +25,7 @@ impl Cop for SelfAssignment {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _allow_rbs = config.get_bool("AllowRBSInlineAnnotation", false);
 

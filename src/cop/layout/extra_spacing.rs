@@ -20,6 +20,7 @@ impl Cop for ExtraSpacing {
         code_map: &CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_for_alignment = config.get_bool("AllowForAlignment", true);
         let allow_before_trailing_comments =

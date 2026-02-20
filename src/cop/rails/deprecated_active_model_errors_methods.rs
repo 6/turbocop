@@ -33,6 +33,7 @@ impl Cop for DeprecatedActiveModelErrorsMethods {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Pattern 1: errors[:field] << 'msg'  /  errors[:field].clear  /  errors[:field] = []
         // Pattern 2: errors.messages[:field] << 'msg'  /  etc.

@@ -21,6 +21,7 @@ impl Cop for RescueModifier {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let rescue_mod = match node.as_rescue_modifier_node() {
             Some(r) => r,

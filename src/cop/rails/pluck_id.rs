@@ -25,6 +25,7 @@ impl Cop for PluckId {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // This cop is disabled by default in RuboCop (Enabled: false in vendor config).
         // Only fire when explicitly enabled in the project config.

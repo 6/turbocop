@@ -22,6 +22,7 @@ impl Cop for I18nLazyLookup {
         _code_map: &CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let path = source.path_str();
         if !is_controller_file(path) {

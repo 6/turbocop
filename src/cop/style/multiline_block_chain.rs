@@ -77,6 +77,8 @@ impl BlockChainVisitor<'_> {
             severity: Severity::Convention,
             cop_name: self.cop_name.to_string(),
             message: "Avoid multi-line chains of blocks.".to_string(),
+
+            corrected: false,
         });
     }
 }
@@ -93,6 +95,7 @@ impl Cop for MultilineBlockChain {
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = BlockChainVisitor {
             source,

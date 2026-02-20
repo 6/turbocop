@@ -21,6 +21,7 @@ impl Cop for StringHashKeys {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
 
         let elements = if let Some(hash) = node.as_hash_node() {

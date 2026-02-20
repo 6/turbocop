@@ -31,6 +31,7 @@ impl Cop for ArrayAlignment {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "with_first_element");
         let indent_width = config.get_usize("IndentationWidth", 2);

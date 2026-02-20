@@ -32,6 +32,7 @@ impl Cop for ReturnFromStub {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: EnforcedStyle — "and_return" (default) or "block"
         let enforced_style = config.get_str("EnforcedStyle", "and_return");

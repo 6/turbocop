@@ -17,6 +17,7 @@ impl Cop for Semicolon {
         code_map: &CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let bytes = source.as_bytes();
         let lines: Vec<&[u8]> = source.lines().collect();

@@ -30,6 +30,7 @@ impl Cop for Eq {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for `be == value` pattern
         // This appears as a call to `==` with receiver being the `be` call

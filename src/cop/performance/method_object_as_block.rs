@@ -25,6 +25,7 @@ impl Cop for MethodObjectAsBlock {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Detect BlockArgumentNode whose expression is a call to `method`
         let block_arg = match node.as_block_argument_node() {

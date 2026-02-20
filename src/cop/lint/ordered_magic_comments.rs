@@ -13,7 +13,7 @@ impl Cop for OrderedMagicComments {
         Severity::Warning
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
         let mut encoding_line: Option<usize> = None;
         let mut frozen_string_line: Option<usize> = None;
 

@@ -25,6 +25,7 @@ impl Cop for EmptyLineAfterGuardClause {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Extract body statements, the overall location, and whether it's block form.
         // We handle both modifier and block-form if/unless.

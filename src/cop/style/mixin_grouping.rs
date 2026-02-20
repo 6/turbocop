@@ -19,6 +19,7 @@ impl Cop for MixinGrouping {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "separated").to_string();
         let mut visitor = MixinGroupingVisitor {

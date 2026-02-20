@@ -78,6 +78,7 @@ impl CachedDiagnostic {
             },
             cop_name: self.cop,
             message: self.message,
+            corrected: false,
         }
     }
 }
@@ -462,6 +463,8 @@ mod tests {
             require_libs: vec![],
             ignore_disable_comments: false,
             force_default_config: false,
+            autocorrect: false,
+            autocorrect_all: false,
         }
     }
 
@@ -496,6 +499,7 @@ mod tests {
             severity: Severity::Convention,
             cop_name: "Layout/TrailingWhitespace".to_string(),
             message: "Trailing whitespace detected.".to_string(),
+            corrected: false,
         }];
         cache.put(&rb_file, b"x = 1 \n", &diagnostics);
 

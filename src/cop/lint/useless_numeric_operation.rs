@@ -27,6 +27,7 @@ impl Cop for UselessNumericOperation {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check for binary operator calls: x + 0, x - 0, x * 1, x / 1, x ** 1
         // RuboCop only matches `(call (call nil? $_) $_ (int $_))`, meaning the

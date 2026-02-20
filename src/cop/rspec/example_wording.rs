@@ -36,6 +36,7 @@ impl Cop for ExampleWording {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: CustomTransform — hash of word replacements (unused: requires hash config)
         let custom_transform = config.get_string_hash("CustomTransform").unwrap_or_default();

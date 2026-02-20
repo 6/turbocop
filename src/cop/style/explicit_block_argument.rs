@@ -21,6 +21,7 @@ impl Cop for ExplicitBlockArgument {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for block nodes where the body is just `yield` with the same args
         let block_node = match node.as_block_node() {

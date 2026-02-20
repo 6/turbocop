@@ -21,6 +21,7 @@ impl Cop for ShadowedArgument {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _ignore_implicit = config.get_bool("IgnoreImplicitReferences", false);
         let mut visitor = ShadowedArgVisitor {

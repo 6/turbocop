@@ -219,6 +219,7 @@ impl Cop for Documentation {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed_constants = config.get_string_array("AllowedConstants").unwrap_or_default();
 

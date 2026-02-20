@@ -9,7 +9,7 @@ impl Cop for AsciiComments {
         "Style/AsciiComments"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
         let allowed_chars = config
             .get_string_array("AllowedChars")
             .unwrap_or_default();

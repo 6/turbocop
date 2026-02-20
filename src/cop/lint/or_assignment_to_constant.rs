@@ -25,6 +25,7 @@ impl Cop for OrAssignmentToConstant {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // ConstantOrWriteNode represents CONST ||= value
         if let Some(n) = node.as_constant_or_write_node() {

@@ -17,6 +17,7 @@ impl Cop for Tab {
         code_map: &CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_named_tabs = config.get_bool("AllowNamedTabs", false);
         let _ = allow_named_tabs; // TODO: implement named tab handling

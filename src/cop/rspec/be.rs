@@ -30,6 +30,7 @@ impl Cop for Be {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for `expect(...).to be` / `expect(...).not_to be` / `expect(...).to_not be`
         // The `be` is a CallNode with receiver being another CallNode (`.to`/`.not_to`/`.to_not`)

@@ -42,6 +42,7 @@ impl Cop for NumericLiterals {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let int_node = match node.as_integer_node() {
             Some(i) => i,

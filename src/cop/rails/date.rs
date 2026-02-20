@@ -26,6 +26,7 @@ impl Cop for Date {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "flexible");
         let allow_to_time = config.get_bool("AllowToTime", true);

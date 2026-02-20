@@ -21,6 +21,7 @@ impl Cop for HashTransformValues {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for CallNode `each_with_object({})` with a block
         let call = match node.as_call_node() {

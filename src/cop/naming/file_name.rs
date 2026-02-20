@@ -122,7 +122,7 @@ impl Cop for FileName {
         "Naming/FileName"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
         let expect_matching_definition = config.get_bool("ExpectMatchingDefinition", false);
         let check_def_path_hierarchy = config.get_bool("CheckDefinitionPathHierarchy", true);
         let check_def_path_roots = config.get_string_array("CheckDefinitionPathHierarchyRoots");
@@ -236,7 +236,7 @@ mod tests {
     fn offense_bad_filename() {
         let source = SourceFile::from_bytes("BadFile.rb", b"x = 1\n".to_vec());
         let mut diags = Vec::new();
-        FileName.check_lines(&source, &CopConfig::default(), &mut diags);
+        FileName.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].cop_name, "Naming/FileName");
         assert!(diags[0].message.contains("BadFile"));
@@ -246,7 +246,7 @@ mod tests {
     fn offense_camel_case_filename() {
         let source = SourceFile::from_bytes("MyClass.rb", b"x = 1\n".to_vec());
         let mut diags = Vec::new();
-        FileName.check_lines(&source, &CopConfig::default(), &mut diags);
+        FileName.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert_eq!(diags.len(), 1);
     }
 
@@ -254,7 +254,7 @@ mod tests {
     fn no_offense_good_filename() {
         let source = SourceFile::from_bytes("good_file.rb", b"x = 1\n".to_vec());
         let mut diags = Vec::new();
-        FileName.check_lines(&source, &CopConfig::default(), &mut diags);
+        FileName.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert!(diags.is_empty());
     }
 
@@ -262,7 +262,7 @@ mod tests {
     fn no_offense_gemfile() {
         let source = SourceFile::from_bytes("Gemfile", b"source 'https://rubygems.org'\n".to_vec());
         let mut diags = Vec::new();
-        FileName.check_lines(&source, &CopConfig::default(), &mut diags);
+        FileName.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert!(diags.is_empty());
     }
 
@@ -270,7 +270,7 @@ mod tests {
     fn no_offense_rakefile() {
         let source = SourceFile::from_bytes("Rakefile", b"task :default\n".to_vec());
         let mut diags = Vec::new();
-        FileName.check_lines(&source, &CopConfig::default(), &mut diags);
+        FileName.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert!(diags.is_empty());
     }
 
@@ -278,7 +278,7 @@ mod tests {
     fn no_offense_vagrantfile() {
         let source = SourceFile::from_bytes("Vagrantfile", b"Vagrant.configure('2') do |config|\nend\n".to_vec());
         let mut diags = Vec::new();
-        FileName.check_lines(&source, &CopConfig::default(), &mut diags);
+        FileName.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert!(diags.is_empty(), "Vagrantfile should be in allowed CamelCase filenames");
     }
 
@@ -286,7 +286,7 @@ mod tests {
     fn no_offense_test_rb() {
         let source = SourceFile::from_bytes("test.rb", b"x = 1\n".to_vec());
         let mut diags = Vec::new();
-        FileName.check_lines(&source, &CopConfig::default(), &mut diags);
+        FileName.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert!(diags.is_empty());
     }
 
@@ -294,7 +294,7 @@ mod tests {
     fn config_ignore_executable_scripts() {
         let source = SourceFile::from_bytes("MyScript", b"#!/usr/bin/env ruby\nputs 'hi'\n".to_vec());
         let mut diags = Vec::new();
-        FileName.check_lines(&source, &CopConfig::default(), &mut diags);
+        FileName.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert!(diags.is_empty(), "Should skip executable scripts with shebang");
     }
 
@@ -309,7 +309,7 @@ mod tests {
         };
         let source = SourceFile::from_bytes("MyScript.rb", b"#!/usr/bin/env ruby\nputs 'hi'\n".to_vec());
         let mut diags = Vec::new();
-        FileName.check_lines(&source, &config, &mut diags);
+        FileName.check_lines(&source, &config, &mut diags, None);
         assert!(!diags.is_empty(), "Should flag non-snake_case even with shebang when IgnoreExecutableScripts:false");
     }
 
@@ -324,7 +324,7 @@ mod tests {
         };
         let source = SourceFile::from_bytes("good_file.rb", b"x = 1\n".to_vec());
         let mut diags = Vec::new();
-        FileName.check_lines(&source, &config, &mut diags);
+        FileName.check_lines(&source, &config, &mut diags, None);
         assert!(diags.is_empty(), "Should pass custom regex check");
     }
 
@@ -341,7 +341,7 @@ mod tests {
         };
         let source = SourceFile::from_bytes("my_HTML_parser.rb", b"x = 1\n".to_vec());
         let mut diags = Vec::new();
-        FileName.check_lines(&source, &config, &mut diags);
+        FileName.check_lines(&source, &config, &mut diags, None);
         assert!(diags.is_empty(), "Should allow AllowedAcronyms in filename");
     }
 
@@ -356,7 +356,7 @@ mod tests {
         };
         let source = SourceFile::from_bytes("my_class.rb", b"x = 1\n".to_vec());
         let mut diags = Vec::new();
-        FileName.check_lines(&source, &config, &mut diags);
+        FileName.check_lines(&source, &config, &mut diags, None);
         assert!(!diags.is_empty(), "ExpectMatchingDefinition should flag file without matching class");
         assert!(diags[0].message.contains("MyClass"));
     }
@@ -372,7 +372,7 @@ mod tests {
         };
         let source = SourceFile::from_bytes("my_class.rb", b"class MyClass\nend\n".to_vec());
         let mut diags = Vec::new();
-        FileName.check_lines(&source, &config, &mut diags);
+        FileName.check_lines(&source, &config, &mut diags, None);
         assert!(diags.is_empty(), "ExpectMatchingDefinition should accept matching class");
     }
 
@@ -391,7 +391,7 @@ mod tests {
             b"class MyGem::MyClass\nend\n".to_vec(),
         );
         let mut diags = Vec::new();
-        FileName.check_lines(&source, &config, &mut diags);
+        FileName.check_lines(&source, &config, &mut diags, None);
         assert!(diags.is_empty(), "Should accept matching namespaced class");
     }
 
@@ -410,7 +410,7 @@ mod tests {
             b"class MyClass\nend\n".to_vec(),
         );
         let mut diags = Vec::new();
-        FileName.check_lines(&source, &config, &mut diags);
+        FileName.check_lines(&source, &config, &mut diags, None);
         assert!(diags.is_empty(), "Without hierarchy check, just the class name should match");
     }
 }

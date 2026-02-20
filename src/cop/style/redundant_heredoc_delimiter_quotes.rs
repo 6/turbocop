@@ -21,6 +21,7 @@ impl Cop for RedundantHeredocDelimiterQuotes {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check both StringNode (non-interpolated heredoc) and InterpolatedStringNode (heredoc with interp)
         let opening_loc = if let Some(s) = node.as_string_node() {

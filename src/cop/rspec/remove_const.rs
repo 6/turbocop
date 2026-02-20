@@ -30,6 +30,7 @@ impl Cop for RemoveConst {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for .send(:remove_const, ...) or .__send__(:remove_const, ...)
         let call = match node.as_call_node() {

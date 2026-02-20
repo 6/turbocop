@@ -14,6 +14,7 @@ impl Cop for InlineComment {
         source: &SourceFile,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let lines = source.lines();
 

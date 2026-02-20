@@ -18,6 +18,7 @@ impl Cop for ClassAndModuleChildren {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "nested").to_string();
         let enforced_for_classes = config.get_str("EnforcedStyleForClasses", "").to_string();
@@ -48,6 +49,7 @@ impl Cop for ClassAndModuleChildren {
             severity: self.default_severity(),
             cop_name: self.name().to_string(),
             message,
+            corrected: false,
         }
     }
 }
@@ -86,6 +88,7 @@ impl<'a> ChildrenVisitor<'a> {
             severity: crate::diagnostic::Severity::Convention,
             cop_name: "Style/ClassAndModuleChildren".to_string(),
             message,
+            corrected: false,
         });
     }
 

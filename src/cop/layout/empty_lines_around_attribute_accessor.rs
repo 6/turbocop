@@ -31,6 +31,7 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _allow_alias_syntax = config.get_bool("AllowAliasSyntax", true);
         let _allowed_methods = config.get_string_array("AllowedMethods");

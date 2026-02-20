@@ -21,6 +21,7 @@ impl Cop for MapToHash {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Looking for: foo.map { ... }.to_h  or  foo.collect { ... }.to_h
         let call = match node.as_call_node() {

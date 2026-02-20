@@ -21,6 +21,7 @@ impl Cop for TrailingBodyOnMethodDefinition {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         if let Some(def_node) = node.as_def_node() {
             // Skip endless methods (def foo = ...)

@@ -21,6 +21,7 @@ impl Cop for HeredocIndentation {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check StringNode and InterpolatedStringNode for heredoc openings.
         let (opening_loc, closing_loc, raw_content_start) =

@@ -21,6 +21,7 @@ impl Cop for CommandLiteral {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "backticks");
         let allow_inner_backticks = config.get_bool("AllowInnerBackticks", false);

@@ -30,6 +30,7 @@ impl Cop for MissingExpectationTargetMethod {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for expect(x).something or is_expected.something
         // where something is not .to / .not_to / .to_not

@@ -38,6 +38,7 @@ impl Cop for LiteralAsCondition {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Try IfNode
         if let Some(if_node) = node.as_if_node() {

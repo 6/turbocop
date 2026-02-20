@@ -21,6 +21,7 @@ impl Cop for RedundantReturn {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_multiple = config.get_bool("AllowMultipleReturnValues", false);
         let def_node = match node.as_def_node() {

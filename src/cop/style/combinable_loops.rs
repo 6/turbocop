@@ -21,6 +21,7 @@ impl Cop for CombinableLoops {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check in class/module/method bodies for consecutive loops
         // Note: ProgramNode's StatementsNode is visited via visit_statements_node

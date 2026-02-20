@@ -49,6 +49,7 @@ impl Cop for NestedTernaryOperator {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let if_node = match node.as_if_node() {
             Some(n) => n,

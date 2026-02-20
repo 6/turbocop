@@ -21,6 +21,7 @@ impl Cop for IfUnlessModifierOfIfUnless {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check modifier `if`
         if let Some(if_node) = node.as_if_node() {

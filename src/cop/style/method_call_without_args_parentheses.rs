@@ -21,6 +21,7 @@ impl Cop for MethodCallWithoutArgsParentheses {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed_methods = config.get_string_array("AllowedMethods");
         let _allowed_patterns = config.get_string_array("AllowedPatterns");

@@ -25,6 +25,7 @@ impl Cop for FlipFlop {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let flip_flop = match node.as_flip_flop_node() {
             Some(n) => n,

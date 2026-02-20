@@ -21,6 +21,7 @@ impl Cop for InPatternThen {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check for `in` pattern nodes in case-in expressions
         let in_node = match node.as_in_node() {

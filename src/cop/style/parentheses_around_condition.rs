@@ -57,6 +57,7 @@ impl Cop for ParenthesesAroundCondition {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_safe_assignment = config.get_bool("AllowSafeAssignment", true);
         let allow_multiline = config.get_bool("AllowInMultilineConditions", false);

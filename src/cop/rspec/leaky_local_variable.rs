@@ -32,6 +32,7 @@ impl Cop for LeakyLocalVariable {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for describe/context blocks (including RSpec.describe)
         let call = match node.as_call_node() {

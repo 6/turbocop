@@ -9,7 +9,7 @@ impl Cop for BlockComments {
         "Style/BlockComments"
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
         for (i, line) in source.lines().enumerate() {
             // =begin must be at the start of a line
             if line.starts_with(b"=begin") && (line.len() == 6 || line[6].is_ascii_whitespace()) {

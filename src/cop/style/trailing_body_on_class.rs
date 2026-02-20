@@ -21,6 +21,7 @@ impl Cop for TrailingBodyOnClass {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check class ... ; body
         if let Some(class_node) = node.as_class_node() {

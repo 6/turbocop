@@ -18,11 +18,21 @@ impl Formatter for TextFormatter {
             "offenses"
         };
         let file_word = if file_count == 1 { "file" } else { "files" };
-        let _ = writeln!(
-            out,
-            "\n{file_count} {file_word} inspected, {} {offense_word} detected",
-            diagnostics.len(),
-        );
+        let corrected_count = diagnostics.iter().filter(|d| d.corrected).count();
+        if corrected_count > 0 {
+            let corrected_word = if corrected_count == 1 { "offense" } else { "offenses" };
+            let _ = writeln!(
+                out,
+                "\n{file_count} {file_word} inspected, {} {offense_word} detected, {corrected_count} {corrected_word} corrected",
+                diagnostics.len(),
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "\n{file_count} {file_word} inspected, {} {offense_word} detected",
+                diagnostics.len(),
+            );
+        }
     }
 }
 
@@ -38,6 +48,8 @@ mod tests {
             severity: sev,
             cop_name: cop.to_string(),
             message: msg.to_string(),
+
+            corrected: false,
         }
     }
 

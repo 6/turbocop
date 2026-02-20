@@ -115,6 +115,7 @@ impl Cop for FormatStringToken {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "annotated");
         let max_unannotated = config.get_usize("MaxUnannotatedPlaceholdersAllowed", 1);

@@ -88,6 +88,7 @@ impl Cop for DeletePrefix {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let safe_multiline = config.get_bool("SafeMultiline", true);
         let call = match node.as_call_node() {

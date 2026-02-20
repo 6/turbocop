@@ -21,6 +21,7 @@ impl Cop for ClassVars {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check class variable write: @@foo = 1
         if let Some(cvasgn) = node.as_class_variable_write_node() {

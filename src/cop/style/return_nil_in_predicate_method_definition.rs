@@ -18,6 +18,7 @@ impl Cop for ReturnNilInPredicateMethodDefinition {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed_methods = config.get_string_array("AllowedMethods").unwrap_or_default();
         let allowed_patterns = config.get_string_array("AllowedPatterns").unwrap_or_default();

@@ -30,6 +30,7 @@ impl Cop for ReceiveNever {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for .to / .to_not / .not_to calls (the matcher dispatch)
         let to_call = match node.as_call_node() {

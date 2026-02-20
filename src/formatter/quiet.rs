@@ -54,6 +54,8 @@ mod tests {
             severity: Severity::Convention,
             cop_name: "Style/Foo".to_string(),
             message: "bad style".to_string(),
+
+            corrected: false,
         };
         let out = render(&[d], &[PathBuf::from("foo.rb")]);
         assert!(out.contains("foo.rb:3:5: C: Style/Foo: bad style"));

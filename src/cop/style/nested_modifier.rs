@@ -21,6 +21,7 @@ impl Cop for NestedModifier {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Get the body of a modifier conditional (if/unless)
         let body_node = if let Some(if_node) = node.as_if_node() {

@@ -18,6 +18,7 @@ impl Cop for ModuleFunction {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "module_function");
         // Autocorrect config key acknowledged (autocorrect not yet implemented)

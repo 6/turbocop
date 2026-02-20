@@ -15,7 +15,7 @@ impl Cop for AttributeAssignment {
         &["**/*.gemspec"]
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
         // Track attribute assignments: attr_name -> (line_num, style)
         // style is "direct" for spec.name = or "indexed" for spec.metadata["name"] =
         let mut seen: HashMap<String, (usize, &str)> = HashMap::new();

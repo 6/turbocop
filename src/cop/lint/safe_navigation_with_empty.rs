@@ -25,6 +25,7 @@ impl Cop for SafeNavigationWithEmpty {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for `foo&.empty?` used inside a conditional (if/unless).
         // RuboCop's pattern: (if (csend (send ...) :empty?) ...)

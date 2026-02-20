@@ -25,6 +25,7 @@ impl Cop for ParenthesesAsGroupedExpression {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for method calls where there's a space before the opening parenthesis.
         // `a.func (x)` should be `a.func(x)`.

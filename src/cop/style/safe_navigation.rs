@@ -227,6 +227,7 @@ impl Cop for SafeNavigation {
         _code_map: &crate::cop::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let max_chain_length = config.get_usize("MaxChainLength", 2);
         let _convert_nil = config.get_bool("ConvertCodeThatCanStartToReturnNil", false);

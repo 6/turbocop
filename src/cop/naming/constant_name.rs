@@ -22,6 +22,7 @@ impl Cop for ConstantName {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         if let Some(cw) = node.as_constant_write_node() {
             let const_name = cw.name().as_slice();

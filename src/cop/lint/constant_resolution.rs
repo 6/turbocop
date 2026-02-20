@@ -27,6 +27,7 @@ impl Cop for ConstantResolution {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check for unqualified constant (no parent scope, just `Foo` not `::Foo`)
         // ConstantPathNode (qualified like Foo::Bar or ::Foo) is already resolved,

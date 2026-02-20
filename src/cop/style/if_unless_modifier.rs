@@ -122,6 +122,7 @@ impl Cop for IfUnlessModifier {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Extract keyword location, predicate, statements, has_else, and keyword name
         // from either IfNode or UnlessNode

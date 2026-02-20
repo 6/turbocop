@@ -21,6 +21,7 @@ impl Cop for EmptyHeredoc {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check for heredoc string nodes with empty content
         if let Some(string_node) = node.as_string_node() {

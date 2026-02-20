@@ -25,6 +25,7 @@ impl Cop for RedundantTravelBack {
         _code_map: &crate::cop::CodeMap,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = TravelBackVisitor {
             cop: self,

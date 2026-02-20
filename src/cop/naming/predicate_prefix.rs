@@ -75,6 +75,7 @@ impl Cop for PredicatePrefix {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Handle regular def nodes
         if let Some(def_node) = node.as_def_node() {

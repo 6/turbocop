@@ -36,6 +36,7 @@ impl Cop for HookArgument {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: EnforcedStyle — "implicit" (default), "each", or "example"
         let enforced_style = config.get_str("EnforcedStyle", "implicit");

@@ -76,6 +76,7 @@ impl Cop for TernaryParentheses {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "require_no_parentheses");
         let allow_safe = config.get_bool("AllowSafeAssignment", true);

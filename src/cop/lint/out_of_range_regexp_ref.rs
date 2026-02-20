@@ -22,6 +22,7 @@ impl Cop for OutOfRangeRegexpRef {
         _code_map: &CodeMap,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = RegexpRefVisitor {
             cop: self,

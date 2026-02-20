@@ -38,6 +38,7 @@ impl Cop for CompactBlank {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // minimum_target_rails_version 6.1
         // compact_blank was introduced in Rails 6.1; skip for older versions.

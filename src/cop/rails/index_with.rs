@@ -211,6 +211,7 @@ impl Cop for IndexWith {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Pattern 1: items.map { |e| [e, value] }.to_h
         if let Some(chain) = util::as_method_chain(node) {

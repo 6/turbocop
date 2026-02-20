@@ -26,6 +26,7 @@ impl Cop for InverseOf {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let ignore_scopes = config.get_bool("IgnoreScopes", false);
 

@@ -25,6 +25,7 @@ impl Cop for Loop {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check WhileNode for begin..end while form
         // Prism sets the PM_LOOP_FLAGS_BEGIN_MODIFIER flag for this pattern.

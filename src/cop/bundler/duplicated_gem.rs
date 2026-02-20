@@ -21,7 +21,7 @@ impl Cop for DuplicatedGem {
         &["**/*.gemfile", "**/Gemfile", "**/gems.rb"]
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
         // Maps gem name -> first occurrence line (1-indexed)
         let mut seen: HashMap<String, usize> = HashMap::new();
         // Track conditional nesting depth for if/elsif/else/case/when

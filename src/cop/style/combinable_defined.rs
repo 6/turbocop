@@ -21,6 +21,7 @@ impl Cop for CombinableDefined {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check for `defined?(Foo) && defined?(Foo::Bar)` or `defined?(Foo) and defined?(Foo::Bar)`
         let call = match node.as_call_node() {

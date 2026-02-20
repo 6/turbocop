@@ -21,6 +21,7 @@ impl Cop for SpaceInsideReferenceBrackets {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // This cop checks [] and []= method calls (reference brackets)
         let call = match node.as_call_node() {

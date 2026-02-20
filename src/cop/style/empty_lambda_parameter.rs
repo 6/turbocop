@@ -21,6 +21,7 @@ impl Cop for EmptyLambdaParameter {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check LambdaNode for empty parameters: -> () {}
         let lambda_node = match node.as_lambda_node() {

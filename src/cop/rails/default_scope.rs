@@ -25,6 +25,7 @@ impl Cop for DefaultScope {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Pattern 1: method call `default_scope -> { ... }`
         if let Some(call) = node.as_call_node() {

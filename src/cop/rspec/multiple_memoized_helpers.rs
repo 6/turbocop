@@ -28,6 +28,7 @@ impl Cop for MultipleMemoizedHelpers {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let max = config.get_usize("Max", 5);
         let allow_subject = config.get_bool("AllowSubject", true);

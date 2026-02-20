@@ -31,6 +31,7 @@ impl Cop for ChangeByZero {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: NegatedMatcher — name of a custom negated matcher (e.g. "not_change")
         let negated_matcher = config.get_str("NegatedMatcher", "");

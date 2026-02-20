@@ -30,6 +30,7 @@ impl Cop for VoidExpect {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Detect `expect(...)` or `expect { ... }` without `.to` or `.not_to` chained.
         // This means the expect call node should NOT be the receiver of a `.to`/`.not_to`/`.to_not` call.

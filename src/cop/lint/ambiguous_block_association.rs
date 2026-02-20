@@ -25,6 +25,7 @@ impl Cop for AmbiguousBlockAssociation {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // We look for CallNode where:
         // 1. The outer call has no parentheses (opening_loc is None)

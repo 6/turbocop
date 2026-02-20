@@ -21,6 +21,7 @@ impl Cop for CollectionMethods {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let preferred_methods = config.get_string_hash("PreferredMethods").unwrap_or_else(|| {
             // Default preferred methods per RuboCop's default.yml

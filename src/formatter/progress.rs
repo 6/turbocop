@@ -49,11 +49,21 @@ impl Formatter for ProgressFormatter {
             "offenses"
         };
         let file_word = if file_count == 1 { "file" } else { "files" };
-        let _ = writeln!(
-            out,
-            "\n{file_count} {file_word} inspected, {} {offense_word} detected",
-            diagnostics.len(),
-        );
+        let corrected_count = diagnostics.iter().filter(|d| d.corrected).count();
+        if corrected_count > 0 {
+            let corrected_word = if corrected_count == 1 { "offense" } else { "offenses" };
+            let _ = writeln!(
+                out,
+                "\n{file_count} {file_word} inspected, {} {offense_word} detected, {corrected_count} {corrected_word} corrected",
+                diagnostics.len(),
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "\n{file_count} {file_word} inspected, {} {offense_word} detected",
+                diagnostics.len(),
+            );
+        }
     }
 }
 
@@ -69,6 +79,8 @@ mod tests {
             severity: sev,
             cop_name: "Style/Test".to_string(),
             message: "test".to_string(),
+
+            corrected: false,
         }
     }
 
@@ -131,6 +143,8 @@ mod tests {
             severity: Severity::Warning,
             cop_name: "Lint/Bad".to_string(),
             message: "bad thing".to_string(),
+
+            corrected: false,
         };
         let out = render(&[d], &files);
         assert!(out.contains("foo.rb:5:3: W: Lint/Bad: bad thing"));

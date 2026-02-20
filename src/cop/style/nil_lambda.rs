@@ -82,6 +82,7 @@ impl Cop for NilLambda {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check lambda node: `-> { nil }`
         if let Some(lambda) = node.as_lambda_node() {

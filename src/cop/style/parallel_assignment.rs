@@ -21,6 +21,7 @@ impl Cop for ParallelAssignment {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for multi-write nodes (parallel assignment: a, b = 1, 2)
         let multi_write = match node.as_multi_write_node() {

@@ -21,6 +21,7 @@ impl Cop for OneLineConditional {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // AlwaysCorrectToMultiline only affects auto-correction (ternary vs multiline),
         // not detection. Read it to satisfy config completeness.

@@ -30,6 +30,7 @@ impl Cop for ContainExactly {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Detect `contain_exactly(*array)` where ALL arguments are splats.
         // Suggest `match_array` instead.

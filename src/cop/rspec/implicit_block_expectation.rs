@@ -30,6 +30,7 @@ impl Cop for ImplicitBlockExpectation {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Flag `is_expected` when sibling `subject` contains a lambda/proc
         // This is a simplified check: we flag `is_expected` inside example blocks

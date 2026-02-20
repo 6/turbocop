@@ -20,6 +20,7 @@ impl Cop for RedundantMatch {
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         use ruby_prism::Visit;
         let mut visitor = RedundantMatchVisitor {

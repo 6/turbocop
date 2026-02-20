@@ -28,6 +28,7 @@ impl Cop for DuplicateScope {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let class = match node.as_class_node() {
             Some(c) => c,

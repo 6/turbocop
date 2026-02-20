@@ -32,6 +32,7 @@ impl Cop for NamedSubject {
         _code_map: &CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "always");
         let named_only = style == "named_only";

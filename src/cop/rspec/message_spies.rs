@@ -31,6 +31,7 @@ impl Cop for MessageSpies {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: EnforcedStyle — "have_received" (default) or "receive"
         let enforced_style = config.get_str("EnforcedStyle", "have_received");

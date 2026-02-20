@@ -21,6 +21,7 @@ impl Cop for HashSyntax {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Handle both explicit hashes `{ k: v }` and implicit keyword hashes `foo(k: v)`
         let elements: Vec<ruby_prism::Node<'_>> =

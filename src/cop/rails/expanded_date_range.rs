@@ -25,6 +25,7 @@ impl Cop for ExpandedDateRange {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let range = match node.as_range_node() {
             Some(r) => r,

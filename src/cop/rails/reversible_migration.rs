@@ -318,6 +318,7 @@ impl Cop for ReversibleMigration {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Only check class definitions that inherit from Migration
         let class_node = match node.as_class_node() {

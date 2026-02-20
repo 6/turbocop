@@ -25,6 +25,7 @@ impl Cop for Present {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let not_nil_and_not_empty = config.get_bool("NotNilAndNotEmpty", true);
         let not_blank = config.get_bool("NotBlank", true);

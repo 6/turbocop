@@ -17,6 +17,7 @@ impl Cop for NonNilCheck {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let include_semantic_changes = config.get_bool("IncludeSemanticChanges", false);
         let mut visitor = NonNilCheckVisitor {

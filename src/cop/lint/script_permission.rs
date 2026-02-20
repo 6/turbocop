@@ -13,7 +13,7 @@ impl Cop for ScriptPermission {
         Severity::Warning
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
         // Only check files that start with a shebang
         let first_line = match source.lines().next() {
             Some(l) => l,
@@ -98,7 +98,7 @@ mod tests {
         let source = SourceFile::from_bytes(&path, std::fs::read(&path).unwrap());
         let config = CopConfig::default();
         let mut diags = Vec::new();
-        ScriptPermission.check_lines(&source, &config, &mut diags);
+        ScriptPermission.check_lines(&source, &config, &mut diags, None);
         #[cfg(unix)]
         assert_eq!(diags.len(), 1, "Should flag non-executable script");
         #[cfg(not(unix))]
@@ -115,7 +115,7 @@ mod tests {
         let source = SourceFile::from_bytes(&path, std::fs::read(&path).unwrap());
         let config = CopConfig::default();
         let mut diags = Vec::new();
-        ScriptPermission.check_lines(&source, &config, &mut diags);
+        ScriptPermission.check_lines(&source, &config, &mut diags, None);
         #[cfg(unix)]
         assert_eq!(diags.len(), 1, "Should flag non-executable script");
         #[cfg(not(unix))]
@@ -132,7 +132,7 @@ mod tests {
         let source = SourceFile::from_bytes(&path, std::fs::read(&path).unwrap());
         let config = CopConfig::default();
         let mut diags = Vec::new();
-        ScriptPermission.check_lines(&source, &config, &mut diags);
+        ScriptPermission.check_lines(&source, &config, &mut diags, None);
         #[cfg(unix)]
         assert_eq!(diags.len(), 1, "Should flag non-executable script");
         #[cfg(not(unix))]
@@ -149,7 +149,7 @@ mod tests {
         let source = SourceFile::from_bytes(&path, std::fs::read(&path).unwrap());
         let config = CopConfig::default();
         let mut diags = Vec::new();
-        ScriptPermission.check_lines(&source, &config, &mut diags);
+        ScriptPermission.check_lines(&source, &config, &mut diags, None);
         assert!(diags.is_empty(), "Should not flag executable script");
     }
 
@@ -161,7 +161,7 @@ mod tests {
         );
         let config = CopConfig::default();
         let mut diags = Vec::new();
-        ScriptPermission.check_lines(&source, &config, &mut diags);
+        ScriptPermission.check_lines(&source, &config, &mut diags, None);
         assert!(diags.is_empty());
     }
 }

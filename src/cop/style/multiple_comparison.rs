@@ -118,6 +118,7 @@ impl Cop for MultipleComparison {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_method = config.get_bool("AllowMethodComparison", true);
         let threshold = config.get_usize("ComparisonsThreshold", 2);

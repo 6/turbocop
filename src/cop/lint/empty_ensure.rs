@@ -25,6 +25,7 @@ impl Cop for EmptyEnsure {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // EnsureNode is not visited directly by the generic walker.
         // It appears as ensure_clause() on BeginNode.

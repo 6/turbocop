@@ -18,6 +18,7 @@ impl Cop for BlockNesting {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let max = config.get_usize("Max", 3);
         let _count_blocks = config.get_bool("CountBlocks", false);
@@ -48,6 +49,7 @@ impl Cop for BlockNesting {
             severity: self.default_severity(),
             cop_name: self.name().to_string(),
             message,
+            corrected: false,
         }
     }
 }
@@ -71,6 +73,8 @@ impl NestingVisitor<'_> {
                 severity: crate::diagnostic::Severity::Convention,
                 cop_name: "Metrics/BlockNesting".to_string(),
                 message: format!("Avoid more than {} levels of block nesting.", self.max),
+
+                corrected: false,
             });
         }
     }

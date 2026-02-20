@@ -21,6 +21,7 @@ impl<'pr> Visit<'pr> for CopWalker<'_, 'pr> {
             self.parse_result,
             self.cop_config,
             &mut self.diagnostics,
+            None,
         );
     }
 
@@ -31,6 +32,7 @@ impl<'pr> Visit<'pr> for CopWalker<'_, 'pr> {
             self.parse_result,
             self.cop_config,
             &mut self.diagnostics,
+            None,
         );
     }
 }
@@ -83,12 +85,12 @@ impl<'a, 'pr> BatchedCopWalker<'a, 'pr> {
         let tag = node_type_tag(node) as usize;
 
         for &(cop, cop_config) in &self.universal_cops {
-            cop.check_node(self.source, node, self.parse_result, cop_config, &mut self.diagnostics);
+            cop.check_node(self.source, node, self.parse_result, cop_config, &mut self.diagnostics, None);
         }
 
         if let Some(cops) = self.dispatch_table.get(tag) {
             for &(cop, cop_config) in cops {
-                cop.check_node(self.source, node, self.parse_result, cop_config, &mut self.diagnostics);
+                cop.check_node(self.source, node, self.parse_result, cop_config, &mut self.diagnostics, None);
             }
         }
     }

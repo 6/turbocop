@@ -122,6 +122,7 @@ fn parse_renamed_cops(yaml_content: &str) -> HashMap<String, String> {
 pub struct LintResult {
     pub diagnostics: Vec<Diagnostic>,
     pub file_count: usize,
+    pub corrected_count: usize,
 }
 
 /// Lint a single SourceFile (already loaded into memory). Used for --stdin mode.
@@ -149,6 +150,7 @@ pub fn lint_source(
     LintResult {
         diagnostics: sorted,
         file_count: 1,
+        corrected_count: 0,
     }
 }
 
@@ -166,8 +168,10 @@ pub fn run_linter(
     let base_configs = config.precompute_cop_configs(registry);
     let has_dir_overrides = config.has_dir_overrides();
 
-    // Result cache: enabled by default, disable with --cache false
-    let cache_enabled = args.cache == "true" && args.stdin.is_none();
+    // Result cache: enabled by default, disable with --cache false or autocorrect
+    let cache_enabled = args.cache == "true"
+        && args.stdin.is_none()
+        && args.autocorrect_mode() == crate::cli::AutocorrectMode::Off;
     let cache = if cache_enabled {
         let c = ResultCache::new(env!("CARGO_PKG_VERSION"), &base_configs, args);
         if args.debug {
@@ -266,10 +270,10 @@ pub fn run_linter(
                 let cop_config = &base_configs[i];
                 let t0 = std::time::Instant::now();
                 let mut d = Vec::new();
-                cop.check_lines(&source, cop_config, &mut d);
+                cop.check_lines(&source, cop_config, &mut d, None);
                 let lines_ns = t0.elapsed().as_nanos() as u64;
                 let t1 = std::time::Instant::now();
-                cop.check_source(&source, &parse_result, &code_map, cop_config, &mut d);
+                cop.check_source(&source, &parse_result, &code_map, cop_config, &mut d, None);
                 let source_ns = t1.elapsed().as_nanos() as u64;
                 let t2 = std::time::Instant::now();
                 // check_node via single-cop walker
@@ -312,6 +316,7 @@ pub fn run_linter(
     LintResult {
         diagnostics: sorted,
         file_count: files.len(),
+        corrected_count: 0,
     }
 }
 
@@ -557,8 +562,8 @@ fn lint_source_inner(
             Some(idx) => &override_configs[idx],
             None => &base_configs[i],
         };
-        cop.check_lines(source, cop_config, &mut diagnostics);
-        cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics);
+        cop.check_lines(source, cop_config, &mut diagnostics, None);
+        cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics, None);
         ast_cop_indices.push((i, override_idx));
     }
 
@@ -592,8 +597,8 @@ fn lint_source_inner(
             Some(idx) => &override_configs[idx],
             None => &base_configs[i],
         };
-        cop.check_lines(source, cop_config, &mut diagnostics);
-        cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics);
+        cop.check_lines(source, cop_config, &mut diagnostics, None);
+        cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics, None);
         ast_cop_indices.push((i, override_idx));
     }
 
@@ -693,6 +698,7 @@ fn lint_source_inner(
                     severity: Severity::Warning,
                     cop_name: REDUNDANT_DISABLE_COP.to_string(),
                     message,
+                    corrected: false,
                 });
             }
         }

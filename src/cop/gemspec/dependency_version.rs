@@ -19,7 +19,7 @@ impl Cop for DependencyVersion {
         &["**/*.gemspec"]
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
         let style = config.get_str("EnforcedStyle", "required");
         let allowed_gems = config
             .get_string_array("AllowedGems")

@@ -21,6 +21,7 @@ impl Cop for FirstArrayElementLineBreak {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _allow_implicit = config.get_bool("AllowImplicitArrayLiterals", false);
         let _allow_multiline_final = config.get_bool("AllowMultilineFinalElement", false);

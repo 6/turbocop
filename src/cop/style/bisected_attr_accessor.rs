@@ -22,6 +22,7 @@ impl Cop for BisectedAttrAccessor {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let body = if let Some(class_node) = node.as_class_node() {
             class_node.body()

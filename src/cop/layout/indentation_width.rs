@@ -161,6 +161,7 @@ impl Cop for IndentationWidth {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let width = config.get_usize("Width", 2);
         let align_style = config.get_str("EnforcedStyleAlignWith", "start_of_line");

@@ -21,6 +21,7 @@ impl Cop for ComparableClamp {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Pattern: if x < low then low elsif x > high then high else x end
         // (or with > / reversed operand positions)

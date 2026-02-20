@@ -83,6 +83,7 @@ impl Cop for IdenticalConditionalBranches {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         if let Some(if_node) = node.as_if_node() {
             // Must have an if keyword (skip ternaries)

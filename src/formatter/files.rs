@@ -29,6 +29,8 @@ mod tests {
             severity: Severity::Convention,
             cop_name: "Style/Test".to_string(),
             message: "test".to_string(),
+
+            corrected: false,
         }
     }
 

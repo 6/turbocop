@@ -21,6 +21,7 @@ impl Cop for RedundantCapitalW {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let loc = node.location();
         let src_bytes = loc.as_slice();

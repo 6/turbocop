@@ -16,6 +16,7 @@ impl Cop for LineEndConcatenation {
         code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let lines: Vec<&str> = source.lines()
             .filter_map(|l| std::str::from_utf8(l).ok())

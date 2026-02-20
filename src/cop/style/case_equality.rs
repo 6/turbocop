@@ -21,6 +21,7 @@ impl Cop for CaseEquality {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_on_constant = config.get_bool("AllowOnConstant", false);
         let allow_on_self_class = config.get_bool("AllowOnSelfClass", false);

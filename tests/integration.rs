@@ -55,6 +55,8 @@ fn default_args() -> Args {
         require_libs: vec![],
         ignore_disable_comments: false,
         force_default_config: false,
+        autocorrect: false,
+        autocorrect_all: false,
     }
 }
 
@@ -2867,6 +2869,7 @@ fn cache_preserves_all_severity_types() {
             severity: Severity::Convention,
             cop_name: "Style/A".to_string(),
             message: "convention".to_string(),
+            corrected: false,
         },
         Diagnostic {
             path: rb_file.to_string_lossy().to_string(),
@@ -2874,6 +2877,7 @@ fn cache_preserves_all_severity_types() {
             severity: Severity::Warning,
             cop_name: "Lint/B".to_string(),
             message: "warning".to_string(),
+            corrected: false,
         },
         Diagnostic {
             path: rb_file.to_string_lossy().to_string(),
@@ -2881,6 +2885,7 @@ fn cache_preserves_all_severity_types() {
             severity: Severity::Error,
             cop_name: "Security/C".to_string(),
             message: "error".to_string(),
+            corrected: false,
         },
         Diagnostic {
             path: rb_file.to_string_lossy().to_string(),
@@ -2888,6 +2893,7 @@ fn cache_preserves_all_severity_types() {
             severity: Severity::Fatal,
             cop_name: "Lint/D".to_string(),
             message: "fatal".to_string(),
+            corrected: false,
         },
     ];
 

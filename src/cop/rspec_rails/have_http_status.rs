@@ -39,6 +39,7 @@ impl Cop for HaveHttpStatus {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Pattern: expect(response.status).to be(200)
         // AST: CallNode(receiver=CallNode(expect(CallNode(response.status))), name=to,

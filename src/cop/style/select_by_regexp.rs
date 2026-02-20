@@ -95,6 +95,7 @@ impl Cop for SelectByRegexp {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // We check the CallNode; its block() gives us the BlockNode
         let call = match node.as_call_node() {

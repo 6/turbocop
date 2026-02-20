@@ -25,6 +25,7 @@ impl Cop for AmbiguousRegexpLiteral {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for CallNode without parentheses where the first argument is a
         // RegularExpressionNode or a MatchWriteNode wrapping one.

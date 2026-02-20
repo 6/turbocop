@@ -21,6 +21,7 @@ impl Cop for HashAlignment {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // AllowMultipleStyles: when true (default), accept any consistent style per-hash.
         // Our implementation already checks per-hash consistency so this is a no-op at true.

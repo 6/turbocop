@@ -46,6 +46,8 @@ mod tests {
             severity: Severity::Convention,
             cop_name: "Style/Foo".to_string(),
             message: "bad style".to_string(),
+
+            corrected: false,
         };
         let out = render(&[d]);
         assert_eq!(out, "::warning file=foo.rb,line=3,col=5::Style/Foo: bad style\n");
@@ -59,6 +61,8 @@ mod tests {
             severity: Severity::Warning,
             cop_name: "Lint/X".to_string(),
             message: "warn".to_string(),
+
+            corrected: false,
         };
         let out = render(&[d]);
         assert!(out.starts_with("::warning "));
@@ -72,6 +76,8 @@ mod tests {
             severity: Severity::Error,
             cop_name: "Lint/Y".to_string(),
             message: "err".to_string(),
+
+            corrected: false,
         };
         let out = render(&[d]);
         assert_eq!(out, "::error file=baz.rb,line=10,col=2::Lint/Y: err\n");
@@ -85,6 +91,8 @@ mod tests {
             severity: Severity::Fatal,
             cop_name: "Lint/Z".to_string(),
             message: "fatal".to_string(),
+
+            corrected: false,
         };
         let out = render(&[d]);
         assert!(out.starts_with("::error "));
@@ -98,6 +106,8 @@ mod tests {
             severity: Severity::Convention,
             cop_name: "A/B".to_string(),
             message: "m1".to_string(),
+
+            corrected: false,
         };
         let d2 = Diagnostic {
             path: "b.rb".to_string(),
@@ -105,6 +115,8 @@ mod tests {
             severity: Severity::Error,
             cop_name: "C/D".to_string(),
             message: "m2".to_string(),
+
+            corrected: false,
         };
         let out = render(&[d1, d2]);
         let lines: Vec<&str> = out.lines().collect();

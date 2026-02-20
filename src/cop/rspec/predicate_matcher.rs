@@ -32,6 +32,7 @@ impl Cop for PredicateMatcher {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: Strict — when false, also match be(true)/be(false) in addition to be_truthy/be_falsey
         let strict = config.get_bool("Strict", true);

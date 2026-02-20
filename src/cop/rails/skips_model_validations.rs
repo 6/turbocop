@@ -45,6 +45,7 @@ impl Cop for SkipsModelValidations {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let forbidden = config.get_string_array("ForbiddenMethods");
         let allowed = config.get_string_array("AllowedMethods");

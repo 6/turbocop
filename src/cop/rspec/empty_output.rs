@@ -30,6 +30,7 @@ impl Cop for EmptyOutput {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for output('') calls
         let call = match node.as_call_node() {

@@ -18,6 +18,7 @@ struct JsonOutput {
 struct Metadata {
     files_inspected: usize,
     offense_count: usize,
+    corrected_count: usize,
 }
 
 #[derive(Serialize)]
@@ -28,14 +29,17 @@ struct Offense {
     severity: String,
     cop_name: String,
     message: String,
+    corrected: bool,
 }
 
 impl Formatter for JsonFormatter {
     fn format_to(&self, diagnostics: &[Diagnostic], files: &[PathBuf], out: &mut dyn Write) {
+        let corrected_count = diagnostics.iter().filter(|d| d.corrected).count();
         let output = JsonOutput {
             metadata: Metadata {
                 files_inspected: files.len(),
                 offense_count: diagnostics.len(),
+                corrected_count,
             },
             offenses: diagnostics
                 .iter()
@@ -46,6 +50,7 @@ impl Formatter for JsonFormatter {
                     severity: d.severity.letter().to_string(),
                     cop_name: d.cop_name.clone(),
                     message: d.message.clone(),
+                    corrected: d.corrected,
                 })
                 .collect(),
         };
@@ -82,6 +87,8 @@ mod tests {
             severity: Severity::Warning,
             cop_name: "Style/Foo".to_string(),
             message: "bad".to_string(),
+
+            corrected: false,
         };
         let out = render(&[d], &[PathBuf::from("foo.rb")]);
         let parsed: serde_json::Value = serde_json::from_str(out.trim()).unwrap();

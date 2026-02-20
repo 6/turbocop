@@ -30,6 +30,7 @@ impl Cop for SpecFilePathSuffix {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Only check ProgramNode (root)
         let program = match node.as_program_node() {

@@ -34,6 +34,7 @@ impl Cop for HeredocDelimiterNaming {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _forbidden_delimiters = config.get_string_array("ForbiddenDelimiters");
 

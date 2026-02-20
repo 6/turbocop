@@ -18,6 +18,7 @@ impl Cop for MissingElse {
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "both");
         let mut visitor = MissingElseVisitor {

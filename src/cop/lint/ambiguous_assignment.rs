@@ -32,6 +32,7 @@ impl Cop for AmbiguousAssignment {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check variable assignment node types
         let (operator_loc, value) = if let Some(n) = node.as_local_variable_write_node() {

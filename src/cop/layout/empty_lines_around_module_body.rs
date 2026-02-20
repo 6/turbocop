@@ -22,6 +22,7 @@ impl Cop for EmptyLinesAroundModuleBody {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "no_empty_lines");
         let module_node = match node.as_module_node() {

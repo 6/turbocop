@@ -9,7 +9,7 @@ impl Cop for TrailingEmptyLines {
         "Layout/TrailingEmptyLines"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>) {
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
         let style = config.get_str("EnforcedStyle", "final_newline");
         let bytes = source.as_bytes();
         if bytes.is_empty() {
@@ -89,7 +89,7 @@ mod tests {
     fn missing_final_newline() {
         let source = SourceFile::from_bytes("test.rb", b"x = 1".to_vec());
         let mut diags = Vec::new();
-        TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags);
+        TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].location.line, 1);
         assert_eq!(diags[0].message, "Final newline missing.");
@@ -99,7 +99,7 @@ mod tests {
     fn missing_final_newline_multiline() {
         let source = SourceFile::from_bytes("test.rb", b"x = 1\ny = 2".to_vec());
         let mut diags = Vec::new();
-        TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags);
+        TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].location.line, 2);
         assert_eq!(diags[0].message, "Final newline missing.");
@@ -109,7 +109,7 @@ mod tests {
     fn trailing_blank_line() {
         let source = SourceFile::from_bytes("test.rb", b"x = 1\n\n".to_vec());
         let mut diags = Vec::new();
-        TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags);
+        TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].location.line, 2);
         assert_eq!(diags[0].message, "Trailing blank line detected.");
@@ -119,7 +119,7 @@ mod tests {
     fn multiple_trailing_blank_lines() {
         let source = SourceFile::from_bytes("test.rb", b"x = 1\n\n\n\n".to_vec());
         let mut diags = Vec::new();
-        TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags);
+        TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].location.line, 2);
         assert_eq!(diags[0].message, "Trailing blank line detected.");
@@ -129,7 +129,7 @@ mod tests {
     fn proper_final_newline() {
         let source = SourceFile::from_bytes("test.rb", b"x = 1\n".to_vec());
         let mut diags = Vec::new();
-        TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags);
+        TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert!(diags.is_empty());
     }
 
@@ -137,7 +137,7 @@ mod tests {
     fn multiline_proper() {
         let source = SourceFile::from_bytes("test.rb", b"x = 1\ny = 2\n".to_vec());
         let mut diags = Vec::new();
-        TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags);
+        TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert!(diags.is_empty());
     }
 
@@ -145,7 +145,7 @@ mod tests {
     fn empty_file() {
         let source = SourceFile::from_bytes("test.rb", b"".to_vec());
         let mut diags = Vec::new();
-        TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags);
+        TrailingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert!(diags.is_empty());
     }
 
@@ -160,7 +160,7 @@ mod tests {
         };
         let source = SourceFile::from_bytes("test.rb", b"x = 1\n\n".to_vec());
         let mut diags = Vec::new();
-        TrailingEmptyLines.check_lines(&source, &config, &mut diags);
+        TrailingEmptyLines.check_lines(&source, &config, &mut diags, None);
         assert!(diags.is_empty(), "final_blank_line style should accept trailing blank line");
     }
 
@@ -175,7 +175,7 @@ mod tests {
         };
         let source = SourceFile::from_bytes("test.rb", b"x = 1\n".to_vec());
         let mut diags = Vec::new();
-        TrailingEmptyLines.check_lines(&source, &config, &mut diags);
+        TrailingEmptyLines.check_lines(&source, &config, &mut diags, None);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].message, "Trailing blank line missing.");
     }

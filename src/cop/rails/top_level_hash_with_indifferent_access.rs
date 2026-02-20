@@ -25,6 +25,7 @@ impl Cop for TopLevelHashWithIndifferentAccess {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check for ConstantReadNode: `HashWithIndifferentAccess`
         if let Some(cr) = node.as_constant_read_node() {

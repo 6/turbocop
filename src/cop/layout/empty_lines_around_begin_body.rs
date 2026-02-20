@@ -22,6 +22,7 @@ impl Cop for EmptyLinesAroundBeginBody {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Only check explicit begin..end blocks (BeginNode in Prism)
         let begin_node = match node.as_begin_node() {

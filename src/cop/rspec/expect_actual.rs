@@ -30,6 +30,7 @@ impl Cop for ExpectActual {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for expect(literal).to/to_not/not_to matcher(args) chains
         // RuboCop only flags when the full chain has a matcher with arguments.

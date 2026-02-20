@@ -22,6 +22,7 @@ impl Cop for ClosingParenthesisIndentation {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Handle method calls with parentheses
         if let Some(call) = node.as_call_node() {

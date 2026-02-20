@@ -22,6 +22,7 @@ impl Cop for EmptyLineAfterMultilineCondition {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check if/unless nodes
         if let Some(if_node) = node.as_if_node() {

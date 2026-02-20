@@ -25,6 +25,7 @@ impl Cop for YamlLoad {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // RuboCop: maximum_target_ruby_version 3.0
         // In Ruby 3.1+ (Psych 4), YAML.load uses safe_load by default.

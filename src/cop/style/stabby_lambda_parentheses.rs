@@ -21,6 +21,7 @@ impl Cop for StabbyLambdaParentheses {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let lambda_node = match node.as_lambda_node() {
             Some(l) => l,

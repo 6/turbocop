@@ -138,6 +138,7 @@ impl Cop for EmptyLineBetweenDefs {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let empty_between_methods = config.get_bool("EmptyLineBetweenMethodDefs", true);
         let empty_between_classes = config.get_bool("EmptyLineBetweenClassDefs", true);

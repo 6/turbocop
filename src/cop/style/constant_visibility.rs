@@ -22,6 +22,7 @@ impl Cop for ConstantVisibility {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _ignore_pattern = config.get_str("IgnoreModuleContaining", "");
         let ignore_modules = config.get_bool("IgnoreModules", false);

@@ -21,6 +21,7 @@ impl Cop for RedundantDoubleSplatHashBraces {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for **{key: val, ...} in keyword arguments (KeywordHashNode in method calls)
         // Only check KeywordHashNode (method call keyword args), not plain HashNode

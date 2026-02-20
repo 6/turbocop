@@ -23,6 +23,7 @@ impl Cop for BlockForwarding {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Anonymous block forwarding requires Ruby 3.1+
         // Default TargetRubyVersion is 3.4 (matching RuboCop's behavior when unset)

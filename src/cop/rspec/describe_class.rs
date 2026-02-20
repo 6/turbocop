@@ -32,6 +32,7 @@ impl Cop for DescribeClass {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
+    _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let program = match node.as_program_node() {
             Some(p) => p,
