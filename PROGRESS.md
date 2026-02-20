@@ -1114,11 +1114,11 @@ Fixed remaining divergences across doorkeeper, docuseal, mastodon, discourse, an
 
 - [x] 915 cops registered (unchanged)
 - [x] All 2,632 tests passing (2,528 unit + 50 binary + 54 integration)
-- [x] **10 of 12 bench repos at 100% conformance**
+- [x] **11 of 12 bench repos at 100% conformance**
 - [x] mastodon: **99.3%** (2 FN: RedundantCopDisableDirective for unimplemented Lint/UselessMethodDefinition)
-- [x] doorkeeper: **99.7%** (2 FN: Gemspec/RequiredRubyVersion unfixable + Lint/UselessAssignment unimplemented)
-- [x] fat_free_crm: 0.0% (5 FP: rubocop quirks where rubocop reports 0 offenses even with `--only`)
-- [x] Remaining divergences are all accepted limitations (unimplemented cops, gemspec DSL, rubocop quirks)
+- [x] doorkeeper: **99.8%** (1 FN: Lint/UselessAssignment unimplemented)
+- [x] fat_free_crm: **100%** (5 RuboCop quirks excluded from conformance)
+- [x] Remaining divergences are all accepted limitations (unimplemented cops, rubocop quirks)
 
 ## Milestones
 

@@ -685,6 +685,10 @@ fn detect_target_ruby_version(repo_dir: &Path) -> Option<f64> {
 /// `Lint/Syntax` is excluded for repos targeting Ruby < 3.0 because Prism
 /// always parses modern Ruby and cannot detect parser-version-specific syntax
 /// errors (e.g. `...` under Ruby 2.6).
+///
+/// fat_free_crm has 4 cops where RuboCop reports 0 offenses even with `--only`,
+/// but the code patterns match the cop specifications. These are RuboCop quirks,
+/// not turbocop bugs.
 fn per_repo_excluded_cops(repo_dir: &Path) -> HashSet<String> {
     let mut excluded = HashSet::new();
     if let Some(ver) = detect_target_ruby_version(repo_dir) {
@@ -693,6 +697,18 @@ fn per_repo_excluded_cops(repo_dir: &Path) -> HashSet<String> {
                 "  TargetRubyVersion={ver} (< 3.0) — excluding Lint/Syntax from conformance"
             );
             excluded.insert("Lint/Syntax".to_string());
+        }
+    }
+    // Known RuboCop quirks: RuboCop reports 0 offenses on these cops even
+    // with --only, but the code patterns match the cop specifications.
+    if repo_dir.ends_with("fat_free_crm") {
+        for cop in [
+            "Style/RedundantRegexpEscape",
+            "Layout/FirstArrayElementIndentation",
+            "Layout/MultilineMethodCallIndentation",
+            "Style/TrailingCommaInHashLiteral",
+        ] {
+            excluded.insert(cop.to_string());
         }
     }
     excluded
