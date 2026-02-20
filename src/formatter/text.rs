@@ -81,4 +81,25 @@ mod tests {
         let out = render(&[d1, d2], &files);
         assert!(out.contains("2 files inspected, 2 offenses detected"));
     }
+
+    #[test]
+    fn corrected_offense_shows_corrected_prefix() {
+        let mut d = make_diag("foo.rb", 1, 5, Severity::Convention, "Style/Foo", "bad");
+        d.corrected = true;
+        let out = render(&[d], &[PathBuf::from("foo.rb")]);
+        assert!(out.contains("[Corrected] foo.rb:1:5:"), "Expected [Corrected] prefix, got: {out}");
+    }
+
+    #[test]
+    fn summary_includes_corrected_count() {
+        let mut d1 = make_diag("a.rb", 1, 0, Severity::Convention, "X/Y", "m1");
+        d1.corrected = true;
+        let d2 = make_diag("a.rb", 2, 0, Severity::Convention, "X/Z", "m2");
+        let files = vec![PathBuf::from("a.rb")];
+        let out = render(&[d1, d2], &files);
+        assert!(
+            out.contains("2 offenses detected, 1 offense corrected"),
+            "Expected corrected count in summary, got: {out}"
+        );
+    }
 }

@@ -403,17 +403,109 @@ macro_rules! cop_autocorrect_fixture_tests {
 mod tests {
     use super::*;
 
+    fn config_with(options: HashMap<String, serde_yml::Value>) -> CopConfig {
+        CopConfig {
+            options,
+            ..CopConfig::default()
+        }
+    }
+
+    // --- should_autocorrect / autocorrect_setting unit tests ---
+
+    #[test]
+    fn should_autocorrect_off_always_false() {
+        use crate::cli::AutocorrectMode;
+        let cfg = config_with(HashMap::new());
+        assert!(!cfg.should_autocorrect(AutocorrectMode::Off));
+        // Even with everything explicitly enabled
+        let cfg = config_with(HashMap::from([
+            ("Safe".into(), serde_yml::Value::Bool(true)),
+            ("SafeAutoCorrect".into(), serde_yml::Value::Bool(true)),
+            ("AutoCorrect".into(), serde_yml::Value::Bool(true)),
+        ]));
+        assert!(!cfg.should_autocorrect(AutocorrectMode::Off));
+    }
+
+    #[test]
+    fn should_autocorrect_safe_requires_both_safe_flags() {
+        use crate::cli::AutocorrectMode;
+        // Default config (both Safe and SafeAutoCorrect default to true)
+        let cfg = config_with(HashMap::new());
+        assert!(cfg.should_autocorrect(AutocorrectMode::Safe));
+    }
+
+    #[test]
+    fn should_autocorrect_safe_blocked_by_unsafe_cop() {
+        use crate::cli::AutocorrectMode;
+        let cfg = config_with(HashMap::from([
+            ("Safe".into(), serde_yml::Value::Bool(false)),
+        ]));
+        assert!(!cfg.should_autocorrect(AutocorrectMode::Safe));
+    }
+
+    #[test]
+    fn should_autocorrect_safe_blocked_by_unsafe_autocorrect() {
+        use crate::cli::AutocorrectMode;
+        let cfg = config_with(HashMap::from([
+            ("SafeAutoCorrect".into(), serde_yml::Value::Bool(false)),
+        ]));
+        assert!(!cfg.should_autocorrect(AutocorrectMode::Safe));
+    }
+
+    #[test]
+    fn should_autocorrect_all_ignores_safe_flags() {
+        use crate::cli::AutocorrectMode;
+        let cfg = config_with(HashMap::from([
+            ("Safe".into(), serde_yml::Value::Bool(false)),
+            ("SafeAutoCorrect".into(), serde_yml::Value::Bool(false)),
+        ]));
+        assert!(cfg.should_autocorrect(AutocorrectMode::All));
+    }
+
+    #[test]
+    fn should_autocorrect_disabled_blocks_all_modes() {
+        use crate::cli::AutocorrectMode;
+        let cfg = config_with(HashMap::from([
+            ("AutoCorrect".into(), serde_yml::Value::Bool(false)),
+        ]));
+        assert!(!cfg.should_autocorrect(AutocorrectMode::Safe));
+        assert!(!cfg.should_autocorrect(AutocorrectMode::All));
+    }
+
+    #[test]
+    fn autocorrect_setting_bool_true_is_always() {
+        let cfg = config_with(HashMap::from([
+            ("AutoCorrect".into(), serde_yml::Value::Bool(true)),
+        ]));
+        assert_eq!(cfg.autocorrect_setting(), "always");
+    }
+
+    #[test]
+    fn autocorrect_setting_bool_false_is_disabled() {
+        let cfg = config_with(HashMap::from([
+            ("AutoCorrect".into(), serde_yml::Value::Bool(false)),
+        ]));
+        assert_eq!(cfg.autocorrect_setting(), "disabled");
+    }
+
+    #[test]
+    fn autocorrect_setting_string_passthrough() {
+        let cfg = config_with(HashMap::from([
+            ("AutoCorrect".into(), serde_yml::Value::String("contextual".into())),
+        ]));
+        assert_eq!(cfg.autocorrect_setting(), "contextual");
+    }
+
+    #[test]
+    fn autocorrect_setting_missing_is_always() {
+        let cfg = config_with(HashMap::new());
+        assert_eq!(cfg.autocorrect_setting(), "always");
+    }
+
     mod prop_tests {
         use super::*;
         use proptest::prelude::*;
         use serde_yml::Value;
-
-        fn config_with(options: HashMap<String, Value>) -> CopConfig {
-            CopConfig {
-                options,
-                ..CopConfig::default()
-            }
-        }
 
         /// Strategy for serde_yml::Value that exercises the type branches.
         fn yaml_value_strategy() -> impl Strategy<Value = Value> {

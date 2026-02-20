@@ -156,4 +156,17 @@ mod tests {
         assert!(out.starts_with("\n")); // empty progress line
         assert!(out.contains("0 files inspected, 0 offenses detected"));
     }
+
+    #[test]
+    fn summary_includes_corrected_count() {
+        let files = vec![PathBuf::from("a.rb")];
+        let mut d1 = make_diag("a.rb", Severity::Convention);
+        d1.corrected = true;
+        let d2 = make_diag("a.rb", Severity::Convention);
+        let out = render(&[d1, d2], &files);
+        assert!(
+            out.contains("2 offenses detected, 1 offense corrected"),
+            "Expected corrected count in summary, got: {out}"
+        );
+    }
 }

@@ -102,4 +102,29 @@ mod tests {
         assert_eq!(offense["cop_name"], "Style/Foo");
         assert_eq!(offense["message"], "bad");
     }
+
+    #[test]
+    fn corrected_field_serialized() {
+        let mut d1 = Diagnostic {
+            path: "a.rb".to_string(),
+            location: Location { line: 1, column: 0 },
+            severity: Severity::Convention,
+            cop_name: "Style/Foo".to_string(),
+            message: "fixed".to_string(),
+            corrected: true,
+        };
+        let d2 = Diagnostic {
+            path: "a.rb".to_string(),
+            location: Location { line: 2, column: 0 },
+            severity: Severity::Convention,
+            cop_name: "Style/Bar".to_string(),
+            message: "not fixed".to_string(),
+            corrected: false,
+        };
+        let out = render(&[d1, d2], &[PathBuf::from("a.rb")]);
+        let parsed: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
+        assert_eq!(parsed["metadata"]["corrected_count"], 1);
+        assert_eq!(parsed["offenses"][0]["corrected"], true);
+        assert_eq!(parsed["offenses"][1]["corrected"], false);
+    }
 }

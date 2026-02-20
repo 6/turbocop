@@ -3950,3 +3950,153 @@ fn autocorrect_clean_file_unchanged() {
 
     fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn autocorrect_multi_iteration_converges() {
+    let dir = temp_dir("autocorrect_multi_iter");
+    // Leading blanks + trailing whitespace — requires multiple cops to fix
+    let file = write_file(
+        &dir,
+        "multi.rb",
+        b"\n\nx = 1  \ny = 2\n",
+    );
+    let config = load_config(None, None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        autocorrect: true,
+        only: vec![
+            "Layout/LeadingEmptyLines".to_string(),
+            "Layout/TrailingWhitespace".to_string(),
+        ],
+        ..default_args()
+    };
+
+    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    assert!(
+        result.corrected_count >= 2,
+        "Expected at least 2 corrections (leading blanks + trailing whitespace), got {}",
+        result.corrected_count
+    );
+
+    let corrected = fs::read(&file).unwrap();
+    assert_eq!(corrected, b"x = 1\ny = 2\n");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn autocorrect_corrected_count_across_iterations() {
+    let dir = temp_dir("autocorrect_count");
+    // Leading blanks + trailing whitespace + missing frozen_string_literal
+    let file = write_file(
+        &dir,
+        "count.rb",
+        b"\n\nx = 1  \n",
+    );
+    let config = load_config(None, None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        autocorrect_all: true,  // -A to include FrozenStringLiteralComment
+        only: vec![
+            "Layout/LeadingEmptyLines".to_string(),
+            "Layout/TrailingWhitespace".to_string(),
+            "Style/FrozenStringLiteralComment".to_string(),
+        ],
+        ..default_args()
+    };
+
+    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    assert!(
+        result.corrected_count >= 3,
+        "Expected at least 3 corrections, got {}",
+        result.corrected_count
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn autocorrect_idempotent_second_run() {
+    let dir = temp_dir("autocorrect_idempotent");
+    let file = write_file(
+        &dir,
+        "idem.rb",
+        b"\n\nx = 1  \ny = 2\n\n\n",
+    );
+    let config = load_config(None, None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        autocorrect: true,
+        only: vec![
+            "Layout/LeadingEmptyLines".to_string(),
+            "Layout/TrailingWhitespace".to_string(),
+            "Layout/TrailingEmptyLines".to_string(),
+        ],
+        ..default_args()
+    };
+
+    // First run: fix offenses
+    let result1 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    assert!(result1.corrected_count > 0);
+    let after_first = fs::read(&file).unwrap();
+
+    // Second run: should find nothing to correct
+    let result2 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    assert_eq!(
+        result2.corrected_count, 0,
+        "Second run should have no corrections"
+    );
+    let after_second = fs::read(&file).unwrap();
+    assert_eq!(after_first, after_second, "File should be unchanged after second run");
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn autocorrect_empty_file_no_crash() {
+    let dir = temp_dir("autocorrect_empty");
+    let file = write_file(&dir, "empty.rb", b"");
+    let config = load_config(None, None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        autocorrect_all: true,
+        ..default_args()
+    };
+
+    // Should not panic
+    let _result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn autocorrect_no_write_when_no_corrections() {
+    let dir = temp_dir("autocorrect_no_write");
+    let content = b"x = 1\ny = 2\n";
+    let file = write_file(&dir, "clean.rb", content);
+
+    // Record mtime before
+    let mtime_before = fs::metadata(&file).unwrap().modified().unwrap();
+
+    // Small delay to ensure mtime would differ if file were rewritten
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let config = load_config(None, None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        autocorrect: true,
+        only: vec!["Layout/TrailingWhitespace".to_string()],
+        ..default_args()
+    };
+
+    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    assert_eq!(result.corrected_count, 0);
+
+    let mtime_after = fs::metadata(&file).unwrap().modified().unwrap();
+    assert_eq!(
+        mtime_before, mtime_after,
+        "File mtime should be unchanged when no corrections applied"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
