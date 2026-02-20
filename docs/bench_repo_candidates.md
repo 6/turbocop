@@ -1,161 +1,146 @@
 # Bench Repo Candidates
 
-Evaluated 2026-02-16. Criteria: RuboCop usage, plugin diversity, codebase size, config complexity, and what it adds beyond our current bench set.
+Updated 2026-02-20. Criteria: RuboCop usage, plugin diversity, codebase size, config complexity, and what it adds beyond our current bench set.
 
-## Current Bench Set
+## Current Bench Set (13 repos, all 100% conformance)
 
-| Repo | Category | Plugins | Conformance |
-|------|----------|---------|-------------|
-| mastodon | Large Rails app | rails, rspec, performance | 100% |
-| discourse | Large Rails app | core only | 100% |
-| rails | Framework | core only | 100% |
-| rubocop | Ruby tool (RSpec-heavy) | core only | WIP |
-| chatwoot | Large Rails app | rails, rspec | WIP |
-| errbit | Small Rails app | core only | 81.9% |
+| Repo | Category | Plugins | Notes |
+|------|----------|---------|-------|
+| mastodon | Large Rails app | rails, rspec, rspec_rails, performance, capybara | 302 offenses matched |
+| discourse | Large Rails app | discourse (custom) | 0 offenses (clean) |
+| rails | Framework | minitest, packaging, performance, rails, md | 6 offenses matched |
+| rubocop | Ruby tool | rspec, performance, rake, internal_affairs | 0 offenses (clean) |
+| chatwoot | Large Rails app | rails, rspec, performance, factory_bot | 251 offenses matched |
+| errbit | Small Rails app | rspec, rspec_rails, performance, rails, capybara, rake, thread_safety, standard | 1,579 offenses matched |
+| rubygems.org | Medium Rails app | minitest, performance, rails, capybara, factory_bot | 0 offenses (clean) |
+| activeadmin | Gem/Rails engine | rails, rspec, packaging | `DisabledByDefault: true`, `plugins:` key |
+| good_job | Ruby gem | rspec, rspec_rails, performance, rails, capybara | `plugins:` key, `inherit_mode: merge` |
+| docuseal | Modern Rails app | rspec, performance, rails | `TargetRubyVersion: '4.0'` |
+| doorkeeper | OAuth gem | rspec, performance, rails | Gem using rubocop-rails |
+| fat_free_crm | Medium Rails CRM | rspec, rspec_rails, rails, capybara, factory_bot | `plugins:` key, massive todo (47KB) |
+| multi_json | Small Ruby gem | minitest, performance, rake, standard | Hybrid standardrb + RuboCop |
 
 ## Recommended Additions
 
-### 1. rubygems/rubygems.org -- YES
+### 1. danbooru/danbooru -- YES
 
-- **Category**: Medium Rails app (community infrastructure)
-- **Ruby size**: ~2.4MB (~800-1200 files)
-- **Plugins**: rubocop-performance, rubocop-rails, **rubocop-minitest**, rubocop-capybara, rubocop-factory_bot
-- **Config**: `inherit_from: .rubocop_todo.yml`, `ParserEngine: parser_prism`, `!ruby/regexp` in Exclude, `NewCops: enable`
-- **Why**: First **minitest**-based repo (vs all-RSpec current set). Well-known Ruby community project. Exercises `inherit_from` with todo. The `!ruby/regexp` YAML edge case is worth testing.
+- **Category**: Large Rails app (image board, top OSS Rails project)
+- **Ruby size**: 1,627 files
+- **Plugins**: rubocop-rails
+- **Config**: Rich `.rubocop.yml` (130+ lines) with many explicit cop configurations. `NewCops: enable`. Separate `test/.rubocop.yml` overlay.
+- **Why**: Major OSS Rails app. 20+ models with `validates uniqueness` — ideal for testing `Rails/UniqueValidationWithoutIndex` once schema analysis is built. Uses `db/structure.sql` instead of `db/schema.rb`, which is an important edge case (many large Rails apps use SQL format). Only rubocop-rails plugin — common real-world pattern.
 
-### 2. activeadmin/activeadmin -- YES
+### 2. zammad/zammad -- YES
 
-- **Category**: Ruby gem/Rails engine (admin framework)
-- **Ruby size**: ~676KB (~200-400 files)
-- **Plugins**: rubocop-capybara, rubocop-packaging, rubocop-performance, rubocop-rails, rubocop-rspec
-- **Config**: `DisabledByDefault: true` with explicit per-cop enablement. Uses `plugins:` key (new RuboCop 1.72+ style). `inherit_mode: merge: [Include]`.
-- **Why**: First **gem/engine** (non-application). Tests `DisabledByDefault: true` config mode. Tests the modern `plugins:` config key. Introduces `rubocop-packaging`.
+- **Category**: Large Rails helpdesk app
+- **Ruby size**: ~13 MB (large)
+- **Plugins**: rubocop-capybara, rubocop-factory_bot, **rubocop-faker**, **rubocop-graphql**, rubocop-performance, rubocop-rails, **rubocop-rake**, rubocop-rspec, rubocop-rspec_rails, rubocop-inflector
+- **Config**: `inherit_from` chain (`.dev/rubocop/default.yml`), `inherit_mode: merge`, custom cops
+- **Why**: Most plugin-diverse repo we've found — 10 plugins including graphql, faker, and inflector (none in current bench set). Stress-tests plugin version awareness and unsupported-plugin handling. Large codebase.
 
-### 3. bensheldon/good_job -- YES
+### 3. lobsters/lobsters -- YES
 
-- **Category**: Ruby gem (Active Job backend)
-- **Ruby size**: ~641KB (~150-250 files)
-- **Plugins**: rubocop-capybara, rubocop-performance, rubocop-rails, rubocop-rspec, rubocop-rspec_rails
-- **Config**: Uses `plugins:` syntax. `inherit_mode: merge:`. `NewCops: enable`. Disables entire `Metrics` department.
-- **Why**: Tests `plugins:` config path (modern RuboCop). Exercises 5 plugins including split gems (capybara, rspec_rails). Clean codebase (tiny todo).
-
-### 4. docusealco/docuseal -- YES
-
-- **Category**: Large modern Rails app (document signing)
-- **Ruby size**: ~925KB (~300-500 files)
-- **Plugins**: rubocop-performance, rubocop-rails, rubocop-rspec
-- **Config**: `TargetRubyVersion: '4.0'`, `NewCops: enable`. High metric thresholds. Clean, minimal config.
-- **Why**: Popular, actively maintained modern Rails app. Standard plugin set exercises our existing cops broadly — serves as a validation target to confirm conformance at scale. Ruby 4.0 target tests bleeding-edge version handling.
-
-### 5. doorkeeper-gem/doorkeeper -- YES
-
-- **Category**: OAuth provider gem
-- **Ruby size**: ~715KB (small-medium)
-- **Plugins**: rubocop-performance, rubocop-rails, rubocop-rspec
-- **Config**: `inherit_from: .rubocop_todo.yml`. Standard config with double_quotes, trailing commas.
-- **Why**: Standalone Ruby gem that uses all three standard plugins (rails, rspec, performance) — tests plugin version detection on a gem that depends on rubocop-rails despite not being a Rails app itself. Clean, well-maintained config.
+- **Category**: Small Rails link aggregator
+- **Ruby size**: ~850 KB
+- **Plugins**: standard-performance, standard-rails (pure standardrb)
+- **Config**: `.standard.yml` only, no `.rubocop.yml`. Uses `extend_config` for custom cops.
+- **db/schema.rb**: Yes (32 KB)
+- **Why**: First **pure standardrb** Rails app in bench set. Tests the standardrb config path end-to-end without any `.rubocop.yml` overlay. Has schema.rb for future schema cop testing.
 
 ## Maybe / Lower Priority
 
-### 6. fatfreecrm/fat_free_crm -- MAYBE
+### 4. forem/forem (dev.to) -- MAYBE
 
-- **Category**: Medium Rails CRM app
-- **Ruby size**: ~1.2MB (~300-500 files)
-- **Plugins**: rubocop-capybara, rubocop-factory_bot, rubocop-rails, rubocop-rspec, rubocop-rspec_rails
-- **Config**: `plugins:` syntax. **Massive rubocop_todo** (1443 lines, 47KB).
-- **Why**: Stress-tests todo processing. Introduces `rubocop-factory_bot`. But overlaps with existing Rails apps.
+- **Category**: Large Rails app (developer community)
+- **Ruby size**: ~7 MB
+- **Plugins**: rubocop-performance, rubocop-rails, rubocop-rspec, rubocop-capybara
+- **db/schema.rb**: Yes (90 KB)
+- **Why**: Big, well-known Rails app. Has schema.rb with many models. But plugin combo overlaps heavily with mastodon/chatwoot.
 
-### 7. connorshea/vglist -- MAYBE (lean No)
+### 5. redmine/redmine -- MAYBE
 
-- **Category**: Medium Rails app (video game list)
-- **Plugins**: 6 plugins including rubocop-rspec_rails, rubocop-factory_bot
-- **Why**: Another Rails app (already have 4). Verbose config but low diversity value.
+- **Category**: Classic medium-large Rails app (project management)
+- **Ruby size**: ~5.5 MB
+- **Plugins**: rubocop-performance, rubocop-rails (uses `plugins:` key)
+- **Why**: Venerable Rails project. But plugin combo already well-covered.
 
-### 8. jfelchner/ruby-progressbar -- MAYBE
+### 6. solidusio/solidus -- MAYBE
 
-- **Category**: Tiny Ruby gem (progress bar library)
-- **Ruby size**: ~151KB (~40-60 files)
-- **Plugins**: rubocop-rspec, rubocop-performance, rubocop-capybara, rubocop-factory_bot, **rubocop-thread_safety**
-- **Config**: 7 config files (`.rubocop_core.yml`, `_rspec.yml`, `_performance.yml`, etc.) via `rspectacular` gem. Exhaustive per-cop configuration (~79KB core config). Explicit enable/disable for nearly every cop.
-- **Why**: Introduces **rubocop-thread_safety** (unique plugin not in any other candidate). Most exhaustive config of any candidate — tests per-cop config handling at scale. But: tiny codebase, config comes from external `rspectacular` gem which may complicate loading.
+- **Category**: E-commerce framework (multi-gem monorepo)
+- **Ruby size**: ~4.3 MB
+- **Plugins**: rubocop-performance, rubocop-rails (+ custom migration cop)
+- **Config**: "Relaxed.Ruby.Style" — disables many cops. Multi-gem structure (core, backend, api).
+- **Why**: Monorepo structure is unique. But relaxed config means few offenses.
 
-### 9. sferik/multi_json -- MAYBE
+### 7. puma/puma -- MAYBE
 
-- **Category**: Small Ruby gem (JSON backend abstraction)
-- **Ruby size**: ~117 files (~736KB repo)
-- **Plugins**: rubocop-minitest, rubocop-performance, **rubocop-rake**, standard-performance
-- **Config**: Hybrid `require: standard` inside `.rubocop.yml` with RuboCop overrides on top. Also has `.standard.yml`. `NewCops: enable`. TargetRubyVersion 3.2. Many Layout/Style overrides (double quotes, fixed indentation, 140-char lines).
-- **Why**: Introduces **rubocop-rake** (unique plugin). Tests the hybrid standardrb + RuboCop override pattern — exercises turbocop's standard-family gem config resolution with custom overrides layered on top. But: rubocop-rake has very few cops.
-
-### 10. bkeepers/dotenv -- MAYBE
-
-- **Category**: Small Ruby gem (env variable loader)
-- **Ruby size**: 29 files
-- **Plugins**: None (standardrb defaults only)
-- **Config**: Uses **standardrb** exclusively (`.standard.yml` only, no `.rubocop.yml`). `ruby_version: 3.0`, one cop ignore (`Lint/InheritException`).
-- **Why**: Tests turbocop's standardrb support in isolation — pure `.standard.yml` with no `.rubocop.yml` overlay. But: only 29 files, minimal config diversity.
+- **Category**: Ruby web server gem
+- **Ruby size**: ~800 KB
+- **Plugins**: rubocop-performance (+ custom cops)
+- **Config**: `DisabledByDefault: true` with selective enablement
+- **Why**: Well-known gem. But `DisabledByDefault` already tested by activeadmin. Small.
 
 ## Not Recommended
 
-### 11. opf/openproject -- No
+### hanami/hanami -- No
+- Uses `inherit_from` with a **remote HTTPS URL** (interesting edge case but small codebase, no plugins)
 
-- **Category**: Massive Rails monorepo (33MB Ruby)
-- **Why**: Custom cop gem (`rubocop-openproject`), monorepo structure, `inherit_from` glob patterns, requires loading Ruby initializer. Too many config edge cases for clean conformance.
+### sinatra/sinatra -- No
+- Vanilla rubocop, no plugins, small. Nothing new.
 
-### 12. reactjs/react-rails -- No
+### gitlabhq/gitlabhq -- No
+- 90 MB Ruby, custom `gitlab-styles` meta-gem, ERB in `.rubocop.yml`. Impractical.
 
-- **Category**: Tiny JS+Ruby gem (144KB Ruby)
-- **Why**: Too small. Uses ERB in .rubocop.yml. Unsupported `rubocop-minitest` plugin.
+### heartcombo/devise -- No
+- Does not use RuboCop.
 
-### 13. carrierwaveuploader/carrierwave -- No
+### spree/spree -- No
+- Does not use RuboCop.
 
-- **Category**: File upload gem (core rubocop only)
-- **Why**: No plugins, mostly disabled cops, targets Ruby 2.5. Core-only already covered by rails/rubocop bench entries.
+### sidekiq (mperham/sidekiq) -- No
+- Uses standardrb but minimal config. lobsters is better for standardrb testing.
 
-### 14. rspec/rspec-rails -- No
+### huginn/huginn -- No
+- Has rubocop in Gemfile but no config file. Unused/abandoned lint setup.
 
-- **Category**: Ruby gem (RSpec integration for Rails)
-- **Ruby size**: ~475KB (~150-250 files)
-- **Plugins**: None (core RuboCop only)
-- **Config**: Inherits from shared `rspec-dev` base config (`.rubocop_rspec_base.yml`) that disables dozens of Style, Layout, and Naming cops. Pinned to RuboCop 1.28.2. Has stale `.rubocop_todo.yml` (from 2022). TargetRubyVersion 3.1.
-- **Why**: Core-only (no plugins) — already well-covered by rails, discourse, rubocop in current bench set. Pinned to old RuboCop version. The rspec-dev base config disables so many cops that relatively few actually run.
+### opf/openproject -- No
+- Custom cop gem, monorepo, `inherit_from` glob patterns, requires Ruby initializer. Too many edge cases.
 
-### 15. weppos/publicsuffix-ruby -- No
+### reactjs/react-rails -- No
+- Too small. ERB in `.rubocop.yml`.
 
-- **Category**: Small Ruby gem (domain name parser)
-- **Ruby size**: ~26 files
-- **Plugins**: rubocop-minitest, rubocop-rake
-- **Config**: `plugins:` key. Layered `inherit_from` (`.rubocop_todo.yml` + `.rubocop_opinionated.yml`). Disables all Metrics cops. TargetRubyVersion 3.0.
-- **Why**: Only 26 Ruby files — too small to justify. `plugins:` syntax already covered by activeadmin/good_job. Both plugins (minitest, rake) already introduced by multi_json above.
+### carrierwaveuploader/carrierwave -- No
+- No plugins, mostly disabled cops, old Ruby target.
 
-### 16. jwt/ruby-jwt -- No
+### rspec/rspec-rails -- No
+- Core-only, pinned to old RuboCop, rspec-dev base config disables most cops.
 
-- **Category**: Small Ruby gem (JWT implementation)
-- **Ruby size**: ~258KB (~60-100 files)
-- **Plugins**: None (core RuboCop only)
-- **Config**: Minimal (~20 lines). TargetRubyVersion 2.5. `NewCops: enable`. Disables `Layout/LineLength`.
-- **Why**: Core-only, minimal config, old Ruby target. No plugin diversity. Core-only already covered.
+### weppos/publicsuffix-ruby -- No
+- Only 26 files. Plugins already covered by multi_json.
 
-### 17. ruby-concurrency/concurrent-ruby -- No
+### jwt/ruby-jwt -- No
+- Core-only, minimal config. Nothing new.
 
-- **Category**: Large Ruby gem (concurrency primitives)
-- **Ruby size**: ~345 files (11MB repo)
-- **Plugins**: N/A
-- **Config**: **No linting configuration at all** — no `.rubocop.yml`, no `.standard.yml`, no linting gems.
-- **Why**: Cannot benchmark conformance without a RuboCop baseline to compare against.
+### ruby-concurrency/concurrent-ruby -- No
+- No linting configuration at all.
 
-## What the Top 5 Add
+### connorshea/vglist -- No
+- Another Rails app with no diversity value beyond what we already have.
 
-| Gap in Current Set | Filled By |
-|--------------------|-----------|
-| No minitest-based repo | rubygems.org |
-| No gem/engine repos | activeadmin, good_job, doorkeeper |
-| No `plugins:` config syntax | activeadmin, good_job |
-| No `DisabledByDefault: true` | activeadmin |
-| No `rubocop-packaging` plugin | activeadmin |
-| No `rubocop-minitest` plugin | rubygems.org |
-| No `inherit_mode: merge` testing | good_job |
-| No `ParserEngine: parser_prism` | rubygems.org |
-| No Ruby 4.0 target | docuseal |
-| No gem-with-rails-plugin validation | doorkeeper |
-| Broader standard-cop validation | docuseal |
+### jfelchner/ruby-progressbar -- No
+- Tiny codebase (40-60 files). Config comes from external `rspectacular` gem.
+
+### bkeepers/dotenv -- No
+- Only 29 files. Lobsters is a better pure-standardrb candidate.
+
+## What the Top 3 Additions Would Add
+
+| Gap | Filled By |
+|-----|-----------|
+| No pure-standardrb Rails app | lobsters |
+| No `db/structure.sql` edge case | danbooru |
+| No rubocop-graphql plugin | zammad |
+| No rubocop-faker plugin | zammad |
+| No 10+ plugin stress test | zammad |
+| No large Rails app with rails-only plugin | danbooru |
+| Minimal `validates uniqueness` testing | danbooru (20+ models) |
