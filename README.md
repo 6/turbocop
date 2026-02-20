@@ -2,7 +2,7 @@
 
 A fast Ruby linter written in Rust, targeting drop-in [RuboCop](https://rubocop.org/) compatibility.
 
-- **915 cops** across 8 departments (Layout, Lint, Metrics, Naming, Performance, Rails, RSpec, Style)
+- **915 cops** across 14 departments (Layout, Lint, Style, Metrics, Naming, Security, Bundler, Gemspec, Migration, Rails, Performance, RSpec, RSpecRails, FactoryBot)
 - **1.2-26x faster** than RuboCop on real-world codebases (without result caching)
 - Reads your existing `.rubocop.yml` — no migration needed
 - Uses [Prism](https://github.com/ruby/prism) (Ruby's official parser) via `ruby-prism` crate
@@ -93,21 +93,24 @@ Every cop reads its RuboCop YAML config options and has fixture-based test cover
 
 ## Conformance
 
-Location-level conformance against RuboCop on benchmark repos:
+Location-level conformance against RuboCop on 12 benchmark repos:
 
 | Repo | Match rate |
 |------|----------:|
+| mastodon | 100.0% |
+| discourse | 100.0% |
 | rails | 100.0% |
 | rubocop | 100.0% |
 | chatwoot | 100.0% |
 | errbit | 100.0% |
 | activeadmin | 100.0% |
 | good_job | 100.0% |
+| docuseal | 100.0% |
 | rubygems.org | 100.0% |
-| mastodon | 95.4% |
-| docuseal | 93.5% |
+| doorkeeper | 100.0% |
+| fat_free_crm | 100.0% |
 
-See [bench/results.md](bench/results.md) for per-cop divergence details.
+See [bench/results.md](bench/results.md) for full details.
 
 ## Hybrid Mode
 
@@ -141,6 +144,15 @@ Options:
       --stdin <PATH>        Read source from stdin, use PATH for display
       --debug               Print timing and debug info
       --list-cops           List all registered cops
+      --ignore-disable-comments  Ignore all # rubocop:disable inline comments
+      --cache <true|false>  Enable/disable file-level result caching [default: true]
+      --cache-clear         Clear the result cache and exit
+      --init                Generate .turbocop.cache with gem paths and exit
+      --fail-level <SEV>    Minimum severity for non-zero exit (convention/warning/error/fatal)
+  -F, --fail-fast           Stop after first file with offenses
+      --force-exclusion     Apply AllCops.Exclude to explicitly-passed files
+  -L, --list-target-files   Print files that would be linted, then exit
+      --force-default-config  Ignore all config files, use built-in defaults
   -h, --help                Print help
 ```
 
@@ -148,7 +160,7 @@ Options:
 
 ```bash
 cargo check          # fast compile check
-cargo test           # run all tests (2,600+)
+cargo test           # run all tests (2,700+)
 cargo run -- .       # lint current directory
 
 # Quality checks (must pass — zero tolerance)
