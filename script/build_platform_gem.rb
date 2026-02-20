@@ -51,11 +51,10 @@ Dir.mktmpdir("turbocop-gem-") do |tmpdir|
       spec.version  = Turbocop::VERSION
       spec.platform = "#{platform}"
       spec.authors  = ["6"]
-      spec.email    = ["me@peterbrowne.com"]
 
       spec.summary     = "Fast Ruby linter targeting RuboCop compatibility"
       spec.description = "A Ruby linter written in Rust that reads your existing .rubocop.yml " \\
-                         "and runs 900+ cops. Dramatically faster than RuboCop. " \\
+                         "and runs 900+ cops. " \\
                          "Platform variant: #{platform}."
       spec.homepage    = "https://github.com/6/turbocop"
       spec.license     = "MIT"

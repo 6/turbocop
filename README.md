@@ -2,6 +2,15 @@
 
 A fast Ruby linter written in Rust, targeting drop-in [RuboCop](https://rubocop.org/) compatibility.
 
+Quick benchmark on the codebase of [rubygems.org](https://github.com/rubygems/rubygems.org) (1,222 Ruby files), Apple Silicon:
+
+| Mode | turbocop | RuboCop | Speedup |
+|------|-------:|--------:|--------:|
+| Cached (warm) | **81ms** | 1.47s | **18x** |
+| No cache | **203ms** | 17.53s | **86x** |
+
+**Features**
+
 - **915 cops** across 14 departments (Layout, Lint, Style, Metrics, Naming, Security, Bundler, Gemspec, Migration, Rails, Performance, RSpec, RSpecRails, FactoryBot)
 - **18x faster** than RuboCop (cached), **84x faster** uncached on [rubygems.org](https://github.com/rubygems/rubygems.org) (1,222 files)
 - **100% conformance** against RuboCop on 13 benchmark repos
@@ -11,43 +20,17 @@ A fast Ruby linter written in Rust, targeting drop-in [RuboCop](https://rubocop.
 
 ## Quick Start
 
-```bash
-# Build
-cargo build --release
-
-# Lint current directory (reads .rubocop.yml automatically)
-cargo run --release -- .
-
-# JSON output
-cargo run --release -- --format json .
-
-# Lint via stdin (for editor integration)
-echo 'x = 1 ' | cargo run --release -- --stdin test.rb
-```
-
-## Installation
-
 Requires Rust 1.85+ (edition 2024).
 
 ```bash
-git clone https://github.com/peterb/turbocop.git
-cd turbocop
-git submodule update --init    # fetch vendor/rubocop for tests
-cargo build --release
+cargo install turbocop
 ```
 
-The binary is at `target/release/turbocop`.
+Then run it in your ruby repo:
 
-## Benchmarks
-
-Quick benchmark on [rubygems.org](https://github.com/rubygems/rubygems.org) (1,222 Ruby files), Apple Silicon:
-
-| Mode | turbocop | RuboCop | Speedup |
-|------|-------:|--------:|--------:|
-| Cached (warm) | **81ms** | 1.47s | **18x** |
-| No cache | **203ms** | 17.53s | **86x** |
-
-Run `cargo run --release --bin bench_turbocop -- quick` to reproduce. See [bench/results.md](bench/results.md) for conformance details across all 13 repos.
+```bash
+turbocop
+```
 
 ## Configuration
 
@@ -168,32 +151,6 @@ cargo run --release --bin bench_turbocop          # full: setup + bench + confor
 cargo run --release --bin bench_turbocop -- bench # timing only
 ```
 
-## Architecture
-
-```
-src/
-  cop/           Cop trait + 915 cop implementations
-    style/        289 cops (code style)
-    lint/         152 cops (potential bugs, deprecated methods)
-    rails/        136 cops (Rails best practices)
-    rspec/        113 cops (RSpec best practices)
-    layout/       100 cops (whitespace, indentation, alignment)
-    performance/   52 cops (Ruby performance anti-patterns)
-    naming/        19 cops (naming conventions)
-    ...and 54 more across FactoryBot, Metrics, Gemspec, RSpecRails, Security, Bundler, Migration
-    util.rs        Shared helpers (constant resolution, method chains, RSpec DSL)
-    registry.rs    CopRegistry (all 915 cops)
-  config/        .rubocop.yml loading, inheritance, gem resolution
-  parse/         Prism parser wrapper, SourceFile, CodeMap
-  formatter/     Text (RuboCop-compatible) and JSON output
-  linter.rs      Parallel orchestration (rayon)
-  cli.rs         Clap CLI
-testdata/        Fixture files (offense.rb + no_offense.rb per cop)
-tests/           Integration tests (config_audit, prism_pitfalls, conformance)
-bench/           Benchmark harness + results
-vendor/          RuboCop + plugin submodules (reference configs/specs)
-```
-
 ## How It Works
 
 1. **Config resolution** — Walks up from target to find `.rubocop.yml`, resolves `inherit_from`/`inherit_gem` chains, merges layers
@@ -201,7 +158,3 @@ vendor/          RuboCop + plugin submodules (reference configs/specs)
 3. **Parallel linting** — Each rayon worker thread parses files with Prism (`ParseResult` is `!Send`), runs all enabled cops per file
 4. **Cop execution** — Three check phases per file: `check_lines` (raw text), `check_source` (bytes + CodeMap), `check_node` (AST walk via batched dispatch table)
 5. **Output** — RuboCop-compatible text format or JSON
-
-## License
-
-MIT
