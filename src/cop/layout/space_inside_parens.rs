@@ -10,6 +10,10 @@ impl Cop for SpaceInsideParens {
         "Layout/SpaceInsideParens"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn interested_node_types(&self) -> &'static [u8] {
         &[PARENTHESES_NODE]
     }
@@ -21,7 +25,7 @@ impl Cop for SpaceInsideParens {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "no_space");
         let parens = match node.as_parentheses_node() {
@@ -54,64 +58,54 @@ impl Cop for SpaceInsideParens {
             "space" => {
                 if !space_after_open && !is_multiline_after {
                     let (line, column) = source.offset_to_line_col(open_end);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Space inside parentheses missing.".to_string(),
-                    ));
+                    let mut diag = self.diagnostic(source, line, column, "Space inside parentheses missing.".to_string());
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: open_end, end: open_end, replacement: " ".to_string(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
                 if !space_before_close && !is_multiline_before {
                     let (line, column) = source.offset_to_line_col(close_start);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Space inside parentheses missing.".to_string(),
-                    ));
+                    let mut diag = self.diagnostic(source, line, column, "Space inside parentheses missing.".to_string());
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: close_start, end: close_start, replacement: " ".to_string(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
             }
-            "compact" => {
-                // "compact" is like no_space but allows spaces in certain positions.
-                // For simplicity, behave like no_space.
+            "compact" | _ => {
+                // "no_space" (default) and "compact"
                 if space_after_open && !is_multiline_after {
                     let (line, column) = source.offset_to_line_col(open_end);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Space inside parentheses detected.".to_string(),
-                    ));
+                    let mut diag = self.diagnostic(source, line, column, "Space inside parentheses detected.".to_string());
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: open_end, end: open_end + 1, replacement: String::new(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
                 if space_before_close && !is_multiline_before {
                     let (line, column) = source.offset_to_line_col(close_start - 1);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Space inside parentheses detected.".to_string(),
-                    ));
-                }
-            }
-            _ => {
-                // "no_space" (default)
-                if space_after_open && !is_multiline_after {
-                    let (line, column) = source.offset_to_line_col(open_end);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Space inside parentheses detected.".to_string(),
-                    ));
-                }
-                if space_before_close && !is_multiline_before {
-                    let (line, column) = source.offset_to_line_col(close_start - 1);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Space inside parentheses detected.".to_string(),
-                    ));
+                    let mut diag = self.diagnostic(source, line, column, "Space inside parentheses detected.".to_string());
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: close_start - 1, end: close_start, replacement: String::new(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
             }
         }
@@ -124,6 +118,7 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(SpaceInsideParens, "cops/layout/space_inside_parens");
+    crate::cop_autocorrect_fixture_tests!(SpaceInsideParens, "cops/layout/space_inside_parens");
 
     #[test]
     fn space_style_flags_missing_spaces() {

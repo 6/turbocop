@@ -82,6 +82,10 @@ impl Cop for EmptyLinesAroundAccessModifier {
         "Layout/EmptyLinesAroundAccessModifier"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn interested_node_types(&self) -> &'static [u8] {
         &[CALL_NODE]
     }
@@ -93,7 +97,7 @@ impl Cop for EmptyLinesAroundAccessModifier {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "around");
 
@@ -181,39 +185,61 @@ impl Cop for EmptyLinesAroundAccessModifier {
 
         match enforced_style {
             "around" => {
-                if !has_blank_before && !has_blank_after {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        col,
-                        format!("Keep a blank line before and after `{modifier_str}`."),
-                    ));
-                } else if !has_blank_before {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        col,
-                        format!("Keep a blank line before and after `{modifier_str}`."),
-                    ));
-                } else if !has_blank_after {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        col,
-                        format!("Keep a blank line after `{modifier_str}`."),
-                    ));
-
+                if !has_blank_before || !has_blank_after {
+                    let msg = if !has_blank_after && has_blank_before {
+                        format!("Keep a blank line after `{modifier_str}`.")
+                    } else {
+                        format!("Keep a blank line before and after `{modifier_str}`.")
+                    };
+                    let mut diag = self.diagnostic(source, line, col, msg);
+                    if let Some(ref mut corr) = corrections {
+                        if !has_blank_before {
+                            if let Some(offset) = source.line_col_to_offset(line, 0) {
+                                corr.push(crate::correction::Correction {
+                                    start: offset,
+                                    end: offset,
+                                    replacement: "\n".to_string(),
+                                    cop_name: self.name(),
+                                    cop_index: 0,
+                                });
+                                diag.corrected = true;
+                            }
+                        }
+                        if !has_blank_after {
+                            if let Some(offset) = source.line_col_to_offset(line + 1, 0) {
+                                corr.push(crate::correction::Correction {
+                                    start: offset,
+                                    end: offset,
+                                    replacement: "\n".to_string(),
+                                    cop_name: self.name(),
+                                    cop_index: 0,
+                                });
+                                diag.corrected = true;
+                            }
+                        }
+                    }
+                    diagnostics.push(diag);
                 }
             }
             "only_before" => {
                 if !has_blank_before {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        col,
+                    let mut diag = self.diagnostic(
+                        source, line, col,
                         format!("Keep a blank line before `{modifier_str}`."),
-                    ));
-
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        if let Some(offset) = source.line_col_to_offset(line, 0) {
+                            corr.push(crate::correction::Correction {
+                                start: offset,
+                                end: offset,
+                                replacement: "\n".to_string(),
+                                cop_name: self.name(),
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                    }
+                    diagnostics.push(diag);
                 }
             }
             _ => {},
@@ -226,6 +252,10 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(
+        EmptyLinesAroundAccessModifier,
+        "cops/layout/empty_lines_around_access_modifier"
+    );
+    crate::cop_autocorrect_fixture_tests!(
         EmptyLinesAroundAccessModifier,
         "cops/layout/empty_lines_around_access_modifier"
     );

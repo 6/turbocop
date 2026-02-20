@@ -20,6 +20,10 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
         "Layout/EmptyLinesAroundAttributeAccessor"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn interested_node_types(&self) -> &'static [u8] {
         &[CALL_NODE]
     }
@@ -31,7 +35,7 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _allow_alias_syntax = config.get_bool("AllowAliasSyntax", true);
         let _allowed_methods = config.get_string_array("AllowedMethods");
@@ -149,12 +153,26 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
         }
 
         let (line, col) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(
+        let mut diag = self.diagnostic(
             source,
             line,
             col,
             "Add an empty line after attribute accessor.".to_string(),
-        ));
+        );
+        if let Some(ref mut corr) = corrections {
+            // Insert blank line after the attribute accessor line
+            if let Some(offset) = source.line_col_to_offset(last_line + 1, 0) {
+                corr.push(crate::correction::Correction {
+                    start: offset,
+                    end: offset,
+                    replacement: "\n".to_string(),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+                diag.corrected = true;
+            }
+        }
+        diagnostics.push(diag);
     }
 }
 
@@ -175,6 +193,10 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(
+        EmptyLinesAroundAttributeAccessor,
+        "cops/layout/empty_lines_around_attribute_accessor"
+    );
+    crate::cop_autocorrect_fixture_tests!(
         EmptyLinesAroundAttributeAccessor,
         "cops/layout/empty_lines_around_attribute_accessor"
     );

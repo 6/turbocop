@@ -15,6 +15,10 @@ impl Cop for EmptyLinesAroundBeginBody {
         &[BEGIN_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -22,7 +26,7 @@ impl Cop for EmptyLinesAroundBeginBody {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Only check explicit begin..end blocks (BeginNode in Prism)
         let begin_node = match node.as_begin_node() {
@@ -40,12 +44,13 @@ impl Cop for EmptyLinesAroundBeginBody {
             None => return,
         };
 
-        diagnostics.extend(util::check_empty_lines_around_body(
+        diagnostics.extend(util::check_empty_lines_around_body_with_corrections(
             self.name(),
             source,
             begin_keyword_loc.start_offset(),
             end_keyword_loc.start_offset(),
             "`begin`",
+            corrections,
         ));
     }
 }
@@ -55,6 +60,10 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(
+        EmptyLinesAroundBeginBody,
+        "cops/layout/empty_lines_around_begin_body"
+    );
+    crate::cop_autocorrect_fixture_tests!(
         EmptyLinesAroundBeginBody,
         "cops/layout/empty_lines_around_begin_body"
     );

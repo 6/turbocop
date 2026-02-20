@@ -57,6 +57,10 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
         "Layout/EmptyLinesAroundExceptionHandlingKeywords"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_source(
         &self,
         source: &SourceFile,
@@ -64,7 +68,7 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
         code_map: &CodeMap,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let lines: Vec<&[u8]> = source.lines().collect();
         let mut byte_offset: usize = 0;
@@ -120,24 +124,58 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
             if line_num >= 3 {
                 let above_idx = i - 1; // 0-indexed
                 if above_idx < lines.len() && util::is_blank_line(lines[above_idx]) {
-                    diagnostics.push(self.diagnostic(
+                    let mut diag = self.diagnostic(
                         source,
                         line_num - 1,
                         0,
                         format!("Extra empty line detected before the `{kw_str}`."),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        // Delete the blank line (line_num - 1 is 1-based)
+                        if let (Some(start), Some(end)) = (
+                            source.line_col_to_offset(line_num - 1, 0),
+                            source.line_col_to_offset(line_num, 0),
+                        ) {
+                            corr.push(crate::correction::Correction {
+                                start,
+                                end,
+                                replacement: String::new(),
+                                cop_name: self.name(),
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                    }
+                    diagnostics.push(diag);
                 }
             }
 
             // Check for empty line AFTER the keyword
             let below_idx = i + 1; // 0-indexed for line after
             if below_idx < lines.len() && util::is_blank_line(lines[below_idx]) {
-                diagnostics.push(self.diagnostic(
+                let mut diag = self.diagnostic(
                     source,
                     line_num + 1,
                     0,
                     format!("Extra empty line detected after the `{kw_str}`."),
-                ));
+                );
+                if let Some(ref mut corr) = corrections {
+                    // Delete the blank line (line_num + 1 is 1-based)
+                    if let (Some(start), Some(end)) = (
+                        source.line_col_to_offset(line_num + 1, 0),
+                        source.line_col_to_offset(line_num + 2, 0),
+                    ) {
+                        corr.push(crate::correction::Correction {
+                            start,
+                            end,
+                            replacement: String::new(),
+                            cop_name: self.name(),
+                            cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                }
+                diagnostics.push(diag);
             }
 
             byte_offset += line_len;
@@ -152,6 +190,10 @@ mod tests {
     use crate::testutil::run_cop_full;
 
     crate::cop_fixture_tests!(
+        EmptyLinesAroundExceptionHandlingKeywords,
+        "cops/layout/empty_lines_around_exception_handling_keywords"
+    );
+    crate::cop_autocorrect_fixture_tests!(
         EmptyLinesAroundExceptionHandlingKeywords,
         "cops/layout/empty_lines_around_exception_handling_keywords"
     );
