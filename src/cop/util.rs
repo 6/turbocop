@@ -445,11 +445,23 @@ pub fn is_blank_line(line: &[u8]) -> bool {
 /// Check for extra empty lines at the beginning/end of a body.
 /// Used by EmptyLinesAround{Class,Module,Method,Block}Body.
 pub fn check_empty_lines_around_body(
-    cop_name: &str,
+    cop_name: &'static str,
     source: &SourceFile,
     keyword_offset: usize,
     end_offset: usize,
     body_kind: &str,
+) -> Vec<Diagnostic> {
+    check_empty_lines_around_body_with_corrections(cop_name, source, keyword_offset, end_offset, body_kind, None)
+}
+
+/// Like `check_empty_lines_around_body` but also generates corrections when `corrections` is Some.
+pub fn check_empty_lines_around_body_with_corrections(
+    cop_name: &'static str,
+    source: &SourceFile,
+    keyword_offset: usize,
+    end_offset: usize,
+    body_kind: &str,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
 ) -> Vec<Diagnostic> {
     let (keyword_line, _) = source.offset_to_line_col(keyword_offset);
     let (end_line, _) = source.offset_to_line_col(end_offset);
@@ -464,15 +476,30 @@ pub fn check_empty_lines_around_body(
     let after_keyword = keyword_line + 1;
     if let Some(line) = line_at(source, after_keyword) {
         if is_blank_line(line) && after_keyword < end_line {
-            diagnostics.push(Diagnostic {
+            let mut diag = Diagnostic {
                 path: source.path_str().to_string(),
                 location: Location { line: after_keyword, column: 0 },
                 severity: Severity::Convention,
                 cop_name: cop_name.to_string(),
                 message: format!("Extra empty line detected at {body_kind} body beginning."),
-
                 corrected: false,
-            });
+            };
+            if let Some(ref mut corr) = corrections {
+                if let (Some(start), Some(end)) = (
+                    source.line_col_to_offset(after_keyword, 0),
+                    source.line_col_to_offset(after_keyword + 1, 0),
+                ) {
+                    corr.push(crate::correction::Correction {
+                        start,
+                        end,
+                        replacement: String::new(),
+                        cop_name,
+                        cop_index: 0,
+                    });
+                    diag.corrected = true;
+                }
+            }
+            diagnostics.push(diag);
         }
     }
 
@@ -482,15 +509,30 @@ pub fn check_empty_lines_around_body(
         if before_end > keyword_line {
             if let Some(line) = line_at(source, before_end) {
                 if is_blank_line(line) {
-                    diagnostics.push(Diagnostic {
+                    let mut diag = Diagnostic {
                         path: source.path_str().to_string(),
                         location: Location { line: before_end, column: 0 },
                         severity: Severity::Convention,
                         cop_name: cop_name.to_string(),
                         message: format!("Extra empty line detected at {body_kind} body end."),
-
                         corrected: false,
-                    });
+                    };
+                    if let Some(ref mut corr) = corrections {
+                        if let (Some(start), Some(end)) = (
+                            source.line_col_to_offset(before_end, 0),
+                            source.line_col_to_offset(before_end + 1, 0),
+                        ) {
+                            corr.push(crate::correction::Correction {
+                                start,
+                                end,
+                                replacement: String::new(),
+                                cop_name,
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                    }
+                    diagnostics.push(diag);
                 }
             }
         }
@@ -502,11 +544,23 @@ pub fn check_empty_lines_around_body(
 /// Check for MISSING empty lines at the beginning/end of a body.
 /// Used by EmptyLinesAround{Block,Class,Module}Body with "empty_lines" style.
 pub fn check_missing_empty_lines_around_body(
-    cop_name: &str,
+    cop_name: &'static str,
     source: &SourceFile,
     keyword_offset: usize,
     end_offset: usize,
     body_kind: &str,
+) -> Vec<Diagnostic> {
+    check_missing_empty_lines_around_body_with_corrections(cop_name, source, keyword_offset, end_offset, body_kind, None)
+}
+
+/// Like `check_missing_empty_lines_around_body` but also generates corrections when `corrections` is Some.
+pub fn check_missing_empty_lines_around_body_with_corrections(
+    cop_name: &'static str,
+    source: &SourceFile,
+    keyword_offset: usize,
+    end_offset: usize,
+    body_kind: &str,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
 ) -> Vec<Diagnostic> {
     let (keyword_line, _) = source.offset_to_line_col(keyword_offset);
     let (end_line, _) = source.offset_to_line_col(end_offset);
@@ -522,15 +576,27 @@ pub fn check_missing_empty_lines_around_body(
     let after_keyword = keyword_line + 1;
     if let Some(line) = line_at(source, after_keyword) {
         if !is_blank_line(line) && after_keyword < end_line {
-            diagnostics.push(Diagnostic {
+            let mut diag = Diagnostic {
                 path: source.path_str().to_string(),
                 location: Location { line: after_keyword, column: 0 },
                 severity: Severity::Convention,
                 cop_name: cop_name.to_string(),
                 message: format!("Empty line missing at {body_kind} body beginning."),
-
                 corrected: false,
-            });
+            };
+            if let Some(ref mut corr) = corrections {
+                if let Some(offset) = source.line_col_to_offset(after_keyword, 0) {
+                    corr.push(crate::correction::Correction {
+                        start: offset,
+                        end: offset,
+                        replacement: "\n".to_string(),
+                        cop_name,
+                        cop_index: 0,
+                    });
+                    diag.corrected = true;
+                }
+            }
+            diagnostics.push(diag);
         }
     }
 
@@ -540,15 +606,28 @@ pub fn check_missing_empty_lines_around_body(
         if before_end > keyword_line {
             if let Some(line) = line_at(source, before_end) {
                 if !is_blank_line(line) {
-                    diagnostics.push(Diagnostic {
+                    let mut diag = Diagnostic {
                         path: source.path_str().to_string(),
                         location: Location { line: before_end, column: 0 },
                         severity: Severity::Convention,
                         cop_name: cop_name.to_string(),
                         message: format!("Empty line missing at {body_kind} body end."),
-
                         corrected: false,
-                    });
+                    };
+                    if let Some(ref mut corr) = corrections {
+                        // Insert \n before the end line
+                        if let Some(offset) = source.line_col_to_offset(end_line, 0) {
+                            corr.push(crate::correction::Correction {
+                                start: offset,
+                                end: offset,
+                                replacement: "\n".to_string(),
+                                cop_name,
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                    }
+                    diagnostics.push(diag);
                 }
             }
         }

@@ -27,6 +27,10 @@ impl Cop for EmptyLinesAfterModuleInclusion {
         "Layout/EmptyLinesAfterModuleInclusion"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_source(
         &self,
         source: &SourceFile,
@@ -34,17 +38,22 @@ impl Cop for EmptyLinesAfterModuleInclusion {
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = InclusionVisitor {
             cop: self,
             source,
             diagnostics: Vec::new(),
-            // Track whether we're in a context where include/extend/prepend
-            // should be treated as module inclusion (class/module body level)
+            corrections: Vec::new(),
             in_block_or_send: false,
         };
         visitor.visit(&parse_result.node());
+        if let Some(ref mut corr) = corrections {
+            for d in &mut visitor.diagnostics {
+                d.corrected = true;
+            }
+            corr.extend(visitor.corrections);
+        }
         diagnostics.extend(visitor.diagnostics);
     }
 }
@@ -53,6 +62,7 @@ struct InclusionVisitor<'a> {
     cop: &'a EmptyLinesAfterModuleInclusion,
     source: &'a SourceFile,
     diagnostics: Vec<Diagnostic>,
+    corrections: Vec<crate::correction::Correction>,
     /// True when inside a block, lambda, or array — contexts where
     /// include/extend/prepend are NOT module inclusions
     in_block_or_send: bool,
@@ -163,6 +173,16 @@ impl InclusionVisitor<'_> {
             col,
             "Add an empty line after module inclusion.".to_string(),
         ));
+        // Insert a blank line after the inclusion line
+        if let Some(offset) = self.source.line_col_to_offset(last_line + 1, 0) {
+            self.corrections.push(crate::correction::Correction {
+                start: offset,
+                end: offset,
+                replacement: "\n".to_string(),
+                cop_name: self.cop.name(),
+                cop_index: 0,
+            });
+        }
     }
 }
 
@@ -302,6 +322,10 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(
+        EmptyLinesAfterModuleInclusion,
+        "cops/layout/empty_lines_after_module_inclusion"
+    );
+    crate::cop_autocorrect_fixture_tests!(
         EmptyLinesAfterModuleInclusion,
         "cops/layout/empty_lines_after_module_inclusion"
     );

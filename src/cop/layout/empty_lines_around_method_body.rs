@@ -15,6 +15,10 @@ impl Cop for EmptyLinesAroundMethodBody {
         &[DEF_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -22,7 +26,7 @@ impl Cop for EmptyLinesAroundMethodBody {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -35,12 +39,13 @@ impl Cop for EmptyLinesAroundMethodBody {
             None => return,
         };
 
-        diagnostics.extend(util::check_empty_lines_around_body(
+        diagnostics.extend(util::check_empty_lines_around_body_with_corrections(
             self.name(),
             source,
             def_node.def_keyword_loc().start_offset(),
             end_loc.start_offset(),
             "method",
+            corrections,
         ));
     }
 }
@@ -51,6 +56,10 @@ mod tests {
     use crate::testutil::run_cop_full;
 
     crate::cop_fixture_tests!(
+        EmptyLinesAroundMethodBody,
+        "cops/layout/empty_lines_around_method_body"
+    );
+    crate::cop_autocorrect_fixture_tests!(
         EmptyLinesAroundMethodBody,
         "cops/layout/empty_lines_around_method_body"
     );

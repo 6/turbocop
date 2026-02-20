@@ -127,6 +127,10 @@ impl Cop for EmptyLineBetweenDefs {
         "Layout/EmptyLineBetweenDefs"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn interested_node_types(&self) -> &'static [u8] {
         &[CALL_NODE, CLASS_NODE, DEF_NODE, MODULE_NODE]
     }
@@ -138,7 +142,7 @@ impl Cop for EmptyLineBetweenDefs {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let empty_between_methods = config.get_bool("EmptyLineBetweenMethodDefs", true);
         let empty_between_classes = config.get_bool("EmptyLineBetweenClassDefs", true);
@@ -278,7 +282,22 @@ impl Cop for EmptyLineBetweenDefs {
             format!("Use {number_of_empty_lines} empty lines between method definitions.")
         };
 
-        diagnostics.push(self.diagnostic(source, def_line, def_col, msg));
+        let mut diag = self.diagnostic(source, def_line, def_col, msg);
+        if let Some(ref mut corr) = corrections {
+            // Insert missing blank lines before the def line
+            let lines_to_add = number_of_empty_lines - blank_count;
+            if let Some(offset) = source.line_col_to_offset(def_line, 0) {
+                corr.push(crate::correction::Correction {
+                    start: offset,
+                    end: offset,
+                    replacement: "\n".repeat(lines_to_add),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+                diag.corrected = true;
+            }
+        }
+        diagnostics.push(diag);
     }
 }
 
@@ -288,6 +307,7 @@ mod tests {
     use crate::testutil::run_cop_full;
 
     crate::cop_fixture_tests!(EmptyLineBetweenDefs, "cops/layout/empty_line_between_defs");
+    crate::cop_autocorrect_fixture_tests!(EmptyLineBetweenDefs, "cops/layout/empty_line_between_defs");
 
     #[test]
     fn single_def_no_offense() {

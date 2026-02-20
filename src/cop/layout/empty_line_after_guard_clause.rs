@@ -14,6 +14,10 @@ impl Cop for EmptyLineAfterGuardClause {
         "Layout/EmptyLineAfterGuardClause"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn interested_node_types(&self) -> &'static [u8] {
         &[BREAK_NODE, CALL_NODE, IF_NODE, NEXT_NODE, RETURN_NODE, UNLESS_NODE]
     }
@@ -25,7 +29,7 @@ impl Cop for EmptyLineAfterGuardClause {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Extract body statements, the overall location, and whether it's block form.
         // We handle both modifier and block-form if/unless.
@@ -154,12 +158,26 @@ impl Cop for EmptyLineAfterGuardClause {
         }
 
         let (line, col) = source.offset_to_line_col(offense_offset);
-        diagnostics.push(self.diagnostic(
+        let mut diag = self.diagnostic(
             source,
             line,
             col,
             "Add empty line after guard clause.".to_string(),
-        ));
+        );
+        if let Some(ref mut corr) = corrections {
+            // Insert blank line after the guard clause's last line
+            if let Some(offset) = source.line_col_to_offset(if_end_line + 1, 0) {
+                corr.push(crate::correction::Correction {
+                    start: offset,
+                    end: offset,
+                    replacement: "\n".to_string(),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+                diag.corrected = true;
+            }
+        }
+        diagnostics.push(diag);
     }
 }
 
@@ -365,6 +383,10 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(
+        EmptyLineAfterGuardClause,
+        "cops/layout/empty_line_after_guard_clause"
+    );
+    crate::cop_autocorrect_fixture_tests!(
         EmptyLineAfterGuardClause,
         "cops/layout/empty_line_after_guard_clause"
     );

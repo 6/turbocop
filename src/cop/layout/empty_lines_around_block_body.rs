@@ -15,6 +15,10 @@ impl Cop for EmptyLinesAroundBlockBody {
         &[BLOCK_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -22,7 +26,7 @@ impl Cop for EmptyLinesAroundBlockBody {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "no_empty_lines");
         let block_node = match node.as_block_node() {
@@ -33,22 +37,24 @@ impl Cop for EmptyLinesAroundBlockBody {
         match style {
             "empty_lines" => {
                 // Require empty lines at beginning and end of block body
-                diagnostics.extend(util::check_missing_empty_lines_around_body(
+                diagnostics.extend(util::check_missing_empty_lines_around_body_with_corrections(
                     self.name(),
                     source,
                     block_node.opening_loc().start_offset(),
                     block_node.closing_loc().start_offset(),
                     "block",
+                    corrections,
                 ));
             }
             _ => {
                 // "no_empty_lines" (default): flag extra empty lines
-                diagnostics.extend(util::check_empty_lines_around_body(
+                diagnostics.extend(util::check_empty_lines_around_body_with_corrections(
                     self.name(),
                     source,
                     block_node.opening_loc().start_offset(),
                     block_node.closing_loc().start_offset(),
                     "block",
+                    corrections,
                 ));
             }
         }
@@ -61,6 +67,10 @@ mod tests {
     use crate::testutil::run_cop_full;
 
     crate::cop_fixture_tests!(
+        EmptyLinesAroundBlockBody,
+        "cops/layout/empty_lines_around_block_body"
+    );
+    crate::cop_autocorrect_fixture_tests!(
         EmptyLinesAroundBlockBody,
         "cops/layout/empty_lines_around_block_body"
     );

@@ -15,6 +15,10 @@ impl Cop for EmptyLinesAroundClassBody {
         &[CLASS_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -22,7 +26,7 @@ impl Cop for EmptyLinesAroundClassBody {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "no_empty_lines");
         let class_node = match node.as_class_node() {
@@ -35,8 +39,8 @@ impl Cop for EmptyLinesAroundClassBody {
 
         match style {
             "empty_lines" => {
-                diagnostics.extend(util::check_missing_empty_lines_around_body(
-                    self.name(), source, kw_offset, end_offset, "class",
+                diagnostics.extend(util::check_missing_empty_lines_around_body_with_corrections(
+                    self.name(), source, kw_offset, end_offset, "class", corrections,
                 ));
             }
             "beginning_only" => {
@@ -69,8 +73,8 @@ impl Cop for EmptyLinesAroundClassBody {
             }
             _ => {
                 // "no_empty_lines" (default)
-                diagnostics.extend(util::check_empty_lines_around_body(
-                    self.name(), source, kw_offset, end_offset, "class",
+                diagnostics.extend(util::check_empty_lines_around_body_with_corrections(
+                    self.name(), source, kw_offset, end_offset, "class", corrections,
                 ));
             }
         }
@@ -83,6 +87,10 @@ mod tests {
     use crate::testutil::run_cop_full;
 
     crate::cop_fixture_tests!(
+        EmptyLinesAroundClassBody,
+        "cops/layout/empty_lines_around_class_body"
+    );
+    crate::cop_autocorrect_fixture_tests!(
         EmptyLinesAroundClassBody,
         "cops/layout/empty_lines_around_class_body"
     );
