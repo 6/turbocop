@@ -3,7 +3,8 @@
 A fast Ruby linter written in Rust, targeting drop-in [RuboCop](https://rubocop.org/) compatibility.
 
 - **915 cops** across 14 departments (Layout, Lint, Style, Metrics, Naming, Security, Bundler, Gemspec, Migration, Rails, Performance, RSpec, RSpecRails, FactoryBot)
-- **1.2-26x faster** than RuboCop on real-world codebases (without result caching)
+- **18x faster** than RuboCop (cached), **84x faster** uncached on [rubygems.org](https://github.com/rubygems/rubygems.org) (1,222 files)
+- **100% conformance** against RuboCop on 13 benchmark repos
 - Reads your existing `.rubocop.yml` — no migration needed
 - Uses [Prism](https://github.com/ruby/prism) (Ruby's official parser) via `ruby-prism` crate
 - Parallel file processing with [rayon](https://github.com/rayon-rs/rayon)
@@ -39,20 +40,14 @@ The binary is at `target/release/turbocop`.
 
 ## Benchmarks
 
-Measured on Apple Silicon, median of 5 runs via [hyperfine](https://github.com/sharkdp/hyperfine).
-turbocop has no result cache; RuboCop uses its built-in file cache (warm after warmup runs).
+Quick benchmark on [rubygems.org](https://github.com/rubygems/rubygems.org) (1,222 Ruby files), Apple Silicon:
 
-| Repo | .rb files | turbocop (no cache) | RuboCop (cached) | Speedup |
-|------|----------:|------------------:|-----------------:|--------:|
-| [mastodon](https://github.com/mastodon/mastodon) | 2,526 | **482ms** | 2.30s | **4.8x** |
-| [discourse](https://github.com/discourse/discourse) | 5,831 | **565ms** | 3.46s | **6.1x** |
-| [rails](https://github.com/rails/rails) | 3,332 | **377ms** | 5.99s | **15.9x** |
-| [rubocop](https://github.com/rubocop/rubocop) | 1,665 | **1.02s** | 1.19s | **1.2x** |
-| [chatwoot](https://github.com/chatwoot/chatwoot) | 1,900 | **584ms** | 2.67s | **4.6x** |
-| [errbit](https://github.com/errbit/errbit) | 207 | **80ms** | 1.20s | **14.9x** |
-| [activeadmin](https://github.com/activeadmin/activeadmin) | 354 | **42ms** | 1.10s | **26.0x** |
+| Mode | turbocop | RuboCop | Speedup |
+|------|-------:|--------:|--------:|
+| Cached (warm) | **81ms** | 1.47s | **18x** |
+| No cache | **203ms** | 17.53s | **86x** |
 
-Run `cargo run --release --bin bench_turbocop` to reproduce. See [bench/results.md](bench/results.md) for full details across 12 repos.
+Run `cargo run --release --bin bench_turbocop -- quick` to reproduce. See [bench/results.md](bench/results.md) for conformance details across all 13 repos.
 
 ## Configuration
 
@@ -93,7 +88,7 @@ Every cop reads its RuboCop YAML config options and has fixture-based test cover
 
 ## Conformance
 
-Location-level conformance against RuboCop on 12 benchmark repos:
+Location-level conformance against RuboCop on 13 benchmark repos:
 
 | Repo | Match rate |
 |------|----------:|
@@ -109,6 +104,7 @@ Location-level conformance against RuboCop on 12 benchmark repos:
 | rubygems.org | 100.0% |
 | doorkeeper | 100.0% |
 | fat_free_crm | 100.0% |
+| multi_json | 100.0% |
 
 See [bench/results.md](bench/results.md) for full details.
 
