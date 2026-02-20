@@ -313,4 +313,98 @@ mod tests {
         let comma_offset = source.iter().position(|&b| b == b',').unwrap();
         assert!(!cm.is_code(comma_offset));
     }
+
+    mod prop_tests {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// Generate a vec of sorted (start, end) ranges where start < end,
+        /// capped at a reasonable universe size.
+        fn sorted_ranges_strategy() -> impl Strategy<Value = Vec<(usize, usize)>> {
+            prop::collection::vec((0usize..500, 1usize..100), 0..30).prop_map(|pairs| {
+                let mut ranges: Vec<(usize, usize)> = pairs
+                    .into_iter()
+                    .map(|(start, len)| (start, start + len))
+                    .collect();
+                ranges.sort_unstable();
+                ranges
+            })
+        }
+
+        proptest! {
+            #[test]
+            fn merge_output_is_sorted(ranges in sorted_ranges_strategy()) {
+                let merged = merge_ranges(ranges);
+                for pair in merged.windows(2) {
+                    prop_assert!(pair[0].0 < pair[1].0,
+                        "merged starts not sorted: {:?} >= {:?}", pair[0], pair[1]);
+                }
+            }
+
+            #[test]
+            fn merge_output_is_non_overlapping(ranges in sorted_ranges_strategy()) {
+                let merged = merge_ranges(ranges);
+                for pair in merged.windows(2) {
+                    prop_assert!(pair[0].1 <= pair[1].0,
+                        "merged ranges overlap: {:?} and {:?}", pair[0], pair[1]);
+                }
+            }
+
+            #[test]
+            fn merge_preserves_coverage(ranges in sorted_ranges_strategy()) {
+                let merged = merge_ranges(ranges.clone());
+                // Every point in any input range must be in some merged range
+                for &(start, end) in &ranges {
+                    for pt in start..end {
+                        prop_assert!(
+                            merged.iter().any(|&(ms, me)| pt >= ms && pt < me),
+                            "point {} from input range ({}, {}) not covered by merged output",
+                            pt, start, end
+                        );
+                    }
+                }
+            }
+
+            #[test]
+            fn merge_does_not_expand_coverage(ranges in sorted_ranges_strategy()) {
+                let merged = merge_ranges(ranges.clone());
+                // Every point in a merged range must be in some input range
+                for &(ms, me) in &merged {
+                    for pt in ms..me {
+                        prop_assert!(
+                            ranges.iter().any(|&(s, e)| pt >= s && pt < e),
+                            "point {} in merged range ({}, {}) not in any input range",
+                            pt, ms, me
+                        );
+                    }
+                }
+            }
+
+            #[test]
+            fn merge_is_idempotent(ranges in sorted_ranges_strategy()) {
+                let once = merge_ranges(ranges);
+                let twice = merge_ranges(once.clone());
+                prop_assert_eq!(once, twice);
+            }
+
+            #[test]
+            fn in_ranges_consistent_with_merge(ranges in sorted_ranges_strategy()) {
+                let merged = merge_ranges(ranges.clone());
+                // Test a sample of offsets
+                let max_offset = ranges.iter().map(|r| r.1).max().unwrap_or(0) + 10;
+                for offset in (0..max_offset).step_by(3) {
+                    let in_input = ranges.iter().any(|&(s, e)| offset >= s && offset < e);
+                    let in_merged = CodeMap::in_ranges(&merged, offset);
+                    prop_assert_eq!(in_input, in_merged,
+                        "offset {} mismatch: in_input={}, in_merged={}", offset, in_input, in_merged);
+                }
+            }
+
+            #[test]
+            fn merge_output_length_leq_input(ranges in sorted_ranges_strategy()) {
+                let merged = merge_ranges(ranges.clone());
+                prop_assert!(merged.len() <= ranges.len() || ranges.is_empty());
+            }
+        }
+    }
 }

@@ -178,4 +178,74 @@ mod tests {
         let result = SourceFile::from_path(Path::new("/nonexistent/file.rb"));
         assert!(result.is_err());
     }
+
+    mod prop_tests {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn line_starts_first_is_zero(content in prop::collection::vec(any::<u8>(), 0..500)) {
+                let starts = compute_line_starts(&content);
+                prop_assert_eq!(starts[0], 0, "first line start must be 0");
+            }
+
+            #[test]
+            fn line_starts_are_strictly_increasing(content in prop::collection::vec(any::<u8>(), 0..500)) {
+                let starts = compute_line_starts(&content);
+                for pair in starts.windows(2) {
+                    prop_assert!(pair[0] < pair[1],
+                        "line starts not strictly increasing: {} >= {}", pair[0], pair[1]);
+                }
+            }
+
+            #[test]
+            fn line_starts_follow_newlines(content in prop::collection::vec(any::<u8>(), 0..500)) {
+                let starts = compute_line_starts(&content);
+                // Every start after the first should be immediately after a \n
+                for &start in &starts[1..] {
+                    prop_assert!(start > 0 && content[start - 1] == b'\n',
+                        "line start {} is not preceded by newline", start);
+                }
+            }
+
+            #[test]
+            fn offset_to_line_col_roundtrip(content in prop::collection::vec(any::<u8>(), 1..500)) {
+                let sf = SourceFile::from_bytes("test.rb", content.clone());
+                // Test every valid byte offset
+                for offset in 0..content.len() {
+                    let (line, col) = sf.offset_to_line_col(offset);
+                    let reconstructed = sf.line_starts[line - 1] + col;
+                    prop_assert_eq!(offset, reconstructed,
+                        "round-trip failed: offset {} -> ({}, {}) -> {}",
+                        offset, line, col, reconstructed);
+                }
+            }
+
+            #[test]
+            fn offset_to_line_col_line_in_range(content in prop::collection::vec(any::<u8>(), 1..500)) {
+                let sf = SourceFile::from_bytes("test.rb", content.clone());
+                let num_lines = sf.line_starts.len();
+                for offset in 0..content.len() {
+                    let (line, _col) = sf.offset_to_line_col(offset);
+                    prop_assert!(line >= 1 && line <= num_lines,
+                        "line {} out of range [1, {}] for offset {}",
+                        line, num_lines, offset);
+                }
+            }
+
+            #[test]
+            fn offset_to_line_col_is_monotonic(content in prop::collection::vec(any::<u8>(), 1..500)) {
+                let sf = SourceFile::from_bytes("test.rb", content.clone());
+                let mut prev = (0usize, 0usize);
+                for offset in 0..content.len() {
+                    let cur = sf.offset_to_line_col(offset);
+                    prop_assert!(cur >= prev,
+                        "monotonicity violated: offset {} -> {:?} but offset {} -> {:?}",
+                        offset, cur, offset.saturating_sub(1), prev);
+                    prev = cur;
+                }
+            }
+        }
+    }
 }
