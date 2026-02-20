@@ -9,7 +9,11 @@ impl Cop for TrailingWhitespace {
         "Layout/TrailingWhitespace"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, mut corrections: Option<&mut Vec<crate::correction::Correction>>) {
         let allow_in_heredoc = config.get_bool("AllowInHeredoc", false);
 
         // Track heredoc regions: when AllowInHeredoc is true, skip lines inside heredocs.
@@ -66,21 +70,53 @@ impl Cop for TrailingWhitespace {
             let last_content = line.iter().rposition(|&b| b != b' ' && b != b'\t');
             match last_content {
                 Some(pos) if pos + 1 < line.len() => {
-                    diagnostics.push(self.diagnostic(
+                    let mut diag = self.diagnostic(
                         source,
                         i + 1,
                         pos + 1,
                         "Trailing whitespace detected.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        if let (Some(start), Some(end)) = (
+                            source.line_col_to_offset(i + 1, pos + 1),
+                            source.line_col_to_offset(i + 1, line.len()),
+                        ) {
+                            corr.push(crate::correction::Correction {
+                                start,
+                                end,
+                                replacement: String::new(),
+                                cop_name: self.name(),
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                    }
+                    diagnostics.push(diag);
                 }
                 None => {
                     // Entire line is whitespace
-                    diagnostics.push(self.diagnostic(
+                    let mut diag = self.diagnostic(
                         source,
                         i + 1,
                         0,
                         "Trailing whitespace detected.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        if let (Some(start), Some(end)) = (
+                            source.line_col_to_offset(i + 1, 0),
+                            source.line_col_to_offset(i + 1, line.len()),
+                        ) {
+                            corr.push(crate::correction::Correction {
+                                start,
+                                end,
+                                replacement: String::new(),
+                                cop_name: self.name(),
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                    }
+                    diagnostics.push(diag);
                 }
                 _ => {}
             }
@@ -151,5 +187,49 @@ mod tests {
         let mut diags = Vec::new();
         TrailingWhitespace.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert_eq!(diags.len(), 1, "Default should flag trailing whitespace inside heredocs");
+    }
+
+    #[test]
+    fn autocorrect_trailing_spaces() {
+        let input = b"x = 1   \ny = 2\n";
+        let (diags, corrections) = crate::testutil::run_cop_autocorrect(&TrailingWhitespace, input);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].corrected);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"x = 1\ny = 2\n");
+    }
+
+    #[test]
+    fn autocorrect_all_whitespace_line() {
+        let input = b"x = 1\n   \ny = 2\n";
+        let (diags, corrections) = crate::testutil::run_cop_autocorrect(&TrailingWhitespace, input);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].corrected);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"x = 1\n\ny = 2\n");
+    }
+
+    #[test]
+    fn autocorrect_multiple_lines() {
+        let input = b"x = 1  \ny = 2  \nz = 3\n";
+        let (diags, corrections) = crate::testutil::run_cop_autocorrect(&TrailingWhitespace, input);
+        assert_eq!(diags.len(), 2);
+        assert!(diags.iter().all(|d| d.corrected));
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"x = 1\ny = 2\nz = 3\n");
+    }
+
+    #[test]
+    fn autocorrect_no_trailing_newline() {
+        let input = b"x = 1  ";
+        let (diags, corrections) = crate::testutil::run_cop_autocorrect(&TrailingWhitespace, input);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].corrected);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"x = 1");
     }
 }

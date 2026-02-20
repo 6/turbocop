@@ -11,6 +11,7 @@ pub struct CopWalker<'a, 'pr> {
     pub parse_result: &'a ruby_prism::ParseResult<'pr>,
     pub cop_config: &'a CopConfig,
     pub diagnostics: Vec<Diagnostic>,
+    pub corrections: Option<Vec<crate::correction::Correction>>,
 }
 
 impl<'pr> Visit<'pr> for CopWalker<'_, 'pr> {
@@ -21,7 +22,7 @@ impl<'pr> Visit<'pr> for CopWalker<'_, 'pr> {
             self.parse_result,
             self.cop_config,
             &mut self.diagnostics,
-            None,
+            self.corrections.as_mut(),
         );
     }
 
@@ -32,7 +33,7 @@ impl<'pr> Visit<'pr> for CopWalker<'_, 'pr> {
             self.parse_result,
             self.cop_config,
             &mut self.diagnostics,
-            None,
+            self.corrections.as_mut(),
         );
     }
 }
@@ -48,6 +49,7 @@ pub struct BatchedCopWalker<'a, 'pr> {
     pub source: &'a SourceFile,
     pub parse_result: &'a ruby_prism::ParseResult<'pr>,
     pub diagnostics: Vec<Diagnostic>,
+    corrections: Option<Vec<crate::correction::Correction>>,
 }
 
 impl<'a, 'pr> BatchedCopWalker<'a, 'pr> {
@@ -77,7 +79,19 @@ impl<'a, 'pr> BatchedCopWalker<'a, 'pr> {
             source,
             parse_result,
             diagnostics: Vec::new(),
+            corrections: None,
         }
+    }
+
+    /// Enable corrections collection for this walker.
+    pub fn with_corrections(mut self) -> Self {
+        self.corrections = Some(Vec::new());
+        self
+    }
+
+    /// Consume the walker and return (diagnostics, corrections).
+    pub fn into_results(self) -> (Vec<Diagnostic>, Option<Vec<crate::correction::Correction>>) {
+        (self.diagnostics, self.corrections)
     }
 
     #[inline]
@@ -85,12 +99,12 @@ impl<'a, 'pr> BatchedCopWalker<'a, 'pr> {
         let tag = node_type_tag(node) as usize;
 
         for &(cop, cop_config) in &self.universal_cops {
-            cop.check_node(self.source, node, self.parse_result, cop_config, &mut self.diagnostics, None);
+            cop.check_node(self.source, node, self.parse_result, cop_config, &mut self.diagnostics, self.corrections.as_mut());
         }
 
         if let Some(cops) = self.dispatch_table.get(tag) {
             for &(cop, cop_config) in cops {
-                cop.check_node(self.source, node, self.parse_result, cop_config, &mut self.diagnostics, None);
+                cop.check_node(self.source, node, self.parse_result, cop_config, &mut self.diagnostics, self.corrections.as_mut());
             }
         }
     }

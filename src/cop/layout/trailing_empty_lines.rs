@@ -9,7 +9,11 @@ impl Cop for TrailingEmptyLines {
         "Layout/TrailingEmptyLines"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, mut corrections: Option<&mut Vec<crate::correction::Correction>>) {
         let style = config.get_str("EnforcedStyle", "final_newline");
         let bytes = source.as_bytes();
         if bytes.is_empty() {
@@ -21,35 +25,67 @@ impl Cop for TrailingEmptyLines {
                 // Require file to end with \n\n (blank line before EOF)
                 if *bytes.last().unwrap() != b'\n' {
                     let line_count = bytes.iter().filter(|&&b| b == b'\n').count() + 1;
-                    diagnostics.push(self.diagnostic(
+                    let mut diag = self.diagnostic(
                         source,
                         line_count,
                         0,
                         "Final newline missing.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: bytes.len(),
+                            end: bytes.len(),
+                            replacement: "\n".to_string(),
+                            cop_name: self.name(),
+                            cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
                 // Need at least \n\n at end
                 if bytes.len() < 2 || bytes[bytes.len() - 2] != b'\n' {
                     let line_count = bytes.iter().filter(|&&b| b == b'\n').count();
-                    diagnostics.push(self.diagnostic(
+                    let mut diag = self.diagnostic(
                         source,
                         line_count,
                         0,
                         "Trailing blank line missing.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: bytes.len(),
+                            end: bytes.len(),
+                            replacement: "\n".to_string(),
+                            cop_name: self.name(),
+                            cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
-
             }
             _ => {
                 // "final_newline" (default): require exactly one trailing newline
                 if *bytes.last().unwrap() != b'\n' {
                     let line_count = bytes.iter().filter(|&&b| b == b'\n').count() + 1;
-                    diagnostics.push(self.diagnostic(
+                    let mut diag = self.diagnostic(
                         source,
                         line_count,
                         0,
                         "Final newline missing.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: bytes.len(),
+                            end: bytes.len(),
+                            replacement: "\n".to_string(),
+                            cop_name: self.name(),
+                            cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
 
                 // Check for trailing blank lines (content ends with \n\n)
@@ -59,15 +95,26 @@ impl Cop for TrailingEmptyLines {
                         end -= 1;
                     }
                     let line_num = bytes[..end].iter().filter(|&&b| b == b'\n').count() + 2;
-                    diagnostics.push(self.diagnostic(
+                    let mut diag = self.diagnostic(
                         source,
                         line_num,
                         0,
                         "Trailing blank line detected.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        // Delete from first extra \n to end, keeping exactly one \n
+                        // end points to the byte after the last content newline
+                        corr.push(crate::correction::Correction {
+                            start: end + 1,
+                            end: bytes.len(),
+                            replacement: String::new(),
+                            cop_name: self.name(),
+                            cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
-
-
             }
         }
     }
@@ -178,5 +225,53 @@ mod tests {
         TrailingEmptyLines.check_lines(&source, &config, &mut diags, None);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].message, "Trailing blank line missing.");
+    }
+
+    #[test]
+    fn autocorrect_missing_newline() {
+        let input = b"x = 1";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&TrailingEmptyLines, input);
+        assert!(!corrections.is_empty());
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"x = 1\n");
+    }
+
+    #[test]
+    fn autocorrect_trailing_blank() {
+        let input = b"x = 1\n\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&TrailingEmptyLines, input);
+        assert!(!corrections.is_empty());
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"x = 1\n");
+    }
+
+    #[test]
+    fn autocorrect_multiple_trailing() {
+        let input = b"x = 1\n\n\n\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&TrailingEmptyLines, input);
+        assert!(!corrections.is_empty());
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"x = 1\n");
+    }
+
+    #[test]
+    fn autocorrect_final_blank_line_style_missing() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("final_blank_line".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let input = b"x = 1\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect_with_config(
+            &TrailingEmptyLines, input, config);
+        assert!(!corrections.is_empty());
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"x = 1\n\n");
     }
 }

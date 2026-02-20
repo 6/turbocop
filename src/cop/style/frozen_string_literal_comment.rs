@@ -9,7 +9,11 @@ impl Cop for FrozenStringLiteralComment {
         "Style/FrozenStringLiteralComment"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
+    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, mut corrections: Option<&mut Vec<crate::correction::Correction>>) {
         let enforced_style = config.get_str("EnforcedStyle", "always");
         let lines: Vec<&[u8]> = source.lines().collect();
 
@@ -17,7 +21,23 @@ impl Cop for FrozenStringLiteralComment {
             // Flag the presence of frozen_string_literal comment as unnecessary
             for (i, line) in lines.iter().enumerate() {
                 if is_frozen_string_literal_comment(line) {
-                    diagnostics.push(self.diagnostic(source, i + 1, 0, "Unnecessary frozen string literal comment.".to_string()));
+                    let mut diag = self.diagnostic(source, i + 1, 0, "Unnecessary frozen string literal comment.".to_string());
+                    if let Some(ref mut corr) = corrections {
+                        // Delete the entire line including its newline
+                        if let Some(start) = source.line_col_to_offset(i + 1, 0) {
+                            let end = source.line_col_to_offset(i + 2, 0)
+                                .unwrap_or(source.as_bytes().len());
+                            corr.push(crate::correction::Correction {
+                                start,
+                                end,
+                                replacement: String::new(),
+                                cop_name: self.name(),
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                    }
+                    diagnostics.push(diag);
                 }
             }
             return;
@@ -42,32 +62,59 @@ impl Cop for FrozenStringLiteralComment {
             idx += 1;
         }
 
+        // Remember where to insert the comment (after shebang/encoding)
+        let insert_after_line = idx; // 0-indexed line number
+
         // Scan leading comment lines for the frozen_string_literal magic comment.
-        // This handles files with other magic comments before it, e.g.:
-        //   # typed: true
-        //   # frozen_string_literal: true
-        let scan_start = idx;
         while idx < lines.len() && is_comment_line(lines[idx]) {
             if is_frozen_string_literal_comment(lines[idx]) {
                 if enforced_style == "always_true" {
                     // Must be set to true specifically
                     if !is_frozen_string_literal_true(lines[idx]) {
-                        diagnostics.push(self.diagnostic(source, idx + 1, 0, "Frozen string literal comment must be set to `true`.".to_string()));
+                        let mut diag = self.diagnostic(source, idx + 1, 0, "Frozen string literal comment must be set to `true`.".to_string());
+                        if let Some(ref mut corr) = corrections {
+                            // Replace the entire line with the correct comment
+                            if let Some(start) = source.line_col_to_offset(idx + 1, 0) {
+                                let end = source.line_col_to_offset(idx + 2, 0)
+                                    .unwrap_or(source.as_bytes().len());
+                                corr.push(crate::correction::Correction {
+                                    start,
+                                    end,
+                                    replacement: "# frozen_string_literal: true\n".to_string(),
+                                    cop_name: self.name(),
+                                    cop_index: 0,
+                                });
+                                diag.corrected = true;
+                            }
+                        }
+                        diagnostics.push(diag);
                     }
                 }
                 return;
             }
             idx += 1;
         }
-        // Reset idx for the diagnostic line
-        let _ = scan_start;
 
         let msg = if enforced_style == "always_true" {
             "Missing magic comment `# frozen_string_literal: true`."
         } else {
             "Missing frozen string literal comment."
         };
-        diagnostics.push(self.diagnostic(source, 1, 0, msg.to_string()));
+        let mut diag = self.diagnostic(source, 1, 0, msg.to_string());
+        if let Some(ref mut corr) = corrections {
+            // Insert after shebang/encoding lines
+            let insert_offset = source.line_col_to_offset(insert_after_line + 1, 0)
+                .unwrap_or(0);
+            corr.push(crate::correction::Correction {
+                start: insert_offset,
+                end: insert_offset,
+                replacement: "# frozen_string_literal: true\n".to_string(),
+                cop_name: self.name(),
+                cop_index: 0,
+            });
+            diag.corrected = true;
+        }
+        diagnostics.push(diag);
     }
 }
 
@@ -351,5 +398,75 @@ mod tests {
         let mut diags = Vec::new();
         FrozenStringLiteralComment.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert!(diags.is_empty(), "Should find frozen_string_literal after shebang + typed comment");
+    }
+
+    #[test]
+    fn autocorrect_insert_missing() {
+        let input = b"puts 'hello'\n";
+        let (diags, corrections) = crate::testutil::run_cop_autocorrect(
+            &FrozenStringLiteralComment, input);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].corrected);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"# frozen_string_literal: true\nputs 'hello'\n");
+    }
+
+    #[test]
+    fn autocorrect_insert_after_shebang() {
+        let input = b"#!/usr/bin/env ruby\nputs 'hello'\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(
+            &FrozenStringLiteralComment, input);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"#!/usr/bin/env ruby\n# frozen_string_literal: true\nputs 'hello'\n");
+    }
+
+    #[test]
+    fn autocorrect_insert_after_encoding() {
+        let input = b"# encoding: utf-8\nputs 'hello'\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(
+            &FrozenStringLiteralComment, input);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"# encoding: utf-8\n# frozen_string_literal: true\nputs 'hello'\n");
+    }
+
+    #[test]
+    fn autocorrect_remove_never_style() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("never".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let input = b"# frozen_string_literal: true\nputs 'hello'\n";
+        let (diags, corrections) = crate::testutil::run_cop_autocorrect_with_config(
+            &FrozenStringLiteralComment, input, config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].corrected);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"puts 'hello'\n");
+    }
+
+    #[test]
+    fn autocorrect_always_true_replaces_false() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("always_true".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        let input = b"# frozen_string_literal: false\nputs 'hello'\n";
+        let (diags, corrections) = crate::testutil::run_cop_autocorrect_with_config(
+            &FrozenStringLiteralComment, input, config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].corrected);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"# frozen_string_literal: true\nputs 'hello'\n");
     }
 }

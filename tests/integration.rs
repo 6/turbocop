@@ -3766,3 +3766,187 @@ fn force_default_config_ignores_config_file() {
 
     fs::remove_dir_all(&dir).ok();
 }
+
+// ---------- Autocorrect tests ----------
+
+#[test]
+fn autocorrect_fixes_file_on_disk() {
+    let dir = temp_dir("autocorrect_disk");
+    // File has: leading blank lines, trailing whitespace, trailing blank lines
+    let file = write_file(
+        &dir,
+        "fixme.rb",
+        b"\n\nx = 1  \ny = 2\n\n\n",
+    );
+    let config = load_config(None, None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        autocorrect: true,
+        only: vec![
+            "Layout/LeadingEmptyLines".to_string(),
+            "Layout/TrailingWhitespace".to_string(),
+            "Layout/TrailingEmptyLines".to_string(),
+        ],
+        ..default_args()
+    };
+
+    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    assert!(
+        result.corrected_count > 0,
+        "Expected corrected_count > 0, got {}",
+        result.corrected_count
+    );
+
+    // Verify file was corrected on disk
+    let corrected = fs::read(&file).unwrap();
+    assert_eq!(
+        corrected,
+        b"x = 1\ny = 2\n",
+        "File should be corrected: leading blanks removed, trailing whitespace removed, trailing blank lines removed"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn autocorrect_inserts_frozen_string_literal() {
+    let dir = temp_dir("autocorrect_frozen");
+    let file = write_file(
+        &dir,
+        "missing_magic.rb",
+        b"x = 1\n",
+    );
+    let config = load_config(None, None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    // FrozenStringLiteralComment is SafeAutoCorrect: false, so use -A
+    let args = Args {
+        autocorrect_all: true,
+        only: vec!["Style/FrozenStringLiteralComment".to_string()],
+        ..default_args()
+    };
+
+    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    assert!(
+        result.corrected_count > 0,
+        "Expected corrected_count > 0, got {}",
+        result.corrected_count
+    );
+
+    let corrected = fs::read(&file).unwrap();
+    assert!(
+        corrected.starts_with(b"# frozen_string_literal: true\n"),
+        "File should start with frozen_string_literal comment, got: {:?}",
+        String::from_utf8_lossy(&corrected[..corrected.len().min(60)])
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn autocorrect_safe_mode_skips_unsafe_cops() {
+    let dir = temp_dir("autocorrect_safe");
+    // Configure FrozenStringLiteralComment with SafeAutoCorrect: false
+    let file = write_file(
+        &dir,
+        "unsafe_test.rb",
+        b"x = 1  \n",
+    );
+    let config_path = write_file(
+        &dir,
+        ".rubocop.yml",
+        b"Style/FrozenStringLiteralComment:\n  SafeAutoCorrect: false\n",
+    );
+    let config = load_config(Some(config_path.as_path()), None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        autocorrect: true,  // -a (safe only)
+        only: vec![
+            "Style/FrozenStringLiteralComment".to_string(),
+            "Layout/TrailingWhitespace".to_string(),
+        ],
+        ..default_args()
+    };
+
+    let _result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+
+    let corrected = fs::read(&file).unwrap();
+    // TrailingWhitespace should be fixed (safe autocorrect)
+    assert!(
+        corrected.windows(2).all(|w| w != b"  "),
+        "Trailing whitespace should be removed"
+    );
+    // FrozenStringLiteralComment should NOT be added (SafeAutoCorrect: false with -a)
+    assert!(
+        !corrected.starts_with(b"# frozen_string_literal"),
+        "FrozenStringLiteralComment should not be inserted with -a when SafeAutoCorrect: false"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn autocorrect_all_mode_includes_unsafe_cops() {
+    let dir = temp_dir("autocorrect_all");
+    let file = write_file(
+        &dir,
+        "unsafe_all.rb",
+        b"x = 1  \n",
+    );
+    let config = load_config(None, None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        autocorrect_all: true,  // -A (all)
+        only: vec![
+            "Style/FrozenStringLiteralComment".to_string(),
+            "Layout/TrailingWhitespace".to_string(),
+        ],
+        ..default_args()
+    };
+
+    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    assert!(
+        result.corrected_count > 0,
+        "Expected corrected_count > 0, got {}",
+        result.corrected_count
+    );
+
+    let corrected = fs::read(&file).unwrap();
+    // Both should be fixed with -A
+    assert!(
+        corrected.starts_with(b"# frozen_string_literal: true\n"),
+        "FrozenStringLiteralComment should be inserted with -A"
+    );
+    assert!(
+        corrected.windows(3).all(|w| w != b"  \n"),
+        "Trailing whitespace should be removed"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn autocorrect_clean_file_unchanged() {
+    let dir = temp_dir("autocorrect_clean");
+    let content = b"# frozen_string_literal: true\n\nx = 1\ny = 2\n";
+    let file = write_file(&dir, "clean.rb", content);
+    let config = load_config(None, None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        autocorrect_all: true,
+        ..default_args()
+    };
+
+    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    assert_eq!(
+        result.corrected_count, 0,
+        "Clean file should have no corrections"
+    );
+
+    let after = fs::read(&file).unwrap();
+    assert_eq!(
+        after, content,
+        "Clean file should be unchanged on disk"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}

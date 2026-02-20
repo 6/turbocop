@@ -135,7 +135,7 @@ pub fn lint_source(
     let cop_filters = config.build_cop_filters(registry);
     let base_configs = config.precompute_cop_configs(registry);
     let has_dir_overrides = config.has_dir_overrides();
-    let diagnostics = lint_source_inner(
+    let (diagnostics, _corrected_bytes, corrected_count) = lint_source_inner(
         source,
         config,
         registry,
@@ -150,7 +150,7 @@ pub fn lint_source(
     LintResult {
         diagnostics: sorted,
         file_count: 1,
-        corrected_count: 0,
+        corrected_count,
     }
 }
 
@@ -195,6 +195,7 @@ pub fn run_linter(
     let cache_content_hits = std::sync::atomic::AtomicUsize::new(0);
     let cache_misses = std::sync::atomic::AtomicUsize::new(0);
     let found_offense = AtomicBool::new(false);
+    let total_corrected = std::sync::atomic::AtomicUsize::new(0);
 
     let diagnostics: Vec<Diagnostic> = files
         .par_iter()
@@ -217,6 +218,7 @@ pub fn run_linter(
                 &cache_content_hits,
                 &cache_misses,
                 &discovered.explicit,
+                &total_corrected,
             );
             if args.fail_fast && !result.is_empty() {
                 found_offense.store(true, Ordering::Relaxed);
@@ -313,10 +315,11 @@ pub fn run_linter(
         eprintln!("{:<50} {:>10} {:>10} {:>10} {:>9.1}ms", "TOTAL", "", "", "", total_all as f64 / 1_000_000.0);
     }
 
+    let corrected_count = total_corrected.load(std::sync::atomic::Ordering::Relaxed);
     LintResult {
         diagnostics: sorted,
         file_count: files.len(),
-        corrected_count: 0,
+        corrected_count,
     }
 }
 
@@ -334,6 +337,7 @@ fn lint_file(
     cache_content_hits: &std::sync::atomic::AtomicUsize,
     cache_misses: &std::sync::atomic::AtomicUsize,
     explicit_files: &HashSet<std::path::PathBuf>,
+    total_corrected: &std::sync::atomic::AtomicUsize,
 ) -> Vec<Diagnostic> {
     use crate::cache::CacheLookup;
 
@@ -382,7 +386,7 @@ fn lint_file(
         cache_misses.fetch_add(1, Ordering::Relaxed);
     }
 
-    let result = lint_source_inner(
+    let (result, corrected_bytes, corrected_count) = lint_source_inner(
         &source,
         config,
         registry,
@@ -392,6 +396,16 @@ fn lint_file(
         has_dir_overrides,
         timers,
     );
+    if corrected_count > 0 {
+        total_corrected.fetch_add(corrected_count, Ordering::Relaxed);
+    }
+
+    // Write corrected bytes to disk if autocorrect produced changes
+    if let Some(bytes) = corrected_bytes {
+        if let Err(e) = std::fs::write(path, &bytes) {
+            eprintln!("error: failed to write corrected file {}: {e}", path.display());
+        }
+    }
 
     // Store result in cache
     if cache.is_enabled() {
@@ -486,6 +500,8 @@ fn is_directive_redundant(
     }
 }
 
+/// Returns (diagnostics, corrected_bytes, corrected_count).
+/// corrected_count is the total number of offenses corrected across all iterations.
 fn lint_source_inner(
     source: &SourceFile,
     config: &ResolvedConfig,
@@ -495,7 +511,78 @@ fn lint_source_inner(
     base_configs: &[CopConfig],
     has_dir_overrides: bool,
     timers: Option<&PhaseTimers>,
-) -> Vec<Diagnostic> {
+) -> (Vec<Diagnostic>, Option<Vec<u8>>, usize) {
+    let autocorrect_mode = args.autocorrect_mode();
+
+    if autocorrect_mode == crate::cli::AutocorrectMode::Off {
+        // Fast path: no autocorrect, run once
+        let (diags, _) = lint_source_once(
+            source, config, registry, args, cop_filters,
+            base_configs, has_dir_overrides, timers, autocorrect_mode,
+        );
+        return (diags, None, 0);
+    }
+
+    // Autocorrect iteration loop
+    let original_bytes = source.as_bytes();
+    let mut current_bytes = original_bytes.to_vec();
+    let path = source.path.clone();
+    let mut total_corrected: usize = 0;
+
+    const MAX_ITERATIONS: usize = 200;
+
+    for _iteration in 0..MAX_ITERATIONS {
+        let iter_source = SourceFile::from_vec(path.clone(), current_bytes.clone());
+        let (diags, corrections) = lint_source_once(
+            &iter_source, config, registry, args, cop_filters,
+            base_configs, has_dir_overrides, timers, autocorrect_mode,
+        );
+
+        if corrections.is_empty() {
+            // Converged — no more corrections.
+            let pass_corrected = diags.iter().filter(|d| d.corrected).count();
+            total_corrected += pass_corrected;
+            let changed = current_bytes != original_bytes;
+            return (diags, if changed { Some(current_bytes) } else { None }, total_corrected);
+        }
+
+        // Count corrected offenses from this iteration
+        total_corrected += diags.iter().filter(|d| d.corrected).count();
+
+        let correction_set = crate::correction::CorrectionSet::from_vec(corrections);
+        let new_bytes = correction_set.apply(&current_bytes);
+
+        if new_bytes == current_bytes {
+            // Source unchanged despite corrections — bail to avoid infinite loop.
+            return (diags, None, total_corrected);
+        }
+
+        current_bytes = new_bytes;
+    }
+
+    // Hit max iterations — run one final pass without corrections to get clean diagnostics
+    let final_source = SourceFile::from_vec(path, current_bytes.clone());
+    let (diags, _) = lint_source_once(
+        &final_source, config, registry, args, cop_filters,
+        base_configs, has_dir_overrides, timers,
+        crate::cli::AutocorrectMode::Off,
+    );
+    let changed = current_bytes != original_bytes;
+    (diags, if changed { Some(current_bytes) } else { None }, total_corrected)
+}
+
+/// Run all enabled cops once on a source file. Returns (diagnostics, corrections).
+fn lint_source_once(
+    source: &SourceFile,
+    config: &ResolvedConfig,
+    registry: &CopRegistry,
+    args: &Args,
+    cop_filters: &CopFilterSet,
+    base_configs: &[CopConfig],
+    has_dir_overrides: bool,
+    timers: Option<&PhaseTimers>,
+    autocorrect_mode: crate::cli::AutocorrectMode,
+) -> (Vec<Diagnostic>, Vec<crate::correction::Correction>) {
     // Parse on this thread (ParseResult is !Send)
     let parse_start = std::time::Instant::now();
     let parse_result = crate::parse::parse_source(source.as_bytes());
@@ -512,21 +599,14 @@ fn lint_source_inner(
     }
 
     let mut diagnostics = Vec::new();
+    let mut corrections: Vec<crate::correction::Correction> = Vec::new();
 
     let cop_start = std::time::Instant::now();
     let filter_start = std::time::Instant::now();
 
-    // Collect enabled cops and their configs, run line/source checks eagerly.
-    // AST checks are deferred to a single batched walk below.
-    // We use references to pre-computed base configs to avoid cloning.
-    // override_configs stores the rare per-file overrides (only when dir_overrides exist).
-    // We collect cop indices and build ast_cops after the loop to satisfy the borrow checker
-    // (pushing to override_configs invalidates references, so we defer reference creation).
     let mut ast_cop_indices: Vec<(usize, Option<usize>)> = Vec::new();
     let mut override_configs: Vec<CopConfig> = Vec::new();
 
-    // Find which override directory (if any) applies to this file — once per file
-    // instead of per-cop. Most files aren't in override directories, so this is None.
     let override_dir = if has_dir_overrides {
         config.find_override_dir_for_file(&source.path)
     } else {
@@ -536,8 +616,7 @@ fn lint_source_inner(
     let cops = registry.cops();
     let has_only = !args.only.is_empty();
 
-    // Pass 1: Universal cops — enabled, no Include/Exclude patterns.
-    // These always match any .rb file, so skip is_cop_match entirely.
+    // Pass 1: Universal cops
     for &i in cop_filters.universal_cop_indices() {
         let cop = &cops[i];
         let name = cop.name();
@@ -562,13 +641,22 @@ fn lint_source_inner(
             Some(idx) => &override_configs[idx],
             None => &base_configs[i],
         };
-        cop.check_lines(source, cop_config, &mut diagnostics, None);
-        cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics, None);
+
+        let should_correct = autocorrect_mode != crate::cli::AutocorrectMode::Off
+            && cop.supports_autocorrect()
+            && cop_config.should_autocorrect(autocorrect_mode);
+
+        if should_correct {
+            cop.check_lines(source, cop_config, &mut diagnostics, Some(&mut corrections));
+            cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics, Some(&mut corrections));
+        } else {
+            cop.check_lines(source, cop_config, &mut diagnostics, None);
+            cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics, None);
+        }
         ast_cop_indices.push((i, override_idx));
     }
 
-    // Pass 2: Pattern cops — enabled, but have Include/Exclude patterns.
-    // These need per-file glob matching via is_cop_match.
+    // Pass 2: Pattern cops
     for &i in cop_filters.pattern_cop_indices() {
         let cop = &cops[i];
         let name = cop.name();
@@ -597,8 +685,18 @@ fn lint_source_inner(
             Some(idx) => &override_configs[idx],
             None => &base_configs[i],
         };
-        cop.check_lines(source, cop_config, &mut diagnostics, None);
-        cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics, None);
+
+        let should_correct = autocorrect_mode != crate::cli::AutocorrectMode::Off
+            && cop.supports_autocorrect()
+            && cop_config.should_autocorrect(autocorrect_mode);
+
+        if should_correct {
+            cop.check_lines(source, cop_config, &mut diagnostics, Some(&mut corrections));
+            cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics, Some(&mut corrections));
+        } else {
+            cop.check_lines(source, cop_config, &mut diagnostics, None);
+            cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics, None);
+        }
         ast_cop_indices.push((i, override_idx));
     }
 
@@ -622,8 +720,15 @@ fn lint_source_inner(
             })
             .collect();
         let mut walker = BatchedCopWalker::new(ast_cops, source, &parse_result);
+        if autocorrect_mode != crate::cli::AutocorrectMode::Off {
+            walker = walker.with_corrections();
+        }
         walker.visit(&parse_result.node());
-        diagnostics.extend(walker.diagnostics);
+        let (walker_diags, walker_corrections) = walker.into_results();
+        diagnostics.extend(walker_diags);
+        if let Some(wc) = walker_corrections {
+            corrections.extend(wc);
+        }
     }
     if let Some(t) = timers {
         t.cop_ast_ns
@@ -634,41 +739,19 @@ fn lint_source_inner(
 
     // Filter out diagnostics suppressed by inline disable comments,
     // and detect redundant disable directives.
-    // Skip entirely when --ignore-disable-comments is set.
     let disable_start = std::time::Instant::now();
     let mut disabled =
         crate::parse::directives::DisabledRanges::from_comments(source, &parse_result);
 
     if !args.ignore_disable_comments && !disabled.is_empty() {
-        // Use check_and_mark_used to both filter diagnostics and track which
-        // directives actually suppressed something.
         diagnostics.retain(|d| !disabled.check_and_mark_used(&d.cop_name, d.location.line));
     }
 
-    // Generate Lint/RedundantCopDisableDirective offenses for unused directives.
-    //
-    // Flag a directive as redundant when:
-    //   - The referenced cop is in the registry AND explicitly disabled (Enabled: false)
-    //   - The referenced cop is in the registry, enabled, but didn't execute on
-    //     this file (excluded by Include/Exclude patterns)
-    //   - The referenced cop is a renamed cop (old name is obsolete)
-    //   - The referenced cop disables RedundantCopDisableDirective itself (never flag)
-    //
-    // NOT flagged when the cop executed but produced no offenses (conservative:
-    // turbocop may have detection gaps vs RuboCop).
-    //
-    // Only run when:
-    // 1. There are disable directives to check
-    // 2. --only is empty (running all cops) — when --only filters cops, unused
-    //    directives are expected since filtered cops don't generate diagnostics
-    // 3. The cop itself is enabled in config
-    // 4. The cop is not in --except
     if !args.ignore_disable_comments
         && disabled.has_directives()
         && args.only.is_empty()
         && !args.except.iter().any(|e| e == REDUNDANT_DISABLE_COP)
     {
-        // Check if the RedundantCopDisableDirective cop itself is enabled
         let cop_enabled = registry
             .cops()
             .iter()
@@ -708,5 +791,5 @@ fn lint_source_inner(
             .fetch_add(disable_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
     }
 
-    diagnostics
+    (diagnostics, corrections)
 }

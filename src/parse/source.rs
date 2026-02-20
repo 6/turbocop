@@ -73,6 +73,16 @@ impl SourceFile {
         }
     }
 
+    /// Create a SourceFile from raw bytes and a path.
+    pub fn from_vec(path: PathBuf, content: Vec<u8>) -> Self {
+        let line_starts = compute_line_starts(&content);
+        Self {
+            path,
+            content,
+            line_starts,
+        }
+    }
+
     /// Create a SourceFile from raw bytes (for testing).
     #[cfg(test)]
     pub fn from_bytes(path: &str, content: Vec<u8>) -> Self {
