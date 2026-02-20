@@ -6,6 +6,19 @@
 
 **turbocop cops:** 915
 
+### By Gem
+
+| Gem | Version | Departments | RuboCop | turbocop | Coverage |
+|-----|---------|-------------|--------:|-------:|---------:|
+| rubocop | 1.84.2 | Layout, Lint, Style, Metrics, Naming, Security, Bundler, Gemspec, Migration | 593 | 595 | **100%** |
+| rubocop-rails | 2.34.3 | Rails | 138 | 136 | 99% |
+| rubocop-performance | 1.26.1 | Performance | 52 | 52 | **100%** |
+| rubocop-rspec | 3.9.0 | RSpec | 113 | 113 | **100%** |
+| rubocop-rspec_rails | 2.32.0 | RSpecRails | 8 | 8 | **100%** |
+| rubocop-factory_bot | 2.28.0 | FactoryBot | 11 | 11 | **100%** |
+
+### By Department
+
 | Department | RuboCop | turbocop | Coverage |
 |------------|--------:|-------:|---------:|
 | Layout | 100 | 100 | **100%** |
@@ -56,6 +69,8 @@ Location-level comparison: file + line + cop_name. Only cops implemented by turb
 | rubygems.org | 0 | 0 | 0 | 0 | 0 | **100.0%** |
 | doorkeeper | 624 | 624 | 624 | 0 | 0 | **100.0%** |
 | fat_free_crm | 0 | 0 | 0 | 0 | 0 | **100.0%** |
+| multi_json | 0 | 0 | 0 | 0 | 0 | **100.0%** |
+| lobsters | 223 | 8859 | 105 | 118 | 8754 | **1.2%** |
 
 **mastodon:** All cops match perfectly!
 
@@ -80,4 +95,44 @@ Location-level comparison: file + line + cop_name. Only cops implemented by turb
 **doorkeeper:** All cops match perfectly!
 
 **fat_free_crm:** All cops match perfectly!
+
+**multi_json:** All cops match perfectly!
+
+<details>
+<summary>Divergent cops — lobsters (30 of 97 shown)</summary>
+
+| Cop | Matches | FP | FN |
+|-----|--------:|---:|---:|
+| Style/StringLiterals | 0 | 10 | 5141 |
+| Style/FrozenStringLiteralComment | 0 | 0 | 463 |
+| Layout/SpaceInsideHashLiteralBraces | 0 | 21 | 430 |
+| Style/Documentation | 0 | 0 | 295 |
+| Metrics/MethodLength | 0 | 0 | 213 |
+| Layout/ArgumentAlignment | 1 | 2 | 192 |
+| Metrics/AbcSize | 0 | 0 | 171 |
+| Metrics/BlockLength | 0 | 0 | 142 |
+| Style/IfUnlessModifier | 0 | 0 | 135 |
+| Layout/MultilineMethodCallIndentation | 0 | 4 | 130 |
+| Layout/LineLength | 0 | 0 | 121 |
+| Style/BlockDelimiters | 0 | 0 | 119 |
+| Style/NegatedIf | 0 | 0 | 74 |
+| Layout/MultilineOperationIndentation | 1 | 0 | 68 |
+| Style/SymbolArray | 0 | 0 | 64 |
+| Layout/FirstHashElementIndentation | 0 | 0 | 54 |
+| Metrics/CyclomaticComplexity | 0 | 0 | 54 |
+| Style/GuardClause | 0 | 0 | 54 |
+| Metrics/PerceivedComplexity | 0 | 0 | 52 |
+| Style/WordArray | 0 | 0 | 49 |
+| Style/NumericPredicate | 0 | 0 | 48 |
+| Layout/EmptyLineAfterGuardClause | 0 | 0 | 47 |
+| Style/StringLiteralsInInterpolation | 0 | 0 | 44 |
+| Style/StringConcatenation | 0 | 0 | 43 |
+| Style/Lambda | 0 | 0 | 38 |
+| Layout/ElseAlignment | 0 | 0 | 37 |
+| Layout/EndAlignment | 0 | 0 | 34 |
+| Layout/IndentationWidth | 0 | 2 | 31 |
+| Rails/Exit | 0 | 30 | 0 |
+| Style/MethodDefParentheses | 0 | 0 | 30 |
+
+</details>
 

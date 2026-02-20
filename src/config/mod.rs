@@ -566,17 +566,11 @@ impl ConfigLayer {
     }
 }
 
-/// Walk up from `start_dir` to find `.rubocop.yml`.
-///
-/// First tries with the original path (preserving relative paths), then falls
-/// back to canonicalized path to handle symlinks and `..` components.
-fn find_config(start_dir: &Path) -> Option<PathBuf> {
-    // Try with original path first to preserve relative paths.
-    // This ensures config_dir stays relative when input is relative,
-    // matching file paths from discover_files for glob matching.
+/// Walk up from `start_dir` looking for a config file name.
+fn walk_up_for(start_dir: &Path, filename: &str) -> Option<PathBuf> {
     let mut dir = start_dir.to_path_buf();
     loop {
-        let candidate = dir.join(".rubocop.yml");
+        let candidate = dir.join(filename);
         if candidate.exists() {
             return Some(candidate);
         }
@@ -589,7 +583,7 @@ fn find_config(start_dir: &Path) -> Option<PathBuf> {
         if canonical != start_dir {
             let mut dir = canonical;
             loop {
-                let candidate = dir.join(".rubocop.yml");
+                let candidate = dir.join(filename);
                 if candidate.exists() {
                     return Some(candidate);
                 }
@@ -600,6 +594,138 @@ fn find_config(start_dir: &Path) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Walk up from `start_dir` to find `.rubocop.yml`, falling back to
+/// `.standard.yml` for pure-standardrb projects.
+///
+/// First tries with the original path (preserving relative paths), then falls
+/// back to canonicalized path to handle symlinks and `..` components.
+fn find_config(start_dir: &Path) -> Option<PathBuf> {
+    // Prefer .rubocop.yml
+    if let Some(path) = walk_up_for(start_dir, ".rubocop.yml") {
+        return Some(path);
+    }
+    // Fallback: .standard.yml for pure-standardrb projects
+    walk_up_for(start_dir, ".standard.yml")
+}
+
+/// Convert a `.standard.yml` file into a synthetic `.rubocop.yml`-compatible
+/// YAML string. This allows the existing config loading pipeline to handle
+/// pure-standardrb projects without modification.
+///
+/// Mapping:
+///   ruby_version: X.Y         → AllCops.TargetRubyVersion: X.Y
+///   plugins: [standard-rails] → require: [standard, standard-rails]
+///   ignore: [patterns]        → AllCops.Exclude + per-cop Enabled: false
+///   extend_config: [files]    → inherit_from: [files]
+fn convert_standard_yml(standard_path: &Path) -> Result<String> {
+    let content = std::fs::read_to_string(standard_path)
+        .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", standard_path.display()))?;
+    let doc: serde_yml::Value = serde_yml::from_str(&content)
+        .map_err(|e| anyhow::anyhow!("failed to parse {}: {e}", standard_path.display()))?;
+    let empty_mapping = serde_yml::Mapping::new();
+    let map = doc.as_mapping().unwrap_or(&empty_mapping);
+
+    let mut lines: Vec<String> = Vec::new();
+
+    // require: always include "standard" itself, plus any plugins
+    let mut requires = vec!["standard".to_string()];
+    if let Some(plugins) = map.get(&serde_yml::Value::String("plugins".into())) {
+        if let Some(seq) = plugins.as_sequence() {
+            for v in seq {
+                if let Some(s) = v.as_str() {
+                    requires.push(s.to_string());
+                }
+            }
+        }
+    }
+    lines.push(format!("require:\n{}", requires.iter()
+        .map(|r| format!("  - {r}"))
+        .collect::<Vec<_>>()
+        .join("\n")));
+
+    // AllCops section
+    let mut all_cops_lines: Vec<String> = Vec::new();
+
+    // ruby_version → AllCops.TargetRubyVersion
+    if let Some(rv) = map.get(&serde_yml::Value::String("ruby_version".into())) {
+        if let Some(f) = rv.as_f64() {
+            all_cops_lines.push(format!("  TargetRubyVersion: {f}"));
+        } else if let Some(s) = rv.as_str() {
+            all_cops_lines.push(format!("  TargetRubyVersion: {s}"));
+        }
+    }
+
+    // ignore → AllCops.Exclude (simple patterns) + per-cop disables
+    let mut exclude_patterns: Vec<String> = Vec::new();
+    let mut cop_disables: Vec<(String, String)> = Vec::new(); // (cop_name, glob)
+    if let Some(ignore) = map.get(&serde_yml::Value::String("ignore".into())) {
+        if let Some(seq) = ignore.as_sequence() {
+            for item in seq {
+                match item {
+                    // Simple string pattern → AllCops.Exclude
+                    serde_yml::Value::String(pattern) => {
+                        exclude_patterns.push(pattern.clone());
+                    }
+                    // Mapping: { 'glob': [cop_names] } → per-cop disable/exclude
+                    serde_yml::Value::Mapping(m) => {
+                        for (k, v) in m {
+                            if let (Some(glob), Some(cops)) = (k.as_str(), v.as_sequence()) {
+                                for cop in cops {
+                                    if let Some(cop_name) = cop.as_str() {
+                                        cop_disables.push((
+                                            cop_name.to_string(),
+                                            glob.to_string(),
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    if !exclude_patterns.is_empty() {
+        all_cops_lines.push("  Exclude:".into());
+        for p in &exclude_patterns {
+            all_cops_lines.push(format!("    - '{p}'"));
+        }
+    }
+
+    if !all_cops_lines.is_empty() {
+        lines.push(format!("AllCops:\n{}", all_cops_lines.join("\n")));
+    }
+
+    // Per-cop disables from ignore glob+cop entries
+    for (cop_name, glob) in &cop_disables {
+        if glob == "**/*" {
+            // Global disable
+            lines.push(format!("{cop_name}:\n  Enabled: false"));
+        } else {
+            lines.push(format!("{cop_name}:\n  Exclude:\n    - '{glob}'"));
+        }
+    }
+
+    // extend_config → inherit_from
+    if let Some(extend) = map.get(&serde_yml::Value::String("extend_config".into())) {
+        if let Some(seq) = extend.as_sequence() {
+            let files: Vec<String> = seq.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect();
+            if !files.is_empty() {
+                lines.push(format!("inherit_from:\n{}", files.iter()
+                    .map(|f| format!("  - {f}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")));
+            }
+        }
+    }
+
+    Ok(lines.join("\n\n"))
 }
 
 /// Load config from the given path, or auto-discover `.rubocop.yml` by walking
@@ -653,8 +779,22 @@ pub fn load_config(
     let (mut base, rubocop_known_cops) = try_load_rubocop_defaults(&config_dir, gem_cache);
 
     let mut visited = HashSet::new();
-    let project_layer =
-        load_config_recursive(&config_path, &config_dir, &mut visited, gem_cache)?;
+    let is_standard_yml = config_path
+        .file_name()
+        .is_some_and(|f| f == ".standard.yml");
+    let project_layer = if is_standard_yml {
+        let synthetic_yaml = convert_standard_yml(&config_path)?;
+        // Use config_path so inherit_from / gem resolution is relative to .standard.yml's dir
+        load_config_recursive_inner(
+            &config_path,
+            &config_dir,
+            &mut visited,
+            gem_cache,
+            Some(&synthetic_yaml),
+        )?
+    } else {
+        load_config_recursive(&config_path, &config_dir, &mut visited, gem_cache)?
+    };
 
     // Compute the set of cops explicitly enabled by user config (not from defaults).
     // This includes cops set to Enabled:true in inherit_from, inherit_gem, or local
@@ -839,11 +979,23 @@ fn try_load_rubocop_defaults(
 /// `working_dir` is the top-level config directory used for gem path resolution
 /// (where `Gemfile.lock` typically lives).
 /// `visited` tracks absolute paths to detect circular inheritance.
+/// `override_contents` — if Some, use this YAML string instead of reading from disk
+/// (used for synthetic configs generated from `.standard.yml`).
 fn load_config_recursive(
     config_path: &Path,
     working_dir: &Path,
     visited: &mut HashSet<PathBuf>,
     gem_cache: Option<&HashMap<String, PathBuf>>,
+) -> Result<ConfigLayer> {
+    load_config_recursive_inner(config_path, working_dir, visited, gem_cache, None)
+}
+
+fn load_config_recursive_inner(
+    config_path: &Path,
+    working_dir: &Path,
+    visited: &mut HashSet<PathBuf>,
+    gem_cache: Option<&HashMap<String, PathBuf>>,
+    override_contents: Option<&str>,
 ) -> Result<ConfigLayer> {
     let abs_path = if config_path.is_absolute() {
         config_path.to_path_buf()
@@ -861,10 +1013,14 @@ fn load_config_recursive(
         );
     }
 
-    let contents = std::fs::read_to_string(config_path)
-        .with_context(|| format!("failed to read config {}", config_path.display()))?;
-    // Strip Ruby-specific YAML tags (e.g., !ruby/regexp) that serde_yml can't handle
-    let contents = contents.replace("!ruby/regexp ", "");
+    let contents = if let Some(s) = override_contents {
+        s.to_string()
+    } else {
+        let raw = std::fs::read_to_string(config_path)
+            .with_context(|| format!("failed to read config {}", config_path.display()))?;
+        // Strip Ruby-specific YAML tags (e.g., !ruby/regexp) that serde_yml can't handle
+        raw.replace("!ruby/regexp ", "")
+    };
     let raw: Value = serde_yml::from_str(&contents)
         .with_context(|| format!("failed to parse {}", config_path.display()))?;
 
@@ -3830,5 +3986,156 @@ mod tests {
                 prop_assert_eq!(merged.include, base.include);
             }
         }
+    }
+
+    // --- .standard.yml autodiscovery tests ---
+
+    #[test]
+    fn auto_discover_standard_yml() {
+        let dir = std::env::temp_dir().join("turbocop_test_standard_discover");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let standard_path = dir.join(".standard.yml");
+        fs::write(&standard_path, "# empty standard config\n").unwrap();
+
+        let found = find_config(&dir);
+        assert_eq!(found, Some(standard_path));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn rubocop_yml_preferred_over_standard_yml() {
+        let dir = std::env::temp_dir().join("turbocop_test_prefer_rubocop");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(".rubocop.yml"), "# rubocop\n").unwrap();
+        fs::write(dir.join(".standard.yml"), "# standard\n").unwrap();
+
+        let found = find_config(&dir);
+        assert_eq!(found, Some(dir.join(".rubocop.yml")));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn convert_standard_yml_plugins() {
+        let dir = std::env::temp_dir().join("turbocop_test_standard_plugins");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(".standard.yml");
+        fs::write(&path, "plugins:\n  - standard-performance\n  - standard-rails\n").unwrap();
+
+        let yaml = convert_standard_yml(&path).unwrap();
+        assert!(yaml.contains("- standard\n"), "should always include 'standard'");
+        assert!(yaml.contains("- standard-performance"));
+        assert!(yaml.contains("- standard-rails"));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn convert_standard_yml_ruby_version() {
+        let dir = std::env::temp_dir().join("turbocop_test_standard_ruby_ver");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(".standard.yml");
+        fs::write(&path, "ruby_version: 3.2\n").unwrap();
+
+        let yaml = convert_standard_yml(&path).unwrap();
+        assert!(yaml.contains("TargetRubyVersion: 3.2"), "got: {yaml}");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn convert_standard_yml_ignore_simple_patterns() {
+        let dir = std::env::temp_dir().join("turbocop_test_standard_ignore");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(".standard.yml");
+        fs::write(
+            &path,
+            "ignore:\n  - 'db/migrate/201*'\n  - 'vendor/**'\n",
+        )
+        .unwrap();
+
+        let yaml = convert_standard_yml(&path).unwrap();
+        assert!(yaml.contains("AllCops:"), "got: {yaml}");
+        assert!(yaml.contains("Exclude:"), "got: {yaml}");
+        assert!(yaml.contains("db/migrate/201*"), "got: {yaml}");
+        assert!(yaml.contains("vendor/**"), "got: {yaml}");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn convert_standard_yml_ignore_cop_disable() {
+        let dir = std::env::temp_dir().join("turbocop_test_standard_cop_disable");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(".standard.yml");
+        fs::write(
+            &path,
+            "ignore:\n  - '**/*':\n    - Lint/UselessAssignment\n",
+        )
+        .unwrap();
+
+        let yaml = convert_standard_yml(&path).unwrap();
+        assert!(
+            yaml.contains("Lint/UselessAssignment:\n  Enabled: false"),
+            "got: {yaml}"
+        );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn convert_standard_yml_ignore_cop_exclude() {
+        let dir = std::env::temp_dir().join("turbocop_test_standard_cop_exclude");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(".standard.yml");
+        fs::write(
+            &path,
+            "ignore:\n  - 'test/**':\n    - Style/StringLiterals\n",
+        )
+        .unwrap();
+
+        let yaml = convert_standard_yml(&path).unwrap();
+        assert!(
+            yaml.contains("Style/StringLiterals:\n  Exclude:\n    - 'test/**'"),
+            "got: {yaml}"
+        );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn convert_standard_yml_extend_config() {
+        let dir = std::env::temp_dir().join("turbocop_test_standard_extend");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(".standard.yml");
+        fs::write(&path, "extend_config:\n  - .custom_cops.yml\n").unwrap();
+
+        let yaml = convert_standard_yml(&path).unwrap();
+        assert!(yaml.contains("inherit_from:"), "got: {yaml}");
+        assert!(yaml.contains("- .custom_cops.yml"), "got: {yaml}");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn standard_yml_loads_via_load_config() {
+        // Test the full pipeline: .standard.yml → convert → load_config
+        let dir = std::env::temp_dir().join("turbocop_test_standard_load");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(".standard.yml");
+        fs::write(
+            &path,
+            "ignore:\n  - '**/*':\n    - Lint/UselessAssignment\n",
+        )
+        .unwrap();
+
+        let config = load_config(Some(&path), None, None).unwrap();
+        assert!(
+            !config.is_cop_enabled("Lint/UselessAssignment", Path::new("a.rb"), &[], &[]),
+            "Lint/UselessAssignment should be disabled via .standard.yml ignore"
+        );
+        fs::remove_dir_all(&dir).ok();
     }
 }
