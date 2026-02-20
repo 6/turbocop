@@ -169,9 +169,10 @@ cargo run --release --bin bench_rblint -- setup        # clone benchmark repos o
 cargo run --release --bin bench_rblint -- bench        # timing benchmarks (hyperfine)
 cargo run --release --bin bench_rblint -- conform      # conformance comparison → bench/conform.json + bench/results.md
 cargo run --release --bin bench_rblint -- report       # regenerate results.md from cached data
+cargo run --release --bin bench_rblint -- quick        # quick bench: mastodon only, cached vs uncached → bench/quick_results.md
 ```
 
-Results are written to `bench/results.md` (checked in). Conformance data is also written to `bench/conform.json` (gitignored) as structured data for the coverage table. Benchmark repos are cloned to `bench/repos/` (gitignored).
+Results are written to `bench/results.md` (checked in). Quick bench results go to `bench/quick_results.md`. Conformance data is also written to `bench/conform.json` (gitignored) as structured data for the coverage table. Benchmark repos are cloned to `bench/repos/` (gitignored).
 
 ## Coverage Reporting
 

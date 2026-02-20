@@ -20,16 +20,16 @@ use clap::Parser;
 #[derive(Parser)]
 #[command(about = "Benchmark rblint vs rubocop. Writes results to bench/results.md.")]
 struct Args {
-    /// Subcommand: bench, conform, report, or omit for all
+    /// Subcommand: bench, conform, report, quick, or omit for all
     #[arg(default_value = "all")]
     mode: String,
 
     /// Number of hyperfine runs per benchmark
-    #[arg(long, default_value_t = 5)]
+    #[arg(long, default_value_t = 3)]
     runs: u32,
 
     /// Hyperfine warmup runs
-    #[arg(long, default_value_t = 2)]
+    #[arg(long, default_value_t = 1)]
     warmup: u32,
 
     /// Output markdown file path (relative to project root)
@@ -406,6 +406,187 @@ fn run_bench(args: &Args) -> HashMap<String, BenchResult> {
     bench_results
 }
 
+// --- Quick bench (single repo, cached vs uncached) ---
+
+fn run_quick_bench(args: &Args) {
+    let repo_name = "activeadmin";
+    let repo_dir = repos_dir().join(repo_name);
+    if !repo_dir.exists() {
+        eprintln!("{repo_name} repo not found. Run `bench_rblint setup` first.");
+        std::process::exit(1);
+    }
+
+    let rblint = rblint_binary();
+    let results_path = results_dir();
+    fs::create_dir_all(&results_path).unwrap();
+
+    if !has_command("hyperfine") {
+        eprintln!("Error: hyperfine not found. Install via: mise install");
+        std::process::exit(1);
+    }
+
+    // Init lockfile for just this repo
+    eprintln!("Generating .rblint.cache for {}...", repo_name);
+    let init_out = Command::new(rblint.as_os_str())
+        .args(["--init", repo_dir.to_str().unwrap()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to run rblint --init");
+    if !init_out.status.success() {
+        let stderr = String::from_utf8_lossy(&init_out.stderr);
+        eprintln!("  Failed: {}", stderr.trim());
+    }
+
+    let rb_count = count_rb_files(&repo_dir);
+    let runs = args.runs;
+    eprintln!(
+        "\n=== Quick Bench: {} ({} .rb files, {} runs) ===",
+        repo_name, rb_count, runs
+    );
+
+    // --- Cached (warm) scenario ---
+    eprintln!("\n--- Cached (warm) ---");
+    let cached_json = results_path.join("quick-cached.json");
+    let rblint_cached_cmd = format!("{} {} --no-color", rblint.display(), repo_dir.display());
+    let rubocop_cached_cmd = format!(
+        "cd {} && bundle exec rubocop --no-color",
+        repo_dir.display()
+    );
+
+    let status = Command::new("hyperfine")
+        .args([
+            "--warmup",
+            "1",
+            "--runs",
+            &runs.to_string(),
+            "--ignore-failure",
+            "--export-json",
+            cached_json.to_str().unwrap(),
+            "--command-name",
+            "rblint",
+            &rblint_cached_cmd,
+            "--command-name",
+            "rubocop",
+            &rubocop_cached_cmd,
+        ])
+        .status()
+        .expect("failed to run hyperfine");
+    if !status.success() {
+        eprintln!("hyperfine failed for cached scenario");
+        std::process::exit(1);
+    }
+
+    // --- No cache scenario ---
+    eprintln!("\n--- No cache ---");
+    let uncached_json = results_path.join("quick-uncached.json");
+    let rblint_uncached_cmd = format!(
+        "{} --cache false {} --no-color",
+        rblint.display(),
+        repo_dir.display()
+    );
+    let rubocop_uncached_cmd = format!(
+        "cd {} && bundle exec rubocop --cache false --no-color",
+        repo_dir.display()
+    );
+
+    let status = Command::new("hyperfine")
+        .args([
+            "--warmup",
+            "1",
+            "--runs",
+            &runs.to_string(),
+            "--ignore-failure",
+            "--export-json",
+            uncached_json.to_str().unwrap(),
+            "--command-name",
+            "rblint",
+            &rblint_uncached_cmd,
+            "--command-name",
+            "rubocop",
+            &rubocop_uncached_cmd,
+        ])
+        .status()
+        .expect("failed to run hyperfine");
+    if !status.success() {
+        eprintln!("hyperfine failed for uncached scenario");
+        std::process::exit(1);
+    }
+
+    // Parse results
+    let cached: HyperfineOutput =
+        serde_json::from_str(&fs::read_to_string(&cached_json).unwrap()).unwrap();
+    let uncached: HyperfineOutput =
+        serde_json::from_str(&fs::read_to_string(&uncached_json).unwrap()).unwrap();
+
+    let cached_rblint = cached
+        .results
+        .iter()
+        .find(|r| r.command == "rblint")
+        .unwrap();
+    let cached_rubocop = cached
+        .results
+        .iter()
+        .find(|r| r.command == "rubocop")
+        .unwrap();
+    let uncached_rblint = uncached
+        .results
+        .iter()
+        .find(|r| r.command == "rblint")
+        .unwrap();
+    let uncached_rubocop = uncached
+        .results
+        .iter()
+        .find(|r| r.command == "rubocop")
+        .unwrap();
+
+    // Generate report
+    let date = shell_output("date", &["-u", "+%Y-%m-%d %H:%M UTC"]);
+    let platform = shell_output("uname", &["-sm"]);
+
+    let mut md = String::new();
+    writeln!(md, "# rblint Quick Benchmark").unwrap();
+    writeln!(md).unwrap();
+    writeln!(
+        md,
+        "> Auto-generated by `cargo run --release --bin bench_rblint -- quick`. Do not edit manually."
+    )
+    .unwrap();
+    writeln!(md, "> Last updated: {date} on `{platform}`").unwrap();
+    writeln!(md).unwrap();
+    writeln!(md, "**Repo:** {repo_name} ({rb_count} .rb files)").unwrap();
+    writeln!(md, "**Benchmark config:** {runs} runs").unwrap();
+    writeln!(md).unwrap();
+    writeln!(md, "## Results").unwrap();
+    writeln!(md).unwrap();
+    writeln!(md, "| Mode | rblint | rubocop | Speedup |").unwrap();
+    writeln!(md, "|------|-------:|--------:|--------:|").unwrap();
+    writeln!(
+        md,
+        "| Cached (warm) | **{}** | {} | **{}** |",
+        format_time(cached_rblint.median),
+        format_time(cached_rubocop.median),
+        format_speedup(cached_rubocop.median, cached_rblint.median),
+    )
+    .unwrap();
+    writeln!(
+        md,
+        "| No cache | **{}** | {} | **{}** |",
+        format_time(uncached_rblint.median),
+        format_time(uncached_rubocop.median),
+        format_speedup(uncached_rubocop.median, uncached_rblint.median),
+    )
+    .unwrap();
+    writeln!(md).unwrap();
+
+    let output_path = args
+        .output
+        .clone()
+        .unwrap_or_else(|| project_root().join("bench/quick_results.md"));
+    fs::write(&output_path, &md).unwrap();
+    eprintln!("\nWrote {}", output_path.display());
+}
+
 // --- Conformance ---
 
 #[derive(serde::Deserialize)]
@@ -723,14 +904,14 @@ fn generate_report(
         writeln!(md).unwrap();
         writeln!(
             md,
-            "Median of {} runs via [hyperfine](https://github.com/sharkdp/hyperfine). rblint has no result cache; rubocop uses its built-in file cache (warm after hyperfine warmup runs).",
+            "Median of {} runs via [hyperfine](https://github.com/sharkdp/hyperfine). Both tools use built-in file cache (warm after hyperfine warmup runs).",
             args.runs
         )
         .unwrap();
         writeln!(md).unwrap();
         writeln!(
             md,
-            "| Repo | .rb files | rblint (no cache) | rubocop (cached) | Speedup |"
+            "| Repo | .rb files | rblint | rubocop | Speedup |"
         )
         .unwrap();
         writeln!(md, "|------|----------:|------------------:|-----------------:|--------:|").unwrap();
@@ -981,6 +1162,10 @@ fn main() {
             fs::write(&output_path, &md).unwrap();
             eprintln!("Wrote {}", output_path.display());
         }
+        "quick" => {
+            build_rblint();
+            run_quick_bench(&args);
+        }
         "report" => {
             let bench = load_cached_bench();
             // For conformance, we'd need to re-parse the JSON files.
@@ -1006,7 +1191,7 @@ fn main() {
             eprintln!("Wrote {}", output_path.display());
         }
         other => {
-            eprintln!("Unknown mode: {other}. Use: setup, bench, conform, report, or all.");
+            eprintln!("Unknown mode: {other}. Use: setup, bench, conform, report, quick, or all.");
             std::process::exit(1);
         }
     }
