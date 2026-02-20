@@ -419,7 +419,6 @@ fn is_directive_redundant(
     cop_filters: &CopFilterSet,
     config: &ResolvedConfig,
     path: &Path,
-    executed_cops: &HashSet<usize>,
 ) -> bool {
     // "all" is a wildcard — never flag (too broad to determine redundancy)
     if cop_name == "all" {
@@ -444,15 +443,12 @@ fn is_directive_redundant(
         if !filter.is_enabled() {
             // Cop is explicitly disabled — the disable directive is redundant.
             true
-        } else if !executed_cops.contains(&idx) {
-            // Cop is enabled but didn't execute on this file (excluded by
-            // Include/Exclude patterns). The directive is pointless.
-            true
         } else {
-            // Cop is enabled and ran on this file — don't flag.
+            // Cop is enabled — don't flag.
             // Conservative: turbocop may have detection gaps vs. RuboCop,
             // so an unused directive for a running cop might still be
-            // needed for RuboCop compatibility.
+            // needed for RuboCop compatibility. Flagging enabled cops
+            // requires per-cop offense tracking (see TODO_conformance.md).
             false
         }
     } else {
@@ -513,9 +509,6 @@ fn lint_source_inner(
     // (pushing to override_configs invalidates references, so we defer reference creation).
     let mut ast_cop_indices: Vec<(usize, Option<usize>)> = Vec::new();
     let mut override_configs: Vec<CopConfig> = Vec::new();
-    // Track which cop indices actually executed on this file, for redundant
-    // disable directive detection.
-    let mut executed_cop_indices: HashSet<usize> = HashSet::new();
 
     // Find which override directory (if any) applies to this file — once per file
     // instead of per-cop. Most files aren't in override directories, so this is None.
@@ -554,7 +547,6 @@ fn lint_source_inner(
             Some(idx) => &override_configs[idx],
             None => &base_configs[i],
         };
-        executed_cop_indices.insert(i);
         cop.check_lines(source, cop_config, &mut diagnostics);
         cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics);
         ast_cop_indices.push((i, override_idx));
@@ -590,7 +582,6 @@ fn lint_source_inner(
             Some(idx) => &override_configs[idx],
             None => &base_configs[i],
         };
-        executed_cop_indices.insert(i);
         cop.check_lines(source, cop_config, &mut diagnostics);
         cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics);
         ast_cop_indices.push((i, override_idx));
@@ -628,11 +619,12 @@ fn lint_source_inner(
 
     // Filter out diagnostics suppressed by inline disable comments,
     // and detect redundant disable directives.
+    // Skip entirely when --ignore-disable-comments is set.
     let disable_start = std::time::Instant::now();
     let mut disabled =
         crate::parse::directives::DisabledRanges::from_comments(source, &parse_result);
 
-    if !disabled.is_empty() {
+    if !args.ignore_disable_comments && !disabled.is_empty() {
         // Use check_and_mark_used to both filter diagnostics and track which
         // directives actually suppressed something.
         diagnostics.retain(|d| !disabled.check_and_mark_used(&d.cop_name, d.location.line));
@@ -654,7 +646,8 @@ fn lint_source_inner(
     //    directives are expected since filtered cops don't generate diagnostics
     // 3. The cop itself is enabled in config
     // 4. The cop is not in --except
-    if disabled.has_directives()
+    if !args.ignore_disable_comments
+        && disabled.has_directives()
         && args.only.is_empty()
         && !args.except.iter().any(|e| e == REDUNDANT_DISABLE_COP)
     {
@@ -674,7 +667,6 @@ fn lint_source_inner(
                     cop_filters,
                     config,
                     &source.path,
-                    &executed_cop_indices,
                 ) {
                     continue;
                 }

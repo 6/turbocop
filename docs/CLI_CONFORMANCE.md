@@ -19,14 +19,14 @@ RuboCop CLI flags that turbocop should accept for drop-in compatibility.
 | `-L` / `--list-target-files` | `--list-target-files` | Print files that would be linted (respecting excludes), then exit |
 | `-D` / `--display-cop-names` | `--display-cop-names` | Accepted silently (cop names always shown) |
 | `-P` / `--parallel` | `--parallel` | Accepted silently (always parallel) |
-| `-r` / `--require LIB` | `--require` | Accepted and ignored (plugins handled via config) |
+| `-r` / `--require LIB` | `--require` | Accepted with warning (plugins handled via `require:` in config) |
+| `--ignore-disable-comments` | `--ignore-disable-comments` | Ignore all `# rubocop:disable` inline directives |
 
 ## Not Yet Implemented
 
 | Flag | Impact | Difficulty | Notes |
 |------|--------|------------|-------|
 | `--force-default-config` | Low | Easy | Ignore all config files, use built-in defaults only. |
-| `--ignore-disable-comments` | Low | Easy | Ignore `# rubocop:disable` directives. |
 | `-a` / `--autocorrect` | High | Hard | Safe autocorrect only. Requires fixer infrastructure (M7). |
 | `-A` / `--autocorrect-all` | High | Hard | All autocorrects including unsafe. Same dependency on M7. |
 | `--auto-gen-config` | Medium | Hard | Generate `.rubocop_todo.yml`. Needs offense counting + YAML generation. |

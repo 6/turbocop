@@ -374,6 +374,9 @@ fn compute_session_hash(version: &str, base_configs: &[CopConfig], args: &Args) 
         hasher.update(b"except:");
         hasher.update(cop.as_bytes());
     }
+    if args.ignore_disable_comments {
+        hasher.update(b"ignore_disable_comments");
+    }
 
     let hash = hasher.finalize();
     format!("{:x}", hash)[..16].to_string()
@@ -457,6 +460,7 @@ mod tests {
             display_cop_names: false,
             parallel: false,
             require_libs: vec![],
+            ignore_disable_comments: false,
         }
     }
 

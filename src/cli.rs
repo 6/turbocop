@@ -88,4 +88,8 @@ pub struct Args {
     /// Load additional Ruby files (accepted for RuboCop compatibility; ignored)
     #[arg(short = 'r', long = "require")]
     pub require_libs: Vec<String>,
+
+    /// Ignore all `# rubocop:disable` inline comments
+    #[arg(long)]
+    pub ignore_disable_comments: bool,
 }

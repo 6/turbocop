@@ -53,6 +53,7 @@ fn default_args() -> Args {
         display_cop_names: false,
         parallel: false,
         require_libs: vec![],
+        ignore_disable_comments: false,
     }
 }
 
@@ -3294,6 +3295,83 @@ fn force_exclusion_excludes_explicit_file() {
     assert!(
         !stdout_force.contains("TrailingWhitespace"),
         "With --force-exclusion, explicit file should be excluded: {stdout_force}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+// ---------- --ignore-disable-comments CLI tests ----------
+
+#[test]
+fn ignore_disable_comments_shows_suppressed_offenses() {
+    let dir = temp_dir("ignore_disable");
+    // rubocop:disable on line 1 covers lines below; line 2 has trailing whitespace
+    fs::write(
+        dir.join("test.rb"),
+        "# rubocop:disable Layout/TrailingWhitespace\nx = 1   \n# rubocop:enable Layout/TrailingWhitespace\n",
+    )
+    .unwrap();
+
+    // Without flag: offense is suppressed by disable comment
+    let output_normal = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--only",
+            "Layout/TrailingWhitespace",
+            "--no-cache",
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+    let stdout_normal = String::from_utf8_lossy(&output_normal.stdout);
+    assert!(
+        !stdout_normal.contains("Layout/TrailingWhitespace"),
+        "Without flag, offense should be suppressed: {stdout_normal}"
+    );
+
+    // With --ignore-disable-comments: offense is shown
+    let output_ignore = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--ignore-disable-comments",
+            "--only",
+            "Layout/TrailingWhitespace",
+            "--no-cache",
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+    let stdout_ignore = String::from_utf8_lossy(&output_ignore.stdout);
+    assert!(
+        stdout_ignore.contains("Layout/TrailingWhitespace"),
+        "With --ignore-disable-comments, offense should be shown: {stdout_ignore}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn ignore_disable_comments_skips_redundant_disable_check() {
+    let dir = temp_dir("ignore_disable_redundant");
+    // A disable for a cop that won't fire — normally flagged as redundant
+    fs::write(
+        dir.join("test.rb"),
+        "# frozen_string_literal: true\nx = 1 # rubocop:disable Layout/TrailingWhitespace\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--ignore-disable-comments",
+            "--no-cache",
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should NOT report redundant disable when ignoring disable comments
+    assert!(
+        !stdout.contains("RedundantCopDisableDirective"),
+        "Should not report redundant disables when ignoring comments: {stdout}"
     );
 
     fs::remove_dir_all(&dir).ok();
