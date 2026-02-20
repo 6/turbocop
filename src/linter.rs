@@ -164,14 +164,18 @@ pub fn run_linter(
     let base_configs = config.precompute_cop_configs(registry);
     let has_dir_overrides = config.has_dir_overrides();
 
-    // Result cache: enabled with --cache flag
-    let cache = if args.cache {
+    // Result cache: enabled by default, disable with --cache false
+    let cache_enabled = args.cache == "true" && args.stdin.is_none();
+    let cache = if cache_enabled {
         let c = ResultCache::new(env!("CARGO_PKG_VERSION"), &base_configs, args);
         if args.debug {
             eprintln!("debug: result cache enabled");
         }
         c
     } else {
+        if args.debug && args.cache != "true" {
+            eprintln!("debug: result cache disabled (--cache false)");
+        }
         ResultCache::disabled()
     };
 
@@ -181,7 +185,8 @@ pub fn run_linter(
         None
     };
 
-    let cache_hits = std::sync::atomic::AtomicUsize::new(0);
+    let cache_stat_hits = std::sync::atomic::AtomicUsize::new(0);
+    let cache_content_hits = std::sync::atomic::AtomicUsize::new(0);
     let cache_misses = std::sync::atomic::AtomicUsize::new(0);
 
     let diagnostics: Vec<Diagnostic> = files
@@ -197,7 +202,8 @@ pub fn run_linter(
                 has_dir_overrides,
                 timers.as_ref(),
                 &cache,
-                &cache_hits,
+                &cache_stat_hits,
+                &cache_content_hits,
                 &cache_misses,
             )
         })
@@ -211,9 +217,12 @@ pub fn run_linter(
     }
 
     if args.debug && cache.is_enabled() {
-        let hits = cache_hits.load(std::sync::atomic::Ordering::Relaxed);
+        let stat_hits = cache_stat_hits.load(std::sync::atomic::Ordering::Relaxed);
+        let content_hits = cache_content_hits.load(std::sync::atomic::Ordering::Relaxed);
         let misses = cache_misses.load(std::sync::atomic::Ordering::Relaxed);
-        eprintln!("debug: cache hits: {hits}, misses: {misses}");
+        eprintln!(
+            "debug: cache stat_hits: {stat_hits}, content_hits: {content_hits}, misses: {misses}"
+        );
     }
 
     // Run eviction after linting completes (best-effort)
@@ -304,14 +313,26 @@ fn lint_file(
     has_dir_overrides: bool,
     timers: Option<&PhaseTimers>,
     cache: &ResultCache,
-    cache_hits: &std::sync::atomic::AtomicUsize,
+    cache_stat_hits: &std::sync::atomic::AtomicUsize,
+    cache_content_hits: &std::sync::atomic::AtomicUsize,
     cache_misses: &std::sync::atomic::AtomicUsize,
 ) -> Vec<Diagnostic> {
+    use crate::cache::CacheLookup;
+
     // Check global excludes once per file
     if cop_filters.is_globally_excluded(path) {
         return Vec::new();
     }
 
+    // Tier 1: stat check (mtime + size) — no file read needed
+    if cache.is_enabled() {
+        if let CacheLookup::StatHit(cached) = cache.get_by_stat(path) {
+            cache_stat_hits.fetch_add(1, Ordering::Relaxed);
+            return cached;
+        }
+    }
+
+    // File read needed (either cache disabled, stat miss, or no entry)
     let io_start = std::time::Instant::now();
     let source = match SourceFile::from_path(path) {
         Ok(s) => s,
@@ -325,10 +346,10 @@ fn lint_file(
             .fetch_add(io_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
     }
 
-    // Check result cache before linting
+    // Tier 2: content hash check — file was read, mtime didn't match
     if cache.is_enabled() {
-        if let Some(cached) = cache.get(path, source.as_bytes()) {
-            cache_hits.fetch_add(1, Ordering::Relaxed);
+        if let CacheLookup::ContentHit(cached) = cache.get_by_content(path, source.as_bytes()) {
+            cache_content_hits.fetch_add(1, Ordering::Relaxed);
             return cached;
         }
         cache_misses.fetch_add(1, Ordering::Relaxed);

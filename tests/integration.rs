@@ -43,7 +43,7 @@ fn default_args() -> Args {
         stdin: None,
         init: false,
         no_cache: false,
-        cache: false,
+        cache: "true".to_string(),
         cache_clear: false,
     }
 }
@@ -2710,6 +2710,7 @@ fn cache_produces_same_results_as_uncached() {
     // Run without cache
     let args_no_cache = Args {
         only: vec!["Layout/TrailingWhitespace".to_string()],
+        cache: "false".to_string(),
         ..default_args()
     };
     let result_no_cache = run_linter(&[file1.clone(), file2.clone()], &config, &registry, &args_no_cache);
@@ -2721,7 +2722,7 @@ fn cache_produces_same_results_as_uncached() {
     unsafe { std::env::set_var("RBLINT_CACHE_DIR", &cache_dir) };
     let args_cached = Args {
         only: vec!["Layout/TrailingWhitespace".to_string()],
-        cache: true,
+        cache: "true".to_string(),
         ..default_args()
     };
     let result_cold = run_linter(&[file1.clone(), file2.clone()], &config, &registry, &args_cached);
@@ -2767,7 +2768,7 @@ fn cache_invalidated_by_file_change() {
     let registry = CopRegistry::default_registry();
     let args = Args {
         only: vec!["Layout/TrailingWhitespace".to_string()],
-        cache: true,
+        cache: "true".to_string(),
         ..default_args()
     };
 
@@ -2801,7 +2802,7 @@ fn cache_invalidated_by_config_change() {
     // Run with --only TrailingWhitespace
     let args1 = Args {
         only: vec!["Layout/TrailingWhitespace".to_string()],
-        cache: true,
+        cache: "true".to_string(),
         ..default_args()
     };
     let result1 = run_linter(&[file.clone()], &config, &registry, &args1);
@@ -2810,7 +2811,7 @@ fn cache_invalidated_by_config_change() {
     // Run with --only a different cop — different session hash, so cache miss
     let args2 = Args {
         only: vec!["Style/FrozenStringLiteralComment".to_string()],
-        cache: true,
+        cache: "true".to_string(),
         ..default_args()
     };
     let result2 = run_linter(&[file.clone()], &config, &registry, &args2);
@@ -2828,7 +2829,7 @@ fn cache_invalidated_by_config_change() {
 
 #[test]
 fn cache_preserves_all_severity_types() {
-    use rblint::cache::ResultCache;
+    use rblint::cache::{CacheLookup, ResultCache};
     use rblint::diagnostic::{Diagnostic, Location, Severity};
 
     let tmp = tempfile::tempdir().unwrap();
@@ -2836,33 +2837,35 @@ fn cache_preserves_all_severity_types() {
     let args = default_args();
     let cache = ResultCache::with_root(tmp.path(), "0.1.0-test", &configs, &args);
 
-    let path = std::path::Path::new("severity_test.rb");
+    // Create a real file so stat() works
+    let rb_file = tmp.path().join("severity_test.rb");
     let content = b"test content";
+    fs::write(&rb_file, content).unwrap();
 
     let diagnostics = vec![
         Diagnostic {
-            path: "severity_test.rb".to_string(),
+            path: rb_file.to_string_lossy().to_string(),
             location: Location { line: 1, column: 0 },
             severity: Severity::Convention,
             cop_name: "Style/A".to_string(),
             message: "convention".to_string(),
         },
         Diagnostic {
-            path: "severity_test.rb".to_string(),
+            path: rb_file.to_string_lossy().to_string(),
             location: Location { line: 2, column: 5 },
             severity: Severity::Warning,
             cop_name: "Lint/B".to_string(),
             message: "warning".to_string(),
         },
         Diagnostic {
-            path: "severity_test.rb".to_string(),
+            path: rb_file.to_string_lossy().to_string(),
             location: Location { line: 3, column: 10 },
             severity: Severity::Error,
             cop_name: "Security/C".to_string(),
             message: "error".to_string(),
         },
         Diagnostic {
-            path: "severity_test.rb".to_string(),
+            path: rb_file.to_string_lossy().to_string(),
             location: Location { line: 4, column: 0 },
             severity: Severity::Fatal,
             cop_name: "Lint/D".to_string(),
@@ -2870,14 +2873,19 @@ fn cache_preserves_all_severity_types() {
         },
     ];
 
-    cache.put(path, content, &diagnostics);
-    let cached = cache.get(path, content).unwrap();
+    cache.put(&rb_file, content, &diagnostics);
 
-    assert_eq!(cached.len(), 4);
-    assert_eq!(cached[0].severity, Severity::Convention);
-    assert_eq!(cached[1].severity, Severity::Warning);
-    assert_eq!(cached[1].location.column, 5);
-    assert_eq!(cached[2].severity, Severity::Error);
-    assert_eq!(cached[2].location.line, 3);
-    assert_eq!(cached[3].severity, Severity::Fatal);
+    // Should get a stat hit since file hasn't changed
+    match cache.get_by_stat(&rb_file) {
+        CacheLookup::StatHit(cached) => {
+            assert_eq!(cached.len(), 4);
+            assert_eq!(cached[0].severity, Severity::Convention);
+            assert_eq!(cached[1].severity, Severity::Warning);
+            assert_eq!(cached[1].location.column, 5);
+            assert_eq!(cached[2].severity, Severity::Error);
+            assert_eq!(cached[2].location.line, 3);
+            assert_eq!(cached[3].severity, Severity::Fatal);
+        }
+        _ => panic!("Expected StatHit"),
+    }
 }

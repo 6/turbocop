@@ -53,9 +53,9 @@ pub struct Args {
     #[arg(long)]
     pub no_cache: bool,
 
-    /// Enable file-level result caching (skip re-linting unchanged files)
-    #[arg(long)]
-    pub cache: bool,
+    /// Enable/disable file-level result caching [default: true]
+    #[arg(long, default_value = "true", hide_default_value = true)]
+    pub cache: String,
 
     /// Clear the result cache and exit
     #[arg(long)]
