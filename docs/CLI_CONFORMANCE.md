@@ -14,12 +14,12 @@ RuboCop CLI flags that turbocop should accept for drop-in compatibility.
 | `--no-color` | `--no-color` | Same |
 | `-s` / `--stdin FILE` | `--stdin` | Same |
 | `--fail-level SEVERITY` | `--fail-level` | Same (convention/C, warning/W, error/E, fatal/F) |
+| `-F` / `--fail-fast` | `--fail-fast` | Stop after first file with offenses |
 
 ## Not Yet Implemented
 
 | Flag | Impact | Difficulty | Notes |
 |------|--------|------------|-------|
-| `-F` / `--fail-fast` | Medium | Easy | Stop on first offense. Useful in dev. Needs early exit in rayon loop. |
 | `--force-exclusion` | Medium | Easy | Don't lint explicitly-passed files if they match Exclude. |
 | `-L` / `--list-target-files` | Low-Medium | Easy | Print files that would be linted, then exit. File discovery already exists. |
 | `-D` / `--display-cop-names` | Cosmetic | Trivial | Already shown by default. Accept flag silently to avoid "unknown flag" errors. |

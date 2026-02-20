@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::LazyLock;
 
 use rayon::prelude::*;
@@ -188,11 +188,16 @@ pub fn run_linter(
     let cache_stat_hits = std::sync::atomic::AtomicUsize::new(0);
     let cache_content_hits = std::sync::atomic::AtomicUsize::new(0);
     let cache_misses = std::sync::atomic::AtomicUsize::new(0);
+    let found_offense = AtomicBool::new(false);
 
     let diagnostics: Vec<Diagnostic> = files
         .par_iter()
         .flat_map(|path| {
-            lint_file(
+            // --fail-fast: skip remaining files once an offense is found
+            if args.fail_fast && found_offense.load(Ordering::Relaxed) {
+                return Vec::new();
+            }
+            let result = lint_file(
                 path,
                 config,
                 registry,
@@ -205,7 +210,11 @@ pub fn run_linter(
                 &cache_stat_hits,
                 &cache_content_hits,
                 &cache_misses,
-            )
+            );
+            if args.fail_fast && !result.is_empty() {
+                found_offense.store(true, Ordering::Relaxed);
+            }
+            result
         })
         .collect();
 
@@ -397,6 +406,7 @@ fn is_directive_redundant(
     cop_filters: &CopFilterSet,
     config: &ResolvedConfig,
     path: &Path,
+    executed_cops: &HashSet<usize>,
 ) -> bool {
     // "all" is a wildcard — never flag (too broad to determine redundancy)
     if cop_name == "all" {
@@ -421,12 +431,15 @@ fn is_directive_redundant(
         if !filter.is_enabled() {
             // Cop is explicitly disabled — the disable directive is redundant.
             true
+        } else if !executed_cops.contains(&idx) {
+            // Cop is enabled but didn't execute on this file (excluded by
+            // Include/Exclude patterns). The directive is pointless.
+            true
         } else {
-            // Cop is enabled — don't flag even if excluded by Include/Exclude.
-            // The Include/Exclude matching uses relative paths which may not
-            // resolve correctly for all file paths, and turbocop may have
-            // detection gaps vs. RuboCop. Conservative approach: only flag
-            // explicitly disabled cops.
+            // Cop is enabled and ran on this file — don't flag.
+            // Conservative: turbocop may have detection gaps vs. RuboCop,
+            // so an unused directive for a running cop might still be
+            // needed for RuboCop compatibility.
             false
         }
     } else {
@@ -487,6 +500,9 @@ fn lint_source_inner(
     // (pushing to override_configs invalidates references, so we defer reference creation).
     let mut ast_cop_indices: Vec<(usize, Option<usize>)> = Vec::new();
     let mut override_configs: Vec<CopConfig> = Vec::new();
+    // Track which cop indices actually executed on this file, for redundant
+    // disable directive detection.
+    let mut executed_cop_indices: HashSet<usize> = HashSet::new();
 
     // Find which override directory (if any) applies to this file — once per file
     // instead of per-cop. Most files aren't in override directories, so this is None.
@@ -525,6 +541,7 @@ fn lint_source_inner(
             Some(idx) => &override_configs[idx],
             None => &base_configs[i],
         };
+        executed_cop_indices.insert(i);
         cop.check_lines(source, cop_config, &mut diagnostics);
         cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics);
         ast_cop_indices.push((i, override_idx));
@@ -560,6 +577,7 @@ fn lint_source_inner(
             Some(idx) => &override_configs[idx],
             None => &base_configs[i],
         };
+        executed_cop_indices.insert(i);
         cop.check_lines(source, cop_config, &mut diagnostics);
         cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics);
         ast_cop_indices.push((i, override_idx));
@@ -643,6 +661,7 @@ fn lint_source_inner(
                     cop_filters,
                     config,
                     &source.path,
+                    &executed_cop_indices,
                 ) {
                     continue;
                 }
