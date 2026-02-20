@@ -1,8 +1,8 @@
 # turbocop
 
-A fast Ruby linter written in Rust, targeting drop-in [RuboCop](https://rubocop.org/) compatibility.
+A RuboCop rewrite in Rust. 18x faster, 900+ cops, drop-in compatible.
 
-Quick benchmark on the codebase of [rubygems.org](https://github.com/rubygems/rubygems.org) (1,222 Ruby files), Apple Silicon:
+Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (1,222 files), Apple Silicon:
 
 | Mode | turbocop | RuboCop | Speedup |
 |------|-------:|--------:|--------:|
