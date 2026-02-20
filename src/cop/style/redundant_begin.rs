@@ -35,6 +35,81 @@ struct RedundantBeginVisitor<'a> {
     diagnostics: Vec<Diagnostic>,
 }
 
+impl RedundantBeginVisitor<'_> {
+    /// Check if an assignment value is a redundant `begin` block.
+    /// `x = begin...end` or `x ||= begin...end` is redundant when:
+    /// - The begin has an explicit `begin` keyword
+    /// - There is only a single statement in the body
+    /// - There are no rescue/ensure/else clauses
+    fn check_assignment_begin(&mut self, value: &ruby_prism::Node<'_>) {
+        let begin_node = match value.as_begin_node() {
+            Some(b) => b,
+            None => {
+                // Continue visiting for nested structures
+                self.visit(value);
+                return;
+            }
+        };
+
+        // Must have an explicit `begin` keyword
+        let begin_kw_loc = match begin_node.begin_keyword_loc() {
+            Some(loc) => loc,
+            None => {
+                self.visit(value);
+                return;
+            }
+        };
+
+        // If it has rescue/ensure/else, the begin is NOT redundant
+        if begin_node.rescue_clause().is_some()
+            || begin_node.ensure_clause().is_some()
+            || begin_node.else_clause().is_some()
+        {
+            // Visit children for nested checks
+            if let Some(stmts) = begin_node.statements() {
+                for child in stmts.body().iter() {
+                    self.visit(&child);
+                }
+            }
+            if let Some(rescue) = begin_node.rescue_clause() {
+                self.visit_rescue_node(&rescue);
+            }
+            if let Some(ensure) = begin_node.ensure_clause() {
+                self.visit_ensure_node(&ensure);
+            }
+            return;
+        }
+
+        // Must have exactly one statement in the body
+        let stmts = match begin_node.statements() {
+            Some(s) => s,
+            None => return,
+        };
+        let body_nodes: Vec<_> = stmts.body().into_iter().collect();
+        if body_nodes.len() != 1 {
+            // Multiple statements — begin is not redundant in assignment context
+            for child in body_nodes.iter() {
+                self.visit(child);
+            }
+            return;
+        }
+
+        let offset = begin_kw_loc.start_offset();
+        let (line, column) = self.source.offset_to_line_col(offset);
+        self.diagnostics.push(self.cop.diagnostic(
+            self.source,
+            line,
+            column,
+            "Redundant `begin` block detected.".to_string(),
+        ));
+
+        // Visit the begin body for nested checks
+        for child in body_nodes.iter() {
+            self.visit(child);
+        }
+    }
+}
+
 impl<'pr> Visit<'pr> for RedundantBeginVisitor<'_> {
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
         let body = match node.body() {
@@ -111,6 +186,76 @@ impl<'pr> Visit<'pr> for RedundantBeginVisitor<'_> {
         if let Some(ensure) = node.ensure_clause() {
             self.visit_ensure_node(&ensure);
         }
+    }
+
+    fn visit_instance_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableOrWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_local_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_class_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableOrWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_global_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableOrWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_constant_or_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantOrWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_local_variable_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_instance_variable_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_class_variable_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_global_variable_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
+    }
+
+    fn visit_constant_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantWriteNode<'pr>,
+    ) {
+        self.check_assignment_begin(&node.value());
     }
 }
 

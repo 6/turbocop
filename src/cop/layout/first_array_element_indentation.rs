@@ -6,6 +6,17 @@ use crate::cop::node_type::ARRAY_NODE;
 
 pub struct FirstArrayElementIndentation;
 
+/// Describes what the expected indentation is relative to.
+#[derive(Clone, Copy)]
+enum IndentBaseType {
+    /// `align_brackets` style: relative to the opening bracket `[`
+    LeftBracket,
+    /// `special_inside_parentheses`: relative to the first position after `(`
+    FirstColumnAfterLeftParenthesis,
+    /// Default: relative to the start of the line where `[` appears
+    StartOfLine,
+}
+
 /// Scan backwards from `bracket_col` on `line_bytes` to find an unmatched `(`
 /// that directly contains this array (not separated by an unmatched `[` or `{`).
 /// Returns `Some(column)` if found, `None` otherwise.
@@ -183,7 +194,7 @@ impl Cop for FirstArrayElementIndentation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
+        diagnostics: &mut Vec<Diagnostic>,
     ) {
         let array_node = match node.as_array_node() {
             Some(a) => a,
@@ -219,9 +230,12 @@ impl Cop for FirstArrayElementIndentation {
         let open_line_indent = indentation_of(open_line_bytes);
         let (_, open_col) = source.offset_to_line_col(opening_loc.start_offset());
 
-        let expected = match style {
-            "consistent" => open_line_indent + width,
-            "align_brackets" => open_col,
+        // Compute the indent base column (before adding width) and its type.
+        // The first element should be at `indent_base + width`.
+        // The closing bracket should be at `indent_base`.
+        let (indent_base, base_type) = match style {
+            "consistent" => (open_line_indent, IndentBaseType::StartOfLine),
+            "align_brackets" => (open_col, IndentBaseType::LeftBracket),
             _ => {
                 // "special_inside_parentheses" (default):
                 let closing_end = array_node
@@ -235,29 +249,69 @@ impl Cop for FirstArrayElementIndentation {
                     // like `[...].join()` or `[...] + other`), indent relative
                     // to the position after `(`.
                     if is_direct_argument(source.as_bytes(), closing_end) {
-                        paren_col + 1 + width
+                        (paren_col + 1, IndentBaseType::FirstColumnAfterLeftParenthesis)
                     } else {
-                        open_line_indent + width
+                        (open_line_indent, IndentBaseType::StartOfLine)
                     }
                 } else {
-                    open_line_indent + width
+                    (open_line_indent, IndentBaseType::StartOfLine)
                 }
             }
         };
 
-        if elem_col != expected {
-            let base = elem_col.saturating_sub(open_line_indent);
+        let expected_elem = indent_base + width;
+
+        if elem_col != expected_elem {
+            let base_description = match base_type {
+                IndentBaseType::LeftBracket => "the position of the opening bracket",
+                IndentBaseType::FirstColumnAfterLeftParenthesis => {
+                    "the first position after the preceding left parenthesis"
+                }
+                IndentBaseType::StartOfLine => {
+                    "the start of the line where the left square bracket is"
+                }
+            };
             diagnostics.push(self.diagnostic(
                 source,
                 elem_line,
                 elem_col,
                 format!(
-                    "Use {} (not {}) spaces for indentation of the first element.",
-                    width, base
+                    "Use {} spaces for indentation in an array, relative to {}.",
+                    width, base_description
                 ),
             ));
         }
 
+        // Check closing bracket indentation
+        if let Some(closing_loc) = array_node.closing_loc() {
+            let (close_line, close_col) = source.offset_to_line_col(closing_loc.start_offset());
+
+            // Only check if the closing bracket is on its own line
+            // (no non-whitespace characters before it on that line)
+            let close_line_bytes = source.lines().nth(close_line - 1).unwrap_or(b"");
+            let only_whitespace_before = close_line_bytes[..close_col.min(close_line_bytes.len())]
+                .iter()
+                .all(|&b| b == b' ' || b == b'\t');
+
+            if only_whitespace_before && close_col != indent_base {
+                let msg = match base_type {
+                    IndentBaseType::LeftBracket => {
+                        "Indent the right bracket the same as the left bracket.".to_string()
+                    }
+                    IndentBaseType::FirstColumnAfterLeftParenthesis => {
+                        "Indent the right bracket the same as the first position \
+                         after the preceding left parenthesis."
+                            .to_string()
+                    }
+                    IndentBaseType::StartOfLine => {
+                        "Indent the right bracket the same as the start of the line \
+                         where the left bracket is."
+                            .to_string()
+                    }
+                };
+                diagnostics.push(self.diagnostic(source, close_line, close_col, msg));
+            }
+        }
     }
 }
 
@@ -289,15 +343,20 @@ mod tests {
             ]),
             ..CopConfig::default()
         };
-        // Element aligned with opening bracket column
-        let src = b"x = [\n    1\n]\n";
+        // Element at bracket_col + width (4 + 2 = 6), bracket at bracket_col (4) => good
+        let src = b"x = [\n      1\n    ]\n";
         let diags = run_cop_full_with_config(&FirstArrayElementIndentation, src, config.clone());
-        assert!(diags.is_empty(), "align_brackets should accept element at bracket column");
+        assert!(diags.is_empty(), "align_brackets should accept element at bracket_col + width: {:?}", diags);
 
         // Element indented normally (2 from line start) should be flagged
         let src2 = b"x = [\n  1\n]\n";
-        let diags2 = run_cop_full_with_config(&FirstArrayElementIndentation, src2, config);
-        assert_eq!(diags2.len(), 1, "align_brackets should flag element not at bracket column");
+        let diags2 = run_cop_full_with_config(&FirstArrayElementIndentation, src2, config.clone());
+        assert!(diags2.len() >= 1, "align_brackets should flag element not at bracket_col + width: {:?}", diags2);
+
+        // Bracket not aligned with opening bracket should be flagged
+        let src3 = b"x = [\n      1\n]\n";
+        let diags3 = run_cop_full_with_config(&FirstArrayElementIndentation, src3, config);
+        assert_eq!(diags3.len(), 1, "align_brackets should flag bracket not at opening bracket column: {:?}", diags3);
     }
 
     #[test]
@@ -331,5 +390,65 @@ mod tests {
         let src = b"X = (%i[\n  a\n  b\n] + other).freeze\n";
         let diags = run_cop_full(&FirstArrayElementIndentation, src);
         assert!(diags.is_empty(), "array in grouping paren with + operator should use line-relative indent");
+    }
+
+    #[test]
+    fn percent_i_array_inside_method_call_paren() {
+        // %i[ inside eq() - should use paren-relative indent
+        // eq( is at col 0-2, ( at col 2, so expected = 2 + 1 + 2 = 5
+        let src = b"eq(%i[\n     :a,\n     :b\n   ])\n";
+        let diags = run_cop_full(&FirstArrayElementIndentation, src);
+        assert!(diags.is_empty(), "%i[ inside method call paren should use paren-relative indent: {:?}", diags);
+    }
+
+    #[test]
+    fn percent_i_array_inside_method_call_paren_wrong_indent() {
+        // %i[ inside eq() with wrong indent - should flag both element and bracket
+        // eq( is at col 0-2, ( at col 2, so expected element = 2 + 1 + 2 = 5, but element is at col 2
+        // Expected bracket = 2 + 1 = 3, but ] is at col 0
+        let src = b"eq(%i[\n  :a,\n  :b\n])\n";
+        let diags = run_cop_full(&FirstArrayElementIndentation, src);
+        assert_eq!(diags.len(), 2, "%i[ inside method call paren with wrong indent should flag element and bracket: {:?}", diags);
+    }
+
+    #[test]
+    fn closing_bracket_wrong_indent_in_method_call() {
+        // Mirrors the doorkeeper false negative: closing bracket at wrong indent
+        // inside method call parens. eq( has ( at col 39.
+        // indent_base = 39 + 1 = 40. Expected ] at col 40. Actual ] at col 4.
+        // Also the first element at col 6 is wrong (expected 42).
+        let src = b"    expect(validation_attributes).to eq(%i[\n      client_id\n      client\n    ])\n";
+        let diags = run_cop_full(&FirstArrayElementIndentation, src);
+        // Should flag both element (col 6 instead of 42) and bracket (col 4 instead of 40)
+        assert_eq!(diags.len(), 2, "should flag both element and bracket in method call: {:?}", diags);
+        // Verify the bracket diagnostic
+        let bracket_diag = diags.iter().find(|d| d.message.contains("right bracket")).unwrap();
+        assert!(bracket_diag.message.contains("first position after the preceding left parenthesis"),
+            "bracket message should reference left parenthesis: {}", bracket_diag.message);
+    }
+
+    #[test]
+    fn closing_bracket_on_same_line_as_last_element_not_flagged() {
+        // When ] is on the same line as the last element, don't check bracket indent
+        let src = b"x = [\n  1,\n  2]\n";
+        let diags = run_cop_full(&FirstArrayElementIndentation, src);
+        assert!(diags.is_empty(), "bracket on same line as last element should not be flagged: {:?}", diags);
+    }
+
+    #[test]
+    fn closing_bracket_correct_indent_no_parens() {
+        // ] at same indentation as the line with [ (indent_base = 0)
+        let src = b"x = [\n  1,\n  2\n]\n";
+        let diags = run_cop_full(&FirstArrayElementIndentation, src);
+        assert!(diags.is_empty(), "bracket at line indent should not be flagged: {:?}", diags);
+    }
+
+    #[test]
+    fn closing_bracket_wrong_indent_no_parens() {
+        // ] at wrong indentation (should be at 0 but is at 2)
+        let src = b"x = [\n  1,\n  2\n  ]\n";
+        let diags = run_cop_full(&FirstArrayElementIndentation, src);
+        assert_eq!(diags.len(), 1, "bracket at wrong indent should be flagged: {:?}", diags);
+        assert!(diags[0].message.contains("right bracket"), "should be a bracket message: {}", diags[0].message);
     }
 }

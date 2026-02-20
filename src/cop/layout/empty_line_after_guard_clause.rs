@@ -77,6 +77,17 @@ impl Cop for EmptyLineAfterGuardClause {
             return;
         }
 
+        // RuboCop's guard_clause? requires the guard statement to be single-line.
+        // A multi-line `next foo && bar && ...` inside a block-form if is not
+        // considered a guard clause.
+        if !is_modifier {
+            let stmt_start_line = source.offset_to_line_col(first_stmt.location().start_offset()).0;
+            let stmt_end_line = source.offset_to_line_col(first_stmt.location().end_offset().saturating_sub(1)).0;
+            if stmt_start_line != stmt_end_line {
+                return;
+            }
+        }
+
         let lines: Vec<&[u8]> = source.lines().collect();
 
         // Determine the end offset to use for computing the "last line" of the guard.
@@ -202,12 +213,25 @@ fn starts_with_keyword(content: &[u8], keyword: &[u8]) -> bool {
 }
 
 fn is_guard_line(content: &[u8]) -> bool {
-    // RuboCop's guard_clause? matches:
-    // 1. Bare guard statements: return, next, break, raise, fail, throw
-    // 2. Modifier form: `return x if cond`, `raise "..." unless something`
+    // RuboCop's next_sibling_empty_or_guard_clause? only skips when the next
+    // sibling is an if/unless node that contains a guard clause. It does NOT
+    // skip for bare guard statements (return, raise, etc.).
+    //
+    // So we only match:
+    // 1. Modifier form on the same line: `return x if cond`, `raise "..." unless something`
+    // 2. Lines that start with `if`/`unless` keyword followed by a guard inside
+    //    (handled separately by is_multiline_guard_block)
+    //
+    // Bare guard statements like `raise "error"` or `return foo` are NOT
+    // considered guard lines for the purpose of this check.
     for keyword in GUARD_METHODS {
         if starts_with_keyword(content, keyword) {
-            return true;
+            // Check if this line also has a modifier `if` or `unless`
+            if contains_word(content, b"if") || contains_word(content, b"unless") {
+                return true;
+            }
+            // Bare guard statement without modifier — not a guard clause
+            return false;
         }
     }
     // Also check modifier if/unless containing a guard

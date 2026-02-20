@@ -7,15 +7,26 @@ pub struct TrailingCommaInArguments;
 
 /// Check if a byte range contains only whitespace and exactly one comma.
 /// Returns false if there are other non-whitespace characters (e.g., heredoc content).
+/// Comments (starting with #) are treated as whitespace.
 fn is_only_whitespace_and_comma(bytes: &[u8]) -> bool {
     let mut found_comma = false;
+    let mut in_comment = false;
     for &b in bytes {
+        if in_comment {
+            if b == b'\n' {
+                in_comment = false;
+            }
+            continue;
+        }
         match b {
             b',' => {
                 if found_comma {
                     return false; // Multiple commas
                 }
                 found_comma = true;
+            }
+            b'#' => {
+                in_comment = true;
             }
             b' ' | b'\t' | b'\n' | b'\r' => {}
             _ => return false, // Non-whitespace, non-comma character

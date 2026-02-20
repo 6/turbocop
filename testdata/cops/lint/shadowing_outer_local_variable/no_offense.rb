@@ -65,6 +65,24 @@ def different_branches
   end
 end
 
+# Inner block param inside a conditional, outer var not — suppressed
+def some_method(env)
+  if some_condition
+    pages.each do |env|
+      do_something(env)
+    end
+  end
+end
+
+# Block param shadowing inside if/unless branch — suppressed
+def handler(name)
+  if block_given?
+    items.each do |name|
+      yield name
+    end
+  end
+end
+
 # Class-level begin block vars don't shadow method-level block params
 class MyTranslator
   MAPPING =

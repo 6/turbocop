@@ -229,3 +229,16 @@ def block_not_guard
   end
   finalize
 end
+
+# Block-form if with multi-line guard statement — not a guard clause per RuboCop
+# (guard_clause? requires single_line?)
+def multiline_guard_in_block
+  all.to_a.delete_if do |version|
+    if item.respond_to?(:access)
+      next item.user_id != user.id &&
+        item.assigned_to != user.id &&
+        (item.access == "Private")
+    end
+    next false
+  end
+end

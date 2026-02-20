@@ -44,6 +44,12 @@ impl Cop for RedundantArgument {
 
         let arg = &arg_list[0];
 
+        // RuboCop skips receiverless calls (except exit/exit!) because `split(" ")`
+        // without an explicit receiver may be a different method than String#split.
+        if call.receiver().is_none() && method_bytes != b"exit" && method_bytes != b"exit!" {
+            return;
+        }
+
         // Default redundant arguments
         let redundant = match method_bytes {
             b"join" => self.is_string_value(arg, source, ""),

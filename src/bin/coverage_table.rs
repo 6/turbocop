@@ -48,6 +48,7 @@ static VENDOR_SOURCES: &[VendorSource] = &[
 /// Repo display order for conformance table (matches bench_rblint REPOS order).
 const REPO_ORDER: &[&str] = &[
     "mastodon", "discourse", "rails", "rubocop", "chatwoot", "errbit",
+    "activeadmin", "good_job", "docuseal", "rubygems.org", "doorkeeper", "fat_free_crm",
 ];
 
 // --- Conformance JSON types (must match bench_rblint) ---

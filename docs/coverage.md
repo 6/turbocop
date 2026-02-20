@@ -45,11 +45,17 @@ Location-level comparison: file + line + cop_name. Only cops implemented by rbli
 | Repo | rblint | rubocop | Matches | FP (rblint only) | FN (rubocop only) | Match rate |
 |------|-------:|--------:|--------:|-----------------:|------------------:|-----------:|
 | mastodon | 300 | 302 | 300 | 0 | 2 | **99.3%** |
-| discourse | 7 | 0 | 0 | 7 | 0 | **0.0%** |
+| discourse | 0 | 0 | 0 | 0 | 0 | **100.0%** |
 | rails | 6 | 6 | 6 | 0 | 0 | **100.0%** |
 | rubocop | 0 | 0 | 0 | 0 | 0 | **100.0%** |
 | chatwoot | 251 | 251 | 251 | 0 | 0 | **100.0%** |
 | errbit | 1579 | 1579 | 1579 | 0 | 0 | **100.0%** |
+| activeadmin | 3 | 3 | 3 | 0 | 0 | **100.0%** |
+| good_job | 37 | 37 | 37 | 0 | 0 | **100.0%** |
+| docuseal | 60 | 60 | 60 | 0 | 0 | **100.0%** |
+| rubygems.org | 0 | 0 | 0 | 0 | 0 | **100.0%** |
+| doorkeeper | 622 | 624 | 622 | 0 | 2 | **99.7%** |
+| fat_free_crm | 5 | 0 | 0 | 5 | 0 | **0.0%** |
 
 <details>
 <summary>Divergent cops — mastodon (1 of 1 shown)</summary>
@@ -60,14 +66,7 @@ Location-level comparison: file + line + cop_name. Only cops implemented by rbli
 
 </details>
 
-<details>
-<summary>Divergent cops — discourse (1 of 1 shown)</summary>
-
-| Cop | Matches | FP | FN |
-|-----|--------:|---:|---:|
-| Lint/ShadowingOuterLocalVariable | 0 | 7 | 0 |
-
-</details>
+**discourse:** All cops match perfectly!
 
 **rails:** All cops match perfectly!
 
@@ -76,4 +75,34 @@ Location-level comparison: file + line + cop_name. Only cops implemented by rbli
 **chatwoot:** All cops match perfectly!
 
 **errbit:** All cops match perfectly!
+
+**activeadmin:** All cops match perfectly!
+
+**good_job:** All cops match perfectly!
+
+**docuseal:** All cops match perfectly!
+
+**rubygems.org:** All cops match perfectly!
+
+<details>
+<summary>Divergent cops — doorkeeper (2 of 2 shown)</summary>
+
+| Cop | Matches | FP | FN |
+|-----|--------:|---:|---:|
+| Gemspec/RequiredRubyVersion | 0 | 0 | 1 |
+| Lint/UselessAssignment | 0 | 0 | 1 |
+
+</details>
+
+<details>
+<summary>Divergent cops — fat_free_crm (4 of 4 shown)</summary>
+
+| Cop | Matches | FP | FN |
+|-----|--------:|---:|---:|
+| Layout/FirstArrayElementIndentation | 0 | 2 | 0 |
+| Layout/MultilineMethodCallIndentation | 0 | 1 | 0 |
+| Style/RedundantRegexpEscape | 0 | 1 | 0 |
+| Style/TrailingCommaInHashLiteral | 0 | 1 | 0 |
+
+</details>
 

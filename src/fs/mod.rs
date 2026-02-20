@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use ignore::overrides::OverrideBuilder;
 use ignore::WalkBuilder;
 
 use crate::config::ResolvedConfig;
@@ -33,19 +32,12 @@ fn walk_directory(dir: &Path, config: &ResolvedConfig) -> Result<Vec<PathBuf>> {
     let mut builder = WalkBuilder::new(dir);
     builder.hidden(true).git_ignore(true).git_global(true);
 
-    // Apply AllCops.Exclude patterns as overrides
-    let global_excludes = config.global_excludes();
-    if !global_excludes.is_empty() {
-        let mut overrides = OverrideBuilder::new(dir);
-        for pattern in global_excludes {
-            // ignore crate overrides: prefix with ! to exclude
-            overrides
-                .add(&format!("!{pattern}"))
-                .with_context(|| format!("invalid exclude pattern: {pattern}"))?;
-        }
-        let overrides = overrides.build().context("failed to build overrides")?;
-        builder.overrides(overrides);
-    }
+    // NOTE: We intentionally do NOT use the `ignore` crate's OverrideBuilder
+    // for AllCops.Exclude patterns. The OverrideBuilder uses gitignore-style
+    // override semantics where `!pattern` = whitelist (include), not exclude,
+    // and positive patterns exclude ALL non-matching files. Instead, we filter
+    // discovered files manually against the global exclude GlobSet, which is
+    // already compiled in CopFilterSet::is_globally_excluded().
 
     let mut files = Vec::new();
     for entry in builder.build() {
@@ -230,6 +222,83 @@ mod tests {
         assert!(names.contains(&"server".to_string()));
         assert!(!names.contains(&"setup".to_string()));
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn debug_doorkeeper_bin_console() {
+        use ignore::WalkBuilder;
+
+        let doorkeeper_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("bench/repos/doorkeeper");
+        if !doorkeeper_dir.exists() {
+            eprintln!("Skipping: doorkeeper not cloned");
+            return;
+        }
+
+        let bin_console = doorkeeper_dir.join("bin/console");
+        assert!(bin_console.exists(), "bin/console must exist");
+        assert!(has_ruby_shebang(&bin_console), "bin/console must have ruby shebang");
+        assert!(is_ruby_file(&bin_console), "bin/console must be detected as ruby file");
+
+        // Walk with same settings as walk_directory
+        let mut builder = WalkBuilder::new(&doorkeeper_dir);
+        builder.hidden(true).git_ignore(true).git_global(true);
+
+        let mut found_bin_console = false;
+        let mut all_bin_files = Vec::new();
+        for entry in builder.build() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.starts_with(doorkeeper_dir.join("bin")) {
+                all_bin_files.push(path.to_path_buf());
+            }
+            if path == bin_console {
+                found_bin_console = true;
+            }
+        }
+        eprintln!("All entries under bin/: {:?}", all_bin_files);
+        eprintln!("Found bin/console: {}", found_bin_console);
+
+        // Now try without git_global
+        let mut builder2 = WalkBuilder::new(&doorkeeper_dir);
+        builder2.hidden(true).git_ignore(true).git_global(false);
+
+        let mut found_without_global = false;
+        for entry in builder2.build() {
+            let entry = entry.unwrap();
+            if entry.path() == bin_console {
+                found_without_global = true;
+            }
+        }
+        eprintln!("Found bin/console without git_global: {}", found_without_global);
+
+        // Try without git_ignore too
+        let mut builder3 = WalkBuilder::new(&doorkeeper_dir);
+        builder3.hidden(true).git_ignore(false).git_global(false);
+
+        let mut found_without_gitignore = false;
+        for entry in builder3.build() {
+            let entry = entry.unwrap();
+            if entry.path() == bin_console {
+                found_without_gitignore = true;
+            }
+        }
+        eprintln!("Found bin/console without any git ignoring: {}", found_without_gitignore);
+
+        // Try without parents
+        let mut builder4 = WalkBuilder::new(&doorkeeper_dir);
+        builder4.hidden(true).git_ignore(true).git_global(true).parents(false);
+
+        let mut found_without_parents = false;
+        for entry in builder4.build() {
+            let entry = entry.unwrap();
+            if entry.path() == bin_console {
+                found_without_parents = true;
+            }
+        }
+        eprintln!("Found bin/console without parents: {}", found_without_parents);
+
+        assert!(found_bin_console, "Walker must yield bin/console");
     }
 
     #[test]

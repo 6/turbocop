@@ -401,7 +401,7 @@ fn build_glob_set(patterns: &[&str]) -> Option<GlobSet> {
         if extract_ruby_regexp(pat).is_some() {
             continue; // Skip regex patterns — handled by build_regex_set
         }
-        if let Ok(glob) = GlobBuilder::new(pat).literal_separator(false).build() {
+        if let Ok(glob) = GlobBuilder::new(pat).literal_separator(true).build() {
             builder.add(glob);
             count += 1;
         }
@@ -1156,14 +1156,18 @@ fn parse_config_layer(raw: &Value) -> ConfigLayer {
                         if let Some(trv) =
                             ac_map.get(&Value::String("TargetRubyVersion".to_string()))
                         {
-                            target_ruby_version =
-                                trv.as_f64().or_else(|| trv.as_u64().map(|u| u as f64));
+                            target_ruby_version = trv
+                                .as_f64()
+                                .or_else(|| trv.as_u64().map(|u| u as f64))
+                                .or_else(|| trv.as_str().and_then(|s| s.parse::<f64>().ok()));
                         }
                         if let Some(trv) =
                             ac_map.get(&Value::String("TargetRailsVersion".to_string()))
                         {
-                            target_rails_version =
-                                trv.as_f64().or_else(|| trv.as_u64().map(|u| u as f64));
+                            target_rails_version = trv
+                                .as_f64()
+                                .or_else(|| trv.as_u64().map(|u| u as f64))
+                                .or_else(|| trv.as_str().and_then(|s| s.parse::<f64>().ok()));
                         }
                         if let Some(ase) =
                             ac_map.get(&Value::String("ActiveSupportExtensionsEnabled".to_string()))
@@ -1209,17 +1213,33 @@ fn parse_config_layer(raw: &Value) -> ConfigLayer {
 /// - Scalar values (Enabled, Severity, options): last writer wins
 /// - Exclude arrays: appended (union) by default, replaced if `inherit_mode: override`
 /// - Include arrays: replaced (override) by default, appended if `inherit_mode: merge`
-/// - Global excludes: appended
+/// - Global excludes (AllCops.Exclude): replaced by default, appended if inherit_mode
+///   includes Exclude in merge (same as cop-level Exclude). When inherit_mode is None
+///   (inherited config layers), always append.
 /// - NewCops / DisabledByDefault: last writer wins
 fn merge_layer_into(
     base: &mut ConfigLayer,
     overlay: &ConfigLayer,
     inherit_mode: Option<&InheritMode>,
 ) {
-    // Merge global excludes: append
-    for exc in &overlay.global_excludes {
-        if !base.global_excludes.contains(exc) {
-            base.global_excludes.push(exc.clone());
+    // Merge global excludes (AllCops.Exclude).
+    // RuboCop replaces Exclude arrays by default; only merges when inherit_mode
+    // explicitly requests it. When inherit_mode is None (building up from inherited
+    // layers), we append to accumulate patterns from multiple ancestors.
+    if !overlay.global_excludes.is_empty() {
+        let should_merge = match inherit_mode {
+            None => true, // inherited layers: accumulate
+            Some(mode) => mode.merge.contains("Exclude"),
+        };
+        if should_merge {
+            for exc in &overlay.global_excludes {
+                if !base.global_excludes.contains(exc) {
+                    base.global_excludes.push(exc.clone());
+                }
+            }
+        } else {
+            // Replace: overlay's excludes supersede the base
+            base.global_excludes.clone_from(&overlay.global_excludes);
         }
     }
 

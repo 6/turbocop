@@ -365,19 +365,10 @@ fn is_directive_redundant(
         // name IS in the registry and is enabled. RuboCop treats disable
         // directives for renamed cops as redundant since the old name no
         // longer exists.
-        if let Some(new_name) = RENAMED_COPS.get(cop_name) {
-            let new_cop_entry = registry
-                .cops()
-                .iter()
-                .enumerate()
-                .find(|(_, c)| c.name() == new_name.as_str());
-
-            if let Some((_idx, _)) = new_cop_entry {
-                // The renamed-to cop IS in the registry.
-                // Regardless of enabled/disabled state, a disable for the old
-                // (renamed) name is always redundant — the old cop no longer exists.
-                return true;
-            }
+        if RENAMED_COPS.contains_key(cop_name) {
+            // The cop was renamed. RuboCop flags disable directives for
+            // renamed cops as redundant (with "Did you mean <new name>?").
+            return true;
         }
 
         // Not a renamed cop (or renamed-to cop is also not in registry).

@@ -29,3 +29,16 @@ end
   setup
   compute_value
 end
+
+# begin with ensure in assignment is NOT redundant
+x = begin
+  open_file
+ensure
+  close_file
+end
+
+# begin with multiple statements in = assignment is NOT redundant
+result = begin
+  setup
+  compute
+end

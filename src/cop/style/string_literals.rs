@@ -1,55 +1,59 @@
+use ruby_prism::Visit;
+
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::STRING_NODE;
 
 pub struct StringLiterals;
-
-/// Check if the byte at `offset` is inside a `#{ }` interpolation context
-/// by scanning backward. Tracks brace depth to handle nested `{ }` blocks
-/// (from hashes, method blocks, etc.) that appear inside the interpolation.
-fn is_inside_interpolation(source_bytes: &[u8], offset: usize) -> bool {
-    let mut depth: i32 = 0;
-    let mut i = offset;
-    while i > 0 {
-        i -= 1;
-        match source_bytes[i] {
-            b'}' => depth += 1,
-            b'{' => {
-                depth -= 1;
-                if depth < 0 && i > 0 && source_bytes[i - 1] == b'#' {
-                    return true;
-                }
-            }
-            _ => {}
-        }
-    }
-    false
-}
 
 impl Cop for StringLiterals {
     fn name(&self) -> &'static str {
         "Style/StringLiterals"
     }
 
-    fn interested_node_types(&self) -> &'static [u8] {
-        &[STRING_NODE]
-    }
-
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        let string_node = match node.as_string_node() {
-            Some(s) => s,
-            None => return,
-        };
+        let enforced_style = config.get_str("EnforcedStyle", "single_quotes").to_string();
+        let consistent_multiline = config.get_bool("ConsistentQuotesInMultiline", false);
 
-        let opening = match string_node.opening_loc() {
+        let mut visitor = StringLiteralsVisitor {
+            cop: self,
+            source,
+            diagnostics: Vec::new(),
+            enforced_style,
+            consistent_multiline,
+            in_interpolation: false,
+        };
+        visitor.visit(&parse_result.node());
+        diagnostics.extend(visitor.diagnostics);
+    }
+}
+
+struct StringLiteralsVisitor<'a> {
+    cop: &'a StringLiterals,
+    source: &'a SourceFile,
+    diagnostics: Vec<Diagnostic>,
+    enforced_style: String,
+    consistent_multiline: bool,
+    in_interpolation: bool,
+}
+
+impl<'pr> Visit<'pr> for StringLiteralsVisitor<'_> {
+    fn visit_embedded_statements_node(&mut self, node: &ruby_prism::EmbeddedStatementsNode<'pr>) {
+        let was = self.in_interpolation;
+        self.in_interpolation = true;
+        ruby_prism::visit_embedded_statements_node(self, node);
+        self.in_interpolation = was;
+    }
+
+    fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+        let opening = match node.opening_loc() {
             Some(loc) => loc,
             None => return,
         };
@@ -61,20 +65,15 @@ impl Cop for StringLiterals {
             return;
         }
 
-        let enforced_style = config.get_str("EnforcedStyle", "single_quotes");
-        // ConsistentQuotesInMultiline: when true, skip flagging individual strings
-        // that contain newlines (multiline strings), deferring to consistency checking.
-        let consistent_multiline = config.get_bool("ConsistentQuotesInMultiline", false);
-
-        let content = string_node.content_loc().as_slice();
+        let content = node.content_loc().as_slice();
 
         // When ConsistentQuotesInMultiline is enabled, skip multiline strings —
         // these should be checked for consistency as a group (not individually)
-        if consistent_multiline && content.contains(&b'\n') {
+        if self.consistent_multiline && content.contains(&b'\n') {
             return;
         }
 
-        match enforced_style {
+        match self.enforced_style.as_str() {
             "single_quotes" => {
                 if opening_byte == b'"' {
                     // Skip multi-line strings — RuboCop doesn't flag these
@@ -85,9 +84,8 @@ impl Cop for StringLiterals {
                     // - No single quotes in content
                     // - No escape sequences (no backslash in content)
                     if !content.contains(&b'\'') && !content.contains(&b'\\') {
-                        let (line, column) = source.offset_to_line_col(opening.start_offset());
-                        diagnostics.push(self.diagnostic(source, line, column, "Prefer single-quoted strings when you don't need string interpolation or special symbols.".to_string()));
-                        return;
+                        let (line, column) = self.source.offset_to_line_col(opening.start_offset());
+                        self.diagnostics.push(self.cop.diagnostic(self.source, line, column, "Prefer single-quoted strings when you don't need string interpolation or special symbols.".to_string()));
                     }
                 }
             }
@@ -117,17 +115,15 @@ impl Cop for StringLiterals {
                     // Skip if this string is inside a #{ } interpolation context —
                     // converting to double quotes would need escaping inside the
                     // enclosing double-quoted string.
-                    if is_inside_interpolation(source.as_bytes(), opening.start_offset()) {
+                    if self.in_interpolation {
                         return;
                     }
-                    let (line, column) = source.offset_to_line_col(opening.start_offset());
-                    diagnostics.push(self.diagnostic(source, line, column, "Prefer double-quoted strings unless you need single quotes within your string.".to_string()));
-                    return;
+                    let (line, column) = self.source.offset_to_line_col(opening.start_offset());
+                    self.diagnostics.push(self.cop.diagnostic(self.source, line, column, "Prefer double-quoted strings unless you need single quotes within your string.".to_string()));
                 }
             }
             _ => {}
         }
-
     }
 }
 
@@ -240,6 +236,25 @@ mod tests {
         assert_eq!(diags.len(), 1, "Should flag single-quoted string inside hash arg: {:?}", diags);
     }
 
+
+    #[test]
+    fn double_quotes_flags_string_after_earlier_interpolation() {
+        use std::collections::HashMap;
+        use crate::testutil::run_cop_full_with_config;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("double_quotes".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Earlier in the file there's a string with interpolation, and later a
+        // single-quoted string inside a hash literal. The hash braces should NOT
+        // be confused with interpolation braces.
+        let source = b"x = \"hello #{world}\"\nfoo(custom_attributes: { tenant_id: 'different' })\n";
+        let diags = run_cop_full_with_config(&StringLiterals, source, config);
+        assert_eq!(diags.len(), 1, "Should flag 'different' even with earlier interpolation in file: {:?}", diags);
+    }
 
     #[test]
     fn consistent_multiline_skips_multiline_strings() {

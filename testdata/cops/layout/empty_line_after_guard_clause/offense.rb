@@ -26,3 +26,10 @@ def notice_params
   ^^^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
   @notice_params
 end
+
+# Guard clause followed by bare raise (not a guard line)
+def exception_class
+  return @exception_class if @exception_class
+                                            ^ Layout/EmptyLineAfterGuardClause: Add empty line after guard clause.
+  raise NotImplementedError, "error response must define #exception_class"
+end

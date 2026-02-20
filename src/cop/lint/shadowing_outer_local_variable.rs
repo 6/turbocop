@@ -329,6 +329,10 @@ fn is_different_conditional_branch(
             // Same conditional node but different branch
             case1 == case2 && branch1 != branch2
         }
+        // RuboCop suppresses when the inner (shadowing) variable is inside
+        // a conditional but the outer (shadowed) variable is not. The rationale
+        // is that conditional shadowing is less problematic.
+        (None, Some(_)) => true,
         _ => false,
     }
 }

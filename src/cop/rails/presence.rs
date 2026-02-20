@@ -23,7 +23,7 @@ impl Cop for Presence {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
     ) {
         if let Some(if_node) = node.as_if_node() {
@@ -79,6 +79,7 @@ impl Cop for Presence {
                     ElseNodeResult::Single(n) => Some(n),
                     _ => None,
                 },
+                config,
             ));
             return;
         }
@@ -129,6 +130,7 @@ impl Cop for Presence {
                     ElseNodeResult::Single(n) => Some(n),
                     _ => None,
                 },
+                config,
             ));
             return;
         }
@@ -214,6 +216,7 @@ fn check_presence_patterns(
     else_is_ignored: bool,
     then_node: Option<&ruby_prism::Node<'_>>,
     else_node: Option<&ruby_prism::Node<'_>>,
+    config: &CopConfig,
 ) -> Vec<Diagnostic> {
     let (value_text, nil_text) = if is_present {
         (then_text, else_text)
@@ -254,7 +257,14 @@ fn check_presence_patterns(
     // Pattern 2: value branch is a method call on receiver, nil branch is nil/absent.
     // e.g. `a.present? ? a.foo : nil` -> `a.presence&.foo`
     // e.g. `a.foo if a.present?` -> `a.presence&.foo`
-    if nil_text == "nil" {
+    // This pattern was added in rubocop-rails 2.34. Older versions don't flag it.
+    // We gate on VersionChanged: if the installed gem's config has VersionChanged >= 2.34,
+    // the chain pattern exists; otherwise skip.
+    let version_changed: f64 = config
+        .get_str("VersionChanged", "")
+        .parse()
+        .unwrap_or(0.0);
+    if nil_text == "nil" && version_changed >= 2.34 {
         let value_node = if is_present { then_node } else { else_node };
         if let Some(vn) = value_node {
             if let Some(diags) = check_chain_pattern(cop, source, node, receiver_text, vn) {
@@ -455,5 +465,31 @@ fn extract_presence_check(
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(Presence, "cops/rails/presence");
+
+    fn test_config() -> crate::cop::CopConfig {
+        let mut config = crate::cop::CopConfig::default();
+        config.options.insert(
+            "VersionChanged".to_string(),
+            serde_yml::Value::String("2.34".to_string()),
+        );
+        config
+    }
+
+    #[test]
+    fn offense_fixture() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &Presence,
+            include_bytes!("../../../testdata/cops/rails/presence/offense.rb"),
+            test_config(),
+        );
+    }
+
+    #[test]
+    fn no_offense_fixture() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &Presence,
+            include_bytes!("../../../testdata/cops/rails/presence/no_offense.rb"),
+            test_config(),
+        );
+    }
 }
