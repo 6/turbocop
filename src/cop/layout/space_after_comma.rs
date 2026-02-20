@@ -10,6 +10,10 @@ impl Cop for SpaceAfterComma {
         "Layout/SpaceAfterComma"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_source(
         &self,
         source: &SourceFile,
@@ -17,7 +21,7 @@ impl Cop for SpaceAfterComma {
         code_map: &CodeMap,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let bytes = source.as_bytes();
         for (i, &byte) in bytes.iter().enumerate() {
@@ -34,12 +38,23 @@ impl Cop for SpaceAfterComma {
                 }
                 if !matches!(next, Some(b' ') | Some(b'\n') | Some(b'\r') | None) {
                     let (line, column) = source.offset_to_line_col(i);
-                    diagnostics.push(self.diagnostic(
+                    let mut diag = self.diagnostic(
                         source,
                         line,
                         column,
                         "Space missing after comma.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: i + 1,
+                            end: i + 1,
+                            replacement: " ".to_string(),
+                            cop_name: self.name(),
+                            cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
             }
         }
@@ -51,4 +66,24 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(SpaceAfterComma, "cops/layout/space_after_comma");
+
+    #[test]
+    fn autocorrect_insert_space() {
+        let input = b"foo(1,2)\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&SpaceAfterComma, input);
+        assert!(!corrections.is_empty());
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"foo(1, 2)\n");
+    }
+
+    #[test]
+    fn autocorrect_multiple() {
+        let input = b"foo(1,2,3)\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&SpaceAfterComma, input);
+        assert_eq!(corrections.len(), 2);
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"foo(1, 2, 3)\n");
+    }
 }

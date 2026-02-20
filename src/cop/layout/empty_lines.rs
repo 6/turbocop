@@ -10,6 +10,10 @@ impl Cop for EmptyLines {
         "Layout/EmptyLines"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_source(
         &self,
         source: &SourceFile,
@@ -17,7 +21,7 @@ impl Cop for EmptyLines {
         code_map: &CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let max = config.get_usize("Max", 1);
 
@@ -43,12 +47,23 @@ impl Cop for EmptyLines {
                 }
                 consecutive_blanks += 1;
                 if consecutive_blanks > max {
-                    diagnostics.push(self.diagnostic(
+                    let mut diag = self.diagnostic(
                         source,
                         i + 1,
                         0,
                         "Extra blank line detected.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: byte_offset,
+                            end: byte_offset + line_len,
+                            replacement: String::new(),
+                            cop_name: self.name(),
+                            cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
             } else {
                 consecutive_blanks = 0;
@@ -86,6 +101,26 @@ mod tests {
         // 2 consecutive blank lines SHOULD trigger with default Max:1
         let diags3 = run_cop_full(&EmptyLines, source2);
         assert!(!diags3.is_empty(), "Should fire with default Max:1 on 2 consecutive blank lines");
+    }
+
+    #[test]
+    fn autocorrect_remove_extra_blank() {
+        let input = b"x = 1\n\n\ny = 2\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&EmptyLines, input);
+        assert!(!corrections.is_empty());
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"x = 1\n\ny = 2\n");
+    }
+
+    #[test]
+    fn autocorrect_remove_multiple_extra() {
+        let input = b"x = 1\n\n\n\n\ny = 2\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&EmptyLines, input);
+        assert_eq!(corrections.len(), 3); // 4 blanks, max 1, so 3 extra
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"x = 1\n\ny = 2\n");
     }
 
     #[test]

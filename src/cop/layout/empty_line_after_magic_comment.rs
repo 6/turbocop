@@ -37,7 +37,11 @@ impl Cop for EmptyLineAfterMagicComment {
         "Layout/EmptyLineAfterMagicComment"
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
+    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, mut corrections: Option<&mut Vec<crate::correction::Correction>>) {
         let lines: Vec<&[u8]> = source.lines().collect();
         let mut last_magic_line = None;
 
@@ -72,12 +76,25 @@ impl Cop for EmptyLineAfterMagicComment {
         let is_blank = next_line.iter().all(|&b| b == b' ' || b == b'\t' || b == b'\r');
 
         if !is_blank {
-            diagnostics.push(self.diagnostic(
+            let mut diag = self.diagnostic(
                 source,
                 next_idx + 1, // 1-indexed
                 0,
                 "Add an empty line after magic comments.".to_string(),
-            ));
+            );
+            if let Some(ref mut corr) = corrections {
+                if let Some(offset) = source.line_col_to_offset(next_idx + 1, 0) {
+                    corr.push(crate::correction::Correction {
+                        start: offset,
+                        end: offset,
+                        replacement: "\n".to_string(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                    diag.corrected = true;
+                }
+            }
+            diagnostics.push(diag);
         }
 
     }
@@ -94,4 +111,24 @@ mod tests {
         encoding = "encoding.rb",
         multiple_magic = "multiple_magic.rb",
     );
+
+    #[test]
+    fn autocorrect_insert_blank_after_frozen_string() {
+        let input = b"# frozen_string_literal: true\nx = 1\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&EmptyLineAfterMagicComment, input);
+        assert!(!corrections.is_empty());
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"# frozen_string_literal: true\n\nx = 1\n");
+    }
+
+    #[test]
+    fn autocorrect_insert_blank_after_multiple_magic() {
+        let input = b"# frozen_string_literal: true\n# encoding: utf-8\nx = 1\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&EmptyLineAfterMagicComment, input);
+        assert!(!corrections.is_empty());
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"# frozen_string_literal: true\n# encoding: utf-8\n\nx = 1\n");
+    }
 }

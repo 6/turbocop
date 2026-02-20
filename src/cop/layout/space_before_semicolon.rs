@@ -10,6 +10,10 @@ impl Cop for SpaceBeforeSemicolon {
         "Layout/SpaceBeforeSemicolon"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_source(
         &self,
         source: &SourceFile,
@@ -17,18 +21,29 @@ impl Cop for SpaceBeforeSemicolon {
         code_map: &CodeMap,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let bytes = source.as_bytes();
         for (i, &byte) in bytes.iter().enumerate() {
             if byte == b';' && i > 0 && bytes[i - 1] == b' ' && code_map.is_code(i) {
                 let (line, column) = source.offset_to_line_col(i - 1);
-                diagnostics.push(self.diagnostic(
+                let mut diag = self.diagnostic(
                     source,
                     line,
                     column,
                     "Space found before semicolon.".to_string(),
-                ));
+                );
+                if let Some(ref mut corr) = corrections {
+                    corr.push(crate::correction::Correction {
+                        start: i - 1,
+                        end: i,
+                        replacement: String::new(),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                    diag.corrected = true;
+                }
+                diagnostics.push(diag);
             }
         }
     }
@@ -39,4 +54,14 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(SpaceBeforeSemicolon, "cops/layout/space_before_semicolon");
+
+    #[test]
+    fn autocorrect_remove_space() {
+        let input = b"x = 1 ;\n";
+        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&SpaceBeforeSemicolon, input);
+        assert!(!corrections.is_empty());
+        let cs = crate::correction::CorrectionSet::from_vec(corrections);
+        let corrected = cs.apply(input);
+        assert_eq!(corrected, b"x = 1;\n");
+    }
 }
