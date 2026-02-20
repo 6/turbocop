@@ -45,9 +45,15 @@ Per-cop config keys: `AutoCorrect` (`'always'`/`'contextual'`/`'disabled'`), `Sa
 
 ### 1.4 Correction Merging and Conflicts
 
-- Each cop produces corrections independently
-- Merged into a single Corrector per file; overlapping corrections silently dropped (`ClobberingError` caught)
-- Cops can declare `autocorrect_incompatible_with`
+Each cop produces corrections independently. RuboCop merges them per-file using these rules:
+
+- The `Corrector` (extends `Parser::Source::TreeRewriter`) is configured with:
+  - `different_replacements: :raise` — raises `ClobberingError` if two corrections target the same range with different replacements
+  - `swallowed_insertions: :raise` — raises if an insertion would be deleted by another edit
+  - `crossing_deletions: :accept` — overlapping deletions are allowed (merged)
+- `ClobberingError` is caught and silently ignored in `Team#suppress_clobbering` — the conflicting correction is simply dropped
+- Corrections merge in **cop registration order** — first cop merged wins when there's a conflict
+- Cops can declare `autocorrect_incompatible_with` — after a cop's correction is merged, all cops it declares incompatible are **skipped** for that iteration (not just for overlapping ranges — skipped entirely)
 
 ### 1.5 Iteration Loop
 
@@ -78,8 +84,8 @@ The autocorrect system has two distinct layers of difficulty:
 | CLI flags (`-a`, `-A`) | **Easy** | Clap args + enum. Trivial. |
 | `CopConfig` extension (Safe/SafeAutoCorrect/AutoCorrect) | **Easy** | Reading 3 more YAML keys. Config system already handles arbitrary keys via `options` HashMap. |
 | `Diagnostic.corrected` field | **Easy** | Add one bool field, update Display impl and JSON serializer. |
-| Cop trait `*_with_corrections` methods | **Easy-Moderate** | The trait changes are small, but every walker call site needs a branch. Backward-compatible defaults keep it safe. |
-| `BatchedCopWalker` corrections buffer | **Moderate** | Needs to conditionally call `_with_corrections` variants, pass `&mut Vec<Correction>` alongside diagnostics. Must not regress the hot path when autocorrect is off. |
+| Cop trait `corrections` parameter | **Easy** | Add `Option<&mut Vec<Correction>>` param to existing `check_*` methods. All 915 cops get a mechanical signature update; no behavioral change. |
+| `BatchedCopWalker` corrections buffer | **Moderate** | Pass `Option<&mut Vec<Correction>>` through to cop dispatch. Must not regress the hot path when autocorrect is off (`None` path). |
 | Linter iteration loop | **Moderate** | Re-parse + re-lint per iteration inside rayon workers. Must handle convergence detection, max iterations, and the `!Send` ParseResult constraint. Conceptually straightforward but touches the most performance-sensitive code. |
 | File writing | **Easy-Moderate** | `std::fs::write` for the simple case. `--stdin` mode needs stdout output. Edge cases: file permissions, symlinks, encoding. |
 | Formatter changes | **Easy** | `[Corrected]` prefix, corrected count. Mechanical. |
@@ -155,6 +161,12 @@ copy source[cursor..]
 
 **Design decision: sorted-edits, not tree-rewriter.** Simpler than RuboCop's `TreeRewriter` since we collect all corrections upfront.
 
+**Conflict resolution rules** (matching RuboCop's "first merged wins" behavior):
+- Sort corrections by `start` offset ascending
+- When two corrections overlap (second's `start` < first's `end`), drop the second
+- When two corrections start at the same offset, the one from the earlier cop in registry order wins
+- Registry order is stable (deterministic cop registration in `default_registry()`)
+
 ### 3.3 Cop Trait Extension
 
 ```rust
@@ -164,15 +176,27 @@ pub trait Cop: Send + Sync {
     fn supports_autocorrect(&self) -> bool { false }
     fn safe_autocorrect(&self) -> bool { true }
 
-    fn check_lines_with_corrections(&self, ..., corrections: &mut Vec<Correction>) {
-        self.check_lines(...); // default: delegate with no corrections
-    }
-    fn check_source_with_corrections(&self, ..., corrections: &mut Vec<Correction>) { ... }
-    fn check_node_with_corrections(&self, ..., corrections: &mut Vec<Correction>) { ... }
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        corrections: Option<&mut Vec<Correction>>,  // NEW param
+    );
+    fn check_source(
+        &self, ...,
+        diagnostics: &mut Vec<Diagnostic>,
+        corrections: Option<&mut Vec<Correction>>,  // NEW param
+    );
+    fn check_node(
+        &self, ...,
+        diagnostics: &mut Vec<Diagnostic>,
+        corrections: Option<&mut Vec<Correction>>,  // NEW param
+    );
 }
 ```
 
-**Why dual methods?** All 915 existing cops continue working with zero changes. No correction allocation overhead when autocorrect is off.
+**Why `Option` parameter instead of dual methods?** Adding `*_with_corrections` variants would mean 3 new trait methods with 915 default impls that just delegate. Instead, we add one `Option<&mut Vec<Correction>>` parameter to the existing methods. Callers pass `None` when autocorrect is off — cops that don't support autocorrect simply ignore the parameter. This keeps the trait surface flat and avoids duplicating every walker call site.
 
 ### 3.4 Other Changes
 
@@ -214,9 +238,9 @@ Files are independent — rayon parallelism at file level. Per-file iterations a
 |------|--------|
 | `src/correction.rs` | **NEW**: `Correction`, `CorrectionSet` + unit tests |
 | `src/diagnostic.rs` | Add `corrected: bool` field |
-| `src/cop/mod.rs` | Add `supports_autocorrect`, `safe_autocorrect`, `*_with_corrections` trait methods |
+| `src/cop/mod.rs` | Add `supports_autocorrect`, `safe_autocorrect`; add `corrections: Option<&mut Vec<Correction>>` param to `check_*` methods |
 | `src/cli.rs` | Add `-a`, `-A` flags, `AutocorrectMode` enum |
-| `src/cop/walker.rs` | Extend `BatchedCopWalker` with corrections buffer |
+| `src/cop/walker.rs` | Pass `Option<&mut Vec<Correction>>` through `BatchedCopWalker` dispatch |
 | `src/config/mod.rs` | Read `Safe`, `SafeAutoCorrect`, `AutoCorrect` into `CopConfig` |
 | `src/linter.rs` | Add correction-aware lint path, iteration loop, file writing |
 | `src/lib.rs` | Branch on `autocorrect_mode()` |
@@ -388,7 +412,7 @@ Test that overlapping corrections from multiple cops are handled identically to 
 
 4. **Priority ordering**: When bench conformance data is available, should we prioritize (a) most-triggered cops in bench repos, (b) simplest corrections, or (c) highest conformance impact? Likely (c).
 
-5. **Layout cop strategy**: Implement Layout corrections from scratch, or consider a different approach (e.g., running RuboCop's layout corrections as a fallback for the hardest cases)?
+5. ~~**Layout cop strategy**~~: Resolved — implement from scratch per Phase 5. The phased approach allows measuring conformance incrementally and deprioritizing cops where RuboCop's behavior is too complex to match exactly.
 
 ---
 
@@ -398,8 +422,8 @@ Test that overlapping corrections from multiple cops are handled identically to 
 |------|--------|
 | `src/correction.rs` | **NEW**: `Correction`, `CorrectionSet` types |
 | `src/diagnostic.rs` | Add `corrected: bool` field |
-| `src/cop/mod.rs` | Add trait methods: `supports_autocorrect`, `safe_autocorrect`, `*_with_corrections` |
-| `src/cop/walker.rs` | Add corrections buffer to `BatchedCopWalker` |
+| `src/cop/mod.rs` | Add `supports_autocorrect`, `safe_autocorrect`; add `corrections: Option<&mut Vec<Correction>>` param to `check_*` methods |
+| `src/cop/walker.rs` | Pass `Option<&mut Vec<Correction>>` through `BatchedCopWalker` dispatch |
 | `src/cli.rs` | Add `-a`, `-A` flags, `AutocorrectMode` |
 | `src/config/mod.rs` | Read `Safe`, `SafeAutoCorrect`, `AutoCorrect` |
 | `src/linter.rs` | Correction-aware lint path, iteration loop, file writing |
@@ -407,4 +431,4 @@ Test that overlapping corrections from multiple cops are handled identically to 
 | `src/formatter/text.rs` | `[Corrected]` prefix, corrected count |
 | `src/formatter/json.rs` | `corrected`/`correctable` fields |
 | `src/parse/source.rs` | `line_col_to_offset()` helper |
-| Per-cop files | Override `*_with_corrections` to produce `Correction` values |
+| Per-cop files | Use `corrections` param in `check_*` methods to produce `Correction` values |
