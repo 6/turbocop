@@ -1,7 +1,5 @@
 # turbocop — Progress Tracker
 
-See [PLAN.md](PLAN.md) for the full roadmap and technical design.
-
 ## Completed: M0 — Skeleton
 
 Parse Ruby files with Prism, basic config loading, parallel cop execution framework.

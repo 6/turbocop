@@ -194,7 +194,6 @@ PROGRESS.md links to `docs/coverage.md` instead of maintaining inline tables.
 ## Rules
 
 - Keep [PROGRESS.md](PROGRESS.md) up to date when completing milestone tasks. Check off items as done and update milestone status.
-- See [PLAN.md](PLAN.md) for full roadmap, cop batching strategy, and technical design decisions.
 - After adding a new cop, ensure `cargo test` passes — the `all_cops_have_minimum_test_coverage` integration test enforces that every cop has at least 3 offense fixture cases and 5+ non-empty lines in no_offense.rb. There are zero exemptions; use `offense/` scenario directories and `# turbocop-expect:` annotations to handle cops that can't use the standard single-file format.
 - **Every cop fix or false-positive fix must include test coverage.** When fixing a false positive, add the previously-false-positive case to the cop's `no_offense.rb` fixture. When fixing a missed detection, add it to `offense.rb`. This prevents regressions and documents the expected behavior.
 - **After adding or fixing cops, regenerate coverage docs.** Run the full pipeline to keep docs up to date:
