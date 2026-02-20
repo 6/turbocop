@@ -13,6 +13,10 @@ impl Cop for ExtraSpacing {
         "Layout/ExtraSpacing"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_source(
         &self,
         source: &SourceFile,
@@ -20,7 +24,7 @@ impl Cop for ExtraSpacing {
         code_map: &CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_for_alignment = config.get_bool("AllowForAlignment", true);
         let allow_before_trailing_comments =
@@ -104,12 +108,22 @@ impl Cop for ExtraSpacing {
                             continue;
                         }
 
-                        diagnostics.push(self.diagnostic(
+                        let mut diag = self.diagnostic(
                             source,
                             line_num,
                             space_start + 1, // point to the first extra space
                             "Unnecessary spacing detected.".to_string(),
-                        ));
+                        );
+                        if let Some(ref mut corr) = corrections {
+                            // Replace multi-space run with single space
+                            corr.push(crate::correction::Correction {
+                                start: abs_offset, end: abs_offset + space_count,
+                                replacement: " ".to_string(),
+                                cop_name: self.name(), cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                        diagnostics.push(diag);
                     }
                 } else {
                     i += 1;
@@ -408,4 +422,5 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(ExtraSpacing, "cops/layout/extra_spacing");
+    crate::cop_autocorrect_fixture_tests!(ExtraSpacing, "cops/layout/extra_spacing");
 }

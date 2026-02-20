@@ -50,6 +50,10 @@ impl Cop for SpaceAroundOperators {
         "Layout/SpaceAroundOperators"
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_source(
         &self,
         source: &SourceFile,
@@ -57,7 +61,7 @@ impl Cop for SpaceAroundOperators {
         code_map: &CodeMap,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_for_alignment = config.get_bool("AllowForAlignment", true);
         let _enforced_style_exponent =
@@ -128,12 +132,26 @@ impl Cop for SpaceAroundOperators {
                         i + 2 >= len || bytes[i + 2] == b'\n' || bytes[i + 2] == b'\r';
                     if !space_before || (!space_after && !newline_after) {
                         let (line, column) = source.offset_to_line_col(i);
-                        diagnostics.push(self.diagnostic(
-                            source,
-                            line,
-                            column,
+                        let mut diag = self.diagnostic(
+                            source, line, column,
                             format!("Surrounding space missing for operator `{op_str}`."),
-                        ));
+                        );
+                        if let Some(ref mut corr) = corrections {
+                            if !space_before {
+                                corr.push(crate::correction::Correction {
+                                    start: i, end: i, replacement: " ".to_string(),
+                                    cop_name: self.name(), cop_index: 0,
+                                });
+                            }
+                            if !space_after && !newline_after {
+                                corr.push(crate::correction::Correction {
+                                    start: i + 2, end: i + 2, replacement: " ".to_string(),
+                                    cop_name: self.name(), cop_index: 0,
+                                });
+                            }
+                            diag.corrected = true;
+                        }
+                        diagnostics.push(diag);
                     }
                     i += 2;
                     continue;
@@ -193,12 +211,26 @@ impl Cop for SpaceAroundOperators {
                     i + 1 >= len || bytes[i + 1] == b'\n' || bytes[i + 1] == b'\r';
                 if !space_before || (!space_after && !newline_after) {
                     let (line, column) = source.offset_to_line_col(i);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
+                    let mut diag = self.diagnostic(
+                        source, line, column,
                         "Surrounding space missing for operator `=`.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        if !space_before {
+                            corr.push(crate::correction::Correction {
+                                start: i, end: i, replacement: " ".to_string(),
+                                cop_name: self.name(), cop_index: 0,
+                            });
+                        }
+                        if !space_after && !newline_after {
+                            corr.push(crate::correction::Correction {
+                                start: i + 1, end: i + 1, replacement: " ".to_string(),
+                                cop_name: self.name(), cop_index: 0,
+                            });
+                        }
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
                 i += 1;
                 continue;
@@ -215,4 +247,5 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(SpaceAroundOperators, "cops/layout/space_around_operators");
+    crate::cop_autocorrect_fixture_tests!(SpaceAroundOperators, "cops/layout/space_around_operators");
 }

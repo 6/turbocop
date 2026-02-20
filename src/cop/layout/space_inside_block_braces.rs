@@ -14,6 +14,10 @@ impl Cop for SpaceInsideBlockBraces {
         &[BLOCK_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -21,7 +25,7 @@ impl Cop for SpaceInsideBlockBraces {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let block = match node.as_block_node() {
             Some(b) => b,
@@ -49,12 +53,18 @@ impl Cop for SpaceInsideBlockBraces {
             match empty_style {
                 "space" => {
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
+                    let mut diag = self.diagnostic(
+                        source, line, column,
                         "Space inside empty braces missing.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: open_end, end: open_end, replacement: " ".to_string(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                     return;
                 }
                 _ => return, // no_space is fine for {}
@@ -65,12 +75,18 @@ impl Cop for SpaceInsideBlockBraces {
             match empty_style {
                 "no_space" => {
                     let (line, column) = source.offset_to_line_col(open_end);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
+                    let mut diag = self.diagnostic(
+                        source, line, column,
                         "Space inside empty braces detected.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: open_end, end: open_end + 1, replacement: String::new(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                     return;
                 }
                 _ => return, // space is fine for { }
@@ -83,12 +99,18 @@ impl Cop for SpaceInsideBlockBraces {
                 let pipe_start = params.location().start_offset();
                 if pipe_start == open_end + 1 && bytes.get(open_end) == Some(&b' ') {
                     let (line, column) = source.offset_to_line_col(open_end);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
+                    let mut diag = self.diagnostic(
+                        source, line, column,
                         "Space between { and | detected.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: open_end, end: open_end + 1, replacement: String::new(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                     return;
                 }
             }
@@ -110,41 +132,65 @@ impl Cop for SpaceInsideBlockBraces {
             "space" => {
                 if !space_after_open {
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
+                    let mut diag = self.diagnostic(
+                        source, line, column,
                         "Space missing inside {.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: open_end, end: open_end, replacement: " ".to_string(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
                 if !space_before_close {
                     let (line, column) = source.offset_to_line_col(closing.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
+                    let mut diag = self.diagnostic(
+                        source, line, column,
                         "Space missing inside }.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: close_start, end: close_start, replacement: " ".to_string(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
             }
             "no_space" => {
                 if space_after_open {
                     let (line, column) = source.offset_to_line_col(open_end);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
+                    let mut diag = self.diagnostic(
+                        source, line, column,
                         "Space inside { detected.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: open_end, end: open_end + 1, replacement: String::new(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
                 if space_before_close {
                     let (line, column) = source.offset_to_line_col(close_start - 1);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
+                    let mut diag = self.diagnostic(
+                        source, line, column,
                         "Space inside } detected.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: close_start - 1, end: close_start, replacement: String::new(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
             }
             _ => {}
@@ -158,6 +204,7 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(SpaceInsideBlockBraces, "cops/layout/space_inside_block_braces");
+    crate::cop_autocorrect_fixture_tests!(SpaceInsideBlockBraces, "cops/layout/space_inside_block_braces");
 
     #[test]
     fn empty_braces_space_style_flags_no_space() {

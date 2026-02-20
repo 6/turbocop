@@ -14,6 +14,10 @@ impl Cop for SpaceInsideHashLiteralBraces {
         &[HASH_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -21,7 +25,7 @@ impl Cop for SpaceInsideHashLiteralBraces {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Note: keyword_hash_node (keyword args like `foo(a: 1)`) intentionally not
         // handled — this cop only applies to hash literals with `{ }` braces.
@@ -49,12 +53,20 @@ impl Cop for SpaceInsideHashLiteralBraces {
             match empty_style {
                 "space" => {
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
-                    diagnostics.push(self.diagnostic(
+                    let mut diag = self.diagnostic(
                         source,
                         line,
                         column,
                         "Space inside empty hash literal braces missing.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: open_end, end: open_end, replacement: " ".to_string(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                     return;
                 }
                 _ => return,
@@ -65,12 +77,20 @@ impl Cop for SpaceInsideHashLiteralBraces {
             match empty_style {
                 "no_space" => {
                     let (line, column) = source.offset_to_line_col(open_end);
-                    diagnostics.push(self.diagnostic(
+                    let mut diag = self.diagnostic(
                         source,
                         line,
                         column,
                         "Space inside empty hash literal braces detected.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: open_end, end: open_end + 1, replacement: String::new(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                     return;
                 }
                 _ => return,
@@ -94,41 +114,65 @@ impl Cop for SpaceInsideHashLiteralBraces {
             "space" => {
                 if !space_after_open {
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
+                    let mut diag = self.diagnostic(
+                        source, line, column,
                         "Space inside { missing.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: open_end, end: open_end, replacement: " ".to_string(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
                 if !space_before_close {
                     let (line, column) = source.offset_to_line_col(closing.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
+                    let mut diag = self.diagnostic(
+                        source, line, column,
                         "Space inside } missing.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: close_start, end: close_start, replacement: " ".to_string(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
             }
             "no_space" => {
                 if space_after_open {
                     let (line, column) = source.offset_to_line_col(open_end);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
+                    let mut diag = self.diagnostic(
+                        source, line, column,
                         "Space inside { detected.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: open_end, end: open_end + 1, replacement: String::new(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
                 if space_before_close {
                     let (line, column) = source.offset_to_line_col(close_start - 1);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
+                    let mut diag = self.diagnostic(
+                        source, line, column,
                         "Space inside } detected.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: close_start - 1, end: close_start, replacement: String::new(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
             }
             _ => {}
@@ -143,6 +187,10 @@ mod tests {
     use crate::testutil::{run_cop_full_with_config, assert_cop_no_offenses_full_with_config};
 
     crate::cop_fixture_tests!(
+        SpaceInsideHashLiteralBraces,
+        "cops/layout/space_inside_hash_literal_braces"
+    );
+    crate::cop_autocorrect_fixture_tests!(
         SpaceInsideHashLiteralBraces,
         "cops/layout/space_inside_hash_literal_braces"
     );
