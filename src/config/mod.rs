@@ -657,8 +657,21 @@ fn convert_standard_yml(standard_path: &Path) -> Result<String> {
         }
     }
 
+    // Standard's DEFAULT_IGNORES: always applied unless `default_ignores: false`.
+    // These match the Ruby standard gem's ConfiguresIgnoredPaths::DEFAULT_IGNORES.
+    // Note: .git/**/*, node_modules/**/*, vendor/**/*, tmp/**/* are already in
+    // RuboCop's own AllCops.Exclude defaults, so we only need the standard-specific ones.
+    let default_ignores_disabled = map
+        .get(&serde_yml::Value::String("default_ignores".into()))
+        .and_then(|v| v.as_bool())
+        == Some(false);
+
     // ignore → AllCops.Exclude (simple patterns) + per-cop disables
     let mut exclude_patterns: Vec<String> = Vec::new();
+    if !default_ignores_disabled {
+        exclude_patterns.push("bin/*".to_string());
+        exclude_patterns.push("db/schema.rb".to_string());
+    }
     let mut cop_disables: Vec<(String, String)> = Vec::new(); // (cop_name, glob)
     if let Some(ignore) = map.get(&serde_yml::Value::String("ignore".into())) {
         if let Some(seq) = ignore.as_sequence() {
@@ -708,6 +721,13 @@ fn convert_standard_yml(standard_path: &Path) -> Result<String> {
         } else {
             lines.push(format!("{cop_name}:\n  Exclude:\n    - '{glob}'"));
         }
+    }
+
+    // Standard's ignores are appended on top of plugin gem configs (like standard-rails)
+    // rather than replacing them. Emit inherit_mode to merge Exclude arrays so that
+    // AllCops.Exclude from standard-rails (e.g., db/*schema.rb) is preserved.
+    if !exclude_patterns.is_empty() {
+        lines.push("inherit_mode:\n  merge:\n    - Exclude".to_string());
     }
 
     // extend_config → inherit_from
@@ -1849,6 +1869,20 @@ impl ResolvedConfig {
                 .options
                 .entry("ActiveSupportExtensionsEnabled".to_string())
                 .or_insert_with(|| Value::Bool(self.active_support_extensions_enabled));
+        }
+        // Inject Layout/ArgumentAlignment EnforcedStyle into Layout/HashAlignment
+        // (mirrors RuboCop's `config.for_enabled_cop('Layout/ArgumentAlignment')` lookup
+        // used by autocorrect_incompatible_with_other_cops?)
+        if name == "Layout/HashAlignment" {
+            let aa_config = self.cop_configs.get("Layout/ArgumentAlignment");
+            let aa_style = aa_config
+                .and_then(|cc| cc.options.get("EnforcedStyle"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("with_first_argument");
+            config
+                .options
+                .entry("ArgumentAlignmentStyle".to_string())
+                .or_insert_with(|| Value::String(aa_style.to_string()));
         }
         // Inject Style/StringLiterals EnforcedStyle for Style/QuotedSymbols
         // (mirrors RuboCop's `config.for_cop('Style/StringLiterals')` lookup)
@@ -4115,6 +4149,48 @@ mod tests {
         let yaml = convert_standard_yml(&path).unwrap();
         assert!(yaml.contains("inherit_from:"), "got: {yaml}");
         assert!(yaml.contains("- .custom_cops.yml"), "got: {yaml}");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn convert_standard_yml_default_ignores() {
+        let dir = std::env::temp_dir().join("turbocop_test_standard_default_ignores");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(".standard.yml");
+        // No default_ignores key → defaults to true
+        fs::write(&path, "# empty config\n").unwrap();
+
+        let yaml = convert_standard_yml(&path).unwrap();
+        assert!(yaml.contains("bin/*"), "default ignores should include bin/*; got: {yaml}");
+        assert!(
+            yaml.contains("db/schema.rb"),
+            "default ignores should include db/schema.rb; got: {yaml}"
+        );
+        assert!(
+            yaml.contains("inherit_mode:"),
+            "should emit inherit_mode to merge Exclude; got: {yaml}"
+        );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn convert_standard_yml_default_ignores_disabled() {
+        let dir = std::env::temp_dir().join("turbocop_test_standard_no_default_ignores");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(".standard.yml");
+        fs::write(&path, "default_ignores: false\n").unwrap();
+
+        let yaml = convert_standard_yml(&path).unwrap();
+        assert!(
+            !yaml.contains("bin/*"),
+            "default ignores should be suppressed when default_ignores: false; got: {yaml}"
+        );
+        assert!(
+            !yaml.contains("db/schema.rb"),
+            "default ignores should be suppressed when default_ignores: false; got: {yaml}"
+        );
         fs::remove_dir_all(&dir).ok();
     }
 

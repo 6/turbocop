@@ -31,8 +31,13 @@ impl Cop for NestedParenthesizedCalls {
             None => return,
         };
 
-        // Outer call must have parentheses
-        if outer_call.opening_loc().is_none() {
+        // Outer call must have actual parentheses (not [] brackets)
+        let opening = match outer_call.opening_loc() {
+            Some(loc) => loc,
+            None => return,
+        };
+        // Skip [] and []= calls — brackets are not parentheses
+        if opening.as_slice() == b"[" {
             return;
         }
 

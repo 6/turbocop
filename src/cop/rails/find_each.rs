@@ -6,7 +6,20 @@ use crate::cop::node_type::CALL_NODE;
 
 pub struct FindEach;
 
-const AR_SCOPE_METHODS: &[&[u8]] = &[b"all", b"where", b"order", b"select"];
+const AR_SCOPE_METHODS: &[&[u8]] = &[
+    b"all",
+    b"eager_load",
+    b"includes",
+    b"joins",
+    b"left_joins",
+    b"left_outer_joins",
+    b"not",
+    b"or",
+    b"preload",
+    b"references",
+    b"unscoped",
+    b"where",
+];
 
 impl Cop for FindEach {
     fn name(&self) -> &'static str {

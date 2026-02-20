@@ -70,7 +70,7 @@ Location-level comparison: file + line + cop_name. Only cops implemented by turb
 | doorkeeper | 624 | 624 | 624 | 0 | 0 | **100.0%** |
 | fat_free_crm | 0 | 0 | 0 | 0 | 0 | **100.0%** |
 | multi_json | 0 | 0 | 0 | 0 | 0 | **100.0%** |
-| lobsters | 223 | 0 | 0 | 223 | 0 | **0.0%** |
+| lobsters | 21 | 0 | 0 | 21 | 0 | **0.0%** |
 
 **mastodon:** All cops match perfectly!
 
@@ -99,29 +99,20 @@ Location-level comparison: file + line + cop_name. Only cops implemented by turb
 **multi_json:** All cops match perfectly!
 
 <details>
-<summary>Divergent cops — lobsters (20 of 20 shown)</summary>
+<summary>Divergent cops — lobsters (11 of 11 shown)</summary>
 
 | Cop | Matches | FP | FN |
 |-----|--------:|---:|---:|
-| Layout/HashAlignment | 0 | 101 | 0 |
-| Rails/Exit | 0 | 30 | 0 |
-| Performance/RegexpMatch | 0 | 26 | 0 |
-| Layout/SpaceInsideHashLiteralBraces | 0 | 21 | 0 |
-| Style/StringLiterals | 0 | 10 | 0 |
-| Style/RedundantSelf | 0 | 5 | 0 |
 | Layout/MultilineMethodCallBraceLayout | 0 | 4 | 0 |
 | Layout/MultilineMethodCallIndentation | 0 | 4 | 0 |
-| Style/NestedParenthesizedCalls | 0 | 4 | 0 |
 | Layout/ArgumentAlignment | 0 | 3 | 0 |
-| Rails/FindEach | 0 | 3 | 0 |
 | Layout/IndentationWidth | 0 | 2 | 0 |
-| Lint/OutOfRangeRegexpRef | 0 | 2 | 0 |
-| Performance/ConstantRegexp | 0 | 2 | 0 |
+| Rails/Exit | 0 | 2 | 0 |
 | Layout/MultilineBlockLayout | 0 | 1 | 0 |
 | Layout/MultilineOperationIndentation | 0 | 1 | 0 |
 | Lint/ConstantDefinitionInBlock | 0 | 1 | 0 |
+| Lint/OutOfRangeRegexpRef | 0 | 1 | 0 |
 | Performance/SortReverse | 0 | 1 | 0 |
-| Style/MixinUsage | 0 | 1 | 0 |
 | Style/SafeNavigation | 0 | 1 | 0 |
 
 </details>
