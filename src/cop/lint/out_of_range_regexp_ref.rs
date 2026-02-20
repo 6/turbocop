@@ -50,19 +50,27 @@ impl<'pr> Visit<'pr> for RegexpRefVisitor<'_, '_> {
 
         // `=~` operator
         if method == b"=~" {
+            let mut found_captures = false;
             if let Some(args) = node.arguments() {
                 let arg_list: Vec<ruby_prism::Node<'pr>> = args.arguments().iter().collect();
                 if let Some(arg) = arg_list.first() {
                     // RHS regexp takes precedence
                     if let Some(count) = count_captures_in_node(arg) {
                         self.current_capture_count = Some(count);
+                        found_captures = true;
                     } else if let Some(recv) = node.receiver() {
                         // LHS regexp
                         if let Some(count) = count_captures_in_node(&recv) {
                             self.current_capture_count = Some(count);
+                            found_captures = true;
                         }
                     }
                 }
+            }
+            // If neither side is a recognizable literal regexp (e.g., one is a constant
+            // reference), mark capture count as unknown so we don't false-positive on $N.
+            if !found_captures {
+                self.current_capture_count = Some(usize::MAX);
             }
             ruby_prism::visit_call_node(self, node);
             return;
@@ -70,10 +78,16 @@ impl<'pr> Visit<'pr> for RegexpRefVisitor<'_, '_> {
 
         // `===` operator with regexp receiver
         if method == b"===" {
+            let mut found = false;
             if let Some(recv) = node.receiver() {
                 if let Some(count) = count_captures_in_node(&recv) {
                     self.current_capture_count = Some(count);
+                    found = true;
                 }
+            }
+            if !found {
+                // Receiver may be a constant regexp reference — mark as unknown
+                self.current_capture_count = Some(usize::MAX);
             }
             ruby_prism::visit_call_node(self, node);
             return;
@@ -81,10 +95,12 @@ impl<'pr> Visit<'pr> for RegexpRefVisitor<'_, '_> {
 
         // `match` method with regexp receiver (but not `match?`)
         if method == b"match" {
+            let mut found = false;
             if let Some(recv) = node.receiver() {
                 if let Some(count) = count_captures_in_node(&recv) {
                     if node.arguments().is_some() {
                         self.current_capture_count = Some(count);
+                        found = true;
                     }
                 } else if let Some(args) = node.arguments() {
                     // match with regexp as argument
@@ -92,9 +108,14 @@ impl<'pr> Visit<'pr> for RegexpRefVisitor<'_, '_> {
                     if let Some(arg) = arg_list.first() {
                         if let Some(count) = count_captures_in_node(arg) {
                             self.current_capture_count = Some(count);
+                            found = true;
                         }
                     }
                 }
+            }
+            if !found && node.arguments().is_some() {
+                // Regexp is a constant or dynamic reference — mark as unknown
+                self.current_capture_count = Some(usize::MAX);
             }
             ruby_prism::visit_call_node(self, node);
             return;

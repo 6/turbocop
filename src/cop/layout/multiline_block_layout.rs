@@ -40,7 +40,14 @@ impl Cop for MultilineBlockLayout {
         }
 
         // Check 1: Block arguments should be on the same line as block start
+        // Skip implicit parameter nodes (ItParametersNode for `it`,
+        // NumberedParametersNode for `_1`) — they have no visible source.
         if let Some(params) = block_node.parameters() {
+            if params.as_it_parameters_node().is_some()
+                || params.as_numbered_parameters_node().is_some()
+            {
+                // Implicit params — no visible block argument expression
+            } else {
             let params_loc = params.location();
             let (params_end_line, _) = source.offset_to_line_col(params_loc.end_offset().saturating_sub(1));
             if params_end_line != open_line {
@@ -79,6 +86,7 @@ impl Cop for MultilineBlockLayout {
                     ));
                 }
             }
+            } // close else for implicit params check
         }
 
         // Check 2: Block body should NOT be on the same line as block start

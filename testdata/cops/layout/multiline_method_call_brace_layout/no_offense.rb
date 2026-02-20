@@ -21,3 +21,18 @@ define_method(method, &lambda do |*args, **kwargs|
   nf = nested_field
   nf ? nf.send(method, *args, **kwargs) : super(*args, **kwargs)
 end)
+
+# Heredoc argument with method call (<<~SQL.tr) — closing paren after heredoc
+query.joins!(<<~SQL.tr("\n", "")
+  inner join (
+    select stories.id from stories
+  ) as t on t.id = stories.id
+SQL
+            )
+
+# Plain heredoc argument — closing paren after heredoc
+foo(<<~RUBY
+  some
+  content
+RUBY
+)

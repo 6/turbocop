@@ -55,6 +55,16 @@ impl Cop for MultilineMethodCallBraceLayout {
             return;
         }
 
+        // RuboCop skips the brace layout check when any argument contains a
+        // heredoc, because heredoc terminators force unusual line placement for
+        // the closing paren. Detect heredoc arguments by checking if the
+        // opening location starts with `<<`.
+        for arg in &arg_list {
+            if is_heredoc_node(arg) {
+                return;
+            }
+        }
+
         let (open_line, _) = source.offset_to_line_col(opening.start_offset());
         let (close_line, close_col) = source.offset_to_line_col(closing.start_offset());
 
@@ -134,6 +144,29 @@ impl Cop for MultilineMethodCallBraceLayout {
         }
 
     }
+}
+
+/// Check if a node is or contains a heredoc string (opening starts with `<<`).
+/// Also walks into method call receivers to detect `<<~SQL.tr(...)` patterns
+/// where the heredoc is wrapped in a method call.
+fn is_heredoc_node(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(s) = node.as_interpolated_string_node() {
+        if let Some(open) = s.opening_loc() {
+            return open.as_slice().starts_with(b"<<");
+        }
+    }
+    if let Some(s) = node.as_string_node() {
+        if let Some(open) = s.opening_loc() {
+            return open.as_slice().starts_with(b"<<");
+        }
+    }
+    // Check if this is a method call on a heredoc (e.g., <<~SQL.tr("\n", ""))
+    if let Some(call) = node.as_call_node() {
+        if let Some(recv) = call.receiver() {
+            return is_heredoc_node(&recv);
+        }
+    }
+    false
 }
 
 #[cfg(test)]

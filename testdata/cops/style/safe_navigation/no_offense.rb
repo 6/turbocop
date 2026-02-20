@@ -39,3 +39,8 @@ portal && portal.custom_domain.present?
 cookies[token] = user && user.remember_me!
 result[key] = obj && obj.value
 foo.bar = baz && baz.qux
+
+# && inside dotless method call arguments — unsafe context
+# (RuboCop skips when ancestor send is dotless, e.g. scope, puts)
+scope :accessible_to_user, ->(user) { user && user.name }
+puts(foo && foo.bar)

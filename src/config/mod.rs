@@ -1089,6 +1089,37 @@ fn load_config_recursive_inner(
         }
         // Deduplicate (a gem may appear in both require: and plugins:)
         gems.dedup();
+
+        // When standard-* wrapper gems are present, inject the underlying
+        // rubocop-* gems so we also load their Include/Exclude patterns.
+        // The standard-rails gem config sets cop enabled/disabled states but
+        // doesn't include rubocop-rails' per-cop Include patterns (e.g.,
+        // Rails/Exit only applies to app/config/lib directories).
+        // IMPORTANT: Insert rubocop-* BEFORE its standard-* counterpart so
+        // that the standard gem's Enabled overrides take priority (later
+        // merges win).
+        {
+            let mut injected = Vec::new();
+            for (i, gem) in gems.iter().enumerate() {
+                if gem == "standard-rails"
+                    && !gems.iter().any(|g| g == "rubocop-rails")
+                    && !injected.iter().any(|(_, g): &(usize, String)| g == "rubocop-rails")
+                {
+                    injected.push((i, "rubocop-rails".to_string()));
+                }
+                if gem == "standard-performance"
+                    && !gems.iter().any(|g| g == "rubocop-performance")
+                    && !injected.iter().any(|(_, g): &(usize, String)| g == "rubocop-performance")
+                {
+                    injected.push((i, "rubocop-performance".to_string()));
+                }
+            }
+            // Insert in reverse order to maintain correct indices
+            for (i, gem) in injected.into_iter().rev() {
+                gems.insert(i, gem);
+            }
+        }
+
         if !gems.is_empty() {
 
             for gem_name in &gems {

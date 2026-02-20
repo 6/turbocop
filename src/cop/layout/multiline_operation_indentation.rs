@@ -90,12 +90,30 @@ impl Cop for MultilineOperationIndentation {
                 _ => expected_indented, // "indented" (default)
             };
 
+            // RuboCop's `kw_node_with_special_indentation` doubles the
+            // indentation width when the operation is inside a keyword expression
+            // (return, if, while, etc.).
+            let kw_expected = if is_in_keyword_condition(source, recv_start_line) {
+                Some(recv_indent + 2 * width)
+            } else {
+                None
+            };
+
+            let right_line_bytes = source.lines().nth(arg_line - 1).unwrap_or(b"");
+            let line_indent = indentation_of(right_line_bytes);
+
             // For "aligned" style, RuboCop accepts both aligned and properly
             // indented forms in non-condition contexts (assignments, method args).
             let is_ok = if style == "aligned" {
-                arg_col == expected || arg_col == expected_indented
+                arg_col == expected
+                    || arg_col == expected_indented
+                    || line_indent == expected_indented
+                    || arg_col == recv_indent
+                    || kw_expected.is_some_and(|kw| arg_col == kw || line_indent == kw)
             } else {
                 arg_col == expected
+                    || arg_col == recv_indent
+                    || kw_expected.is_some_and(|kw| arg_col == kw || line_indent == kw)
             };
 
             if !is_ok {

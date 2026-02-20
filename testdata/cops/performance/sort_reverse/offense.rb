@@ -1,6 +1,6 @@
-[3, 1, 2].sort.reverse
-^^^^^^^^^^^^^^^^^^^^^^ Performance/SortReverse: Use `sort` with a block and reverse the comparison instead of `sort.reverse`.
-arr.sort.reverse
-^^^^^^^^^^^^^^^^ Performance/SortReverse: Use `sort` with a block and reverse the comparison instead of `sort.reverse`.
-items.sort.reverse
-^^^^^^^^^^^^^^^^^^ Performance/SortReverse: Use `sort` with a block and reverse the comparison instead of `sort.reverse`.
+[3, 1, 2].sort { |a, b| b <=> a }
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/SortReverse: Use `sort.reverse` instead of `sort { |a, b| b <=> a }`.
+arr.sort { |x, y| y <=> x }
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/SortReverse: Use `sort.reverse` instead of `sort { |a, b| b <=> a }`.
+items.sort { |left, right| right <=> left }
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/SortReverse: Use `sort.reverse` instead of `sort { |a, b| b <=> a }`.

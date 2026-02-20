@@ -3171,7 +3171,7 @@ fn no_redundant_disable_executed_cop_no_offense() {
 fn redundant_disable_for_renamed_cop() {
     // Naming/PredicateName was renamed to Naming/PredicatePrefix.
     // Disabling the old name is redundant.
-    let dir = temp_dir("redundant_disable_renamed_cop");
+    let dir = temp_dir("redundant_disable_for_renamed_cop");
     let file = write_file(
         &dir,
         "test.rb",

@@ -43,6 +43,8 @@ TURBOCOP_COP_PROFILE=1 cargo run --release -- --debug bench/repos/mastodon
   hyperfine --warmup 2 --runs 5 'cargo run --release -- bench/repos/mastodon'
   ```
 - **Note on `--debug` timing:** The phase-level timings for filter+config and AST walk show cumulative thread time summed across all rayon workers, not wall time. This means the reported values will exceed wall clock time on multi-core machines.
+- **Clear result cache after code changes:** turbocop caches lint results per-file in `~/.cache/turbocop/`. The cache session hash includes version+config+args but NOT cop implementation code. After rebuilding with cop fixes, stale cached results are returned. Clear with `rm -rf ~/.cache/turbocop` before verifying fixes. Using `--only CopName` produces a different session hash and uses a different (empty) cache, which is why `--only` runs may show different results than full scans after code changes.
+- **Verify conformance with correct JSON format:** turbocop's JSON output uses `offenses` at the top level (not `files[].offenses[]` like RuboCop). Parse with `d.get('offenses', [])`, not `d.get('files', [])`.
 
 ## Architecture
 
@@ -232,6 +234,7 @@ PROGRESS.md links to `docs/coverage.md` instead of maintaining inline tables.
 - Keep [PROGRESS.md](PROGRESS.md) up to date when completing milestone tasks. Check off items as done and update milestone status.
 - After adding a new cop, ensure `cargo test` passes — the `all_cops_have_minimum_test_coverage` integration test enforces that every cop has at least 3 offense fixture cases and 5+ non-empty lines in no_offense.rb. There are zero exemptions; use `offense/` scenario directories and `# turbocop-expect:` annotations to handle cops that can't use the standard single-file format.
 - **Every cop fix or false-positive fix must include test coverage.** When fixing a false positive, add the previously-false-positive case to the cop's `no_offense.rb` fixture. When fixing a missed detection, add it to `offense.rb`. This prevents regressions and documents the expected behavior.
+- **Never delete existing test cases.** Existing offense and no_offense fixtures represent verified correct behavior. If a code change causes existing tests to fail, the change is likely too aggressive and introduces regressions (FPs or FNs on other repos). Fix the approach rather than deleting tests. Only add new test cases; never remove them.
 - **After adding or fixing cops, regenerate coverage docs.** Run the full pipeline to keep docs up to date:
   1. `cargo run --release --bin bench_turbocop -- conform` — regenerate conformance data (`bench/conform.json`)
   2. `cargo run --bin coverage_table -- --show-missing --output docs/coverage.md` — regenerate coverage table

@@ -78,10 +78,9 @@ impl ChainVisitor<'_> {
             return;
         }
 
-        // RuboCop skips inside parenthesized call arguments, UNLESS the chain
-        // is inside a hash pair value (where it applies hash-pair alignment).
-        // However, if we entered NEW paren args inside a hash value (deeper
-        // nesting), we still skip — matching RuboCop's `not_for_this_cop?`.
+        // RuboCop skips chain indentation checks inside parenthesized call
+        // arguments — UNLESS the chain is inside a hash pair value (AssocNode).
+        // Hash pair values are checked even when inside parenthesized args.
         if self.in_paren_args && !self.in_hash_value {
             return;
         }

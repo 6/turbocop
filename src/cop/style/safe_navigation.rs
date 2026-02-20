@@ -270,14 +270,22 @@ impl<'a> SafeNavVisitor<'a> {
         if name.ends_with(b"=") && name != b"==" && name != b"!=" {
             return true;
         }
-        // Dotless operator calls (no dot, used as binary/unary operators)
+        // Dotless calls (no dot/safe-nav operator)
         if call.call_operator_loc().is_none() {
+            // Binary/unary operator methods
             if matches!(
                 name,
                 b"+" | b"-" | b"*" | b"/" | b"%" | b"**"
                     | b"<" | b">" | b"<=" | b">="
                     | b"<=>" | b"<<" | b">>" | b"&" | b"|" | b"^"
             ) {
+                return true;
+            }
+            // Dotless method calls with arguments or a block (e.g., `scope :bar, lambda`,
+            // `puts(foo && foo.bar)`). RuboCop considers these unsafe because converting
+            // `&&` to safe navigation inside their arguments changes behavior.
+            // Excludes: `!` (negation) and bare names with no args (variable-like reads).
+            if name != b"!" && (call.arguments().is_some() || call.block().is_some()) {
                 return true;
             }
         }
@@ -298,7 +306,10 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
     }
 
     fn visit_and_node(&mut self, node: &ruby_prism::AndNode<'pr>) {
-        // Skip if inside an assignment method or operator call
+        // Skip if inside an assignment method, operator call, or dotless method call.
+        // RuboCop skips `&&` patterns when any ancestor send node is "unsafe" (dotless,
+        // assignment, or operator method). For example, `scope :bar, ->(user) { user && user.name }`
+        // is not flagged because `scope` is a dotless method call.
         if self.in_unsafe_parent > 0 {
             ruby_prism::visit_and_node(self, node);
             return;

@@ -58,10 +58,20 @@ impl Cop for ArgumentAlignment {
         // indentation + indent_width
         let expected_col = match style {
             "with_fixed_indentation" => {
-                let call_loc = call_node.location();
-                let (call_line, _) = source.offset_to_line_col(call_loc.start_offset());
-                let call_line_bytes = source.lines().nth(call_line - 1).unwrap_or(b"");
-                crate::cop::util::indentation_of(call_line_bytes) + indent_width
+                // Use the line containing the method selector (or opening paren),
+                // NOT the full call expression start (which includes the receiver
+                // chain). For chained calls like `Foo.bar.baz("str", arg)`, the
+                // call node starts at `Foo` but we want the indentation of the
+                // line containing `.baz(`.
+                let base_line = if let Some(open_loc) = call_node.opening_loc() {
+                    source.offset_to_line_col(open_loc.start_offset()).0
+                } else if let Some(msg_loc) = call_node.message_loc() {
+                    source.offset_to_line_col(msg_loc.start_offset()).0
+                } else {
+                    source.offset_to_line_col(call_node.location().start_offset()).0
+                };
+                let base_line_bytes = source.lines().nth(base_line - 1).unwrap_or(b"");
+                crate::cop::util::indentation_of(base_line_bytes) + indent_width
             }
             _ => first_col, // "with_first_argument" (default)
         };

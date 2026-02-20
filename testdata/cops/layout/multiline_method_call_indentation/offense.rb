@@ -30,3 +30,4 @@ submission.template_submitters
 foo(key: receiver.chained
                           .misaligned)
                           ^^^ Layout/MultilineMethodCallIndentation: Align `.misaligned` with `receiver` on line 25.
+

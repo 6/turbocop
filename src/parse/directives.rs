@@ -6,7 +6,7 @@ use regex::Regex;
 use crate::parse::source::SourceFile;
 
 static DIRECTIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"#\s*(?:rubocop|turbocop)\s*:\s*(disable|enable|todo)\s+(.+)").unwrap()
+    Regex::new(r"#\s*(?:rubocop|turbocop|standard)\s*:\s*(disable|enable|todo)\s+(.+)").unwrap()
 });
 
 /// A single disable directive entry (one cop name from a `# rubocop:disable` comment).
@@ -327,6 +327,13 @@ mod tests {
     #[test]
     fn turbocop_alias() {
         let dr = disabled_ranges("x = 1 # turbocop:disable Foo/Bar\ny = 2\n");
+        assert!(dr.is_disabled("Foo/Bar", 1));
+        assert!(!dr.is_disabled("Foo/Bar", 2));
+    }
+
+    #[test]
+    fn standard_alias() {
+        let dr = disabled_ranges("x = 1 # standard:disable Foo/Bar\ny = 2\n");
         assert!(dr.is_disabled("Foo/Bar", 1));
         assert!(!dr.is_disabled("Foo/Bar", 2));
     }

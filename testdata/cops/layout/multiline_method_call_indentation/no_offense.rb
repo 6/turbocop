@@ -58,3 +58,4 @@ expect(subject)
   .to receive(:method)
   .and_return(value)
 
+
