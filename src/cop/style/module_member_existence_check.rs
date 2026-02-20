@@ -12,6 +12,8 @@ const METHOD_MAPPINGS: &[(&[u8], &str)] = &[
     (b"private_instance_methods", "private_method_defined?"),
     (b"protected_instance_methods", "protected_method_defined?"),
     (b"constants", "const_defined?"),
+    (b"included_modules", "include?"),
+    (b"class_variables", "class_variable_defined?"),
 ];
 
 impl Cop for ModuleMemberExistenceCheck {

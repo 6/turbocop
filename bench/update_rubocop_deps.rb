@@ -51,6 +51,10 @@ PLUGIN_GEMS = %w[
 # Companion gems that should also be updated when present
 COMPANION_GEMS = %w[rubocop-rspec_rails rubocop-capybara rubocop-factory_bot].freeze
 
+# Standard gem family — when present, rubocop is a transitive dependency
+# and needs to be pinned explicitly to match the vendor version
+STANDARD_GEMS = %w[standard standard-performance standard-rails standard-custom].freeze
+
 # ---------------------------------------------------------------------------
 # Version reading
 # ---------------------------------------------------------------------------
@@ -270,6 +274,29 @@ def update_gemfile(repo_path, versions, dry_run:)
     end
   end
 
+  # For standardrb repos: if `standard` gem is present but `rubocop` is not
+  # a direct dependency, inject an explicit rubocop pin. This ensures
+  # standardrb repos use the same rubocop version as the vendor submodule.
+  rubocop_version = versions["rubocop"]
+  has_standard = content.match?(/^\s*gem\s+['"]standard['"]/)
+  has_rubocop = content.match?(/^\s*gem\s+['"]rubocop['"]/)
+  if has_standard && !has_rubocop && rubocop_version
+    # Find the `gem "standard"` line and insert rubocop pin after it
+    standard_line_pattern = /^(\s*gem\s+['"]standard['"].*\n)/
+    if content.match?(standard_line_pattern)
+      match = content.match(standard_line_pattern)
+      indent = match[1][/^\s*/]
+      rubocop_pin = "#{indent}gem \"rubocop\", \"#{rubocop_version}\"\n"
+      content = content.sub(standard_line_pattern, "\\1#{rubocop_pin}")
+      changed = true
+      if dry_run
+        puts "  Would inject rubocop pin for standardrb repo"
+      else
+        puts "  Injected rubocop #{rubocop_version} pin for standardrb repo"
+      end
+    end
+  end
+
   if changed
     if dry_run
       puts "  Would update #{gemfile}"
@@ -346,7 +373,7 @@ end
 
 def bundle_update(repo_path, versions, dry_run:)
   # Only update gems that are actually in the Gemfile
-  all_gems = (versions.keys + COMPANION_GEMS).uniq
+  all_gems = (versions.keys + COMPANION_GEMS + STANDARD_GEMS).uniq
   present_gems = gems_in_gemfile(repo_path, all_gems)
 
   if present_gems.empty?

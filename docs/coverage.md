@@ -66,11 +66,11 @@ Location-level comparison: file + line + cop_name. Only cops implemented by turb
 | activeadmin | 3 | 3 | 3 | 0 | 0 | **100.0%** |
 | good_job | 37 | 37 | 37 | 0 | 0 | **100.0%** |
 | docuseal | 60 | 60 | 60 | 0 | 0 | **100.0%** |
-| rubygems.org | 0 | 0 | 0 | 0 | 0 | **100.0%** |
-| doorkeeper | 624 | 624 | 624 | 0 | 0 | **100.0%** |
-| fat_free_crm | 0 | 0 | 0 | 0 | 0 | **100.0%** |
-| multi_json | 0 | 0 | 0 | 0 | 0 | **100.0%** |
-| lobsters | 2 | 0 | 0 | 2 | 0 | **0.0%** |
+| rubygems.org | 3 | 3 | 3 | 0 | 0 | **100.0%** |
+| doorkeeper | 628 | 628 | 628 | 0 | 0 | **100.0%** |
+| fat_free_crm | 32 | 32 | 32 | 0 | 0 | **100.0%** |
+| multi_json | 2 | 2 | 2 | 0 | 0 | **100.0%** |
+| lobsters | 6 | 6 | 6 | 0 | 0 | **100.0%** |
 
 **mastodon:** All cops match perfectly!
 
@@ -98,12 +98,5 @@ Location-level comparison: file + line + cop_name. Only cops implemented by turb
 
 **multi_json:** All cops match perfectly!
 
-<details>
-<summary>Divergent cops — lobsters (1 of 1 shown)</summary>
-
-| Cop | Matches | FP | FN |
-|-----|--------:|---:|---:|
-| Layout/IndentationWidth | 0 | 2 | 0 |
-
-</details>
+**lobsters:** All cops match perfectly!
 
