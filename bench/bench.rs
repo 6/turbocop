@@ -409,7 +409,8 @@ fn run_bench(args: &Args) -> HashMap<String, BenchResult> {
 // --- Quick bench (single repo, cached vs uncached) ---
 
 fn run_quick_bench(args: &Args) {
-    let repo_name = "activeadmin";
+    let bench_start = Instant::now();
+    let repo_name = "rubygems.org";
     let repo_dir = repos_dir().join(repo_name);
     if !repo_dir.exists() {
         eprintln!("{repo_name} repo not found. Run `bench_rblint setup` first.");
@@ -556,6 +557,12 @@ fn run_quick_bench(args: &Args) {
     writeln!(md).unwrap();
     writeln!(md, "**Repo:** {repo_name} ({rb_count} .rb files)").unwrap();
     writeln!(md, "**Benchmark config:** {runs} runs").unwrap();
+    writeln!(
+        md,
+        "**Total time:** {:.0}s",
+        bench_start.elapsed().as_secs_f64()
+    )
+    .unwrap();
     writeln!(md).unwrap();
     writeln!(md, "## Results").unwrap();
     writeln!(md).unwrap();
