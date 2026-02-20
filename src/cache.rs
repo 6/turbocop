@@ -450,6 +450,7 @@ mod tests {
             no_cache: false,
             cache: "true".to_string(),
             cache_clear: false,
+            fail_level: "convention".to_string(),
         }
     }
 

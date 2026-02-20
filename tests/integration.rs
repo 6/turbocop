@@ -45,6 +45,7 @@ fn default_args() -> Args {
         no_cache: false,
         cache: "true".to_string(),
         cache_clear: false,
+        fail_level: "convention".to_string(),
     }
 }
 
@@ -2888,4 +2889,51 @@ fn cache_preserves_all_severity_types() {
         }
         _ => panic!("Expected StatHit"),
     }
+}
+
+#[test]
+fn redundant_disable_excluded_cop() {
+    // A cop that is enabled but excluded from the file's path via Exclude
+    // patterns doesn't execute on that file. A disable directive for it is
+    // therefore redundant and should be flagged.
+    let dir = temp_dir("redundant_disable_excluded_cop");
+    let sub = dir.join("app").join("controllers");
+    fs::create_dir_all(&sub).unwrap();
+    let file = write_file(
+        &dir,
+        "app/controllers/test_controller.rb",
+        b"# frozen_string_literal: true\n\ndef edit # rubocop:disable Lint/UselessMethodDefinition\n  super\nend\n",
+    );
+    // Config that excludes Lint/UselessMethodDefinition from app/controllers/**
+    write_file(
+        &dir,
+        ".rubocop.yml",
+        b"Lint/UselessMethodDefinition:\n  Exclude:\n    - 'app/controllers/**/*'\n",
+    );
+    let config = load_config(None, Some(&dir), None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = default_args();
+
+    let result = run_linter(&[file], &config, &registry, &args);
+    let redundant: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.cop_name == "Lint/RedundantCopDisableDirective")
+        .collect();
+
+    assert_eq!(
+        redundant.len(),
+        1,
+        "Expected 1 redundant disable for excluded cop, got: {:?}",
+        redundant
+    );
+    assert!(
+        redundant[0]
+            .message
+            .contains("Lint/UselessMethodDefinition"),
+        "Message should mention the excluded cop: {}",
+        redundant[0].message
+    );
+
+    fs::remove_dir_all(&dir).ok();
 }

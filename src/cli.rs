@@ -60,4 +60,8 @@ pub struct Args {
     /// Clear the result cache and exit
     #[arg(long)]
     pub cache_clear: bool,
+
+    /// Minimum severity for a non-zero exit code (convention, warning, error, fatal, or C/W/E/F)
+    #[arg(long, value_name = "SEVERITY", default_value = "convention")]
+    pub fail_level: String,
 }

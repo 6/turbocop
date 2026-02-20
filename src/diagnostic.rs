@@ -22,10 +22,10 @@ impl Severity {
 
     pub fn from_str(s: &str) -> Option<Severity> {
         match s.to_lowercase().as_str() {
-            "convention" => Some(Severity::Convention),
-            "warning" => Some(Severity::Warning),
-            "error" => Some(Severity::Error),
-            "fatal" => Some(Severity::Fatal),
+            "convention" | "c" => Some(Severity::Convention),
+            "warning" | "w" => Some(Severity::Warning),
+            "error" | "e" => Some(Severity::Error),
+            "fatal" | "f" => Some(Severity::Fatal),
             _ => None,
         }
     }
@@ -100,6 +100,11 @@ mod tests {
         assert_eq!(Severity::from_str("ERROR"), Some(Severity::Error));
         assert_eq!(Severity::from_str("fatal"), Some(Severity::Fatal));
         assert_eq!(Severity::from_str("unknown"), None);
+        // Single-letter codes (RuboCop compat)
+        assert_eq!(Severity::from_str("c"), Some(Severity::Convention));
+        assert_eq!(Severity::from_str("W"), Some(Severity::Warning));
+        assert_eq!(Severity::from_str("E"), Some(Severity::Error));
+        assert_eq!(Severity::from_str("F"), Some(Severity::Fatal));
     }
 
     #[test]

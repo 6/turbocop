@@ -26,6 +26,14 @@ use parse::source::SourceFile;
 
 /// Run the linter. Returns the exit code: 0 = clean, 1 = offenses found, 2 = error.
 pub fn run(args: Args) -> Result<i32> {
+    // Validate --fail-level early
+    let fail_level = diagnostic::Severity::from_str(&args.fail_level).ok_or_else(|| {
+        anyhow::anyhow!(
+            "invalid --fail-level '{}'. Expected: convention, warning, error, fatal (or C, W, E, F)",
+            args.fail_level
+        )
+    })?;
+
     let target_dir = args.paths.first().map(|p| {
         if p.is_file() {
             p.parent().unwrap_or(p)
@@ -146,10 +154,14 @@ pub fn run(args: Args) -> Result<i32> {
         let result = lint_source(&source, &config, &registry, &args);
         let formatter = create_formatter(&args.format);
         formatter.print(&result.diagnostics, result.file_count);
-        return if result.diagnostics.is_empty() {
-            Ok(0)
-        } else {
+        return if result
+            .diagnostics
+            .iter()
+            .any(|d| d.severity >= fail_level)
+        {
             Ok(1)
+        } else {
+            Ok(0)
         };
     }
 
@@ -164,9 +176,13 @@ pub fn run(args: Args) -> Result<i32> {
     let formatter = create_formatter(&args.format);
     formatter.print(&result.diagnostics, result.file_count);
 
-    if result.diagnostics.is_empty() {
-        Ok(0)
-    } else {
+    if result
+        .diagnostics
+        .iter()
+        .any(|d| d.severity >= fail_level)
+    {
         Ok(1)
+    } else {
+        Ok(0)
     }
 }
