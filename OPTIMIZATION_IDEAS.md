@@ -1,23 +1,23 @@
 # Optimization Ideas
 
-Performance optimization ideas for rblint, inspired by [qj](https://github.com/6/qj)'s approach to making a Rust CLI tool dramatically faster than its Ruby/C predecessor.
+Performance optimization ideas for turbocop, inspired by [qj](https://github.com/6/qj)'s approach to making a Rust CLI tool dramatically faster than its Ruby/C predecessor.
 
 qj's core techniques — single-pass processing, on-demand field extraction, and zero-copy I/O — have direct analogs in a linter's architecture. These ideas are ordered by expected impact.
 
 ## Current performance baseline
 
-| Repo | .rb files | rblint | rubocop | Speedup |
+| Repo | .rb files | turbocop | rubocop | Speedup |
 |------|----------:|-------:|--------:|--------:|
 | mastodon | 2524 | 1.61s | 2.49s | 1.5x |
 | discourse | 5831 | 1.26s | 3.45s | 2.7x |
 
-rblint has 743 registered cops. Of these, 620 implement `check_node` (AST-based), 91 implement `check_source`, and 36 implement `check_lines`.
+turbocop has 743 registered cops. Of these, 620 implement `check_node` (AST-based), 91 implement `check_source`, and 36 implement `check_lines`.
 
 ---
 
 ## 1. Batched Multi-Cop Walker
 
-**qj parallel:** qj walks JSON data once, extracting all needed fields in a single pass. rblint currently walks the AST 620 separate times per file — once per AST-based cop.
+**qj parallel:** qj walks JSON data once, extracting all needed fields in a single pass. turbocop currently walks the AST 620 separate times per file — once per AST-based cop.
 
 ### Current behavior
 
@@ -120,7 +120,7 @@ The risk is near-zero since the Cop trait doesn't change and output is determini
 
 ## 2. Node-Type Dispatch Table
 
-**qj parallel:** qj's on-demand API extracts only the fields a filter needs, bypassing full document tree construction. Most rblint cops only care about 1-3 of the 151 Prism node types, but every cop is called for every node.
+**qj parallel:** qj's on-demand API extracts only the fields a filter needs, bypassing full document tree construction. Most turbocop cops only care about 1-3 of the 151 Prism node types, but every cop is called for every node.
 
 ### Current behavior
 
@@ -204,7 +204,7 @@ The 620-file annotation burden is the real cost. It's mechanical but annoying.
 
 ## 3. Push-Based Diagnostics
 
-**qj parallel:** qj avoids intermediate allocations by writing output directly to a buffer. rblint's `check_node` returns `Vec<Diagnostic>` — almost always empty — which means millions of empty Vec constructions and drops per run.
+**qj parallel:** qj avoids intermediate allocations by writing output directly to a buffer. turbocop's `check_node` returns `Vec<Diagnostic>` — almost always empty — which means millions of empty Vec constructions and drops per run.
 
 ### Current behavior
 
@@ -319,15 +319,15 @@ impl SourceFile {
 
 ### Difficulty: Low
 
-~30 lines in `source.rs`. Add `memmap2` to Cargo.toml. The `unsafe` in `Mmap::map` is well-established and safe as long as the file isn't modified during parsing (which it won't be — rblint doesn't modify source files).
+~30 lines in `source.rs`. Add `memmap2` to Cargo.toml. The `unsafe` in `Mmap::map` is well-established and safe as long as the file isn't modified during parsing (which it won't be — turbocop doesn't modify source files).
 
 ### Worth it: Probably not
 
-Unlike qj, which processes multi-gigabyte files where mmap is transformative, rblint processes thousands of small Ruby files. The average Ruby file is maybe 2-10KB. At that size, `std::fs::read()` is essentially a single page read + memcpy, and the kernel's page cache means the actual disk I/O is amortized across runs.
+Unlike qj, which processes multi-gigabyte files where mmap is transformative, turbocop processes thousands of small Ruby files. The average Ruby file is maybe 2-10KB. At that size, `std::fs::read()` is essentially a single page read + memcpy, and the kernel's page cache means the actual disk I/O is amortized across runs.
 
 The Discourse benchmark processes 5831 files in 1.26s. Even if file I/O is 10% of that (~126ms), cutting it in half with mmap saves ~60ms. That's measurable but not meaningful.
 
-**Honest take:** The implementation is trivial and risk-free. It might shave 50-100ms off a large codebase run. Worth doing if you've already done ideas #1-2 and want to squeeze out every last bit, but on its own it's not going to move the needle. The reason mmap is transformative for qj (190x speedup on NDJSON) is that qj processes gigabytes of data where avoiding the copy matters. rblint processes megabytes total.
+**Honest take:** The implementation is trivial and risk-free. It might shave 50-100ms off a large codebase run. Worth doing if you've already done ideas #1-2 and want to squeeze out every last bit, but on its own it's not going to move the needle. The reason mmap is transformative for qj (190x speedup on NDJSON) is that qj processes gigabytes of data where avoiding the copy matters. turbocop processes megabytes total.
 
 ---
 

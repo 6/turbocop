@@ -2,13 +2,13 @@
 
 Analysis of bug patterns, RuboCop NodePattern usage, and Parser-to-Prism node
 mappings to evaluate the feasibility of automatic NodePattern code generation
-for rblint.
+for turbocop.
 
 ---
 
 ## Bug Analysis
 
-From analyzing 22 fixes across 11 recent commits in rblint:
+From analyzing 22 fixes across 11 recent commits in turbocop:
 
 | Category | Count | % | Examples |
 |----------|-------|---|----------|

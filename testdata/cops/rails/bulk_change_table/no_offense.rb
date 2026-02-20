@@ -1,4 +1,4 @@
-# rblint-filename: db/migrate/001_example.rb
+# turbocop-filename: db/migrate/001_example.rb
 def change
   change_table :users, bulk: true do |t|
     t.string :name, null: false

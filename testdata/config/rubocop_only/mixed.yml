@@ -1,11 +1,11 @@
-# Mix of cops rblint covers and cops it doesn't
+# Mix of cops turbocop covers and cops it doesn't
 Style/FrozenStringLiteralComment:
   Enabled: true
 
 Layout/TrailingWhitespace:
   Enabled: true
 
-# These cops don't exist in rblint
+# These cops don't exist in turbocop
 Custom/MyCop:
   Enabled: true
 

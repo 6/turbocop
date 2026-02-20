@@ -6,7 +6,7 @@ use crate::parse::source::SourceFile;
 ///
 /// This cop requires schema analysis (db/schema.rb parsing) to determine
 /// whether a column actually exists in the database. RuboCop's implementation
-/// loads the schema and checks column existence. Since rblint does not perform
+/// loads the schema and checks column existence. Since turbocop does not perform
 /// schema analysis, this cop is not registered and never fires.
 pub struct UnusedIgnoredColumns;
 
@@ -35,6 +35,6 @@ impl Cop for UnusedIgnoredColumns {
     }
 }
 
-// No fixture tests: this cop requires schema analysis and never fires in rblint.
+// No fixture tests: this cop requires schema analysis and never fires in turbocop.
 // Test fixtures exist at testdata/cops/rails/unused_ignored_columns/ for future use
 // when/if schema analysis is implemented.

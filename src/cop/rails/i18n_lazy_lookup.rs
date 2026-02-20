@@ -186,7 +186,7 @@ mod tests {
             )]),
             ..CopConfig::default()
         };
-        let source = b"# rblint-filename: app/controllers/books_controller.rb\nt('.success')\n^^^^^^^^^^^^^ Rails/I18nLazyLookup: Use explicit lookup for i18n keys.\n";
+        let source = b"# turbocop-filename: app/controllers/books_controller.rb\nt('.success')\n^^^^^^^^^^^^^ Rails/I18nLazyLookup: Use explicit lookup for i18n keys.\n";
         assert_cop_offenses_full_with_config(&I18nLazyLookup, source, config);
     }
 
@@ -203,7 +203,7 @@ mod tests {
             )]),
             ..CopConfig::default()
         };
-        let source = b"# rblint-filename: app/controllers/books_controller.rb\nt('books.create.success')\n";
+        let source = b"# turbocop-filename: app/controllers/books_controller.rb\nt('books.create.success')\n";
         assert_cop_no_offenses_full_with_config(&I18nLazyLookup, source, config);
     }
 
@@ -223,7 +223,7 @@ mod tests {
     fn does_not_flag_mismatched_action() {
         use crate::testutil::assert_cop_no_offenses_full;
         // Key has action 'update' but we're in method 'validate_confirmation_token'
-        let source = b"# rblint-filename: app/controllers/email_confirmations_controller.rb\ndef validate_confirmation_token\n  t(\"email_confirmations.update.token_failure\")\nend\n";
+        let source = b"# turbocop-filename: app/controllers/email_confirmations_controller.rb\ndef validate_confirmation_token\n  t(\"email_confirmations.update.token_failure\")\nend\n";
         assert_cop_no_offenses_full(&I18nLazyLookup, source);
     }
 

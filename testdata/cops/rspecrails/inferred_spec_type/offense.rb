@@ -1,4 +1,4 @@
-# rblint-filename: spec/models/user_spec.rb
+# turbocop-filename: spec/models/user_spec.rb
 RSpec.describe User, type: :model do
                      ^^^^^^^^^^^^ RSpecRails/InferredSpecType: Remove redundant spec type.
 end

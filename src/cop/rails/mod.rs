@@ -268,12 +268,12 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(transaction_exit_statement::TransactionExitStatement));
     registry.register(Box::new(uniq_before_pluck::UniqBeforePluck));
     // UniqueValidationWithoutIndex requires db/schema.rb parsing (schema analysis)
-    // to determine whether a table has a unique index. Since rblint does not perform
+    // to determine whether a table has a unique index. Since turbocop does not perform
     // schema analysis, this cop is not registered to avoid false positives.
     // registry.register(Box::new(unique_validation_without_index::UniqueValidationWithoutIndex));
     registry.register(Box::new(unknown_env::UnknownEnv));
     // UnusedIgnoredColumns requires schema analysis to determine which columns are
-    // actually used. Since rblint does not perform schema analysis, this cop is not
+    // actually used. Since turbocop does not perform schema analysis, this cop is not
     // registered to avoid false positives.
     // registry.register(Box::new(unused_ignored_columns::UnusedIgnoredColumns));
     registry.register(Box::new(unused_render_content::UnusedRenderContent));

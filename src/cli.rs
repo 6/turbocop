@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[command(name = "rblint", version, about = "A fast Ruby linter")]
+#[command(name = "turbocop", version, about = "A fast Ruby linter")]
 pub struct Args {
     /// Files or directories to lint
     #[arg(default_value = ".")]
@@ -33,7 +33,7 @@ pub struct Args {
     #[arg(long)]
     pub debug: bool,
 
-    /// Print comma-separated list of cops not covered by rblint, then exit
+    /// Print comma-separated list of cops not covered by turbocop, then exit
     #[arg(long)]
     pub rubocop_only: bool,
 
@@ -45,11 +45,11 @@ pub struct Args {
     #[arg(long, value_name = "PATH")]
     pub stdin: Option<PathBuf>,
 
-    /// Generate .rblint.cache with cached gem paths and exit
+    /// Generate .turbocop.cache with cached gem paths and exit
     #[arg(long)]
     pub init: bool,
 
-    /// Skip .rblint.cache requirement (use bundler directly for gem resolution)
+    /// Skip .turbocop.cache requirement (use bundler directly for gem resolution)
     #[arg(long)]
     pub no_cache: bool,
 

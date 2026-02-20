@@ -16,7 +16,7 @@ pub struct ExpectedOffense {
 }
 
 /// Result of parsing a fixture file, including source, expected offenses,
-/// and optional directives like `# rblint-filename:`.
+/// and optional directives like `# turbocop-filename:`.
 pub struct ParsedFixture {
     pub source: Vec<u8>,
     pub expected: Vec<ExpectedOffense>,
@@ -72,22 +72,22 @@ fn try_parse_annotation(line: &str) -> Option<RawAnnotation> {
     })
 }
 
-/// Try to parse a `# rblint-filename: <name>` directive.
+/// Try to parse a `# turbocop-filename: <name>` directive.
 ///
 /// This directive overrides the filename passed to `SourceFile` when running
 /// the cop. Only valid on the very first line of a fixture file.
 fn try_parse_filename_directive(line: &str) -> Option<String> {
-    line.strip_prefix("# rblint-filename: ")
+    line.strip_prefix("# turbocop-filename: ")
         .map(|s| s.trim_end().to_string())
 }
 
-/// Try to parse a `# rblint-expect: L:C Department/CopName: Message` annotation.
+/// Try to parse a `# turbocop-expect: L:C Department/CopName: Message` annotation.
 ///
 /// Unlike `^` annotations (which infer line from position), these specify the
 /// offense location directly. Use for offenses that can't be annotated with `^`
 /// (e.g., trailing blanks, missing newlines).
 fn try_parse_expect_annotation(line: &str) -> Option<ExpectedOffense> {
-    let rest = line.strip_prefix("# rblint-expect: ")?;
+    let rest = line.strip_prefix("# turbocop-expect: ")?;
 
     // Parse L:C
     let space_idx = rest.find(' ')?;
@@ -118,8 +118,8 @@ fn try_parse_expect_annotation(line: &str) -> Option<ExpectedOffense> {
 ///
 /// Supports three kinds of special lines (all stripped from the clean source):
 ///
-/// - `# rblint-filename: <name>` (first line only) — overrides the test filename
-/// - `# rblint-expect: L:C Department/CopName: Message` — explicit offense location
+/// - `# turbocop-filename: <name>` (first line only) — overrides the test filename
+/// - `# turbocop-expect: L:C Department/CopName: Message` — explicit offense location
 /// - `^ Department/CopName: Message` — positional annotation (after the source line)
 ///
 /// # Convention
@@ -147,7 +147,7 @@ pub fn parse_fixture(raw: &[u8]) -> ParsedFixture {
     }
 
     for (raw_idx, element) in elements.iter().enumerate().skip(start_idx) {
-        // Check for # rblint-expect: annotations
+        // Check for # turbocop-expect: annotations
         if let Some(expect) = try_parse_expect_annotation(element) {
             expected.push(expect);
             continue;
@@ -595,11 +595,11 @@ mod tests {
         assert_eq!(parsed.expected[0].line, 1); // the empty line
     }
 
-    // ---- rblint-filename directive tests ----
+    // ---- turbocop-filename directive tests ----
 
     #[test]
     fn parse_fixture_filename_directive() {
-        let raw = b"# rblint-filename: MyClass.rb\nx = 1\n^ A/B: msg\n";
+        let raw = b"# turbocop-filename: MyClass.rb\nx = 1\n^ A/B: msg\n";
         let parsed = parse_fixture(raw);
         assert_eq!(parsed.filename.as_deref(), Some("MyClass.rb"));
         assert_eq!(parsed.source, b"x = 1\n");
@@ -609,18 +609,18 @@ mod tests {
 
     #[test]
     fn parse_fixture_filename_not_on_first_line() {
-        // # rblint-filename: on a non-first line is treated as a source line
-        let raw = b"x = 1\n# rblint-filename: Foo.rb\n";
+        // # turbocop-filename: on a non-first line is treated as a source line
+        let raw = b"x = 1\n# turbocop-filename: Foo.rb\n";
         let parsed = parse_fixture(raw);
         assert!(parsed.filename.is_none());
-        assert_eq!(parsed.source, b"x = 1\n# rblint-filename: Foo.rb\n");
+        assert_eq!(parsed.source, b"x = 1\n# turbocop-filename: Foo.rb\n");
     }
 
-    // ---- rblint-expect annotation tests ----
+    // ---- turbocop-expect annotation tests ----
 
     #[test]
     fn parse_fixture_expect_annotation() {
-        let raw = b"# rblint-expect: 1:0 A/B: msg\nx = 1\n";
+        let raw = b"# turbocop-expect: 1:0 A/B: msg\nx = 1\n";
         let parsed = parse_fixture(raw);
         assert_eq!(parsed.source, b"x = 1\n");
         assert_eq!(parsed.expected.len(), 1);
@@ -632,11 +632,11 @@ mod tests {
 
     #[test]
     fn parse_fixture_expect_and_caret_mixed() {
-        let raw = b"# rblint-expect: 2:0 A/B: m1\nx = 1\n^ C/D: m2\ny = 2\n";
+        let raw = b"# turbocop-expect: 2:0 A/B: m1\nx = 1\n^ C/D: m2\ny = 2\n";
         let parsed = parse_fixture(raw);
         assert_eq!(parsed.source, b"x = 1\ny = 2\n");
         assert_eq!(parsed.expected.len(), 2);
-        // rblint-expect comes first
+        // turbocop-expect comes first
         assert_eq!(parsed.expected[0].line, 2);
         assert_eq!(parsed.expected[0].cop_name, "A/B");
         // caret annotation
@@ -646,7 +646,7 @@ mod tests {
 
     #[test]
     fn parse_fixture_filename_and_expect() {
-        let raw = b"# rblint-filename: Bad.rb\n# rblint-expect: 1:0 A/B: msg\nx = 1\n";
+        let raw = b"# turbocop-filename: Bad.rb\n# turbocop-expect: 1:0 A/B: msg\nx = 1\n";
         let parsed = parse_fixture(raw);
         assert_eq!(parsed.filename.as_deref(), Some("Bad.rb"));
         assert_eq!(parsed.source, b"x = 1\n");

@@ -1,16 +1,16 @@
 [package]
-name = "rblint"
+name = "turbocop"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-default-run = "rblint"
+default-run = "turbocop"
 
 [[bin]]
-name = "rblint"
+name = "turbocop"
 path = "src/main.rs"
 
 [[bin]]
-name = "bench_rblint"
+name = "bench_turbocop"
 path = "bench/bench.rs"
 
 [[bin]]

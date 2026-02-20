@@ -4,7 +4,7 @@ use crate::diagnostic::Severity;
 /// Checks for syntax errors.
 ///
 /// This is a stub cop. Prism handles syntax error reporting during parsing,
-/// and the rblint pipeline reports parse errors separately. This cop exists
+/// and the turbocop pipeline reports parse errors separately. This cop exists
 /// so the cop name is registered and can be referenced in configuration.
 pub struct Syntax;
 

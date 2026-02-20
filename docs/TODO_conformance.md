@@ -32,15 +32,15 @@ def create # rubocop:disable Lint/UselessMethodDefinition
 end
 ```
 
-**Root cause:** `Lint/UselessMethodDefinition` has `Exclude: app/controllers/**/*.rb` in mastodon's resolved config (inherited from rubocop-rails). The cop won't fire on controller files, so the disable directives are redundant. RuboCop flags them; rblint does not.
+**Root cause:** `Lint/UselessMethodDefinition` has `Exclude: app/controllers/**/*.rb` in mastodon's resolved config (inherited from rubocop-rails). The cop won't fire on controller files, so the disable directives are redundant. RuboCop flags them; turbocop does not.
 
-**Why rblint misses it:** rblint's `is_directive_redundant()` in `src/linter.rs` takes a conservative approach for enabled cops — it only flags directives as redundant when the cop is explicitly disabled, not when the cop is excluded by Include/Exclude patterns. This is documented at line 356-361 of `src/linter.rs`.
+**Why turbocop misses it:** turbocop's `is_directive_redundant()` in `src/linter.rs` takes a conservative approach for enabled cops — it only flags directives as redundant when the cop is explicitly disabled, not when the cop is excluded by Include/Exclude patterns. This is documented at line 356-361 of `src/linter.rs`.
 
 **Fix attempted:** Changed `is_directive_redundant()` to use `cop_filters.is_cop_match(idx, path)` which checks both enabled status and Include/Exclude patterns. This fixed the 2 mastodon FN but introduced **8 new FPs** on mastodon and **1 FP** on rubygems.org — all `Lint/RedundantCopDisableDirective` for cops like `Rails/CreateTableWithTimestamps` and `Naming/PredicateName` that are excluded from certain directories.
 
-**Why the fix regresses:** RuboCop's `RedundantCopDisableDirective` works differently from pattern-matching. It checks whether the cop *actually produced an offense* during the run, then marks unused disable directives as redundant. rblint checks whether the cop *would be excluded by Include/Exclude patterns*, which is a different (less precise) heuristic. The two approaches diverge when:
+**Why the fix regresses:** RuboCop's `RedundantCopDisableDirective` works differently from pattern-matching. It checks whether the cop *actually produced an offense* during the run, then marks unused disable directives as redundant. turbocop checks whether the cop *would be excluded by Include/Exclude patterns*, which is a different (less precise) heuristic. The two approaches diverge when:
 - A cop is excluded but RuboCop still considers the disable "useful" (e.g., defensive coding)
-- Include/Exclude path resolution differs between rblint and RuboCop
+- Include/Exclude path resolution differs between turbocop and RuboCop
 
 **Proper fix:** Restructure `RedundantCopDisableDirective` post-processing to track which cops actually fired offenses per-file, then flag directives as redundant only when the cop ran but produced no offenses. This requires a deeper architectural change: the current post-processing step runs after all cops have finished, but doesn't have per-cop per-file offense tracking information.
 
@@ -56,7 +56,7 @@ end
 
 **File:** `doorkeeper.gemspec`
 
-**Root cause:** The gemspec uses DSL methods to set `required_ruby_version`. Detecting this requires evaluating gemspec DSL code (method calls like `spec.required_ruby_version = '>= 2.7'`), which rblint's current `Gemspec/RequiredRubyVersion` cop handles for simple assignment patterns. The doorkeeper gemspec likely uses a pattern the cop doesn't recognize.
+**Root cause:** The gemspec uses DSL methods to set `required_ruby_version`. Detecting this requires evaluating gemspec DSL code (method calls like `spec.required_ruby_version = '>= 2.7'`), which turbocop's current `Gemspec/RequiredRubyVersion` cop handles for simple assignment patterns. The doorkeeper gemspec likely uses a pattern the cop doesn't recognize.
 
 **Fix:** Would require expanding the gemspec DSL pattern matching. Since gemspec files are rare (one per project) and this is a single FN, the effort-to-impact ratio is poor.
 
@@ -84,7 +84,7 @@ describe "matching tokens" do
 end
 ```
 
-**Root cause:** rblint analyzes the outermost non-def block (`describe`) and collects writes/reads across all nested blocks. Since `token` is read in sibling `it` blocks, it appears "used" from the outer scope perspective. But each `it` block is a separate closure at runtime — `token` assigned in one `it` block is not accessible to sibling blocks.
+**Root cause:** turbocop analyzes the outermost non-def block (`describe`) and collects writes/reads across all nested blocks. Since `token` is read in sibling `it` blocks, it appears "used" from the outer scope perspective. But each `it` block is a separate closure at runtime — `token` assigned in one `it` block is not accessible to sibling blocks.
 
 **Fix attempted:** Removed the `inside_analyzed_block` guard so every block is analyzed independently. This fixed the 1 doorkeeper FN but introduced **89 new FPs** across 6 repos (mastodon +7, rails +48, rubocop +13, chatwoot +2, good_job +16, rubygems.org +3).
 
@@ -112,14 +112,14 @@ Analyzing each block independently incorrectly flags these as useless.
 
 **Cops:** Layout/FirstArrayElementIndentation (2), Layout/MultilineMethodCallIndentation (1), Style/RedundantRegexpEscape (1), Style/TrailingCommaInHashLiteral (1)
 
-**Root cause:** RuboCop reports **0 offenses** on fat_free_crm even when running with `--only <cop>` for each of these cops. This means RuboCop's cop execution produces 0 matches, but rblint detects legitimate-looking offenses. The 0% match rate is an artifact of RuboCop reporting 0 for the denominator.
+**Root cause:** RuboCop reports **0 offenses** on fat_free_crm even when running with `--only <cop>` for each of these cops. This means RuboCop's cop execution produces 0 matches, but turbocop detects legitimate-looking offenses. The 0% match rate is an artifact of RuboCop reporting 0 for the denominator.
 
 **Investigation:** Each of the 5 FPs was manually verified with `rubocop --only <CopName>`. In all cases, RuboCop reports 0 offenses on the specific files, even though the code patterns appear to match the cop's detection criteria. This suggests:
 - RuboCop may have internal exemptions not documented in config
 - The resolved config in fat_free_crm may disable or exclude these cops in ways not visible through `--show-cops`
 - RuboCop version-specific behavior differences
 
-**Fix:** Not fixable — these are RuboCop's own behavioral quirks, not rblint bugs. The offenses rblint reports are technically correct per the cop specifications.
+**Fix:** Not fixable — these are RuboCop's own behavioral quirks, not turbocop bugs. The offenses turbocop reports are technically correct per the cop specifications.
 
 **Effort:** N/A.
 

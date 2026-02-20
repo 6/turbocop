@@ -1,4 +1,4 @@
-# rblint-filename: my_class_spec.rb
+# turbocop-filename: my_class_spec.rb
 describe MyClass do
   it 'works' do
     expect(true).to eq(true)

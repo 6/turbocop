@@ -1,34 +1,34 @@
 # Turbocop: Rename & RubyGem Distribution Plan
 
-## 1. Renaming rblint → turbocop
+## 1. Renaming turbocop → turbocop
 
 ### Why
 
-`rblint` is already taken on [rubygems.org](https://rubygems.org/gems/rblint) (dormant since 2017, but squatting the name). We need a clear name for both crates.io and rubygems.org distribution. **`turbocop`** is available on both.
+`turbocop` is already taken on [rubygems.org](https://rubygems.org/gems/turbocop) (dormant since 2017, but squatting the name). We need a clear name for both crates.io and rubygems.org distribution. **`turbocop`** is available on both.
 
 ### Checklist
 
 The rename touches ~305 references. A `sed`/`rg` bulk replace handles most of it, but some areas need manual attention.
 
 **Build & metadata:**
-- [ ] `Cargo.toml` — crate name (`rblint` → `turbocop`), binary names (`rblint` → `turbocop`, `bench_rblint` → `bench_turbocop`), `default-run`
-- [ ] GitHub repo rename (`rblint` → `turbocop`)
+- [ ] `Cargo.toml` — crate name (`turbocop` → `turbocop`), binary names (`turbocop` → `turbocop`, `bench_turbocop` → `bench_turbocop`), `default-run`
+- [ ] GitHub repo rename (`turbocop` → `turbocop`)
 
 **Source code (manual review needed):**
-- [ ] `src/cli.rs` — `#[command(name = "rblint")]` → `#[command(name = "turbocop")]`
-- [ ] `src/main.rs` — `use rblint::` → `use turbocop::`, `rblint::run()` → `turbocop::run()`
-- [ ] `src/testutil.rs` — directive parsing for `# rblint-expect:` → `# turbocop-expect:`, `# rblint-filename:` → `# turbocop-filename:`
-- [ ] `src/parse/directives.rs` — regex pattern for `# rblint:` inline directives, alias handling
-- [ ] `src/cop/style/inline_comment.rs` — skip pattern `starts_with("rblint-")` → `starts_with("turbocop-")`
+- [ ] `src/cli.rs` — `#[command(name = "turbocop")]` → `#[command(name = "turbocop")]`
+- [ ] `src/main.rs` — `use turbocop::` → `use turbocop::`, `turbocop::run()` → `turbocop::run()`
+- [ ] `src/testutil.rs` — directive parsing for `# turbocop-expect:` → `# turbocop-expect:`, `# turbocop-filename:` → `# turbocop-filename:`
+- [ ] `src/parse/directives.rs` — regex pattern for `# turbocop:` inline directives, alias handling
+- [ ] `src/cop/style/inline_comment.rs` — skip pattern `starts_with("turbocop-")` → `starts_with("turbocop-")`
 - [ ] `src/bin/coverage_table.rs` — output text, variable names (~28 refs)
-- [ ] `src/config/mod.rs` — ~40 temp directory prefixes in tests (`rblint_test_*` → `turbocop_test_*`)
-- [ ] `src/parse/source.rs` — temp dir `rblint_test_source`
-- [ ] `src/fs/mod.rs` — temp dir pattern `rblint_test_fs_*`
-- [ ] `src/cop/lint/script_permission.rs` — temp path `/tmp/rblint-test/`
+- [ ] `src/config/mod.rs` — ~40 temp directory prefixes in tests (`turbocop_test_*` → `turbocop_test_*`)
+- [ ] `src/parse/source.rs` — temp dir `turbocop_test_source`
+- [ ] `src/fs/mod.rs` — temp dir pattern `turbocop_test_fs_*`
+- [ ] `src/cop/lint/script_permission.rs` — temp path `/tmp/turbocop-test/`
 
 **Test fixtures (bulk replace):**
-- [ ] 74 files under `testdata/cops/` containing `# rblint-expect:` and `# rblint-filename:` directives
-- [ ] `testdata/config/rubocop_only/mixed.yml` — comments mentioning rblint
+- [ ] 74 files under `testdata/cops/` containing `# turbocop-expect:` and `# turbocop-filename:` directives
+- [ ] `testdata/config/rubocop_only/mixed.yml` — comments mentioning turbocop
 
 **Benchmark & scripts:**
 - [ ] `bench/bench.rs` — function names, binary paths, hyperfine commands (~63 refs)
@@ -47,11 +47,11 @@ The rename touches ~305 references. A `sed`/`rg` bulk replace handles most of it
 
 ```bash
 # 1. Bulk rename in file contents (covers ~90% of references)
-rg -l 'rblint' --type rust --type ruby --type md --type yaml | \
-  xargs sed -i '' 's/rblint/turbocop/g; s/RBLINT/NITROCOP/g'
+rg -l 'turbocop' --type rust --type ruby --type md --type yaml | \
+  xargs sed -i '' 's/turbocop/turbocop/g; s/TURBOCOP/NITROCOP/g'
 
 # 2. Manual review for mixed-case or context-sensitive replacements
-#    (e.g., "rblint" in prose vs code, bench_rblint binary name)
+#    (e.g., "turbocop" in prose vs code, bench_turbocop binary name)
 
 # 3. Verify build
 cargo check && cargo test

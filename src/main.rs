@@ -2,11 +2,11 @@ use std::process;
 
 use clap::Parser;
 
-use rblint::cli::Args;
+use turbocop::cli::Args;
 
 fn main() {
     let args = Args::parse();
-    match rblint::run(args) {
+    match turbocop::run(args) {
         Ok(code) => process::exit(code),
         Err(e) => {
             eprintln!("error: {e:#}");

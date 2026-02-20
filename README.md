@@ -1,4 +1,4 @@
-# rblint
+# turbocop
 
 A fast Ruby linter written in Rust, targeting drop-in [RuboCop](https://rubocop.org/) compatibility.
 
@@ -29,20 +29,20 @@ echo 'x = 1 ' | cargo run --release -- --stdin test.rb
 Requires Rust 1.85+ (edition 2024).
 
 ```bash
-git clone https://github.com/peterb/rblint.git
-cd rblint
+git clone https://github.com/peterb/turbocop.git
+cd turbocop
 git submodule update --init    # fetch vendor/rubocop for tests
 cargo build --release
 ```
 
-The binary is at `target/release/rblint`.
+The binary is at `target/release/turbocop`.
 
 ## Benchmarks
 
 Measured on Apple Silicon, median of 5 runs via [hyperfine](https://github.com/sharkdp/hyperfine).
-rblint has no result cache; RuboCop uses its built-in file cache (warm after warmup runs).
+turbocop has no result cache; RuboCop uses its built-in file cache (warm after warmup runs).
 
-| Repo | .rb files | rblint (no cache) | RuboCop (cached) | Speedup |
+| Repo | .rb files | turbocop (no cache) | RuboCop (cached) | Speedup |
 |------|----------:|------------------:|-----------------:|--------:|
 | [mastodon](https://github.com/mastodon/mastodon) | 2,526 | **482ms** | 2.30s | **4.8x** |
 | [discourse](https://github.com/discourse/discourse) | 5,831 | **565ms** | 3.46s | **6.1x** |
@@ -52,11 +52,11 @@ rblint has no result cache; RuboCop uses its built-in file cache (warm after war
 | [errbit](https://github.com/errbit/errbit) | 207 | **80ms** | 1.20s | **14.9x** |
 | [activeadmin](https://github.com/activeadmin/activeadmin) | 354 | **42ms** | 1.10s | **26.0x** |
 
-Run `cargo run --release --bin bench_rblint` to reproduce. See [bench/results.md](bench/results.md) for full details across 12 repos.
+Run `cargo run --release --bin bench_turbocop` to reproduce. See [bench/results.md](bench/results.md) for full details across 12 repos.
 
 ## Configuration
 
-rblint reads `.rubocop.yml` with full support for:
+turbocop reads `.rubocop.yml` with full support for:
 
 - **`inherit_from`** — local files, recursive
 - **`inherit_gem`** — resolves gem paths via `bundle info`
@@ -111,14 +111,14 @@ See [bench/results.md](bench/results.md) for per-cop divergence details.
 
 ## Hybrid Mode
 
-Use `--rubocop-only` to run rblint alongside RuboCop for cops it doesn't cover yet:
+Use `--rubocop-only` to run turbocop alongside RuboCop for cops it doesn't cover yet:
 
 ```bash
 #!/usr/bin/env bash
 # bin/lint — fast hybrid linter
-rblint "$@"
+turbocop "$@"
 
-REMAINING=$(rblint --rubocop-only)
+REMAINING=$(turbocop --rubocop-only)
 if [ -n "$REMAINING" ]; then
   bundle exec rubocop --only "$REMAINING" "$@"
 fi
@@ -127,7 +127,7 @@ fi
 ## CLI
 
 ```
-rblint [OPTIONS] [PATHS]...
+turbocop [OPTIONS] [PATHS]...
 
 Arguments:
   [PATHS]...    Files or directories to lint [default: .]
@@ -137,7 +137,7 @@ Options:
   -f, --format <FORMAT>     Output format: text, json [default: text]
       --only <COPS>         Run only specified cops (comma-separated)
       --except <COPS>       Skip specified cops (comma-separated)
-      --rubocop-only        Print cops NOT covered by rblint
+      --rubocop-only        Print cops NOT covered by turbocop
       --stdin <PATH>        Read source from stdin, use PATH for display
       --debug               Print timing and debug info
       --list-cops           List all registered cops
@@ -156,8 +156,8 @@ cargo test config_audit     # all YAML config keys implemented
 cargo test prism_pitfalls   # no missing node type handling
 
 # Benchmarks
-cargo run --release --bin bench_rblint          # full: setup + bench + conform
-cargo run --release --bin bench_rblint -- bench # timing only
+cargo run --release --bin bench_turbocop          # full: setup + bench + conform
+cargo run --release --bin bench_turbocop -- bench # timing only
 ```
 
 ## Architecture

@@ -255,7 +255,7 @@ fn compile_ruby_regex(ruby_str: &str) -> Option<fancy_regex::Regex> {
     // \z / \Z → $ (end of string → end of line)
     pattern = pattern.replace("\\A", "^").replace("\\z", "$").replace("\\Z", "$");
 
-    // Make the regex case-insensitive to match rblint's lowercase line matching
+    // Make the regex case-insensitive to match turbocop's lowercase line matching
     let case_insensitive = format!("(?i){pattern}");
     fancy_regex::Regex::new(&case_insensitive).ok()
 }

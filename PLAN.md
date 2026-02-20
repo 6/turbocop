@@ -817,7 +817,7 @@ Additionally:
 2. **Autocorrect safety**: RuboCop's autocorrect can chain corrections that
    conflict. Start with "safe" autocorrects only (whitespace, quotes, comments).
 
-3. **Name**: rubylint, rblint, rb-ruff, ruff-rb, rubocop-rs, fastcop?
+3. **Name**: rubylint, turbocop, rb-ruff, ruff-rb, rubocop-rs, fastcop?
    Should signal "fast rubocop alternative" without trademark issues.
 
 4. **Config caching**: Hash the resolved config and cache it. Invalidate on:

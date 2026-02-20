@@ -7,7 +7,7 @@ use crate::parse::source::SourceFile;
 /// This cop requires schema analysis (db/schema.rb parsing) to determine
 /// whether a table has a unique index. RuboCop's implementation checks
 /// `return unless schema` and only fires when it can verify the table
-/// lacks a unique index. Since rblint does not perform schema analysis,
+/// lacks a unique index. Since turbocop does not perform schema analysis,
 /// this cop is not registered and never fires.
 pub struct UniqueValidationWithoutIndex;
 

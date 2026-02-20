@@ -324,7 +324,7 @@ mod tests {
 
     #[test]
     fn skipped_when_database_not_set() {
-        let source = b"# rblint-filename: db/migrate/001_test.rb\ndef change\n  add_column :users, :name, :string\n  add_column :users, :age, :integer\nend\n";
+        let source = b"# turbocop-filename: db/migrate/001_test.rb\ndef change\n  add_column :users, :name, :string\n  add_column :users, :age, :integer\nend\n";
         let diagnostics = crate::testutil::run_cop_full_internal(
             &BulkChangeTable,
             source,

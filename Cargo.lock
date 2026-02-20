@@ -565,25 +565,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rblint"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "fancy-regex",
- "globset",
- "ignore",
- "rayon",
- "regex",
- "ruby-prism",
- "serde",
- "serde_json",
- "serde_yml",
- "sha2",
- "tempfile",
-]
-
-[[package]]
 name = "regex"
 version = "1.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -776,6 +757,25 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys",
+]
+
+[[package]]
+name = "turbocop"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "fancy-regex",
+ "globset",
+ "ignore",
+ "rayon",
+ "regex",
+ "ruby-prism",
+ "serde",
+ "serde_json",
+ "serde_yml",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]

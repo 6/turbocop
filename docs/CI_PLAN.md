@@ -259,4 +259,4 @@ jobs:
 
 ## 5. Prerequisite
 
-The rename from `rblint` → `nitrocop` must happen first. See [RUBYGEM_PLAN.md](RUBYGEM_PLAN.md).
+The rename from `turbocop` → `nitrocop` must happen first. See [RUBYGEM_PLAN.md](RUBYGEM_PLAN.md).

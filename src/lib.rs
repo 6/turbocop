@@ -59,7 +59,7 @@ pub fn run(args: Args) -> Result<i32> {
         }
     }
 
-    // --init: resolve gem paths and write .rblint.cache
+    // --init: resolve gem paths and write .turbocop.cache
     if args.init {
         let config_start = std::time::Instant::now();
         let config = load_config(args.config.as_deref(), target_dir, None)?;
@@ -72,7 +72,7 @@ pub fn run(args: Args) -> Result<i32> {
         config::lockfile::write_lock(&gem_paths, lock_dir)?;
 
         eprintln!(
-            "Created .rblint.cache ({} gems cached in {config_elapsed:.0?})",
+            "Created .turbocop.cache ({} gems cached in {config_elapsed:.0?})",
             gem_paths.len()
         );
         for (name, path) in &gem_paths {
@@ -95,7 +95,7 @@ pub fn run(args: Args) -> Result<i32> {
                 config::lockfile::check_freshness(&lock, lock_dir)?;
                 if args.debug {
                     eprintln!(
-                        "debug: using .rblint.cache ({} cached gems)",
+                        "debug: using .turbocop.cache ({} cached gems)",
                         lock.gems.len()
                     );
                 }

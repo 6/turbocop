@@ -1,4 +1,4 @@
-# rblint-filename: spec/models/user_spec.rb
+# turbocop-filename: spec/models/user_spec.rb
 describe User do
   it 'works' do
     expect(true).to eq(true)

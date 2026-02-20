@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct RblintLock {
+pub struct TurboCopLock {
     pub version: u32,
     pub generated_at: String,
     /// SHA-256 of Gemfile.lock content (for staleness detection)
@@ -15,11 +15,11 @@ pub struct RblintLock {
     pub gems: HashMap<String, PathBuf>,
 }
 
-/// Write `.rblint.cache` to the given directory.
+/// Write `.turbocop.cache` to the given directory.
 pub fn write_lock(gems: &HashMap<String, PathBuf>, dir: &Path) -> Result<()> {
     let gemfile_lock_sha256 = hash_file(&dir.join("Gemfile.lock"));
 
-    let lock = RblintLock {
+    let lock = TurboCopLock {
         version: 1,
         generated_at: chrono_now(),
         gemfile_lock_sha256,
@@ -27,29 +27,29 @@ pub fn write_lock(gems: &HashMap<String, PathBuf>, dir: &Path) -> Result<()> {
     };
 
     let json = serde_json::to_string_pretty(&lock)?;
-    let cache_path = dir.join(".rblint.cache");
+    let cache_path = dir.join(".turbocop.cache");
     std::fs::write(&cache_path, json)
         .with_context(|| format!("Failed to write {}", cache_path.display()))?;
     Ok(())
 }
 
-/// Read and parse `.rblint.cache` from the given directory.
+/// Read and parse `.turbocop.cache` from the given directory.
 /// Returns an error if the file is missing.
-pub fn read_lock(dir: &Path) -> Result<RblintLock> {
-    let cache_path = dir.join(".rblint.cache");
+pub fn read_lock(dir: &Path) -> Result<TurboCopLock> {
+    let cache_path = dir.join(".turbocop.cache");
     if !cache_path.exists() {
         anyhow::bail!(
-            "No .rblint.cache found in {}. Run 'rblint --init' first.",
+            "No .turbocop.cache found in {}. Run 'turbocop --init' first.",
             dir.display()
         );
     }
     let content = std::fs::read_to_string(&cache_path)
         .with_context(|| format!("Failed to read {}", cache_path.display()))?;
-    let lock: RblintLock = serde_json::from_str(&content)
+    let lock: TurboCopLock = serde_json::from_str(&content)
         .with_context(|| format!("Failed to parse {}", cache_path.display()))?;
     if lock.version != 1 {
         anyhow::bail!(
-            ".rblint.cache has version {} (expected 1). Run 'rblint --init' to regenerate.",
+            ".turbocop.cache has version {} (expected 1). Run 'turbocop --init' to regenerate.",
             lock.version
         );
     }
@@ -58,11 +58,11 @@ pub fn read_lock(dir: &Path) -> Result<RblintLock> {
 
 /// Check that the cache is still fresh.
 /// Detects: Gemfile.lock changes, Ruby version switches, gem reinstalls.
-pub fn check_freshness(lock: &RblintLock, dir: &Path) -> Result<()> {
+pub fn check_freshness(lock: &TurboCopLock, dir: &Path) -> Result<()> {
     let current_hash = hash_file(&dir.join("Gemfile.lock"));
     if lock.gemfile_lock_sha256 != current_hash {
         anyhow::bail!(
-            "Stale .rblint.cache (Gemfile.lock changed). Run 'rblint --init' to refresh."
+            "Stale .turbocop.cache (Gemfile.lock changed). Run 'turbocop --init' to refresh."
         );
     }
     // Verify cached gem paths still exist (catches Ruby version switches,
@@ -70,7 +70,7 @@ pub fn check_freshness(lock: &RblintLock, dir: &Path) -> Result<()> {
     for (name, path) in &lock.gems {
         if !path.exists() {
             anyhow::bail!(
-                "Stale .rblint.cache (gem path for '{name}' no longer exists: {}). Run 'rblint --init' to refresh.",
+                "Stale .turbocop.cache (gem path for '{name}' no longer exists: {}). Run 'turbocop --init' to refresh.",
                 path.display()
             );
         }

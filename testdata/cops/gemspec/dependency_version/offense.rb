@@ -1,4 +1,4 @@
-# rblint-filename: example.gemspec
+# turbocop-filename: example.gemspec
 Gem::Specification.new do |spec|
   spec.add_dependency 'foo'
        ^^^^^^^^^^^^^^ Gemspec/DependencyVersion: Dependency version is required.

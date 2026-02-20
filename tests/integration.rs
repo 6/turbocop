@@ -1,4 +1,4 @@
-//! Integration tests for the rblint linting pipeline.
+//! Integration tests for the turbocop linting pipeline.
 //!
 //! These tests exercise the full linter: file reading, config loading,
 //! cop registry, cop execution, and diagnostic collection. They write
@@ -7,14 +7,14 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use rblint::cli::Args;
-use rblint::config::load_config;
-use rblint::cop::registry::CopRegistry;
-use rblint::linter::run_linter;
+use turbocop::cli::Args;
+use turbocop::config::load_config;
+use turbocop::cop::registry::CopRegistry;
+use turbocop::linter::run_linter;
 
 /// Create a temporary directory with a unique name for each test.
 fn temp_dir(test_name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("rblint_integration_{test_name}"));
+    let dir = std::env::temp_dir().join(format!("turbocop_integration_{test_name}"));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -1399,7 +1399,7 @@ fn to_snake_case(s: &str) -> String {
     result
 }
 
-/// Count annotations in fixture content: both `^` markers and `# rblint-expect:` lines.
+/// Count annotations in fixture content: both `^` markers and `# turbocop-expect:` lines.
 fn count_annotations(content: &str) -> usize {
     content
         .lines()
@@ -1408,7 +1408,7 @@ fn count_annotations(content: &str) -> usize {
             // Standard ^ annotations
             (trimmed.starts_with('^') && trimmed.contains(": ") && trimmed.contains('/'))
             // Explicit expect annotations
-            || line.starts_with("# rblint-expect: ")
+            || line.starts_with("# turbocop-expect: ")
         })
         .count()
 }
@@ -1675,10 +1675,10 @@ fn circular_inherit_from_is_detected() {
 fn rubocop_only_outputs_uncovered_cops() {
     let config_path =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/config/rubocop_only/mixed.yml");
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_rblint"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args(["--rubocop-only", "--config", config_path.to_str().unwrap()])
         .output()
-        .expect("Failed to execute rblint");
+        .expect("Failed to execute turbocop");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1698,7 +1698,7 @@ fn rubocop_only_outputs_uncovered_cops() {
         "Output should contain Vendor/SpecialCop, got: {stdout}"
     );
 
-    // Should NOT contain rblint-covered cops
+    // Should NOT contain turbocop-covered cops
     assert!(
         !stdout.contains("Style/FrozenStringLiteralComment"),
         "Output should NOT contain covered cop Style/FrozenStringLiteralComment"
@@ -1719,7 +1719,7 @@ fn rubocop_only_outputs_uncovered_cops() {
 
 #[test]
 fn stdin_detects_trailing_whitespace() {
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_rblint"))
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args([
             "--stdin",
             "test.rb",
@@ -1730,7 +1730,7 @@ fn stdin_detects_trailing_whitespace() {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .expect("Failed to start rblint");
+        .expect("Failed to start turbocop");
 
     // Write source with trailing whitespace to stdin
     {
@@ -1739,7 +1739,7 @@ fn stdin_detects_trailing_whitespace() {
         stdin.write_all(b"x = 1   \n").unwrap();
     }
 
-    let output = child.wait_with_output().expect("Failed to wait for rblint");
+    let output = child.wait_with_output().expect("Failed to wait for turbocop");
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
@@ -1758,7 +1758,7 @@ fn stdin_detects_trailing_whitespace() {
 
 #[test]
 fn stdin_clean_code_exits_zero() {
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_rblint"))
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args([
             "--stdin",
             "clean.rb",
@@ -1769,7 +1769,7 @@ fn stdin_clean_code_exits_zero() {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .expect("Failed to start rblint");
+        .expect("Failed to start turbocop");
 
     {
         use std::io::Write;
@@ -1777,7 +1777,7 @@ fn stdin_clean_code_exits_zero() {
         stdin.write_all(b"x = 1\ny = 2\n").unwrap();
     }
 
-    let output = child.wait_with_output().expect("Failed to wait for rblint");
+    let output = child.wait_with_output().expect("Failed to wait for turbocop");
 
     assert!(
         output.status.success(),
@@ -1792,7 +1792,7 @@ fn stdin_display_path_affects_include_matching() {
     let config_dir = temp_dir("stdin_include_config");
     write_file(&config_dir, ".rubocop.yml", b"plugins:\n  - rubocop-rspec\n");
 
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_rblint"))
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args([
             "--stdin",
             "spec/foo_spec.rb",
@@ -1804,7 +1804,7 @@ fn stdin_display_path_affects_include_matching() {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .expect("Failed to start rblint");
+        .expect("Failed to start turbocop");
 
     {
         use std::io::Write;
@@ -1814,7 +1814,7 @@ fn stdin_display_path_affects_include_matching() {
             .unwrap();
     }
 
-    let output = child.wait_with_output().expect("Failed to wait for rblint");
+    let output = child.wait_with_output().expect("Failed to wait for turbocop");
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
@@ -1823,14 +1823,14 @@ fn stdin_display_path_affects_include_matching() {
     );
 
     // Same code with non-spec display path — RSpec cops should NOT run
-    let mut child2 = std::process::Command::new(env!("CARGO_BIN_EXE_rblint"))
+    let mut child2 = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args(["--stdin", "app/foo.rb", "--only", "RSpec/Focus"])
         .current_dir(&config_dir)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .expect("Failed to start rblint");
+        .expect("Failed to start turbocop");
 
     {
         use std::io::Write;
@@ -1842,7 +1842,7 @@ fn stdin_display_path_affects_include_matching() {
 
     let output2 = child2
         .wait_with_output()
-        .expect("Failed to wait for rblint");
+        .expect("Failed to wait for turbocop");
     let stdout2 = String::from_utf8_lossy(&output2.stdout);
 
     assert!(
@@ -1888,8 +1888,8 @@ fn inherited_config_affects_linting() {
 
 #[test]
 fn lint_source_directly() {
-    use rblint::linter::lint_source;
-    use rblint::parse::source::SourceFile;
+    use turbocop::linter::lint_source;
+    use turbocop::parse::source::SourceFile;
 
     let source =
         SourceFile::from_string(PathBuf::from("test.rb"), "x = 1   \n".to_string());
@@ -1917,10 +1917,10 @@ fn lint_source_directly() {
 
 #[test]
 fn list_cops_prints_all_registered_cops() {
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_rblint"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args(["--list-cops"])
         .output()
-        .expect("Failed to execute rblint");
+        .expect("Failed to execute turbocop");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -2261,7 +2261,7 @@ fn codegen_exits_nonzero_without_args() {
 // The implementation is conservative: it only flags directives for cops
 // that are UNKNOWN in a known department (likely renamed/removed) or
 // cops that are DISABLED/EXCLUDED for this file. It does NOT flag
-// directives for cops that ARE running, since rblint might have gaps
+// directives for cops that ARE running, since turbocop might have gaps
 // in its detection vs. RuboCop.
 
 #[test]
@@ -2719,7 +2719,7 @@ fn cache_produces_same_results_as_uncached() {
     let cache_dir = dir.join("cache");
     fs::create_dir_all(&cache_dir).unwrap();
     // SAFETY: test-only, set env var for cache root
-    unsafe { std::env::set_var("RBLINT_CACHE_DIR", &cache_dir) };
+    unsafe { std::env::set_var("TURBOCOP_CACHE_DIR", &cache_dir) };
     let args_cached = Args {
         only: vec!["Layout/TrailingWhitespace".to_string()],
         cache: "true".to_string(),
@@ -2730,7 +2730,7 @@ fn cache_produces_same_results_as_uncached() {
     // Run with cache (warm)
     let result_warm = run_linter(&[file1.clone(), file2.clone()], &config, &registry, &args_cached);
 
-    unsafe { std::env::remove_var("RBLINT_CACHE_DIR") };
+    unsafe { std::env::remove_var("TURBOCOP_CACHE_DIR") };
 
     // All three runs should produce identical diagnostics
     assert_eq!(
@@ -2762,7 +2762,7 @@ fn cache_invalidated_by_file_change() {
 
     let cache_dir = dir.join("cache");
     fs::create_dir_all(&cache_dir).unwrap();
-    unsafe { std::env::set_var("RBLINT_CACHE_DIR", &cache_dir) };
+    unsafe { std::env::set_var("TURBOCOP_CACHE_DIR", &cache_dir) };
 
     let config = load_config(None, Some(dir.as_path()), None).unwrap();
     let registry = CopRegistry::default_registry();
@@ -2783,7 +2783,7 @@ fn cache_invalidated_by_file_change() {
     let result2 = run_linter(&[file.clone()], &config, &registry, &args);
     assert_eq!(result2.diagnostics.len(), 0, "After fix, should find no offenses");
 
-    unsafe { std::env::remove_var("RBLINT_CACHE_DIR") };
+    unsafe { std::env::remove_var("TURBOCOP_CACHE_DIR") };
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -2794,7 +2794,7 @@ fn cache_invalidated_by_config_change() {
 
     let cache_dir = dir.join("cache");
     fs::create_dir_all(&cache_dir).unwrap();
-    unsafe { std::env::set_var("RBLINT_CACHE_DIR", &cache_dir) };
+    unsafe { std::env::set_var("TURBOCOP_CACHE_DIR", &cache_dir) };
 
     let config = load_config(None, Some(dir.as_path()), None).unwrap();
     let registry = CopRegistry::default_registry();
@@ -2823,17 +2823,17 @@ fn cache_invalidated_by_config_change() {
         );
     }
 
-    unsafe { std::env::remove_var("RBLINT_CACHE_DIR") };
+    unsafe { std::env::remove_var("TURBOCOP_CACHE_DIR") };
     let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn cache_preserves_all_severity_types() {
-    use rblint::cache::{CacheLookup, ResultCache};
-    use rblint::diagnostic::{Diagnostic, Location, Severity};
+    use turbocop::cache::{CacheLookup, ResultCache};
+    use turbocop::diagnostic::{Diagnostic, Location, Severity};
 
     let tmp = tempfile::tempdir().unwrap();
-    let configs = vec![rblint::cop::CopConfig::default()];
+    let configs = vec![turbocop::cop::CopConfig::default()];
     let args = default_args();
     let cache = ResultCache::with_root(tmp.path(), "0.1.0-test", &configs, &args);
 

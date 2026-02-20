@@ -1,4 +1,4 @@
-# rblint Performance Analysis
+# turbocop Performance Analysis
 
 > Profiled on 2026-02-18, Darwin arm64, 915 cops, release build.
 
@@ -100,14 +100,14 @@ Mastodon has higher per-file cop cost because more plugin cops are enabled (all 
 
 ### Including bundler overhead (current state)
 
-| Repo | rblint | RuboCop | Speedup |
+| Repo | turbocop | RuboCop | Speedup |
 |------|-------:|--------:|--------:|
 | Discourse | 2.9s | 3.45s | **1.2x** |
 | Mastodon | 3.3s | 2.49s | **0.8x** (slower!) |
 
 ### Linting only (no bundler)
 
-| Repo | rblint | RuboCop (est.) | Speedup |
+| Repo | turbocop | RuboCop (est.) | Speedup |
 |------|-------:|---------------:|--------:|
 | Discourse | 723ms | ~3.0s | **4.1x** |
 | Mastodon | 1.0s | ~2.0s | **2.0x** |
@@ -121,7 +121,7 @@ RuboCop estimates subtract ~0.5s for its own Ruby VM boot, which is a fixed cost
 Each `bundle info --path <gem>` spawns a Ruby process that boots Bundler. This is 130-440ms per call, called once per plugin gem. A project with 5 plugins pays 1-2s just for gem path resolution.
 
 Options:
-- **Lockfile/resolver**: Run `rblint resolve` once (uses Ruby), cache resolved config. Runtime reads lockfile only. Zero Ruby in hot path.
+- **Lockfile/resolver**: Run `turbocop resolve` once (uses Ruby), cache resolved config. Runtime reads lockfile only. Zero Ruby in hot path.
 - **Disk cache**: Cache gem paths keyed on `Gemfile.lock` mtime. First run pays the cost, subsequent runs are free.
 - **Pure Rust resolution**: Parse `Gemfile.lock` + detect version manager to construct gem paths without calling Ruby. Fragile but zero-dependency.
 
@@ -145,4 +145,4 @@ Currently all 915 cops are iterated per file, with filter checks for each. Pre-p
 | **Optimized total** | **~0.5s** | **~0.7s** |
 | **vs RuboCop** | **6.9x** | **3.6x** |
 
-For a 500K LOC Rails app (similar to the rails bench repo), the optimized rblint would likely run in under 1 second vs RuboCop's typical 3-5 seconds.
+For a 500K LOC Rails app (similar to the rails bench repo), the optimized turbocop would likely run in under 1 second vs RuboCop's typical 3-5 seconds.

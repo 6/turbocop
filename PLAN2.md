@@ -1,13 +1,13 @@
-## rblint Direction Plan
+## turbocop Direction Plan
 
 ### Goals
 
 1. **Fast path is always Rust-only.** No runtime Ruby fallback. Predictable speed and behavior.
-2. **Correctness is per-cop, scoped.** rblint guarantees RuboCop-equivalent behavior **only for cops it implements**, given the same *resolved* configuration.
+2. **Correctness is per-cop, scoped.** turbocop guarantees RuboCop-equivalent behavior **only for cops it implements**, given the same *resolved* configuration.
 3. **Full `.rubocop.yml` ecosystem compatibility is handled by a resolver step**, not by the linter runtime:
 
    * `inherit_from`, `inherit_gem`, `require`, plugin gems, custom cops are resolved by Ruby.
-4. **Plugins/custom cops never block rblint**: they become “external cops” that are reported, not executed.
+4. **Plugins/custom cops never block turbocop**: they become “external cops” that are reported, not executed.
 
 Non-goals:
 
@@ -47,31 +47,31 @@ Non-goals:
 
 ## CLI Plan
 
-### 1) `rblint resolve` (new)
+### 1) `turbocop resolve` (new)
 
-Purpose: produce `.rblint/lock.json` and `.rblint/resolved.yml` (or embed resolved config inside lock).
+Purpose: produce `.turbocop/lock.json` and `.turbocop/resolved.yml` (or embed resolved config inside lock).
 
 Example:
 
 ```bash
-rblint resolve                # uses .rubocop.yml discovery
-rblint resolve -c path/to/.rubocop.yml
-rblint resolve --ruby ruby3.3 # optional override (or just use current ruby)
+turbocop resolve                # uses .rubocop.yml discovery
+turbocop resolve -c path/to/.rubocop.yml
+turbocop resolve --ruby ruby3.3 # optional override (or just use current ruby)
 ```
 
 Output artifacts:
 
-* `.rblint/lock.json`
-* `.rblint/resolved.yml` (or `.json`)
+* `.turbocop/lock.json`
+* `.turbocop/resolved.yml` (or `.json`)
 
-### 2) `rblint` default behavior
+### 2) `turbocop` default behavior
 
 Priority:
 
-1. If `.rblint/lock.json` exists and is fresh → use it.
+1. If `.turbocop/lock.json` exists and is fresh → use it.
 2. Else:
 
-   * either error with helpful hint (`run rblint resolve`)
+   * either error with helpful hint (`run turbocop resolve`)
    * or run in “limited config mode” (see below)
 
 ### 3) Modes / strictness
@@ -95,10 +95,10 @@ Add `--mode` (or separate flags):
 
 ### 4) Coverage / helper commands
 
-* `rblint external-cops` prints enabled-but-external cops (from lockfile), e.g.
+* `turbocop external-cops` prints enabled-but-external cops (from lockfile), e.g.
 
   * `Minitest/AssertTruthy,RSpec/Focus,...`
-* `rblint doctor` prints:
+* `turbocop doctor` prints:
 
   * unsupported config keys if in limited mode
   * missing lockfile / stale lockfile
@@ -108,7 +108,7 @@ Add `--mode` (or separate flags):
 
 ## Lockfile Design
 
-### Suggested `.rblint/lock.json` structure
+### Suggested `.turbocop/lock.json` structure
 
 ```json
 {
@@ -124,7 +124,7 @@ Add `--mode` (or separate flags):
   ],
   "config_sources": {
     "primary": ".rubocop.yml",
-    "resolved_path": ".rblint/resolved.yml",
+    "resolved_path": ".turbocop/resolved.yml",
     "resolution_hash": "sha256:..."
   },
   "enabled_cops": ["Layout/LineLength", "..."],
@@ -139,12 +139,12 @@ Add `--mode` (or separate flags):
     }
   ],
   "warnings": [
-    { "kind": "unsupported_runtime", "message": "limited mode ignores inherit_gem; run rblint resolve" }
+    { "kind": "unsupported_runtime", "message": "limited mode ignores inherit_gem; run turbocop resolve" }
   ]
 }
 ```
 
-### Resolved config file `.rblint/resolved.yml`
+### Resolved config file `.turbocop/resolved.yml`
 
 This should be fully flattened:
 
@@ -160,7 +160,7 @@ This should be fully flattened:
 
 ### Approach
 
-Ship a small Ruby script (e.g. `tools/resolve.rb`) invoked by `rblint resolve`.
+Ship a small Ruby script (e.g. `tools/resolve.rb`) invoked by `turbocop resolve`.
 
 Responsibilities:
 
@@ -177,8 +177,8 @@ Responsibilities:
 
 4. Write:
 
-   * `.rblint/resolved.yml`
-   * `.rblint/lock.json`
+   * `.turbocop/resolved.yml`
+   * `.turbocop/lock.json`
 
 ### Handling plugins like `rubocop-minitest`
 
@@ -196,7 +196,7 @@ Resolver behavior:
 
 * RuboCop loads `rubocop-minitest` so the cop class exists.
 * Enabled cops list includes `Minitest/*`.
-* rblint compares enabled cops to its implemented set → all `Minitest/*` become **external**.
+* turbocop compares enabled cops to its implemented set → all `Minitest/*` become **external**.
 
 ### Handling handwritten custom cops
 
@@ -214,7 +214,7 @@ Resolver behavior:
 
 * RuboCop loads local Ruby file
 * Cop appears in enabled list
-* rblint marks it external with `source.type=require` and path.
+* turbocop marks it external with `source.type=require` and path.
 
 ### “Which plugin provided this cop?” (nice-to-have)
 
@@ -231,7 +231,7 @@ If mapping is hard, you can still record external cops without source attributio
 
 ### 1) Implement “lockfile-driven” config path
 
-* If lockfile exists, load `.rblint/resolved.yml` and enabled cops list.
+* If lockfile exists, load `.turbocop/resolved.yml` and enabled cops list.
 * Skip all inheritance logic at runtime.
 
 ### 2) Implement external cop reporting
@@ -271,7 +271,7 @@ For each cop (or cop group):
 1. Fixture repo / files
 2. Resolved config (generated by resolver; committed to repo fixtures)
 3. Run RuboCop with JSON formatter to produce expected offenses
-4. Run rblint with same resolved config → diff results
+4. Run turbocop with same resolved config → diff results
 
 Store golden JSON output:
 
@@ -283,7 +283,7 @@ Store golden JSON output:
 
 Create fixtures that enable plugin/custom cops and validate:
 
-* rblint runs its implemented cops
+* turbocop runs its implemented cops
 * external cops are listed correctly
 
 Example fixture A (plugin):
@@ -309,12 +309,12 @@ Example fixture B (handwritten):
 
 * For real Rails repos with inheritance/plugins:
 
-  1. `rblint resolve`
-  2. `rblint` (fast)
+  1. `turbocop resolve`
+  2. `turbocop` (fast)
 
 * For minimal repos:
 
-  * `rblint --mode=limited` (optional convenience)
+  * `turbocop --mode=limited` (optional convenience)
 
 ### Error/warn messaging (important)
 
@@ -326,9 +326,9 @@ When external cops exist:
 Example:
 
 ```
-rblint: 312 enabled cops, 287 supported, 25 external
+turbocop: 312 enabled cops, 287 supported, 25 external
 External cops (not run): Minitest/AssertTruthy, Custom/FooBar, ...
-Tip: `rblint external-cops` to list all. Use `--mode=strict` to fail CI.
+Tip: `turbocop external-cops` to list all. Use `--mode=strict` to fail CI.
 ```
 
 ---

@@ -1,8 +1,8 @@
-# rblint Optimization Ideas
+# turbocop Optimization Ideas
 
 ## Current Performance Profile (2026-02-19)
 
-Benchmarked with `.rblint.cache` (no bundler calls), batched single-pass AST walker,
+Benchmarked with `.turbocop.cache` (no bundler calls), batched single-pass AST walker,
 node-type dispatch table (915 cops annotated), pre-computed cop configs, and
 optimized hot cops (Lint/Debugger, RSpec/NoExpectationExample).
 
@@ -33,7 +33,7 @@ The `filter+config` phase includes four distinct costs, profiled per-repo:
 - **check_lines**: Line-by-line scanning (42 cops have implementations).
 - **check_source**: Byte-level source scanning (130 cops have implementations).
 
-### Per-Cop Hot Spots (RBLINT_COP_PROFILE=1)
+### Per-Cop Hot Spots (TURBOCOP_COP_PROFILE=1)
 
 Top cops by cumulative single-threaded time on the rubocop repo (1669 files):
 
@@ -154,7 +154,7 @@ pre-filter would save ~12ms total.
 
 ### Faster YAML Parser (LOW IMPACT)
 
-Config loading is only 13-162ms with `.rblint.cache`. Not worth the effort.
+Config loading is only 13-162ms with `.turbocop.cache`. Not worth the effort.
 
 ### mmap for File I/O (NO IMPACT)
 
@@ -189,16 +189,16 @@ Three fixes applied:
 ### Optimization 10: File-Level Result Caching (Incremental Linting) ✅ DONE
 
 **Status:** Implemented
-**Measured impact:** 983ms → 356ms warm re-run on rblint repo (4369 files), ~2.8x speedup
+**Measured impact:** 983ms → 356ms warm re-run on turbocop repo (4369 files), ~2.8x speedup
 
 Opt-in `--cache` flag enables per-file result caching. Two-level directory hierarchy:
-`~/.cache/rblint/<session_hash>/<file_hash>`. Session hash incorporates rblint version,
+`~/.cache/turbocop/<session_hash>/<file_hash>`. Session hash incorporates turbocop version,
 deterministic config fingerprint (sorted HashMap keys), and `--only`/`--except` args.
 File hash uses path + content SHA-256.
 
 - Cache entries are compact JSON (no path field — implied by key)
 - Atomic writes via temp file + rename for parallel safety
-- XDG-compliant storage (`$RBLINT_CACHE_DIR` > `$XDG_CACHE_HOME/rblint/` > `~/.cache/rblint/`)
+- XDG-compliant storage (`$TURBOCOP_CACHE_DIR` > `$XDG_CACHE_HOME/turbocop/` > `~/.cache/turbocop/`)
 - Age-based eviction at 20K files (delete oldest 50% of session directories)
 - `--cache-clear` removes the entire cache directory
 

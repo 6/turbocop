@@ -1,4 +1,4 @@
-# rblint-filename: example.gemspec
+# turbocop-filename: example.gemspec
 Gem::Specification.new do |spec|
   spec.name = 'example'
   spec.version = '1.0'

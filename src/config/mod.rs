@@ -2361,7 +2361,7 @@ mod tests {
 
     #[test]
     fn allcops_exclude() {
-        let dir = std::env::temp_dir().join("rblint_test_config_exclude");
+        let dir = std::env::temp_dir().join("turbocop_test_config_exclude");
         fs::create_dir_all(&dir).unwrap();
         let path = write_config(
             &dir,
@@ -2377,7 +2377,7 @@ mod tests {
 
     #[test]
     fn cop_enabled_false() {
-        let dir = std::env::temp_dir().join("rblint_test_config_disabled");
+        let dir = std::env::temp_dir().join("turbocop_test_config_disabled");
         fs::create_dir_all(&dir).unwrap();
         let path = write_config(&dir, "Style/Foo:\n  Enabled: false\n");
         let config = load_config(Some(&path), None, None).unwrap();
@@ -2389,7 +2389,7 @@ mod tests {
 
     #[test]
     fn cop_severity_override() {
-        let dir = std::env::temp_dir().join("rblint_test_config_severity");
+        let dir = std::env::temp_dir().join("turbocop_test_config_severity");
         fs::create_dir_all(&dir).unwrap();
         let path = write_config(&dir, "Style/Foo:\n  Severity: error\n");
         let config = load_config(Some(&path), None, None).unwrap();
@@ -2400,7 +2400,7 @@ mod tests {
 
     #[test]
     fn cop_exclude_include_patterns() {
-        let dir = std::env::temp_dir().join("rblint_test_config_patterns");
+        let dir = std::env::temp_dir().join("turbocop_test_config_patterns");
         fs::create_dir_all(&dir).unwrap();
         let path = write_config(
             &dir,
@@ -2415,7 +2415,7 @@ mod tests {
 
     #[test]
     fn cop_custom_options() {
-        let dir = std::env::temp_dir().join("rblint_test_config_options");
+        let dir = std::env::temp_dir().join("turbocop_test_config_options");
         fs::create_dir_all(&dir).unwrap();
         let path = write_config(&dir, "Layout/LineLength:\n  Max: 120\n");
         let config = load_config(Some(&path), None, None).unwrap();
@@ -2426,7 +2426,7 @@ mod tests {
 
     #[test]
     fn non_cop_keys_ignored() {
-        let dir = std::env::temp_dir().join("rblint_test_config_noncop");
+        let dir = std::env::temp_dir().join("turbocop_test_config_noncop");
         fs::create_dir_all(&dir).unwrap();
         let path = write_config(&dir, "AllCops:\n  Exclude: []\nrequire:\n  - rubocop-rspec\n");
         let config = load_config(Some(&path), None, None).unwrap();
@@ -2485,7 +2485,7 @@ mod tests {
 
     #[test]
     fn user_include_overrides_default() {
-        let dir = std::env::temp_dir().join("rblint_test_config_inc_override");
+        let dir = std::env::temp_dir().join("turbocop_test_config_inc_override");
         fs::create_dir_all(&dir).unwrap();
         // Use a core department cop (Style/) so plugin department filtering doesn't apply
         let path = write_config(
@@ -2506,7 +2506,7 @@ mod tests {
 
     #[test]
     fn global_excludes_applied() {
-        let dir = std::env::temp_dir().join("rblint_test_config_global_exc");
+        let dir = std::env::temp_dir().join("turbocop_test_config_global_exc");
         fs::create_dir_all(&dir).unwrap();
         let path = write_config(&dir, "AllCops:\n  Exclude:\n    - 'vendor/**'\n");
         let config = load_config(Some(&path), None, None).unwrap();
@@ -2577,7 +2577,7 @@ mod tests {
 
     #[test]
     fn ruby_regexp_in_global_excludes() {
-        let dir = std::env::temp_dir().join("rblint_test_config_ruby_regexp");
+        let dir = std::env::temp_dir().join("turbocop_test_config_ruby_regexp");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         // Config with !ruby/regexp in Exclude alongside regular string patterns.
@@ -2640,7 +2640,7 @@ mod tests {
 
     #[test]
     fn ruby_regexp_in_cop_filter_set_global_excludes() {
-        let dir = std::env::temp_dir().join("rblint_test_config_ruby_regexp_filter");
+        let dir = std::env::temp_dir().join("turbocop_test_config_ruby_regexp_filter");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let path = write_config(
@@ -2707,7 +2707,7 @@ mod tests {
 
     #[test]
     fn inherit_from_single_file() {
-        let dir = std::env::temp_dir().join("rblint_test_inherit_single");
+        let dir = std::env::temp_dir().join("turbocop_test_inherit_single");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -2734,7 +2734,7 @@ mod tests {
 
     #[test]
     fn inherit_from_array() {
-        let dir = std::env::temp_dir().join("rblint_test_inherit_array");
+        let dir = std::env::temp_dir().join("turbocop_test_inherit_array");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -2766,7 +2766,7 @@ mod tests {
 
     #[test]
     fn inherit_from_child_overrides_base() {
-        let dir = std::env::temp_dir().join("rblint_test_inherit_override");
+        let dir = std::env::temp_dir().join("turbocop_test_inherit_override");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -2785,7 +2785,7 @@ mod tests {
 
     #[test]
     fn inherit_from_exclude_appends() {
-        let dir = std::env::temp_dir().join("rblint_test_inherit_exclude");
+        let dir = std::env::temp_dir().join("turbocop_test_inherit_exclude");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -2810,7 +2810,7 @@ mod tests {
 
     #[test]
     fn inherit_from_include_replaces() {
-        let dir = std::env::temp_dir().join("rblint_test_inherit_include");
+        let dir = std::env::temp_dir().join("turbocop_test_inherit_include");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -2835,7 +2835,7 @@ mod tests {
 
     #[test]
     fn inherit_from_missing_warns_but_succeeds() {
-        let dir = std::env::temp_dir().join("rblint_test_inherit_missing");
+        let dir = std::env::temp_dir().join("turbocop_test_inherit_missing");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -2854,7 +2854,7 @@ mod tests {
 
     #[test]
     fn circular_inherit_from_detected() {
-        let dir = std::env::temp_dir().join("rblint_test_inherit_circular");
+        let dir = std::env::temp_dir().join("turbocop_test_inherit_circular");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -2875,7 +2875,7 @@ mod tests {
 
     #[test]
     fn require_key_silently_ignored() {
-        let dir = std::env::temp_dir().join("rblint_test_require_ignored");
+        let dir = std::env::temp_dir().join("turbocop_test_require_ignored");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -2962,7 +2962,7 @@ mod tests {
 
     #[test]
     fn deep_merge_cop_options() {
-        let dir = std::env::temp_dir().join("rblint_test_deep_merge_opts");
+        let dir = std::env::temp_dir().join("turbocop_test_deep_merge_opts");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -2992,7 +2992,7 @@ mod tests {
 
     #[test]
     fn enabled_cop_names_returns_enabled_only() {
-        let dir = std::env::temp_dir().join("rblint_test_enabled_names");
+        let dir = std::env::temp_dir().join("turbocop_test_enabled_names");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -3075,7 +3075,7 @@ mod tests {
 
     #[test]
     fn auto_discover_config_from_target_dir() {
-        let dir = std::env::temp_dir().join("rblint_test_autodiscover");
+        let dir = std::env::temp_dir().join("turbocop_test_autodiscover");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -3091,7 +3091,7 @@ mod tests {
 
     #[test]
     fn auto_discover_walks_up_parent() {
-        let parent = std::env::temp_dir().join("rblint_test_autodiscover_parent");
+        let parent = std::env::temp_dir().join("turbocop_test_autodiscover_parent");
         let child = parent.join("app").join("models");
         let _ = fs::remove_dir_all(&parent);
         fs::create_dir_all(&child).unwrap();
@@ -3107,7 +3107,7 @@ mod tests {
 
     #[test]
     fn no_config_found_returns_empty() {
-        let dir = std::env::temp_dir().join("rblint_test_no_config");
+        let dir = std::env::temp_dir().join("turbocop_test_no_config");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -3122,7 +3122,7 @@ mod tests {
 
     #[test]
     fn enabled_pending_disabled_by_default() {
-        let dir = std::env::temp_dir().join("rblint_test_pending_default");
+        let dir = std::env::temp_dir().join("turbocop_test_pending_default");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -3136,7 +3136,7 @@ mod tests {
 
     #[test]
     fn enabled_pending_with_new_cops_enable() {
-        let dir = std::env::temp_dir().join("rblint_test_pending_enable");
+        let dir = std::env::temp_dir().join("turbocop_test_pending_enable");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -3156,7 +3156,7 @@ mod tests {
 
     #[test]
     fn disabled_by_default_disables_unset_cops() {
-        let dir = std::env::temp_dir().join("rblint_test_disabled_by_default");
+        let dir = std::env::temp_dir().join("turbocop_test_disabled_by_default");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -3177,7 +3177,7 @@ mod tests {
     fn disabled_by_default_via_inherit_gem() {
         // Simulates the discourse scenario: inherit_gem loads a config that
         // sets DisabledByDefault: true. Only explicitly enabled cops should run.
-        let dir = std::env::temp_dir().join("rblint_test_disabled_by_default_inherit_gem");
+        let dir = std::env::temp_dir().join("turbocop_test_disabled_by_default_inherit_gem");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -3217,7 +3217,7 @@ mod tests {
     fn inherit_gem_missing_gem_returns_error() {
         // When inherit_gem references a gem that can't be resolved, load_config
         // should return an error rather than silently skipping the config.
-        let dir = std::env::temp_dir().join("rblint_test_inherit_gem_missing");
+        let dir = std::env::temp_dir().join("turbocop_test_inherit_gem_missing");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -3242,7 +3242,7 @@ mod tests {
 
     #[test]
     fn department_include_filters_cops() {
-        let dir = std::env::temp_dir().join("rblint_test_dept_include");
+        let dir = std::env::temp_dir().join("turbocop_test_dept_include");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -3273,7 +3273,7 @@ mod tests {
 
     #[test]
     fn department_enabled_false_disables_all_cops() {
-        let dir = std::env::temp_dir().join("rblint_test_dept_disabled");
+        let dir = std::env::temp_dir().join("turbocop_test_dept_disabled");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -3305,7 +3305,7 @@ mod tests {
 
     #[test]
     fn cop_config_overrides_department() {
-        let dir = std::env::temp_dir().join("rblint_test_cop_over_dept");
+        let dir = std::env::temp_dir().join("turbocop_test_cop_over_dept");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -3326,7 +3326,7 @@ mod tests {
 
     #[test]
     fn inherit_mode_merge_include() {
-        let dir = std::env::temp_dir().join("rblint_test_inherit_mode_merge");
+        let dir = std::env::temp_dir().join("turbocop_test_inherit_mode_merge");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -3352,7 +3352,7 @@ mod tests {
 
     #[test]
     fn inherit_mode_override_exclude() {
-        let dir = std::env::temp_dir().join("rblint_test_inherit_mode_override");
+        let dir = std::env::temp_dir().join("turbocop_test_inherit_mode_override");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -3380,7 +3380,7 @@ mod tests {
 
     #[test]
     fn enabled_cop_names_respects_pending_and_disabled_by_default() {
-        let dir = std::env::temp_dir().join("rblint_test_names_pending");
+        let dir = std::env::temp_dir().join("turbocop_test_names_pending");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -3422,7 +3422,7 @@ mod tests {
 
     #[test]
     fn is_cop_match_exclude_works_on_relativized_path() {
-        // Simulates running `rblint bench/repos/mastodon` where file paths
+        // Simulates running `turbocop bench/repos/mastodon` where file paths
         // have a prefix but Exclude patterns are project-relative.
         let filter = make_filter(true, &[], &["lib/tasks/*.rake"]);
         let filter_set = CopFilterSet {

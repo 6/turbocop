@@ -1,4 +1,4 @@
-# rblint-filename: spec/models/user_spec.rb
+# turbocop-filename: spec/models/user_spec.rb
 RSpec.describe User do
 end
 

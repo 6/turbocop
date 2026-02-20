@@ -106,7 +106,7 @@ pub fn resolve_gem_path(gem_name: &str, working_dir: &Path) -> Result<PathBuf> {
 
 /// Extract all resolved gem paths from the in-process cache.
 /// Returns a map of gem_name → gem_root_path.
-/// Used by `rblint --init` to populate the lockfile.
+/// Used by `turbocop --init` to populate the lockfile.
 pub fn drain_resolved_paths() -> HashMap<String, PathBuf> {
     let cache = GEM_PATH_CACHE.lock().unwrap();
     match *cache {

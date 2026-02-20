@@ -45,8 +45,8 @@ impl Cop for InlineComment {
                     continue;
                 }
 
-                // Skip rblint directives
-                if after_hash.starts_with("rblint-") {
+                // Skip turbocop directives
+                if after_hash.starts_with("turbocop-") {
                     continue;
                 }
 

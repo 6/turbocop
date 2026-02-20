@@ -1,4 +1,4 @@
-# rblint
+# turbocop
 
 Fast Ruby linter in Rust targeting RuboCop compatibility. Uses Prism (ruby-prism crate) for parsing, rayon for parallelism.
 
@@ -23,10 +23,10 @@ cargo run -- --debug .       # phase-level timing breakdown
 
 `--debug` prints phase-level timing: bundler shell-outs, config loading, and per-phase linter breakdown (file I/O, Prism parse, CodeMap build, cop execution split into filter+config vs AST walk, disable filtering) using `AtomicU64` counters across rayon threads.
 
-`RBLINT_COP_PROFILE=1` enables per-cop timing (requires `--debug`). Re-runs all files single-threaded and reports the top 30 slowest cops broken down by `check_lines`, `check_source`, and `check_node` (AST walk) time. Example:
+`TURBOCOP_COP_PROFILE=1` enables per-cop timing (requires `--debug`). Re-runs all files single-threaded and reports the top 30 slowest cops broken down by `check_lines`, `check_source`, and `check_node` (AST walk) time. Example:
 
 ```
-RBLINT_COP_PROFILE=1 cargo run --release -- --debug bench/repos/mastodon
+TURBOCOP_COP_PROFILE=1 cargo run --release -- --debug bench/repos/mastodon
 ```
 
 ## Debugging & Benchmarking Tips
@@ -35,7 +35,7 @@ RBLINT_COP_PROFILE=1 cargo run --release -- --debug bench/repos/mastodon
   ```
   cargo run --release -- --debug --only Style/SymbolProc bench/repos/mastodon
   ```
-- **Per-cop profiling** is available via `RBLINT_COP_PROFILE=1` (see Performance Profiling above).
+- **Per-cop profiling** is available via `TURBOCOP_COP_PROFILE=1` (see Performance Profiling above).
 - **Comparative benchmarking** with hyperfine:
   ```
   hyperfine --warmup 2 --runs 5 'cargo run --release -- bench/repos/mastodon'
@@ -47,7 +47,7 @@ RBLINT_COP_PROFILE=1 cargo run --release -- --debug bench/repos/mastodon
 - `src/diagnostic.rs` — Severity, Location, Diagnostic types
 - `src/parse/` — Prism wrapper + SourceFile (line offsets, byte→line:col)
 - `src/cop/` — `Cop` trait (`check_lines`/`check_node`/`check_source`), `CopRegistry`, department modules (`layout/`, `lint/`, `metrics/`, `naming/`, `performance/`, `rails/`, `rspec/`, `style/`)
-- `src/testutil.rs` — `#[cfg(test)]` fixture parser (annotations, `# rblint-expect:`, `# rblint-filename:`) + assertion helpers
+- `src/testutil.rs` — `#[cfg(test)]` fixture parser (annotations, `# turbocop-expect:`, `# turbocop-filename:`) + assertion helpers
 - `src/config/` — `.rubocop.yml` loading with `inherit_from`, `inherit_gem`, `inherit_mode`, auto-discovery
 - `src/fs/` — File discovery via `ignore` crate (.gitignore-aware)
 - `src/linter.rs` — Parallel orchestration (parse per-thread since ParseResult is !Send)
@@ -63,9 +63,9 @@ RBLINT_COP_PROFILE=1 cargo run --release -- --debug bench/repos/mastodon
 
 ## Plugin Cop Version Awareness
 
-rblint compiles ALL cops into the binary, including cops from plugin gems (rubocop-rspec, rubocop-rails, rubocop-performance). But target projects may use older gem versions that don't include newer cops. The vendor submodules pin the latest versions we support — they are NOT the versions the target project uses.
+turbocop compiles ALL cops into the binary, including cops from plugin gems (rubocop-rspec, rubocop-rails, rubocop-performance). But target projects may use older gem versions that don't include newer cops. The vendor submodules pin the latest versions we support — they are NOT the versions the target project uses.
 
-When rblint processes `require: [rubocop-rspec]`, it runs `bundle info --path rubocop-rspec` in the target project to find the *installed* gem version, then loads that gem's `config/default.yml`. Plugin cops not mentioned in the installed gem's `config/default.yml` should be treated as non-existent (disabled), because the target project's gem version doesn't include them. This matches RuboCop's behavior where only cops that exist in the installed gem are registered.
+When turbocop processes `require: [rubocop-rspec]`, it runs `bundle info --path rubocop-rspec` in the target project to find the *installed* gem version, then loads that gem's `config/default.yml`. Plugin cops not mentioned in the installed gem's `config/default.yml` should be treated as non-existent (disabled), because the target project's gem version doesn't include them. This matches RuboCop's behavior where only cops that exist in the installed gem are registered.
 
 ## Keeping in Sync with RuboCop
 
@@ -95,7 +95,7 @@ This script reads `version.rb` from each vendor submodule, pins those versions i
 
 1. `cargo test config_audit -- --nocapture` — reports YAML config keys that cops don't read yet
 2. `cargo test prism_pitfalls -- --nocapture` — flags cops missing `KeywordHashNode` or `ConstantPathNode` handling
-3. Fix flagged cops, add test coverage, re-run `cargo run --release --bin bench_rblint -- conform` to verify FP counts
+3. Fix flagged cops, add test coverage, re-run `cargo run --release --bin bench_turbocop -- conform` to verify FP counts
 
 ## Common Prism Pitfalls
 
@@ -135,8 +135,8 @@ Each cop has a test fixture directory under `testdata/cops/<dept>/<cop_name>/` w
 - Annotations across all files are summed for coverage (≥3 total required)
 
 **Special directives** (stripped from clean source before running the cop):
-- `# rblint-filename: Name.rb` — first line only; overrides the filename passed to `SourceFile` (used by `Naming/FileName`)
-- `# rblint-expect: L:C Department/CopName: Message` — explicit offense at line L, column C; use when `^` can't be placed (trailing blanks, missing newlines)
+- `# turbocop-filename: Name.rb` — first line only; overrides the filename passed to `SourceFile` (used by `Naming/FileName`)
+- `# turbocop-expect: L:C Department/CopName: Message` — explicit offense at line L, column C; use when `^` can't be placed (trailing blanks, missing newlines)
 
 ## Vendor Fixture Extraction Process
 
@@ -150,11 +150,11 @@ To add a new cop department from a RuboCop plugin (e.g., rubocop-rspec, rubocop-
           ^^^^^^^^^^^^^^^^^ Use `find_by` instead of `where.take`.
    RUBY
    ```
-3. **Convert to rblint format** — strip the heredoc wrapper, prepend the department/cop prefix to annotations, write to `testdata/cops/{dept}/{cop_name}/offense.rb`
+3. **Convert to turbocop format** — strip the heredoc wrapper, prepend the department/cop prefix to annotations, write to `testdata/cops/{dept}/{cop_name}/offense.rb`
 4. **Extract `expect_no_offenses` blocks** — combine clean Ruby snippets into `no_offense.rb` (≥5 non-empty lines)
-5. **Adapt annotations** — vendor specs use just the message after `^`; rblint requires `Department/CopName: message` format:
+5. **Adapt annotations** — vendor specs use just the message after `^`; turbocop requires `Department/CopName: message` format:
    - Vendor: `^^^ Use find_by instead of where.take.`
-   - rblint: `^^^ Rails/FindBy: Use find_by instead of where.take.`
+   - turbocop: `^^^ Rails/FindBy: Use find_by instead of where.take.`
 6. **Handle edge cases**:
    - Vendor specs with interpolation (`#{method}`) — pick concrete examples
    - Vendor specs testing config variations — use default config for fixtures, test variations inline
@@ -164,12 +164,12 @@ To add a new cop department from a RuboCop plugin (e.g., rubocop-rspec, rubocop-
 ## Benchmarking
 
 ```
-cargo run --release --bin bench_rblint                # full run: setup + bench + conform + report
-cargo run --release --bin bench_rblint -- setup        # clone benchmark repos only
-cargo run --release --bin bench_rblint -- bench        # timing benchmarks (hyperfine)
-cargo run --release --bin bench_rblint -- conform      # conformance comparison → bench/conform.json + bench/results.md
-cargo run --release --bin bench_rblint -- report       # regenerate results.md from cached data
-cargo run --release --bin bench_rblint -- quick        # quick bench: rubygems.org, cached vs uncached → bench/quick_results.md
+cargo run --release --bin bench_turbocop                # full run: setup + bench + conform + report
+cargo run --release --bin bench_turbocop -- setup        # clone benchmark repos only
+cargo run --release --bin bench_turbocop -- bench        # timing benchmarks (hyperfine)
+cargo run --release --bin bench_turbocop -- conform      # conformance comparison → bench/conform.json + bench/results.md
+cargo run --release --bin bench_turbocop -- report       # regenerate results.md from cached data
+cargo run --release --bin bench_turbocop -- quick        # quick bench: rubygems.org, cached vs uncached → bench/quick_results.md
 ```
 
 Results are written to `bench/results.md` (checked in). Quick bench results go to `bench/quick_results.md`. Conformance data is also written to `bench/conform.json` (gitignored) as structured data for the coverage table. Benchmark repos are cloned to `bench/repos/` (gitignored).
@@ -187,7 +187,7 @@ Generates `docs/coverage.md` with:
 - **Missing cops** — which vendor cops aren't implemented yet (with `--show-missing`)
 - **Conformance table** — FP/FN rates per bench repo (reads `bench/conform.json` if available)
 
-Pipeline: `bench_rblint conform` → `bench/conform.json` → `coverage_table` → `docs/coverage.md`
+Pipeline: `bench_turbocop conform` → `bench/conform.json` → `coverage_table` → `docs/coverage.md`
 
 PROGRESS.md links to `docs/coverage.md` instead of maintaining inline tables.
 
@@ -195,9 +195,9 @@ PROGRESS.md links to `docs/coverage.md` instead of maintaining inline tables.
 
 - Keep [PROGRESS.md](PROGRESS.md) up to date when completing milestone tasks. Check off items as done and update milestone status.
 - See [PLAN.md](PLAN.md) for full roadmap, cop batching strategy, and technical design decisions.
-- After adding a new cop, ensure `cargo test` passes — the `all_cops_have_minimum_test_coverage` integration test enforces that every cop has at least 3 offense fixture cases and 5+ non-empty lines in no_offense.rb. There are zero exemptions; use `offense/` scenario directories and `# rblint-expect:` annotations to handle cops that can't use the standard single-file format.
+- After adding a new cop, ensure `cargo test` passes — the `all_cops_have_minimum_test_coverage` integration test enforces that every cop has at least 3 offense fixture cases and 5+ non-empty lines in no_offense.rb. There are zero exemptions; use `offense/` scenario directories and `# turbocop-expect:` annotations to handle cops that can't use the standard single-file format.
 - **Every cop fix or false-positive fix must include test coverage.** When fixing a false positive, add the previously-false-positive case to the cop's `no_offense.rb` fixture. When fixing a missed detection, add it to `offense.rb`. This prevents regressions and documents the expected behavior.
 - **After adding or fixing cops, regenerate coverage docs.** Run the full pipeline to keep docs up to date:
-  1. `cargo run --release --bin bench_rblint -- conform` — regenerate conformance data (`bench/conform.json`)
+  1. `cargo run --release --bin bench_turbocop -- conform` — regenerate conformance data (`bench/conform.json`)
   2. `cargo run --bin coverage_table -- --show-missing --output docs/coverage.md` — regenerate coverage table
   3. Update [PROGRESS.md](PROGRESS.md) with new cop counts, milestone status, and any conformance changes

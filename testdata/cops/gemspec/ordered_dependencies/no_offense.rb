@@ -1,4 +1,4 @@
-# rblint-filename: example.gemspec
+# turbocop-filename: example.gemspec
 Gem::Specification.new do |spec|
   spec.add_dependency 'aaa', '~> 1.0'
   spec.add_dependency 'bbb', '~> 2.0'

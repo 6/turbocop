@@ -1,10 +1,10 @@
-//! Benchmark rblint vs rubocop on real-world codebases.
+//! Benchmark turbocop vs rubocop on real-world codebases.
 //!
 //! Usage:
-//!   cargo run --release --bin bench_rblint          # full run (bench + conform + report)
-//!   cargo run --release --bin bench_rblint -- bench  # timing only
-//!   cargo run --release --bin bench_rblint -- conform # conformance only
-//!   cargo run --release --bin bench_rblint -- report  # regenerate results.md from cached data
+//!   cargo run --release --bin bench_turbocop          # full run (bench + conform + report)
+//!   cargo run --release --bin bench_turbocop -- bench  # timing only
+//!   cargo run --release --bin bench_turbocop -- conform # conformance only
+//!   cargo run --release --bin bench_turbocop -- report  # regenerate results.md from cached data
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
@@ -18,7 +18,7 @@ use clap::Parser;
 // --- CLI ---
 
 #[derive(Parser)]
-#[command(about = "Benchmark rblint vs rubocop. Writes results to bench/results.md.")]
+#[command(about = "Benchmark turbocop vs rubocop. Writes results to bench/results.md.")]
 struct Args {
     /// Subcommand: bench, conform, report, quick, or omit for all
     #[arg(default_value = "all")]
@@ -126,8 +126,8 @@ fn results_dir() -> PathBuf {
     bench_dir().join("results")
 }
 
-fn rblint_binary() -> PathBuf {
-    project_root().join("target/release/rblint")
+fn turbocop_binary() -> PathBuf {
+    project_root().join("target/release/turbocop")
 }
 
 fn shell_output(cmd: &str, args: &[&str]) -> String {
@@ -245,14 +245,14 @@ fn setup_repos() {
 
 // --- Build ---
 
-fn build_rblint() {
-    eprintln!("Building rblint (release)...");
+fn build_turbocop() {
+    eprintln!("Building turbocop (release)...");
     let status = Command::new("cargo")
         .args([
             "build",
             "--release",
             "--bin",
-            "rblint",
+            "turbocop",
             "--manifest-path",
             project_root().join("Cargo.toml").to_str().unwrap(),
         ])
@@ -264,9 +264,9 @@ fn build_rblint() {
 // --- Init lockfiles ---
 
 fn init_lockfiles() {
-    let rblint = rblint_binary();
-    if !rblint.exists() {
-        eprintln!("rblint binary not found. Build first.");
+    let turbocop = turbocop_binary();
+    if !turbocop.exists() {
+        eprintln!("turbocop binary not found. Build first.");
         return;
     }
 
@@ -276,14 +276,14 @@ fn init_lockfiles() {
             continue;
         }
 
-        eprintln!("Generating .rblint.cache for {}...", repo.name);
+        eprintln!("Generating .turbocop.cache for {}...", repo.name);
         let start = Instant::now();
-        let output = Command::new(rblint.as_os_str())
+        let output = Command::new(turbocop.as_os_str())
             .args(["--init", repo_dir.to_str().unwrap()])
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .output()
-            .expect("failed to run rblint --init");
+            .expect("failed to run turbocop --init");
 
         if output.status.success() {
             eprintln!(
@@ -315,13 +315,13 @@ struct HyperfineResult {
 }
 
 struct BenchResult {
-    rblint: HyperfineResult,
+    turbocop: HyperfineResult,
     rubocop: HyperfineResult,
     rb_count: usize,
 }
 
 fn run_bench(args: &Args) -> HashMap<String, BenchResult> {
-    let rblint = rblint_binary();
+    let turbocop = turbocop_binary();
     let results_path = results_dir();
     fs::create_dir_all(&results_path).unwrap();
 
@@ -343,9 +343,9 @@ fn run_bench(args: &Args) -> HashMap<String, BenchResult> {
         eprintln!("\n=== Benchmarking {} ({} .rb files) ===", repo.name, rb_count);
 
         let json_file = results_path.join(format!("{}-bench.json", repo.name));
-        let rblint_cmd = format!(
+        let turbocop_cmd = format!(
             "{} {} --no-color",
-            rblint.display(),
+            turbocop.display(),
             repo_dir.display()
         );
         let rubocop_cmd = format!(
@@ -363,8 +363,8 @@ fn run_bench(args: &Args) -> HashMap<String, BenchResult> {
                 "--export-json",
                 json_file.to_str().unwrap(),
                 "--command-name",
-                "rblint",
-                &rblint_cmd,
+                "turbocop",
+                &turbocop_cmd,
                 "--command-name",
                 "rubocop",
                 &rubocop_cmd,
@@ -380,10 +380,10 @@ fn run_bench(args: &Args) -> HashMap<String, BenchResult> {
         let json_content = fs::read_to_string(&json_file).unwrap();
         let parsed: HyperfineOutput = serde_json::from_str(&json_content).unwrap();
 
-        let rblint_result = parsed
+        let turbocop_result = parsed
             .results
             .into_iter()
-            .find(|r| r.command == "rblint")
+            .find(|r| r.command == "turbocop")
             .unwrap();
         let rubocop_result_json = fs::read_to_string(&json_file).unwrap();
         let parsed2: HyperfineOutput = serde_json::from_str(&rubocop_result_json).unwrap();
@@ -396,7 +396,7 @@ fn run_bench(args: &Args) -> HashMap<String, BenchResult> {
         bench_results.insert(
             repo.name.to_string(),
             BenchResult {
-                rblint: rblint_result,
+                turbocop: turbocop_result,
                 rubocop: rubocop_result,
                 rb_count,
             },
@@ -413,11 +413,11 @@ fn run_quick_bench(args: &Args) {
     let repo_name = "rubygems.org";
     let repo_dir = repos_dir().join(repo_name);
     if !repo_dir.exists() {
-        eprintln!("{repo_name} repo not found. Run `bench_rblint setup` first.");
+        eprintln!("{repo_name} repo not found. Run `bench_turbocop setup` first.");
         std::process::exit(1);
     }
 
-    let rblint = rblint_binary();
+    let turbocop = turbocop_binary();
     let results_path = results_dir();
     fs::create_dir_all(&results_path).unwrap();
 
@@ -427,13 +427,13 @@ fn run_quick_bench(args: &Args) {
     }
 
     // Init lockfile for just this repo
-    eprintln!("Generating .rblint.cache for {}...", repo_name);
-    let init_out = Command::new(rblint.as_os_str())
+    eprintln!("Generating .turbocop.cache for {}...", repo_name);
+    let init_out = Command::new(turbocop.as_os_str())
         .args(["--init", repo_dir.to_str().unwrap()])
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .output()
-        .expect("failed to run rblint --init");
+        .expect("failed to run turbocop --init");
     if !init_out.status.success() {
         let stderr = String::from_utf8_lossy(&init_out.stderr);
         eprintln!("  Failed: {}", stderr.trim());
@@ -449,7 +449,7 @@ fn run_quick_bench(args: &Args) {
     // --- Cached (warm) scenario ---
     eprintln!("\n--- Cached (warm) ---");
     let cached_json = results_path.join("quick-cached.json");
-    let rblint_cached_cmd = format!("{} {} --no-color", rblint.display(), repo_dir.display());
+    let turbocop_cached_cmd = format!("{} {} --no-color", turbocop.display(), repo_dir.display());
     let rubocop_cached_cmd = format!(
         "cd {} && bundle exec rubocop --no-color",
         repo_dir.display()
@@ -465,8 +465,8 @@ fn run_quick_bench(args: &Args) {
             "--export-json",
             cached_json.to_str().unwrap(),
             "--command-name",
-            "rblint",
-            &rblint_cached_cmd,
+            "turbocop",
+            &turbocop_cached_cmd,
             "--command-name",
             "rubocop",
             &rubocop_cached_cmd,
@@ -481,9 +481,9 @@ fn run_quick_bench(args: &Args) {
     // --- No cache scenario ---
     eprintln!("\n--- No cache ---");
     let uncached_json = results_path.join("quick-uncached.json");
-    let rblint_uncached_cmd = format!(
+    let turbocop_uncached_cmd = format!(
         "{} --cache false {} --no-color",
-        rblint.display(),
+        turbocop.display(),
         repo_dir.display()
     );
     let rubocop_uncached_cmd = format!(
@@ -501,8 +501,8 @@ fn run_quick_bench(args: &Args) {
             "--export-json",
             uncached_json.to_str().unwrap(),
             "--command-name",
-            "rblint",
-            &rblint_uncached_cmd,
+            "turbocop",
+            &turbocop_uncached_cmd,
             "--command-name",
             "rubocop",
             &rubocop_uncached_cmd,
@@ -520,20 +520,20 @@ fn run_quick_bench(args: &Args) {
     let uncached: HyperfineOutput =
         serde_json::from_str(&fs::read_to_string(&uncached_json).unwrap()).unwrap();
 
-    let cached_rblint = cached
+    let cached_turbocop = cached
         .results
         .iter()
-        .find(|r| r.command == "rblint")
+        .find(|r| r.command == "turbocop")
         .unwrap();
     let cached_rubocop = cached
         .results
         .iter()
         .find(|r| r.command == "rubocop")
         .unwrap();
-    let uncached_rblint = uncached
+    let uncached_turbocop = uncached
         .results
         .iter()
-        .find(|r| r.command == "rblint")
+        .find(|r| r.command == "turbocop")
         .unwrap();
     let uncached_rubocop = uncached
         .results
@@ -546,11 +546,11 @@ fn run_quick_bench(args: &Args) {
     let platform = shell_output("uname", &["-sm"]);
 
     let mut md = String::new();
-    writeln!(md, "# rblint Quick Benchmark").unwrap();
+    writeln!(md, "# turbocop Quick Benchmark").unwrap();
     writeln!(md).unwrap();
     writeln!(
         md,
-        "> Auto-generated by `cargo run --release --bin bench_rblint -- quick`. Do not edit manually."
+        "> Auto-generated by `cargo run --release --bin bench_turbocop -- quick`. Do not edit manually."
     )
     .unwrap();
     writeln!(md, "> Last updated: {date} on `{platform}`").unwrap();
@@ -566,22 +566,22 @@ fn run_quick_bench(args: &Args) {
     writeln!(md).unwrap();
     writeln!(md, "## Results").unwrap();
     writeln!(md).unwrap();
-    writeln!(md, "| Mode | rblint | rubocop | Speedup |").unwrap();
+    writeln!(md, "| Mode | turbocop | rubocop | Speedup |").unwrap();
     writeln!(md, "|------|-------:|--------:|--------:|").unwrap();
     writeln!(
         md,
         "| Cached (warm) | **{}** | {} | **{}** |",
-        format_time(cached_rblint.median),
+        format_time(cached_turbocop.median),
         format_time(cached_rubocop.median),
-        format_speedup(cached_rubocop.median, cached_rblint.median),
+        format_speedup(cached_rubocop.median, cached_turbocop.median),
     )
     .unwrap();
     writeln!(
         md,
         "| No cache | **{}** | {} | **{}** |",
-        format_time(uncached_rblint.median),
+        format_time(uncached_turbocop.median),
         format_time(uncached_rubocop.median),
-        format_speedup(uncached_rubocop.median, uncached_rblint.median),
+        format_speedup(uncached_rubocop.median, uncached_turbocop.median),
     )
     .unwrap();
     writeln!(md).unwrap();
@@ -597,12 +597,12 @@ fn run_quick_bench(args: &Args) {
 // --- Conformance ---
 
 #[derive(serde::Deserialize)]
-struct RblintOutput {
-    offenses: Vec<RblintOffense>,
+struct TurboCopOutput {
+    offenses: Vec<TurboCopOffense>,
 }
 
 #[derive(serde::Deserialize)]
-struct RblintOffense {
+struct TurboCopOffense {
     path: String,
     line: usize,
     cop_name: String,
@@ -640,7 +640,7 @@ struct CopStats {
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct ConformResult {
-    rblint_count: usize,
+    turbocop_count: usize,
     rubocop_count: usize,
     matches: usize,
     false_positives: usize,
@@ -650,13 +650,13 @@ struct ConformResult {
 }
 
 fn get_covered_cops() -> HashSet<String> {
-    let rblint = rblint_binary();
-    let output = Command::new(rblint.as_os_str())
+    let turbocop = turbocop_binary();
+    let output = Command::new(turbocop.as_os_str())
         .arg("--list-cops")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .output()
-        .expect("failed to run rblint --list-cops");
+        .expect("failed to run turbocop --list-cops");
     String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(|s| s.trim().to_string())
@@ -699,12 +699,12 @@ fn per_repo_excluded_cops(repo_dir: &Path) -> HashSet<String> {
 }
 
 fn run_conform() -> HashMap<String, ConformResult> {
-    let rblint = rblint_binary();
+    let turbocop = turbocop_binary();
     let results_path = results_dir();
     fs::create_dir_all(&results_path).unwrap();
 
     let covered = get_covered_cops();
-    eprintln!("{} cops covered by rblint", covered.len());
+    eprintln!("{} cops covered by turbocop", covered.len());
 
     let mut conform_results = HashMap::new();
 
@@ -717,11 +717,11 @@ fn run_conform() -> HashMap<String, ConformResult> {
 
         eprintln!("\n=== Conformance: {} ===", repo.name);
 
-        // Run rblint in JSON mode
-        eprintln!("  Running rblint...");
-        let rblint_json_file = results_path.join(format!("{}-rblint.json", repo.name));
+        // Run turbocop in JSON mode
+        eprintln!("  Running turbocop...");
+        let turbocop_json_file = results_path.join(format!("{}-turbocop.json", repo.name));
         let start = Instant::now();
-        let rblint_out = Command::new(rblint.as_os_str())
+        let turbocop_out = Command::new(turbocop.as_os_str())
             .args([
                 repo_dir.to_str().unwrap(),
                 "--format",
@@ -731,9 +731,9 @@ fn run_conform() -> HashMap<String, ConformResult> {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .output()
-            .expect("failed to run rblint");
-        fs::write(&rblint_json_file, &rblint_out.stdout).unwrap();
-        eprintln!("  rblint done in {:.1}s", start.elapsed().as_secs_f64());
+            .expect("failed to run turbocop");
+        fs::write(&turbocop_json_file, &turbocop_out.stdout).unwrap();
+        eprintln!("  turbocop done in {:.1}s", start.elapsed().as_secs_f64());
 
         // Run rubocop in JSON mode
         eprintln!("  Running rubocop...");
@@ -755,11 +755,11 @@ fn run_conform() -> HashMap<String, ConformResult> {
         // Parse and compare
         let repo_prefix = format!("{}/", repo_dir.display());
 
-        let rblint_data: RblintOutput =
-            match serde_json::from_slice(&rblint_out.stdout) {
+        let turbocop_data: TurboCopOutput =
+            match serde_json::from_slice(&turbocop_out.stdout) {
                 Ok(d) => d,
                 Err(e) => {
-                    eprintln!("  Failed to parse rblint JSON: {e}");
+                    eprintln!("  Failed to parse turbocop JSON: {e}");
                     continue;
                 }
             };
@@ -777,13 +777,13 @@ fn run_conform() -> HashMap<String, ConformResult> {
 
         type Offense = (String, usize, String); // (path, line, cop_name)
 
-        let rblint_set: HashSet<Offense> = rblint_data
+        let turbocop_set: HashSet<Offense> = turbocop_data
             .offenses
             .iter()
             .filter(|o| !repo_excluded.contains(&o.cop_name))
             .map(|o| {
                 let path = o.path.strip_prefix(&repo_prefix).unwrap_or(&o.path);
-                // Strip leading "./" if present (rblint outputs ./path when run with ".")
+                // Strip leading "./" if present (turbocop outputs ./path when run with ".")
                 let path = path.strip_prefix("./").unwrap_or(path);
                 (path.to_string(), o.line, o.cop_name.clone())
             })
@@ -803,10 +803,10 @@ fn run_conform() -> HashMap<String, ConformResult> {
             })
             .collect();
 
-        let matches: HashSet<&Offense> = rblint_set.intersection(&rubocop_set).collect();
-        let fps: HashSet<&Offense> = rblint_set.difference(&rubocop_set).collect();
-        let fns: HashSet<&Offense> = rubocop_set.difference(&rblint_set).collect();
-        let total = rblint_set.union(&rubocop_set).count();
+        let matches: HashSet<&Offense> = turbocop_set.intersection(&rubocop_set).collect();
+        let fps: HashSet<&Offense> = turbocop_set.difference(&rubocop_set).collect();
+        let fns: HashSet<&Offense> = rubocop_set.difference(&turbocop_set).collect();
+        let total = turbocop_set.union(&rubocop_set).count();
         let match_rate = if total == 0 {
             100.0
         } else {
@@ -825,21 +825,21 @@ fn run_conform() -> HashMap<String, ConformResult> {
             per_cop.entry(cop.clone()).or_default().fn_ += 1;
         }
 
-        eprintln!("  rblint: {} offenses", rblint_set.len());
+        eprintln!("  turbocop: {} offenses", turbocop_set.len());
         eprintln!(
             "  rubocop: {} offenses (filtered to {} covered cops)",
             rubocop_set.len(),
             covered.len()
         );
         eprintln!("  matches: {}", matches.len());
-        eprintln!("  FP (rblint only): {}", fps.len());
+        eprintln!("  FP (turbocop only): {}", fps.len());
         eprintln!("  FN (rubocop only): {}", fns.len());
         eprintln!("  match rate: {:.1}%", match_rate);
 
         conform_results.insert(
             repo.name.to_string(),
             ConformResult {
-                rblint_count: rblint_set.len(),
+                turbocop_count: turbocop_set.len(),
                 rubocop_count: rubocop_set.len(),
                 matches: matches.len(),
                 false_positives: fps.len(),
@@ -875,24 +875,24 @@ fn generate_report(
     let platform = shell_output("uname", &["-sm"]);
     let date = shell_output("date", &["-u", "+%Y-%m-%d %H:%M UTC"]);
 
-    let covered_count = if rblint_binary().exists() {
+    let covered_count = if turbocop_binary().exists() {
         get_covered_cops().len()
     } else {
         0
     };
 
     let mut md = String::new();
-    writeln!(md, "# rblint Benchmark & Conformance Results").unwrap();
+    writeln!(md, "# turbocop Benchmark & Conformance Results").unwrap();
     writeln!(md).unwrap();
     writeln!(
         md,
-        "> Auto-generated by `cargo run --release --bin bench_rblint`. Do not edit manually."
+        "> Auto-generated by `cargo run --release --bin bench_turbocop`. Do not edit manually."
     )
     .unwrap();
     writeln!(md, "> Last updated: {date} on `{platform}`").unwrap();
     writeln!(md).unwrap();
     if covered_count > 0 {
-        writeln!(md, "**rblint cops:** {covered_count}").unwrap();
+        writeln!(md, "**turbocop cops:** {covered_count}").unwrap();
     }
     writeln!(
         md,
@@ -918,20 +918,20 @@ fn generate_report(
         writeln!(md).unwrap();
         writeln!(
             md,
-            "| Repo | .rb files | rblint | rubocop | Speedup |"
+            "| Repo | .rb files | turbocop | rubocop | Speedup |"
         )
         .unwrap();
         writeln!(md, "|------|----------:|------------------:|-----------------:|--------:|").unwrap();
 
         for repo in REPOS {
             if let Some(r) = bench.get(repo.name) {
-                let speedup = format_speedup(r.rubocop.median, r.rblint.median);
+                let speedup = format_speedup(r.rubocop.median, r.turbocop.median);
                 writeln!(
                     md,
                     "| {} | {} | **{}** | {} | **{}** |",
                     repo.name,
                     r.rb_count,
-                    format_time(r.rblint.median),
+                    format_time(r.turbocop.median),
                     format_time(r.rubocop.median),
                     speedup,
                 )
@@ -956,8 +956,8 @@ fn generate_report(
                 writeln!(md, "| Tool | Mean | Stddev | Min | Max | Median |").unwrap();
                 writeln!(md, "|------|-----:|-------:|----:|----:|-------:|").unwrap();
 
-                for (name, result) in [("rblint", &r.rblint), ("rubocop", &r.rubocop)] {
-                    let bold = name == "rblint";
+                for (name, result) in [("turbocop", &r.turbocop), ("rubocop", &r.rubocop)] {
+                    let bold = name == "turbocop";
                     let fmt = |v: f64| -> String {
                         let s = format_time(v);
                         if bold {
@@ -995,13 +995,13 @@ fn generate_report(
         writeln!(md).unwrap();
         writeln!(
             md,
-            "Location-level comparison: file + line + cop_name. Only cops implemented by rblint ({covered_count}) are compared."
+            "Location-level comparison: file + line + cop_name. Only cops implemented by turbocop ({covered_count}) are compared."
         )
         .unwrap();
         writeln!(md).unwrap();
         writeln!(
             md,
-            "| Repo | rblint | rubocop | Matches | FP (rblint only) | FN (rubocop only) | Match rate |"
+            "| Repo | turbocop | rubocop | Matches | FP (turbocop only) | FN (rubocop only) | Match rate |"
         )
         .unwrap();
         writeln!(
@@ -1016,7 +1016,7 @@ fn generate_report(
                     md,
                     "| {} | {} | {} | {} | {} | {} | **{:.1}%** |",
                     repo.name,
-                    c.rblint_count,
+                    c.turbocop_count,
                     c.rubocop_count,
                     c.matches,
                     c.false_positives,
@@ -1092,10 +1092,10 @@ fn load_cached_bench() -> HashMap<String, BenchResult> {
             Err(_) => continue,
         };
 
-        let rblint_result = parsed.results.iter().find(|r| r.command == "rblint");
+        let turbocop_result = parsed.results.iter().find(|r| r.command == "turbocop");
         let rubocop_result = parsed.results.iter().find(|r| r.command == "rubocop");
 
-        if let (Some(rb), Some(rc)) = (rblint_result, rubocop_result) {
+        if let (Some(rb), Some(rc)) = (turbocop_result, rubocop_result) {
             let repo_dir = repos_dir().join(repo.name);
             let rb_count = if repo_dir.exists() {
                 count_rb_files(&repo_dir)
@@ -1105,7 +1105,7 @@ fn load_cached_bench() -> HashMap<String, BenchResult> {
             results.insert(
                 repo.name.to_string(),
                 BenchResult {
-                    rblint: HyperfineResult {
+                    turbocop: HyperfineResult {
                         command: rb.command.clone(),
                         mean: rb.mean,
                         stddev: rb.stddev,
@@ -1144,7 +1144,7 @@ fn main() {
         }
         "bench" => {
             let start = Instant::now();
-            build_rblint();
+            build_turbocop();
             init_lockfiles();
             let bench = run_bench(&args);
             let elapsed = start.elapsed().as_secs_f64();
@@ -1154,7 +1154,7 @@ fn main() {
         }
         "conform" => {
             let start = Instant::now();
-            build_rblint();
+            build_turbocop();
             init_lockfiles();
             let conform = run_conform();
             // Write structured JSON for coverage_table to consume
@@ -1170,7 +1170,7 @@ fn main() {
             eprintln!("Wrote {}", output_path.display());
         }
         "quick" => {
-            build_rblint();
+            build_turbocop();
             run_quick_bench(&args);
         }
         "report" => {
@@ -1184,7 +1184,7 @@ fn main() {
         "all" => {
             let start = Instant::now();
             setup_repos();
-            build_rblint();
+            build_turbocop();
             init_lockfiles();
             let bench = run_bench(&args);
             let conform = run_conform();

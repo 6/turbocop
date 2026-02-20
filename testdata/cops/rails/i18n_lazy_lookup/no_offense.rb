@@ -1,4 +1,4 @@
-# rblint-filename: app/controllers/books_controller.rb
+# turbocop-filename: app/controllers/books_controller.rb
 I18n.t("users.show.title")
 I18n.t("simple_key")
 t(".title")

@@ -231,7 +231,7 @@ mod tests {
     #[test]
     fn comma_style_multiline_each_on_own_line_missing_comma_offense() {
         // Multiline array with each element on its own line, missing trailing comma
-        let fixture = b"# rblint-expect: 4:3 Style/TrailingCommaInArrayLiteral: Put a comma after the last item of a multiline array.\nx = [\n  1,\n  2,\n  3\n]\n";
+        let fixture = b"# turbocop-expect: 4:3 Style/TrailingCommaInArrayLiteral: Put a comma after the last item of a multiline array.\nx = [\n  1,\n  2,\n  3\n]\n";
         assert_cop_offenses_full_with_config(&TrailingCommaInArrayLiteral, fixture, comma_config());
     }
 
