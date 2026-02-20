@@ -1232,26 +1232,33 @@ fn run_autocorrect_validate() -> HashMap<String, AutocorrectValidateResult> {
             .count();
         let cops_with_remaining = per_cop
             .values()
-            .filter(|s| s.rubocop_remaining > 0)
+            .filter(|s| s.rubocop_remaining > 0 && s.turbocop_corrected > 0)
+            .count();
+        let detection_gaps = per_cop
+            .values()
+            .filter(|s| s.rubocop_remaining > 0 && s.turbocop_corrected == 0)
             .count();
 
         eprintln!("  rubocop found {} remaining offenses", total_remaining);
         eprintln!(
-            "  {} cops tested, {} clean, {} with remaining offenses",
-            cops_tested, cops_clean, cops_with_remaining
+            "  {} cops tested, {} clean, {} with remaining, {} detection gaps",
+            cops_tested, cops_clean, cops_with_remaining, detection_gaps
         );
 
         // Print per-cop details
         for (cop, stats) in &per_cop {
-            let status = if stats.rubocop_remaining == 0 {
-                "PASS"
-            } else {
-                "FAIL"
-            };
-            eprintln!(
-                "    {} — corrected: {}, remaining: {} [{}]",
-                cop, stats.turbocop_corrected, stats.rubocop_remaining, status
-            );
+            if stats.turbocop_corrected > 0 {
+                let status = if stats.rubocop_remaining == 0 { "PASS" } else { "FAIL" };
+                eprintln!(
+                    "    {} — corrected: {}, remaining: {} [{}]",
+                    cop, stats.turbocop_corrected, stats.rubocop_remaining, status
+                );
+            } else if stats.rubocop_remaining > 0 {
+                eprintln!(
+                    "    {} — detection gap: {} rubocop offenses not detected by turbocop",
+                    cop, stats.rubocop_remaining
+                );
+            }
         }
 
         results.insert(
@@ -1292,33 +1299,63 @@ fn generate_autocorrect_validate_report(
         }
     }
 
-    // Summary table
-    let _ = writeln!(md, "## Summary\n");
-    let _ = writeln!(md, "| Cop | Corrected | Remaining | Status |");
-    let _ = writeln!(md, "|-----|-----------|-----------|--------|");
-    for (cop, stats) in &aggregate {
-        let status = if stats.rubocop_remaining == 0 {
-            "PASS"
-        } else {
-            "FAIL"
-        };
+    // Split into validated cops (turbocop corrected > 0) and detection gaps
+    let validated: BTreeMap<&String, &CopValidateStats> = aggregate
+        .iter()
+        .filter(|(_, s)| s.turbocop_corrected > 0)
+        .collect();
+    let detection_gaps: BTreeMap<&String, &CopValidateStats> = aggregate
+        .iter()
+        .filter(|(_, s)| s.turbocop_corrected == 0 && s.rubocop_remaining > 0)
+        .collect();
+
+    // Autocorrect validation table (only cops where turbocop actually corrected something)
+    let _ = writeln!(md, "## Autocorrect Validation\n");
+    if validated.is_empty() {
         let _ = writeln!(
             md,
-            "| {} | {} | {} | {} |",
-            cop, stats.turbocop_corrected, stats.rubocop_remaining, status
+            "No offenses were corrected by turbocop across all repos. These repos are already \
+             clean for the {} autocorrectable cops.\n",
+            get_autocorrectable_cops().len()
+        );
+    } else {
+        let _ = writeln!(md, "| Cop | Corrected | Remaining | Status |");
+        let _ = writeln!(md, "|-----|-----------|-----------|--------|");
+        for (cop, stats) in &validated {
+            let status = if stats.rubocop_remaining == 0 {
+                "PASS"
+            } else {
+                "FAIL"
+            };
+            let _ = writeln!(
+                md,
+                "| {} | {} | {} | {} |",
+                cop, stats.turbocop_corrected, stats.rubocop_remaining, status
+            );
+        }
+        let passing = validated.values().filter(|s| s.rubocop_remaining == 0).count();
+        let _ = writeln!(
+            md,
+            "\n**{}/{} cops passing** (0 remaining offenses after correction)\n",
+            passing,
+            validated.len()
         );
     }
 
-    let total_cops = aggregate.len();
-    let passing = aggregate
-        .values()
-        .filter(|s| s.rubocop_remaining == 0 && s.turbocop_corrected > 0)
-        .count();
-    let _ = writeln!(
-        md,
-        "\n**{}/{} cops passing** (0 remaining offenses after correction)\n",
-        passing, total_cops
-    );
+    // Detection gaps table (rubocop finds offenses but turbocop didn't detect them)
+    if !detection_gaps.is_empty() {
+        let _ = writeln!(md, "## Detection Gaps\n");
+        let _ = writeln!(
+            md,
+            "Offenses rubocop finds that turbocop did not detect (not an autocorrect issue).\n"
+        );
+        let _ = writeln!(md, "| Cop | Rubocop Offenses |");
+        let _ = writeln!(md, "|-----|-----------------|");
+        for (cop, stats) in &detection_gaps {
+            let _ = writeln!(md, "| {} | {} |", cop, stats.rubocop_remaining);
+        }
+        let _ = writeln!(md);
+    }
 
     // Per-repo details
     let _ = writeln!(md, "## Per-repo Details\n");
@@ -1326,16 +1363,28 @@ fn generate_autocorrect_validate_report(
     repo_names.sort();
     for repo_name in repo_names {
         let result = &results[repo_name];
+        let validated_cops: Vec<_> = result
+            .per_cop
+            .iter()
+            .filter(|(_, s)| s.turbocop_corrected > 0)
+            .collect();
+        let gap_cops: Vec<_> = result
+            .per_cop
+            .iter()
+            .filter(|(_, s)| s.turbocop_corrected == 0 && s.rubocop_remaining > 0)
+            .collect();
+
+        if validated_cops.is_empty() && gap_cops.is_empty() {
+            continue; // Skip repos with nothing to report
+        }
+
         let _ = writeln!(md, "### {}\n", repo_name);
-        let _ = writeln!(
-            md,
-            "Cops tested: {}, clean: {}, with remaining: {}\n",
-            result.cops_tested, result.cops_clean, result.cops_with_remaining
-        );
-        if !result.per_cop.is_empty() {
+
+        if !validated_cops.is_empty() {
+            let _ = writeln!(md, "**Autocorrect validation:**\n");
             let _ = writeln!(md, "| Cop | Corrected | Remaining | Status |");
             let _ = writeln!(md, "|-----|-----------|-----------|--------|");
-            for (cop, stats) in &result.per_cop {
+            for (cop, stats) in &validated_cops {
                 let status = if stats.rubocop_remaining == 0 {
                     "PASS"
                 } else {
@@ -1347,8 +1396,18 @@ fn generate_autocorrect_validate_report(
                     cop, stats.turbocop_corrected, stats.rubocop_remaining, status
                 );
             }
+            let _ = writeln!(md);
         }
-        let _ = writeln!(md);
+
+        if !gap_cops.is_empty() {
+            let _ = writeln!(md, "**Detection gaps:**\n");
+            let _ = writeln!(md, "| Cop | Rubocop Offenses |");
+            let _ = writeln!(md, "|-----|-----------------|");
+            for (cop, stats) in &gap_cops {
+                let _ = writeln!(md, "| {} | {} |", cop, stats.rubocop_remaining);
+            }
+            let _ = writeln!(md);
+        }
     }
 
     md
