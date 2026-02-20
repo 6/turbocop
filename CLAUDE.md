@@ -15,6 +15,8 @@ cargo check          # fast compile check
 cargo build          # full build (includes Prism C FFI)
 cargo test           # run all tests
 cargo run -- .       # lint current directory
+cargo run -- -a .    # lint + autocorrect (safe cops only)
+cargo run -- -A .    # lint + autocorrect (all cops, including unsafe)
 cargo run -- --format json .
 cargo run -- --debug .       # phase-level timing breakdown
 ```
@@ -44,15 +46,16 @@ TURBOCOP_COP_PROFILE=1 cargo run --release -- --debug bench/repos/mastodon
 
 ## Architecture
 
-- `src/diagnostic.rs` — Severity, Location, Diagnostic types
-- `src/parse/` — Prism wrapper + SourceFile (line offsets, byte→line:col)
+- `src/diagnostic.rs` — Severity, Location, Diagnostic types (includes `corrected: bool` field)
+- `src/correction.rs` — `Correction` (byte-offset replacement) and `CorrectionSet` (sort, dedup overlaps, apply)
+- `src/parse/` — Prism wrapper + SourceFile (line offsets, byte→line:col, `line_col_to_offset`)
 - `src/cop/` — `Cop` trait (`check_lines`/`check_node`/`check_source`), `CopRegistry`, department modules (`layout/`, `lint/`, `metrics/`, `naming/`, `performance/`, `rails/`, `rspec/`, `style/`)
-- `src/testutil.rs` — `#[cfg(test)]` fixture parser (annotations, `# turbocop-expect:`, `# turbocop-filename:`) + assertion helpers
+- `src/testutil.rs` — `#[cfg(test)]` fixture parser (annotations, `# turbocop-expect:`, `# turbocop-filename:`) + assertion helpers + autocorrect test helpers
 - `src/config/` — `.rubocop.yml` loading with `inherit_from`, `inherit_gem`, `inherit_mode`, auto-discovery
 - `src/fs/` — File discovery via `ignore` crate (.gitignore-aware)
 - `src/linter.rs` — Parallel orchestration (parse per-thread since ParseResult is !Send)
-- `src/formatter/` — Text (RuboCop-compatible) and JSON output
-- `src/cli.rs` — Clap args
+- `src/formatter/` — Text (RuboCop-compatible), JSON, progress, pacman, GitHub, quiet, and files-only output
+- `src/cli.rs` — Clap args (`-a`/`-A` autocorrect flags, `AutocorrectMode` enum)
 - `src/lib.rs` — `run()` wiring; `src/main.rs` — entry point
 
 ## Key Constraints
@@ -60,6 +63,20 @@ TURBOCOP_COP_PROFILE=1 cargo run --release -- --debug bench/repos/mastodon
 - `ruby_prism::ParseResult` is `!Send + !Sync` — parsing MUST happen inside each rayon worker thread
 - Cop trait is `Send + Sync`; cops needing mutable visitor state create a temporary `Visit` struct internally
 - Edition 2024 (Rust 1.85+)
+
+## Autocorrect
+
+Autocorrect infrastructure is in place (Phase 0). The Cop trait methods (`check_lines`, `check_source`, `check_node`) all accept a `corrections: Option<&mut Vec<crate::correction::Correction>>` parameter. Currently all call sites pass `None`; individual cops opt in by overriding `supports_autocorrect() -> bool` and pushing `Correction` structs when `corrections` is `Some`.
+
+**Key types:**
+- `Correction` — byte-offset range (`start..end`) + replacement string + cop identity
+- `CorrectionSet` — sorts corrections, drops overlapping edits (registration-order wins), applies via linear scan
+
+**CopConfig helpers** for autocorrect decisions:
+- `is_safe()` / `is_safe_autocorrect()` — reads `Safe` / `SafeAutoCorrect` YAML keys
+- `should_autocorrect(mode)` — combines YAML config with CLI `AutocorrectMode` (Off/Safe/All)
+
+**CLI flags:** `-a` (safe corrections only), `-A` (all corrections including unsafe). Cache is automatically disabled during autocorrect.
 
 ## Plugin Cop Version Awareness
 
@@ -138,6 +155,12 @@ Each cop has a test fixture directory under `testdata/cops/<dept>/<cop_name>/` w
 - The `offense/` directory contains multiple `.rb` files, each with ≥1 offense
 - Annotations across all files are summed for coverage (≥3 total required)
 
+**Autocorrect layout** (cops that support autocorrect): `offense.rb` + `no_offense.rb` + `corrected.rb`
+- Use `cop_autocorrect_fixture_tests!` macro alongside `cop_fixture_tests!` in the cop's test module
+- `corrected.rb` contains the expected output after applying autocorrect to `offense.rb` (annotations stripped)
+- The test harness strips `^` annotations from `offense.rb`, runs the cop with corrections enabled, applies `CorrectionSet`, and compares byte-for-byte against `corrected.rb`
+- Helper functions: `run_cop_autocorrect()` returns corrections, `assert_cop_autocorrect()` validates the full round-trip
+
 **Special directives** (stripped from clean source before running the cop):
 - `# turbocop-filename: Name.rb` — first line only; overrides the filename passed to `SourceFile` (used by `Naming/FileName`)
 - `# turbocop-expect: L:C Department/CopName: Message` — explicit offense at line L, column C; use when `^` can't be placed (trailing blanks, missing newlines)
@@ -168,17 +191,20 @@ To add a new cop department from a RuboCop plugin (e.g., rubocop-rspec, rubocop-
 ## Benchmarking
 
 ```
-cargo run --release --bin bench_turbocop                # full run: setup + bench + conform + report
-cargo run --release --bin bench_turbocop -- setup        # clone benchmark repos only
-cargo run --release --bin bench_turbocop -- bench        # timing benchmarks (hyperfine)
-cargo run --release --bin bench_turbocop -- conform      # conformance comparison → bench/conform.json + bench/results.md
-cargo run --release --bin bench_turbocop -- report       # regenerate results.md from cached data
-cargo run --release --bin bench_turbocop -- quick        # quick bench: rubygems.org, cached vs uncached → bench/quick_results.md
+cargo run --release --bin bench_turbocop                          # full run: setup + bench + conform + report
+cargo run --release --bin bench_turbocop -- setup                  # clone benchmark repos only
+cargo run --release --bin bench_turbocop -- bench                  # timing benchmarks (hyperfine)
+cargo run --release --bin bench_turbocop -- conform                # conformance comparison → bench/conform.json + bench/results.md
+cargo run --release --bin bench_turbocop -- report                 # regenerate results.md from cached data
+cargo run --release --bin bench_turbocop -- quick                  # quick bench: rubygems.org, cached vs uncached → bench/quick_results.md
+cargo run --release --bin bench_turbocop -- autocorrect-conform    # autocorrect conformance: rubocop -A vs turbocop -A file diff
 ```
 
 Results are written to `bench/results.md` (checked in). Quick bench results go to `bench/quick_results.md`. Conformance data is also written to `bench/conform.json` (gitignored) as structured data for the coverage table. Benchmark repos are cloned to `bench/repos/` (gitignored).
 
 Conformance filters RuboCop offenses to only cops in turbocop's registry (`--list-cops`). Unsupported plugin cops (e.g., minitest, rake, thread_safety) are automatically excluded from comparison — no per-repo handling needed.
+
+**Autocorrect conformance** (`autocorrect-conform`) copies each bench repo, runs `rubocop -A` on one copy and `turbocop -A` on the other, then diffs all `.rb` files. Reports per-repo match/mismatch/error counts. This is the integration-level test that autocorrect output matches RuboCop exactly.
 
 ## RubyGem Distribution
 
