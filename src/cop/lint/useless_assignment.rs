@@ -167,6 +167,192 @@ impl<'pr> Visit<'pr> for WriteReadCollector {
     fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
 }
 
+/// Scope-aware write/read collector for block-level analysis.
+///
+/// Unlike the flat `WriteReadCollector` (used for def bodies), this tracks
+/// writes and reads per-scope in a tree. Each nested block creates a child
+/// scope. A write is useless only if the variable is not read in the same
+/// scope, any ancestor scope, or any descendant scope — but NOT sibling
+/// scopes. This correctly handles sibling `it` blocks in RSpec where each
+/// block is an independent closure.
+struct ScopeData {
+    parent: Option<usize>,
+    children: Vec<usize>,
+    writes: Vec<WriteInfo>,
+    reads: HashSet<String>,
+    has_binding_call: bool,
+}
+
+struct ScopedCollector {
+    scopes: Vec<ScopeData>,
+    scope_stack: Vec<usize>,
+}
+
+impl ScopedCollector {
+    fn new() -> Self {
+        let root = ScopeData {
+            parent: None,
+            children: Vec::new(),
+            writes: Vec::new(),
+            reads: HashSet::new(),
+            has_binding_call: false,
+        };
+        Self {
+            scopes: vec![root],
+            scope_stack: vec![0],
+        }
+    }
+
+    fn current_scope(&self) -> usize {
+        *self.scope_stack.last().unwrap()
+    }
+
+    fn enter_scope(&mut self) {
+        let parent = self.current_scope();
+        let idx = self.scopes.len();
+        self.scopes.push(ScopeData {
+            parent: Some(parent),
+            children: Vec::new(),
+            writes: Vec::new(),
+            reads: HashSet::new(),
+            has_binding_call: false,
+        });
+        self.scopes[parent].children.push(idx);
+        self.scope_stack.push(idx);
+    }
+
+    fn leave_scope(&mut self) {
+        self.scope_stack.pop();
+    }
+
+    fn add_write(&mut self, name: String, offset: usize) {
+        let idx = self.current_scope();
+        self.scopes[idx].writes.push(WriteInfo { name, offset });
+    }
+
+    fn add_read(&mut self, name_bytes: &[u8]) {
+        let name = std::str::from_utf8(name_bytes).unwrap_or("").to_string();
+        let idx = self.current_scope();
+        self.scopes[idx].reads.insert(name);
+    }
+
+    /// Find the "home scope" for a variable — the highest ancestor that also
+    /// has a write for this variable name. In Ruby, blocks share the enclosing
+    /// scope, so a variable first declared in an outer scope is accessible to
+    /// all nested blocks (including siblings). The home scope determines where
+    /// the variable "lives."
+    fn find_home_scope(&self, scope_idx: usize, name: &str) -> usize {
+        let mut home = scope_idx;
+        let mut current = self.scopes[scope_idx].parent;
+        while let Some(idx) = current {
+            if self.scopes[idx].writes.iter().any(|w| w.name == name) {
+                home = idx;
+            }
+            current = self.scopes[idx].parent;
+        }
+        home
+    }
+
+    /// Check if a variable name is read anywhere in the subtree rooted at
+    /// the given scope (the scope itself and all descendants).
+    fn is_read_in_subtree(&self, scope_idx: usize, name: &str) -> bool {
+        if self.scopes[scope_idx].reads.contains(name) {
+            return true;
+        }
+        for &child_idx in &self.scopes[scope_idx].children {
+            if self.is_read_in_subtree(child_idx, name) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Check if any scope in the entire tree has a binding call.
+    fn has_any_binding(&self) -> bool {
+        self.scopes.iter().any(|s| s.has_binding_call)
+    }
+}
+
+impl<'pr> Visit<'pr> for ScopedCollector {
+    fn visit_local_variable_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableWriteNode<'pr>,
+    ) {
+        let name = std::str::from_utf8(node.name().as_slice())
+            .unwrap_or("")
+            .to_string();
+        self.add_write(name, node.name_loc().start_offset());
+        self.visit(&node.value());
+    }
+
+    fn visit_local_variable_read_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableReadNode<'pr>,
+    ) {
+        self.add_read(node.name().as_slice());
+    }
+
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        self.add_read(node.name().as_slice());
+        self.visit(&node.value());
+    }
+
+    fn visit_local_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+    ) {
+        self.add_read(node.name().as_slice());
+        self.visit(&node.value());
+    }
+
+    fn visit_local_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
+    ) {
+        self.add_read(node.name().as_slice());
+        self.visit(&node.value());
+    }
+
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if node.receiver().is_none()
+            && node.name().as_slice() == b"binding"
+            && (node.arguments().is_none()
+                || node.arguments().map_or(true, |a| a.arguments().is_empty()))
+        {
+            let idx = self.current_scope();
+            self.scopes[idx].has_binding_call = true;
+        }
+        ruby_prism::visit_call_node(self, node);
+    }
+
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        self.enter_scope();
+        ruby_prism::visit_block_node(self, node);
+        self.leave_scope();
+    }
+
+    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
+        self.enter_scope();
+        ruby_prism::visit_lambda_node(self, node);
+        self.leave_scope();
+    }
+
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            if let Some(read_node) = receiver.as_local_variable_read_node() {
+                self.add_read(read_node.name().as_slice());
+            }
+        }
+        // Don't recurse into the body — it's a new hard scope
+    }
+
+    fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
+    fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
+}
+
 /// Extract parameter names from a DefNode's parameter list.
 fn collect_param_names(node: &ruby_prism::DefNode<'_>) -> HashSet<String> {
     let mut names = HashSet::new();
@@ -248,6 +434,49 @@ impl UselessAssignVisitor<'_, '_> {
             }
         }
     }
+
+    /// Analyze a scoped collector for useless assignments.
+    ///
+    /// For each write, finds the variable's "home scope" — the highest
+    /// ancestor that also writes to the same variable. In Ruby, blocks share
+    /// the enclosing scope, so a variable initialized in an outer scope is
+    /// accessible to ALL nested blocks (including siblings). A write is
+    /// useless only if the variable is not read anywhere in the home scope's
+    /// subtree (the home scope itself + all its descendants).
+    ///
+    /// This correctly handles:
+    /// - Sibling `it` blocks: each block assigns locally (no parent write),
+    ///   so home scope = the block itself. Sibling reads don't count.
+    /// - Sequential blocks sharing a parent variable: `x = nil; block { x = 1 };
+    ///   block { use(x) }` — home scope = parent (which has the `x = nil`
+    ///   write). The sibling block's read IS in the parent's subtree.
+    fn analyze_scoped(&mut self, collector: &ScopedCollector) {
+        if collector.has_any_binding() {
+            return;
+        }
+        for (scope_idx, scope) in collector.scopes.iter().enumerate() {
+            for write in &scope.writes {
+                if write.name.starts_with('_') {
+                    continue;
+                }
+                // Find where the variable "lives" — the highest ancestor
+                // that also writes to this variable name.
+                let home = collector.find_home_scope(scope_idx, &write.name);
+                // Check if the variable is read anywhere in the home scope's
+                // subtree (home + all descendants, including sibling blocks).
+                if collector.is_read_in_subtree(home, &write.name) {
+                    continue;
+                }
+                let (line, column) = self.source.offset_to_line_col(write.offset);
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
+                    line,
+                    column,
+                    format!("Useless assignment to variable - `{}`.", write.name),
+                ));
+            }
+        }
+    }
 }
 
 impl<'pr> Visit<'pr> for UselessAssignVisitor<'_, '_> {
@@ -277,25 +506,23 @@ impl<'pr> Visit<'pr> for UselessAssignVisitor<'_, '_> {
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
         // Only analyze blocks that are NOT inside a def AND not already inside
         // a block being analyzed. Blocks inside defs are already covered by the
-        // def's analysis. Nested blocks share scope with the outermost analyzed
-        // block, so they shouldn't be analyzed independently.
+        // def's analysis.
         if !self.inside_def && !self.inside_analyzed_block {
             if let Some(body) = node.body() {
-                let mut collector = WriteReadCollector::new();
-                collector.visit(&body);
-
+                let mut collector = ScopedCollector::new();
                 // Block parameters are implicitly "read" (they're arguments, not
-                // useless assignments). Add them to reads so they're not flagged.
+                // useless assignments). Add them to the root scope's reads.
                 if let Some(params) = node.parameters() {
-                    collect_block_param_names(&params, &mut collector.reads);
+                    let root = collector.current_scope();
+                    collect_block_param_names(&params, &mut collector.scopes[root].reads);
                 }
-
-                self.analyze_body(&collector);
+                collector.visit(&body);
+                self.analyze_scoped(&collector);
             }
 
             // Mark that we're inside an analyzed block so nested blocks don't
-            // re-analyze (they're already covered by this block's collector
-            // which recurses into them).
+            // re-analyze (they're already covered by this block's scoped
+            // collector which tracks nested scopes).
             let was_inside = self.inside_analyzed_block;
             self.inside_analyzed_block = true;
             ruby_prism::visit_block_node(self, node);
@@ -310,18 +537,17 @@ impl<'pr> Visit<'pr> for UselessAssignVisitor<'_, '_> {
         // Lambdas create scopes similar to blocks
         if !self.inside_def && !self.inside_analyzed_block {
             if let Some(body) = node.body() {
-                let mut collector = WriteReadCollector::new();
-                collector.visit(&body);
-
+                let mut collector = ScopedCollector::new();
                 if let Some(params) = node.parameters() {
                     if let Some(params) = params.as_block_parameters_node() {
                         if let Some(inner) = params.parameters() {
-                            collect_parameters_node_names(&inner, &mut collector.reads);
+                            let root = collector.current_scope();
+                            collect_parameters_node_names(&inner, &mut collector.scopes[root].reads);
                         }
                     }
                 }
-
-                self.analyze_body(&collector);
+                collector.visit(&body);
+                self.analyze_scoped(&collector);
             }
 
             let was_inside = self.inside_analyzed_block;

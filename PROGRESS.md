@@ -1113,10 +1113,35 @@ Fixed remaining divergences across doorkeeper, docuseal, mastodon, discourse, an
 - [x] 915 cops registered (unchanged)
 - [x] All 2,632 tests passing (2,528 unit + 50 binary + 54 integration)
 - [x] **11 of 12 bench repos at 100% conformance**
-- [x] mastodon: **99.3%** (2 FN: RedundantCopDisableDirective for unimplemented Lint/UselessMethodDefinition)
-- [x] doorkeeper: **99.8%** (1 FN: Lint/UselessAssignment unimplemented)
+- [x] mastodon: **99.3%** (2 FN: RedundantCopDisableDirective for excluded cops)
+- [x] doorkeeper: **99.8%** (1 FN: Lint/UselessAssignment sibling block scoping — fixed in M19)
 - [x] fat_free_crm: **100%** (5 RuboCop quirks excluded from conformance)
-- [x] Remaining divergences are all accepted limitations (unimplemented cops, rubocop quirks)
+
+## Completed: M19 — UselessAssignment Scope-Aware Analysis + CLI (915 cops, 11/12 repos at 100%)
+
+Fixed doorkeeper's last FN by implementing scope-aware write/read tracking in Lint/UselessAssignment. Added `--ignore-disable-comments` CLI flag.
+
+### M19 Cop Fixes
+
+- **Lint/UselessAssignment**: Replaced flat `WriteReadCollector` with scope-aware `ScopedCollector` for block-level analysis. Each block/lambda creates a child scope in a tree. Uses "home scope" algorithm: walks up ancestor scopes to find the highest scope that also writes the same variable, then checks if the variable is read anywhere in that subtree. This correctly handles:
+  - Sibling `it` blocks as independent closures (variable in one sibling is NOT accessible in another)
+  - Variables declared in parent scope shared across sibling blocks (e.g., `error = nil` reassigned in blocks, read in siblings)
+  - Accumulator patterns (`sponsors = []` with `<<` in blocks)
+  - Lambda captures with nested stubs
+  - Three-level nesting (describe > context > it)
+
+### M19 CLI
+
+- **`--ignore-disable-comments`**: New CLI flag that ignores all `# rubocop:disable` inline comments, showing offenses that would normally be suppressed. Also skips redundant disable directive checking when active.
+
+### M19 Summary
+
+- [x] 915 cops registered (unchanged)
+- [x] All 2,585 unit + 50 binary + 73 integration tests passing
+- [x] **11 of 12 bench repos at 100% conformance**
+- [x] doorkeeper: **99.8% → 100%** (624/624 matches, 0 FP, 0 FN)
+- [x] mastodon: **99.3%** (2 FN: RedundantCopDisableDirective — conservative: don't flag enabled cops)
+- [x] All other repos: **100%**
 
 ## Milestones
 
@@ -1145,3 +1170,4 @@ Fixed remaining divergences across doorkeeper, docuseal, mastodon, discourse, an
 | **M16**: Lint 100% + Rails Expansion + Style FP Fixes | 915 | **Done** |
 | **M17**: Doorkeeper + Fat Free CRM Conformance Push | 915 | **Done** |
 | **M18**: Final Conformance Push (10/12 at 100%) | 915 | **Done** |
+| **M19**: UselessAssignment Scope-Aware + CLI | 915 | **Done** |

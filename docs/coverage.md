@@ -54,8 +54,8 @@ Location-level comparison: file + line + cop_name. Only cops implemented by turb
 | good_job | 37 | 37 | 37 | 0 | 0 | **100.0%** |
 | docuseal | 60 | 60 | 60 | 0 | 0 | **100.0%** |
 | rubygems.org | 0 | 0 | 0 | 0 | 0 | **100.0%** |
-| doorkeeper | 622 | 624 | 622 | 0 | 2 | **99.7%** |
-| fat_free_crm | 5 | 0 | 0 | 5 | 0 | **0.0%** |
+| doorkeeper | 624 | 624 | 624 | 0 | 0 | **100.0%** |
+| fat_free_crm | 0 | 0 | 0 | 0 | 0 | **100.0%** |
 
 <details>
 <summary>Divergent cops — mastodon (1 of 1 shown)</summary>
@@ -84,25 +84,7 @@ Location-level comparison: file + line + cop_name. Only cops implemented by turb
 
 **rubygems.org:** All cops match perfectly!
 
-<details>
-<summary>Divergent cops — doorkeeper (2 of 2 shown)</summary>
+**doorkeeper:** All cops match perfectly!
 
-| Cop | Matches | FP | FN |
-|-----|--------:|---:|---:|
-| Gemspec/RequiredRubyVersion | 0 | 0 | 1 |
-| Lint/UselessAssignment | 0 | 0 | 1 |
-
-</details>
-
-<details>
-<summary>Divergent cops — fat_free_crm (4 of 4 shown)</summary>
-
-| Cop | Matches | FP | FN |
-|-----|--------:|---:|---:|
-| Layout/FirstArrayElementIndentation | 0 | 2 | 0 |
-| Layout/MultilineMethodCallIndentation | 0 | 1 | 0 |
-| Style/RedundantRegexpEscape | 0 | 1 | 0 |
-| Style/TrailingCommaInHashLiteral | 0 | 1 | 0 |
-
-</details>
+**fat_free_crm:** All cops match perfectly!
 

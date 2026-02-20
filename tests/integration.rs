@@ -2912,7 +2912,7 @@ fn cache_preserves_all_severity_types() {
 fn redundant_disable_for_disabled_cop() {
     // A cop that is explicitly disabled in config has its disable directive
     // flagged as redundant — disabling an already-disabled cop is pointless.
-    let dir = temp_dir("redundant_disable_disabled_cop");
+    let dir = temp_dir("redundant_disable_disabled_cop_yml");
     let file = write_file(
         &dir,
         "test.rb",

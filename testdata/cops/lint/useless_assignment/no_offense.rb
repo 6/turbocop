@@ -93,3 +93,119 @@ task :announce do
   github_user = `git config github.user`.chomp
   puts ERB.new(template).result(binding)
 end
+
+# Variable assigned in block, read after block in outer scope (blocks share
+# enclosing scope in Ruby for variables declared in the outer scope)
+describe "block with outer read" do
+  result = nil
+  [1, 2, 3].each { |x| result = x * 2 }
+  puts result
+end
+
+# Variable used across nested blocks (not siblings)
+describe "nested blocks" do
+  it "works" do
+    token = create(:token)
+    3.times do
+      validate(token)
+    end
+  end
+end
+
+# All sibling blocks use their own token (each is used)
+describe "all siblings used" do
+  it "first" do
+    token = create(:token)
+    expect(token).to be_valid
+  end
+  it "second" do
+    token = create(:token)
+    expect(token).to be_present
+  end
+end
+
+# `binding` in a nested block captures locals from the outer block scope
+describe "binding in nested block" do
+  version = "1.0"
+  channel = "stable"
+  items.each { puts ERB.new(tmpl).result(binding) }
+end
+
+# Variable assigned in block and read in sibling block's descendant (via
+# ancestor scope) — this is NOT a sibling read, the outer describe scope
+# sees the read.
+describe "ancestor read" do
+  total = 0
+  items.each { |x| total += x }
+  it "checks total" do
+    expect(total).to eq(42)
+  end
+end
+
+# Variable initialized to nil, reassigned inside a lambda, read after block.
+# Common in Rails test stubs — the lambda captures the outer variable.
+describe "lambda capture reassignment" do
+  it "captures display image" do
+    display_image_actual = nil
+    stub :show, ->(img) { display_image_actual = img } do
+      take_screenshot
+    end
+    assert_match(/screenshot/, display_image_actual)
+  end
+end
+
+# Multiple variables captured by lambdas at different nesting levels
+describe "multi-level lambda capture" do
+  it "captures at different levels" do
+    captured_a = nil
+    captured_b = false
+    stub :foo, ->(x) { captured_a = x } do
+      stub :bar, -> { captured_b = true } do
+        run_action
+      end
+    end
+    assert captured_b
+    assert_match(/expected/, captured_a)
+  end
+end
+
+# RSpec `.change { var }` matcher — the block reads the variable
+describe "change matcher reads variable" do
+  it "tracks changes" do
+    count = 0
+    items.each { count += 1 }
+    expect { do_something }.to change { count }
+  end
+end
+
+# Variable assigned in parent block, written+read across multiple siblings
+# (the "error = nil" Rails pattern)
+describe "shared variable across siblings" do
+  error = nil
+  it "assigns error" do
+    error = validate(input)
+  end
+  it "checks error" do
+    assert_nil error
+  end
+end
+
+# Accumulator pattern — array initialized in parent scope, appended in block,
+# read in sibling block (common in Rails test setup)
+describe "accumulator across siblings" do
+  sponsors = []
+  users.each { |u| sponsors << u if u.sponsor? }
+  it "has sponsors" do
+    expect(sponsors).not_to be_empty
+  end
+end
+
+# Three-level nesting: describe > context > it, variable in describe read in it
+describe "deep nesting" do
+  shared_val = compute_value
+  context "when enabled" do
+    it "uses shared_val" do
+      expect(shared_val).to eq(42)
+    end
+  end
+end
