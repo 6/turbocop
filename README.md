@@ -23,6 +23,7 @@ Quick benchmark on the codebase of [rubygems.org](https://github.com/rubygems/ru
 Requires Rust 1.85+ (edition 2024).
 
 ```bash
+# Note: this will not work yet (unreleased)
 cargo install turbocop
 ```
 
@@ -71,7 +72,7 @@ Every cop reads its RuboCop YAML config options and has fixture-based test cover
 
 ## Conformance
 
-Location-level conformance against RuboCop on 13 benchmark repos:
+Location-level conformance against RuboCop on 13 open source benchmark repos:
 
 | Repo | Match rate |
 |------|----------:|
@@ -135,7 +136,7 @@ Options:
   -h, --help                Print help
 ```
 
-## Development
+## Local Development
 
 ```bash
 cargo check          # fast compile check
