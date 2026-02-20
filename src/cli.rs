@@ -14,7 +14,7 @@ pub struct Args {
     pub config: Option<PathBuf>,
 
     /// Output format
-    #[arg(short, long, default_value = "text", value_parser = ["text", "json"])]
+    #[arg(short, long, default_value = "progress", value_parser = ["progress", "text", "json", "github", "pacman", "quiet", "files", "emacs", "simple"])]
     pub format: String,
 
     /// Run only the specified cops (comma-separated)

@@ -167,7 +167,7 @@ pub fn run(args: Args) -> Result<i32> {
         let source = SourceFile::from_string(display_path.clone(), input);
         let result = lint_source(&source, &config, &registry, &args);
         let formatter = create_formatter(&args.format);
-        formatter.print(&result.diagnostics, result.file_count);
+        formatter.print(&result.diagnostics, &[display_path.clone()]);
         return if result
             .diagnostics
             .iter()
@@ -207,7 +207,7 @@ pub fn run(args: Args) -> Result<i32> {
 
     let result = run_linter(&discovered, &config, &registry, &args);
     let formatter = create_formatter(&args.format);
-    formatter.print(&result.diagnostics, result.file_count);
+    formatter.print(&result.diagnostics, &discovered.files);
 
     if result
         .diagnostics

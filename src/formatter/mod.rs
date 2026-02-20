@@ -1,16 +1,36 @@
+pub mod files;
+pub mod github;
 pub mod json;
+pub mod pacman;
+pub mod progress;
+pub mod quiet;
 pub mod text;
+
+use std::io::Write;
+use std::path::PathBuf;
 
 use crate::diagnostic::Diagnostic;
 
 pub trait Formatter {
-    fn print(&self, diagnostics: &[Diagnostic], file_count: usize);
+    fn format_to(&self, diagnostics: &[Diagnostic], files: &[PathBuf], out: &mut dyn Write);
+
+    fn print(&self, diagnostics: &[Diagnostic], files: &[PathBuf]) {
+        let stdout = std::io::stdout();
+        let mut lock = stdout.lock();
+        self.format_to(diagnostics, files, &mut lock);
+    }
 }
 
 pub fn create_formatter(format: &str) -> Box<dyn Formatter> {
     match format {
         "json" => Box::new(json::JsonFormatter),
-        _ => Box::new(text::TextFormatter),
+        "github" => Box::new(github::GithubFormatter),
+        "pacman" => Box::new(pacman::PacmanFormatter),
+        "quiet" => Box::new(quiet::QuietFormatter),
+        "files" => Box::new(files::FilesFormatter),
+        "emacs" | "simple" | "text" => Box::new(text::TextFormatter),
+        // "progress" and any unknown value
+        _ => Box::new(progress::ProgressFormatter),
     }
 }
 
@@ -29,11 +49,23 @@ mod tests {
         }]
     }
 
+    fn sample_files() -> Vec<PathBuf> {
+        vec![PathBuf::from("foo.rb")]
+    }
+
     #[test]
     fn create_text_formatter() {
-        // Default and explicit "text" both return TextFormatter
+        // Explicit "text" and aliases
         let _f = create_formatter("text");
-        let _f = create_formatter("anything_else");
+        let _f = create_formatter("emacs");
+        let _f = create_formatter("simple");
+    }
+
+    #[test]
+    fn create_progress_formatter() {
+        // Default and explicit "progress"
+        let _f = create_formatter("progress");
+        let _f = create_formatter("anything_else"); // unknown defaults to progress
     }
 
     #[test]
@@ -42,18 +74,38 @@ mod tests {
     }
 
     #[test]
+    fn create_all_formatters() {
+        for name in ["progress", "text", "json", "github", "pacman", "quiet", "files", "emacs", "simple"] {
+            let _f = create_formatter(name);
+        }
+    }
+
+    #[test]
     fn text_formatter_runs_without_panic() {
         let f = create_formatter("text");
-        // Just verify it doesn't panic with empty and non-empty diagnostics
-        f.print(&[], 0);
-        f.print(&sample_diagnostics(), 1);
+        let mut buf = Vec::new();
+        f.format_to(&[], &[], &mut buf);
+        f.format_to(&sample_diagnostics(), &sample_files(), &mut buf);
     }
 
     #[test]
     fn json_formatter_runs_without_panic() {
         let f = create_formatter("json");
-        f.print(&[], 0);
-        f.print(&sample_diagnostics(), 1);
+        let mut buf = Vec::new();
+        f.format_to(&[], &[], &mut buf);
+        f.format_to(&sample_diagnostics(), &sample_files(), &mut buf);
+    }
+
+    #[test]
+    fn all_formatters_run_without_panic() {
+        let files = sample_files();
+        let diags = sample_diagnostics();
+        for name in ["progress", "text", "json", "github", "pacman", "quiet", "files", "emacs", "simple"] {
+            let f = create_formatter(name);
+            let mut buf = Vec::new();
+            f.format_to(&[], &[], &mut buf);
+            f.format_to(&diags, &files, &mut buf);
+        }
     }
 
     mod prop_tests {

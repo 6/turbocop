@@ -1,3 +1,6 @@
+use std::io::Write;
+use std::path::PathBuf;
+
 use serde::Serialize;
 
 use crate::diagnostic::Diagnostic;
@@ -28,10 +31,10 @@ struct Offense {
 }
 
 impl Formatter for JsonFormatter {
-    fn print(&self, diagnostics: &[Diagnostic], file_count: usize) {
+    fn format_to(&self, diagnostics: &[Diagnostic], files: &[PathBuf], out: &mut dyn Write) {
         let output = JsonOutput {
             metadata: Metadata {
-                files_inspected: file_count,
+                files_inspected: files.len(),
                 offense_count: diagnostics.len(),
             },
             offenses: diagnostics
@@ -47,6 +50,49 @@ impl Formatter for JsonFormatter {
                 .collect(),
         };
         // Safe to unwrap: our types always serialize successfully
-        println!("{}", serde_json::to_string_pretty(&output).unwrap());
+        let _ = writeln!(out, "{}", serde_json::to_string_pretty(&output).unwrap());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::diagnostic::{Location, Severity};
+
+    fn render(diagnostics: &[Diagnostic], files: &[PathBuf]) -> String {
+        let mut buf = Vec::new();
+        JsonFormatter.format_to(diagnostics, files, &mut buf);
+        String::from_utf8(buf).unwrap()
+    }
+
+    #[test]
+    fn empty_produces_valid_json() {
+        let out = render(&[], &[]);
+        let parsed: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
+        assert_eq!(parsed["metadata"]["files_inspected"], 0);
+        assert_eq!(parsed["metadata"]["offense_count"], 0);
+        assert_eq!(parsed["offenses"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn offense_fields_present() {
+        let d = Diagnostic {
+            path: "foo.rb".to_string(),
+            location: Location { line: 3, column: 5 },
+            severity: Severity::Warning,
+            cop_name: "Style/Foo".to_string(),
+            message: "bad".to_string(),
+        };
+        let out = render(&[d], &[PathBuf::from("foo.rb")]);
+        let parsed: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
+        assert_eq!(parsed["metadata"]["files_inspected"], 1);
+        assert_eq!(parsed["metadata"]["offense_count"], 1);
+        let offense = &parsed["offenses"][0];
+        assert_eq!(offense["path"], "foo.rb");
+        assert_eq!(offense["line"], 3);
+        assert_eq!(offense["column"], 5);
+        assert_eq!(offense["severity"], "W");
+        assert_eq!(offense["cop_name"], "Style/Foo");
+        assert_eq!(offense["message"], "bad");
     }
 }
