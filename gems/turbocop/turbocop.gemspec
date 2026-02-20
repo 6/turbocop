@@ -1,9 +1,25 @@
-Gem::Specification.new do |s|
-  s.name     = "turbocop"
-  s.version  = "0.0.1.pre"
-  s.summary  = "Placeholder - upcoming gem"
-  s.authors  = ["6"]
-  s.license  = "MIT"
-  s.files    = ["lib/turbocop.rb"]
-  s.required_ruby_version = ">= 3.1.0"
+# frozen_string_literal: true
+
+require_relative "lib/turbocop"
+
+Gem::Specification.new do |spec|
+  spec.name     = "turbocop"
+  spec.version  = Turbocop::VERSION
+  spec.authors  = ["6"]
+  spec.email    = ["me@peterbrowne.com"]
+
+  spec.summary     = "Fast Ruby linter targeting RuboCop compatibility"
+  spec.description = "A Ruby linter written in Rust that reads your existing .rubocop.yml " \
+                     "and runs 900+ cops. Dramatically faster than RuboCop."
+  spec.homepage    = "https://github.com/6/turbocop"
+  spec.license     = "MIT"
+
+  spec.required_ruby_version = ">= 3.1.0"
+
+  spec.metadata["source_code_uri"] = spec.homepage
+  spec.metadata["changelog_uri"]   = "#{spec.homepage}/releases"
+
+  spec.files       = Dir["lib/**/*", "exe/**/*", "libexec/**/*"]
+  spec.bindir      = "exe"
+  spec.executables = ["turbocop"]
 end
