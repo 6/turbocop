@@ -70,7 +70,7 @@ Location-level comparison: file + line + cop_name. Only cops implemented by turb
 | doorkeeper | 624 | 624 | 624 | 0 | 0 | **100.0%** |
 | fat_free_crm | 0 | 0 | 0 | 0 | 0 | **100.0%** |
 | multi_json | 0 | 0 | 0 | 0 | 0 | **100.0%** |
-| lobsters | 6 | 0 | 0 | 6 | 0 | **0.0%** |
+| lobsters | 2 | 0 | 0 | 2 | 0 | **0.0%** |
 
 **mastodon:** All cops match perfectly!
 
@@ -99,11 +99,10 @@ Location-level comparison: file + line + cop_name. Only cops implemented by turb
 **multi_json:** All cops match perfectly!
 
 <details>
-<summary>Divergent cops — lobsters (2 of 2 shown)</summary>
+<summary>Divergent cops — lobsters (1 of 1 shown)</summary>
 
 | Cop | Matches | FP | FN |
 |-----|--------:|---:|---:|
-| Layout/MultilineMethodCallIndentation | 0 | 4 | 0 |
 | Layout/IndentationWidth | 0 | 2 | 0 |
 
 </details>

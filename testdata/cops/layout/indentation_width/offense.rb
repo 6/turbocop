@@ -40,3 +40,10 @@ Post.includes(:comments)
   posts = authors(:david)
   ^^^ Layout/IndentationWidth: Use 2 (not 0) spaces for indentation.
 end
+
+# Block on chained method — body wrong relative to both dot and end columns
+source
+  .in_batches do |batch|
+      process(batch)
+      ^^^ Layout/IndentationWidth: Use 2 (not 4) spaces for indentation.
+end

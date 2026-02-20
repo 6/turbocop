@@ -79,10 +79,15 @@ impl ChainVisitor<'_> {
         }
 
         // RuboCop skips chain indentation checks inside parenthesized call
-        // arguments — UNLESS the chain is inside a hash pair value (AssocNode).
-        // Hash pair values are checked even when inside parenthesized args.
-        if self.in_paren_args && !self.in_hash_value {
-            return;
+        // arguments. For `aligned` style, hash pair values are still checked
+        // (matching RuboCop's behavior). For `indented` and
+        // `indented_relative_to_receiver` styles, all paren args are skipped
+        // (matching RuboCop ≤1.81 behavior where hash pair indentation inside
+        // parens was not checked for these styles).
+        if self.in_paren_args {
+            if self.style != "aligned" || !self.in_hash_value {
+                return;
+            }
         }
 
         let expected = match self.style {
@@ -651,5 +656,23 @@ mod tests {
         let source = b"foo.bar.baz\n";
         let diags = run_cop_full(&MultilineMethodCallIndentation, source);
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn indented_style_skips_hash_value_in_paren_args() {
+        use crate::cop::CopConfig;
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyle".into(), serde_yml::Value::String("indented".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Chain inside hash value inside paren args: should be skipped with indented style
+        let source = b"query.where!(\n  story: Story\n          .joins(:tags)\n          .where(tags: tags)\n          .group(\"stories.id\")\n)\n";
+        let diags = run_cop_full_with_config(&MultilineMethodCallIndentation, source, config);
+        assert!(diags.is_empty(), "indented style should skip chains in paren args: {:?}", diags);
     }
 }
