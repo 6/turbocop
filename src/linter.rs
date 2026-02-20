@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 use rayon::prelude::*;
 use ruby_prism::Visit;
 
+use crate::cache::ResultCache;
 use crate::cli::Args;
 use crate::config::{CopFilterSet, ResolvedConfig};
 use crate::cop::registry::CopRegistry;
@@ -163,11 +164,25 @@ pub fn run_linter(
     let base_configs = config.precompute_cop_configs(registry);
     let has_dir_overrides = config.has_dir_overrides();
 
+    // Result cache: enabled with --cache flag
+    let cache = if args.cache {
+        let c = ResultCache::new(env!("CARGO_PKG_VERSION"), &base_configs, args);
+        if args.debug {
+            eprintln!("debug: result cache enabled");
+        }
+        c
+    } else {
+        ResultCache::disabled()
+    };
+
     let timers = if args.debug {
         Some(PhaseTimers::new())
     } else {
         None
     };
+
+    let cache_hits = std::sync::atomic::AtomicUsize::new(0);
+    let cache_misses = std::sync::atomic::AtomicUsize::new(0);
 
     let diagnostics: Vec<Diagnostic> = files
         .par_iter()
@@ -181,6 +196,9 @@ pub fn run_linter(
                 &base_configs,
                 has_dir_overrides,
                 timers.as_ref(),
+                &cache,
+                &cache_hits,
+                &cache_misses,
             )
         })
         .collect();
@@ -190,6 +208,17 @@ pub fn run_linter(
 
     if let Some(ref t) = timers {
         t.print_summary(wall_start.elapsed(), files.len());
+    }
+
+    if args.debug && cache.is_enabled() {
+        let hits = cache_hits.load(std::sync::atomic::Ordering::Relaxed);
+        let misses = cache_misses.load(std::sync::atomic::Ordering::Relaxed);
+        eprintln!("debug: cache hits: {hits}, misses: {misses}");
+    }
+
+    // Run eviction after linting completes (best-effort)
+    if cache.is_enabled() {
+        cache.evict(20_000);
     }
 
     // Per-cop timing: enabled by RBLINT_COP_PROFILE=1
@@ -274,6 +303,9 @@ fn lint_file(
     base_configs: &[CopConfig],
     has_dir_overrides: bool,
     timers: Option<&PhaseTimers>,
+    cache: &ResultCache,
+    cache_hits: &std::sync::atomic::AtomicUsize,
+    cache_misses: &std::sync::atomic::AtomicUsize,
 ) -> Vec<Diagnostic> {
     // Check global excludes once per file
     if cop_filters.is_globally_excluded(path) {
@@ -293,7 +325,16 @@ fn lint_file(
             .fetch_add(io_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
     }
 
-    lint_source_inner(
+    // Check result cache before linting
+    if cache.is_enabled() {
+        if let Some(cached) = cache.get(path, source.as_bytes()) {
+            cache_hits.fetch_add(1, Ordering::Relaxed);
+            return cached;
+        }
+        cache_misses.fetch_add(1, Ordering::Relaxed);
+    }
+
+    let result = lint_source_inner(
         &source,
         config,
         registry,
@@ -302,7 +343,14 @@ fn lint_file(
         base_configs,
         has_dir_overrides,
         timers,
-    )
+    );
+
+    // Store result in cache
+    if cache.is_enabled() {
+        cache.put(path, source.as_bytes(), &result);
+    }
+
+    result
 }
 
 /// Name of the redundant cop disable directive cop.

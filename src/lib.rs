@@ -1,3 +1,4 @@
+pub mod cache;
 pub mod cli;
 pub mod config;
 pub mod cop;
@@ -43,6 +44,19 @@ pub fn run(args: Args) -> Result<i32> {
             println!("{name}");
         }
         return Ok(0);
+    }
+
+    // --cache-clear: remove result cache directory and exit
+    if args.cache_clear {
+        match cache::clear_cache() {
+            Ok(()) => {
+                eprintln!("Result cache cleared.");
+                return Ok(0);
+            }
+            Err(e) => {
+                anyhow::bail!("Failed to clear result cache: {e}");
+            }
+        }
     }
 
     // --init: resolve gem paths and write .rblint.cache

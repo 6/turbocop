@@ -19,6 +19,8 @@ pub mod walker;
 
 use std::collections::HashMap;
 
+use serde::Serialize;
+
 use crate::diagnostic::{Diagnostic, Location, Severity};
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
@@ -30,7 +32,7 @@ use crate::parse::source::SourceFile;
 ///   unless `AllCops.NewCops: enable`
 /// - `Unset` — no explicit setting; inherits from defaults (enabled unless
 ///   `AllCops.DisabledByDefault: true`)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 pub enum EnabledState {
     True,
     False,
@@ -40,7 +42,7 @@ pub enum EnabledState {
 }
 
 /// Per-cop configuration extracted from .rubocop.yml.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct CopConfig {
     pub enabled: EnabledState,
     pub severity: Option<Severity>,

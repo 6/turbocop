@@ -43,6 +43,8 @@ fn default_args() -> Args {
         stdin: None,
         init: false,
         no_cache: false,
+        cache: false,
+        cache_clear: false,
     }
 }
 
@@ -2690,4 +2692,192 @@ fn no_cop_returns_vec_diagnostic() {
         "Cops using old Vec<Diagnostic> return pattern (should use &mut Vec<Diagnostic> parameter):\n{}",
         failures.join("\n")
     );
+}
+
+// ---------- Result cache integration tests ----------
+
+#[test]
+fn cache_produces_same_results_as_uncached() {
+    let dir = temp_dir("cache_same_results");
+    // File with offenses
+    let file1 = write_file(&dir, "trailing.rb", b"x = 1 \ny = 2\n");
+    // File without offenses
+    let file2 = write_file(&dir, "clean.rb", b"x = 1\ny = 2\n");
+
+    let config = load_config(None, Some(dir.as_path()), None).unwrap();
+    let registry = CopRegistry::default_registry();
+
+    // Run without cache
+    let args_no_cache = Args {
+        only: vec!["Layout/TrailingWhitespace".to_string()],
+        ..default_args()
+    };
+    let result_no_cache = run_linter(&[file1.clone(), file2.clone()], &config, &registry, &args_no_cache);
+
+    // Run with cache (cold)
+    let cache_dir = dir.join("cache");
+    fs::create_dir_all(&cache_dir).unwrap();
+    // SAFETY: test-only, set env var for cache root
+    unsafe { std::env::set_var("RBLINT_CACHE_DIR", &cache_dir) };
+    let args_cached = Args {
+        only: vec!["Layout/TrailingWhitespace".to_string()],
+        cache: true,
+        ..default_args()
+    };
+    let result_cold = run_linter(&[file1.clone(), file2.clone()], &config, &registry, &args_cached);
+
+    // Run with cache (warm)
+    let result_warm = run_linter(&[file1.clone(), file2.clone()], &config, &registry, &args_cached);
+
+    unsafe { std::env::remove_var("RBLINT_CACHE_DIR") };
+
+    // All three runs should produce identical diagnostics
+    assert_eq!(
+        result_no_cache.diagnostics.len(),
+        result_cold.diagnostics.len(),
+        "Cold cache should produce same offense count as uncached"
+    );
+    assert_eq!(
+        result_no_cache.diagnostics.len(),
+        result_warm.diagnostics.len(),
+        "Warm cache should produce same offense count as uncached"
+    );
+
+    // Verify actual offenses match
+    for (d1, d2) in result_no_cache.diagnostics.iter().zip(result_warm.diagnostics.iter()) {
+        assert_eq!(d1.cop_name, d2.cop_name);
+        assert_eq!(d1.location.line, d2.location.line);
+        assert_eq!(d1.location.column, d2.location.column);
+        assert_eq!(d1.message, d2.message);
+    }
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn cache_invalidated_by_file_change() {
+    let dir = temp_dir("cache_file_change");
+    let file = write_file(&dir, "test.rb", b"x = 1 \n");
+
+    let cache_dir = dir.join("cache");
+    fs::create_dir_all(&cache_dir).unwrap();
+    unsafe { std::env::set_var("RBLINT_CACHE_DIR", &cache_dir) };
+
+    let config = load_config(None, Some(dir.as_path()), None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        only: vec!["Layout/TrailingWhitespace".to_string()],
+        cache: true,
+        ..default_args()
+    };
+
+    // First run: should detect trailing whitespace
+    let result1 = run_linter(&[file.clone()], &config, &registry, &args);
+    assert_eq!(result1.diagnostics.len(), 1, "Should detect trailing whitespace");
+
+    // Modify file to remove the offense
+    fs::write(&file, b"x = 1\n").unwrap();
+
+    // Second run: file changed, cache should miss, no offense
+    let result2 = run_linter(&[file.clone()], &config, &registry, &args);
+    assert_eq!(result2.diagnostics.len(), 0, "After fix, should find no offenses");
+
+    unsafe { std::env::remove_var("RBLINT_CACHE_DIR") };
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn cache_invalidated_by_config_change() {
+    let dir = temp_dir("cache_config_change");
+    let file = write_file(&dir, "test.rb", b"x = 1 \n");
+
+    let cache_dir = dir.join("cache");
+    fs::create_dir_all(&cache_dir).unwrap();
+    unsafe { std::env::set_var("RBLINT_CACHE_DIR", &cache_dir) };
+
+    let config = load_config(None, Some(dir.as_path()), None).unwrap();
+    let registry = CopRegistry::default_registry();
+
+    // Run with --only TrailingWhitespace
+    let args1 = Args {
+        only: vec!["Layout/TrailingWhitespace".to_string()],
+        cache: true,
+        ..default_args()
+    };
+    let result1 = run_linter(&[file.clone()], &config, &registry, &args1);
+    assert_eq!(result1.diagnostics.len(), 1);
+
+    // Run with --only a different cop — different session hash, so cache miss
+    let args2 = Args {
+        only: vec!["Style/FrozenStringLiteralComment".to_string()],
+        cache: true,
+        ..default_args()
+    };
+    let result2 = run_linter(&[file.clone()], &config, &registry, &args2);
+    // Should get different results (FrozenStringLiteralComment, not TrailingWhitespace)
+    for d in &result2.diagnostics {
+        assert_ne!(
+            d.cop_name, "Layout/TrailingWhitespace",
+            "Config change should use different session, not return stale cached results"
+        );
+    }
+
+    unsafe { std::env::remove_var("RBLINT_CACHE_DIR") };
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn cache_preserves_all_severity_types() {
+    use rblint::cache::ResultCache;
+    use rblint::diagnostic::{Diagnostic, Location, Severity};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let configs = vec![rblint::cop::CopConfig::default()];
+    let args = default_args();
+    let cache = ResultCache::with_root(tmp.path(), "0.1.0-test", &configs, &args);
+
+    let path = std::path::Path::new("severity_test.rb");
+    let content = b"test content";
+
+    let diagnostics = vec![
+        Diagnostic {
+            path: "severity_test.rb".to_string(),
+            location: Location { line: 1, column: 0 },
+            severity: Severity::Convention,
+            cop_name: "Style/A".to_string(),
+            message: "convention".to_string(),
+        },
+        Diagnostic {
+            path: "severity_test.rb".to_string(),
+            location: Location { line: 2, column: 5 },
+            severity: Severity::Warning,
+            cop_name: "Lint/B".to_string(),
+            message: "warning".to_string(),
+        },
+        Diagnostic {
+            path: "severity_test.rb".to_string(),
+            location: Location { line: 3, column: 10 },
+            severity: Severity::Error,
+            cop_name: "Security/C".to_string(),
+            message: "error".to_string(),
+        },
+        Diagnostic {
+            path: "severity_test.rb".to_string(),
+            location: Location { line: 4, column: 0 },
+            severity: Severity::Fatal,
+            cop_name: "Lint/D".to_string(),
+            message: "fatal".to_string(),
+        },
+    ];
+
+    cache.put(path, content, &diagnostics);
+    let cached = cache.get(path, content).unwrap();
+
+    assert_eq!(cached.len(), 4);
+    assert_eq!(cached[0].severity, Severity::Convention);
+    assert_eq!(cached[1].severity, Severity::Warning);
+    assert_eq!(cached[1].location.column, 5);
+    assert_eq!(cached[2].severity, Severity::Error);
+    assert_eq!(cached[2].location.line, 3);
+    assert_eq!(cached[3].severity, Severity::Fatal);
 }

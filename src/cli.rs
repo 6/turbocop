@@ -52,4 +52,12 @@ pub struct Args {
     /// Skip .rblint.cache requirement (use bundler directly for gem resolution)
     #[arg(long)]
     pub no_cache: bool,
+
+    /// Enable file-level result caching (skip re-linting unchanged files)
+    #[arg(long)]
+    pub cache: bool,
+
+    /// Clear the result cache and exit
+    #[arg(long)]
+    pub cache_clear: bool,
 }

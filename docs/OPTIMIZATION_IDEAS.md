@@ -186,95 +186,26 @@ Three fixes applied:
 
 ---
 
-### Optimization 10: File-Level Result Caching (Incremental Linting)
+### Optimization 10: File-Level Result Caching (Incremental Linting) ✅ DONE
 
-**Status:** Deferred — not implementing now
-**Expected impact:** 10-100x faster for warm re-runs
-**Category:** Caching
+**Status:** Implemented
+**Measured impact:** 983ms → 356ms warm re-run on rblint repo (4369 files), ~2.8x speedup
 
-#### Decision: Not Now
+Opt-in `--cache` flag enables per-file result caching. Two-level directory hierarchy:
+`~/.cache/rblint/<session_hash>/<file_hash>`. Session hash incorporates rblint version,
+deterministic config fingerprint (sorted HashMap keys), and `--only`/`--except` args.
+File hash uses path + content SHA-256.
 
-rblint's cold-run is already faster than RuboCop's warm-cached run. Our benchmarks
-now use `--no-cache` for apples-to-apples cold-run comparison. Caching adds
-significant complexity (invalidation, storage management, corruption handling) and
-is a common source of bugs in RuboCop (`rubocop --cache clear` is a frequent
-troubleshooting step). We should exhaust pure speed optimizations (#7, #8, #9) first —
-these improve both cold and warm performance without correctness risk.
+- Cache entries are compact JSON (no path field — implied by key)
+- Atomic writes via temp file + rename for parallel safety
+- XDG-compliant storage (`$RBLINT_CACHE_DIR` > `$XDG_CACHE_HOME/rblint/` > `~/.cache/rblint/`)
+- Age-based eviction at 20K files (delete oldest 50% of session directories)
+- `--cache-clear` removes the entire cache directory
 
-When rblint reaches feature parity and production adoption, caching becomes worthwhile
-for developer workflows (re-running after small edits). At that point, the RuboCop
-implementation details below provide a reference design.
-
-#### Benchmark Note
-
-Our `bench_rblint` benchmark uses `--no-cache` when invoking RuboCop, ensuring an
-apples-to-apples comparison of raw linting speed. Both tools do a full cold-run
-parse + analyze on every file for each hyperfine iteration.
-
-#### RuboCop Cache Implementation Reference
-
-RuboCop has had file-level result caching since v0.35 (2015), enabled by default.
-On a cache hit, it skips parsing and analysis entirely — deserializing cached
-offenses directly.
-
-**Storage location** (in precedence order):
-1. `$RUBOCOP_CACHE_ROOT/rubocop_cache` (env var)
-2. `$XDG_CACHE_HOME/<uid>/rubocop_cache` (env var)
-3. `~/.cache/rubocop_cache` (default)
-4. Configurable via `AllCops.CacheRootDirectory` or `--cache-root DIR`
-
-**Directory structure** — 3-level hierarchy:
-```
-rubocop_cache/
-└── <source_checksum>/          # RuboCop version + loaded features
-    └── <context_checksum>/     # External deps + CLI options
-        └── <file_checksum>     # Per-file cache entry (JSON)
-```
-
-**Cache key composition** — three independent SHA1 checksums:
-
-| Level | Checksum of | Invalidated by |
-|-------|-------------|----------------|
-| Source | `$LOADED_FEATURES` + `exe/` files + RuboCop version + AST version | RuboCop gem update, plugin changes |
-| Context | External dependency checksums (e.g. `db/schema.rb` for Rails cops) + relevant CLI options | Schema changes, option changes |
-| File | File path + file mode + per-file config signature + file content | Any file edit, config change, permission change |
-
-**Cache entry format**: UTF-8 JSON array of offense objects:
-```json
-[{"severity":"warning","location":{"begin_pos":123,"end_pos":156},
-  "message":"...","cop_name":"Dept/Cop","status":"uncorrected"}]
-```
-
-**Eviction**: When cache exceeds `MaxFilesInCache` (default 20,000), removes the
-oldest 50% + 1 of entries by mtime. Batched in groups of 10,000. Empty parent
-directories are cleaned up.
-
-**Config options** (in `AllCops`):
-| Key | Default | Purpose |
-|-----|---------|---------|
-| `UseCache` | `true` | Enable/disable |
-| `CacheRootDirectory` | `~` | Override root path |
-| `MaxFilesInCache` | `20000` | Eviction threshold |
-| `AllowSymlinksInCacheRootDirectory` | `false` | Symlink security check |
-
-**CLI flags**: `--cache true/false`, `--cache-root DIR`
-
-**Key source files** (in `vendor/rubocop/lib/rubocop/`):
-- `result_cache.rb` — checksums, storage, cleanup
-- `cached_data.rb` — JSON serialization of offenses
-- `cache_config.rb` — cache root directory discovery
-- `runner.rb` — cache load/save orchestration (lines 181-200)
-
-#### Future rblint Implementation Notes
-
-If/when we implement caching:
-- Start opt-in (`--cache`), not default, until battle-tested
-- Support `--no-cache` and `--cache-clear` flags
-- Cache key: content SHA256 + config signature + rblint version
-- Storage: `~/.cache/rblint/` (XDG-compliant), or project-local via config
-- Format: bincode or MessagePack (faster than JSON for Rust)
-- Consider storing diagnostic byte offsets rather than line:col to avoid
-  recomputing line tables on cache load
+| Scenario | Wall time |
+|----------|----------|
+| Cold run (no cache) | 983ms |
+| Warm run (all hits) | 356ms |
 
 ---
 
@@ -288,9 +219,7 @@ If/when we implement caching:
 5. ~~Pre-computed cop lists~~ ✅ -33 to -50% filter+config time
 6. ~~Naming/InclusiveLanguage fix~~ ✅ -53% cumulative (1337ms → 628ms)
 7. ~~Other hot check_source cops~~ ✅ SpaceAroundKeyword -85%, CollectionLiteralInLoop eliminated
-
-### Deferred
-8. **File-level result caching** — not now; pure speed gains come first
+8. ~~File-level result caching~~ ✅ 983ms → 356ms warm re-run
 
 ### Rejected
 - Skip disabled departments — no measurable impact
