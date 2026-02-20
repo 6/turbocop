@@ -13,7 +13,7 @@ Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (
 
 - **915 cops** from 6 RuboCop gems (rubocop, rubocop-rails, rubocop-performance, rubocop-rspec, rubocop-rspec_rails, rubocop-factory_bot)
 - **18x faster** than RuboCop (cached), **84x faster** uncached on [rubygems.org](https://github.com/rubygems/rubygems.org) (1,222 files)
-- **100% conformance** against RuboCop on 13 benchmark repos
+- **100% conformance** against RuboCop on 14 benchmark repos
 - Reads your existing `.rubocop.yml` — no migration needed
 - Uses [Prism](https://github.com/ruby/prism) (Ruby's official parser) via `ruby-prism` crate
 - Parallel file processing with [rayon](https://github.com/rayon-rs/rayon)
@@ -64,7 +64,7 @@ Every cop reads its RuboCop YAML config options and has fixture-based test cover
 
 ## Conformance
 
-We run both turbocop and RuboCop on 13 popular open source repos and compare every offense (file, line, column, cop name, message). Match rate is the percentage of RuboCop offenses that turbocop reproduces exactly:
+We run both turbocop and RuboCop on 14 popular open source repos and compare every offense (file, line, column, cop name, message). Match rate is the percentage of RuboCop offenses that turbocop reproduces exactly:
 
 | Repo | Match rate |
 |------|----------:|
@@ -81,6 +81,7 @@ We run both turbocop and RuboCop on 13 popular open source repos and compare eve
 | doorkeeper | 100.0% |
 | fat_free_crm | 100.0% |
 | multi_json | 100.0% |
+| lobsters | 100.0% |
 
 See [bench/results.md](bench/results.md) for full details.
 
