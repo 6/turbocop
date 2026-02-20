@@ -70,7 +70,7 @@ Location-level comparison: file + line + cop_name. Only cops implemented by turb
 | doorkeeper | 624 | 624 | 624 | 0 | 0 | **100.0%** |
 | fat_free_crm | 0 | 0 | 0 | 0 | 0 | **100.0%** |
 | multi_json | 0 | 0 | 0 | 0 | 0 | **100.0%** |
-| lobsters | 223 | 8859 | 105 | 118 | 8754 | **1.2%** |
+| lobsters | 223 | 0 | 0 | 223 | 0 | **0.0%** |
 
 **mastodon:** All cops match perfectly!
 
@@ -99,40 +99,30 @@ Location-level comparison: file + line + cop_name. Only cops implemented by turb
 **multi_json:** All cops match perfectly!
 
 <details>
-<summary>Divergent cops — lobsters (30 of 97 shown)</summary>
+<summary>Divergent cops — lobsters (20 of 20 shown)</summary>
 
 | Cop | Matches | FP | FN |
 |-----|--------:|---:|---:|
-| Style/StringLiterals | 0 | 10 | 5141 |
-| Style/FrozenStringLiteralComment | 0 | 0 | 463 |
-| Layout/SpaceInsideHashLiteralBraces | 0 | 21 | 430 |
-| Style/Documentation | 0 | 0 | 295 |
-| Metrics/MethodLength | 0 | 0 | 213 |
-| Layout/ArgumentAlignment | 1 | 2 | 192 |
-| Metrics/AbcSize | 0 | 0 | 171 |
-| Metrics/BlockLength | 0 | 0 | 142 |
-| Style/IfUnlessModifier | 0 | 0 | 135 |
-| Layout/MultilineMethodCallIndentation | 0 | 4 | 130 |
-| Layout/LineLength | 0 | 0 | 121 |
-| Style/BlockDelimiters | 0 | 0 | 119 |
-| Style/NegatedIf | 0 | 0 | 74 |
-| Layout/MultilineOperationIndentation | 1 | 0 | 68 |
-| Style/SymbolArray | 0 | 0 | 64 |
-| Layout/FirstHashElementIndentation | 0 | 0 | 54 |
-| Metrics/CyclomaticComplexity | 0 | 0 | 54 |
-| Style/GuardClause | 0 | 0 | 54 |
-| Metrics/PerceivedComplexity | 0 | 0 | 52 |
-| Style/WordArray | 0 | 0 | 49 |
-| Style/NumericPredicate | 0 | 0 | 48 |
-| Layout/EmptyLineAfterGuardClause | 0 | 0 | 47 |
-| Style/StringLiteralsInInterpolation | 0 | 0 | 44 |
-| Style/StringConcatenation | 0 | 0 | 43 |
-| Style/Lambda | 0 | 0 | 38 |
-| Layout/ElseAlignment | 0 | 0 | 37 |
-| Layout/EndAlignment | 0 | 0 | 34 |
-| Layout/IndentationWidth | 0 | 2 | 31 |
+| Layout/HashAlignment | 0 | 101 | 0 |
 | Rails/Exit | 0 | 30 | 0 |
-| Style/MethodDefParentheses | 0 | 0 | 30 |
+| Performance/RegexpMatch | 0 | 26 | 0 |
+| Layout/SpaceInsideHashLiteralBraces | 0 | 21 | 0 |
+| Style/StringLiterals | 0 | 10 | 0 |
+| Style/RedundantSelf | 0 | 5 | 0 |
+| Layout/MultilineMethodCallBraceLayout | 0 | 4 | 0 |
+| Layout/MultilineMethodCallIndentation | 0 | 4 | 0 |
+| Style/NestedParenthesizedCalls | 0 | 4 | 0 |
+| Layout/ArgumentAlignment | 0 | 3 | 0 |
+| Rails/FindEach | 0 | 3 | 0 |
+| Layout/IndentationWidth | 0 | 2 | 0 |
+| Lint/OutOfRangeRegexpRef | 0 | 2 | 0 |
+| Performance/ConstantRegexp | 0 | 2 | 0 |
+| Layout/MultilineBlockLayout | 0 | 1 | 0 |
+| Layout/MultilineOperationIndentation | 0 | 1 | 0 |
+| Lint/ConstantDefinitionInBlock | 0 | 1 | 0 |
+| Performance/SortReverse | 0 | 1 | 0 |
+| Style/MixinUsage | 0 | 1 | 0 |
+| Style/SafeNavigation | 0 | 1 | 0 |
 
 </details>
 

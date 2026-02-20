@@ -757,6 +757,14 @@ fn per_repo_excluded_cops(repo_dir: &Path) -> HashSet<String> {
     excluded
 }
 
+/// Detect if a repo is a pure standardrb project (.standard.yml without .rubocop.yml).
+/// For these projects, conformance should compare against `bundle exec standardrb`
+/// instead of `bundle exec rubocop`, since standardrb applies its own config layer
+/// that rubocop alone doesn't pick up.
+fn is_standardrb_only(repo_dir: &Path) -> bool {
+    !repo_dir.join(".rubocop.yml").exists() && repo_dir.join(".standard.yml").exists()
+}
+
 fn run_conform() -> HashMap<String, ConformResult> {
     let turbocop = turbocop_binary();
     let results_path = results_dir();
@@ -794,20 +802,22 @@ fn run_conform() -> HashMap<String, ConformResult> {
         fs::write(&turbocop_json_file, &turbocop_out.stdout).unwrap();
         eprintln!("  turbocop done in {:.1}s", start.elapsed().as_secs_f64());
 
-        // Run rubocop in JSON mode
-        eprintln!("  Running rubocop...");
+        // Run rubocop (or standardrb for pure-standardrb projects) in JSON mode
+        let use_standardrb = is_standardrb_only(&repo_dir);
+        let reference_tool = if use_standardrb { "standardrb" } else { "rubocop" };
+        eprintln!("  Running {reference_tool}...");
         let rubocop_json_file = results_path.join(format!("{}-rubocop.json", repo.name));
         let start = Instant::now();
         let rubocop_out = Command::new("bundle")
-            .args(["exec", "rubocop", "--format", "json", "--no-color"])
+            .args(["exec", reference_tool, "--format", "json", "--no-color"])
             .current_dir(&repo_dir)
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .output()
-            .expect("failed to run rubocop");
+            .unwrap_or_else(|_| panic!("failed to run {reference_tool}"));
         fs::write(&rubocop_json_file, &rubocop_out.stdout).unwrap();
         eprintln!(
-            "  rubocop done in {:.1}s",
+            "  {reference_tool} done in {:.1}s",
             start.elapsed().as_secs_f64()
         );
 
@@ -886,13 +896,13 @@ fn run_conform() -> HashMap<String, ConformResult> {
 
         eprintln!("  turbocop: {} offenses", turbocop_set.len());
         eprintln!(
-            "  rubocop: {} offenses (filtered to {} covered cops)",
+            "  {reference_tool}: {} offenses (filtered to {} covered cops)",
             rubocop_set.len(),
             covered.len()
         );
         eprintln!("  matches: {}", matches.len());
         eprintln!("  FP (turbocop only): {}", fps.len());
-        eprintln!("  FN (rubocop only): {}", fns.len());
+        eprintln!("  FN ({reference_tool} only): {}", fns.len());
         eprintln!("  match rate: {:.1}%", match_rate);
 
         conform_results.insert(
