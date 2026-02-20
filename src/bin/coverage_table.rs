@@ -51,6 +51,7 @@ static VENDOR_SOURCES: &[VendorSource] = &[
 const REPO_ORDER: &[&str] = &[
     "mastodon", "discourse", "rails", "rubocop", "chatwoot", "errbit",
     "activeadmin", "good_job", "docuseal", "rubygems.org", "doorkeeper", "fat_free_crm",
+    "multi_json", "lobsters",
 ];
 
 // --- Conformance JSON types (must match bench_turbocop) ---

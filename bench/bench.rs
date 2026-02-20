@@ -112,6 +112,11 @@ static REPOS: &[BenchRepo] = &[
         url: "https://github.com/sferik/multi_json.git",
         tag: "v1.19.1",
     },
+    BenchRepo {
+        name: "lobsters",
+        url: "https://github.com/lobsters/lobsters.git",
+        tag: "main",
+    },
 ];
 
 // --- Helpers ---
