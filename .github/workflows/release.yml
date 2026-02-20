@@ -105,7 +105,7 @@ jobs:
       - uses: ruby/setup-ruby@v1
 
       - name: Package platform gem
-        run: ruby script/build_platform_gem.rb ${{ inputs.version }} ${{ matrix.platform }} target/${{ matrix.target }}/release/turbocop
+        run: ruby script/build_gem.rb ${{ inputs.version }} --platform ${{ matrix.platform }} --binary target/${{ matrix.target }}/release/turbocop
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -169,7 +169,7 @@ jobs:
           merge-multiple: true
 
       - name: Build base gem
-        run: ruby script/build_base_gem.rb ${{ inputs.version }}
+        run: ruby script/build_gem.rb ${{ inputs.version }}
 
       - name: Publish all gems
         env:

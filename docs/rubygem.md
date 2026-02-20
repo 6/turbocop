@@ -47,19 +47,23 @@ gems/turbocop/
     └── turbocop          # Native binary (only in platform gems, not checked in)
 ```
 
-## Build scripts
+## Build script
 
-Both scripts are called by `.github/workflows/release.yml`:
+`script/build_gem.rb` builds both base and platform gems. Called by `.github/workflows/release.yml`.
 
-- **`script/build_platform_gem.rb VERSION PLATFORM BINARY_PATH`** — copies the gem source into a temp dir, adds the compiled binary to `libexec/`, patches the version, generates a platform-specific gemspec, and runs `gem build`.
-- **`script/build_base_gem.rb VERSION`** — same as above but without `libexec/` (no binary).
+```
+ruby script/build_gem.rb VERSION                                         # base gem (no binary)
+ruby script/build_gem.rb VERSION --platform PLATFORM --binary PATH       # platform gem
+```
+
+The shared logic lives in `script/lib/gem_builder.rb` (`GemBuilder` class), tested by `script/test/gem_builder_test.rb`.
 
 ### Local testing
 
 ```bash
 cargo build --release
-ruby script/build_platform_gem.rb 0.1.0.dev arm64-darwin target/release/turbocop
-ruby script/build_base_gem.rb 0.1.0.dev
+ruby script/build_gem.rb 0.1.0.dev --platform arm64-darwin --binary target/release/turbocop
+ruby script/build_gem.rb 0.1.0.dev
 gem install turbocop-0.1.0.dev-arm64-darwin.gem
 turbocop --help
 gem uninstall turbocop
