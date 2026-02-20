@@ -3090,10 +3090,14 @@ fn require_flag_accepted_and_ignored() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
-    // Should not error — flag is accepted and ignored
+    // Should not error — flag is accepted with a warning
     assert!(
         output.status.success() || output.status.code() == Some(1),
         "-r should be accepted without error, stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("--require is not supported"),
+        "-r should print a warning, stderr: {stderr}"
     );
 
     fs::remove_dir_all(&dir).ok();

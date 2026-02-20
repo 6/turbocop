@@ -26,6 +26,13 @@ use parse::source::SourceFile;
 
 /// Run the linter. Returns the exit code: 0 = clean, 1 = offenses found, 2 = error.
 pub fn run(args: Args) -> Result<i32> {
+    // Warn about unsupported --require flag
+    if !args.require_libs.is_empty() {
+        eprintln!(
+            "warning: --require is not supported; use `require:` in .rubocop.yml instead"
+        );
+    }
+
     // Validate --fail-level early
     let fail_level = diagnostic::Severity::from_str(&args.fail_level).ok_or_else(|| {
         anyhow::anyhow!(
