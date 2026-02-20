@@ -143,28 +143,6 @@ Added a global `Mutex<HashMap<usize, Arc<Vec<FlaggedTerm>>>>` cache keyed by
 `fancy_regex::Regex` patterns are built once per config and reused for all files.
 The remaining 628ms is inherent line scanning cost (lowercasing + substring search).
 
----
-
-## Investigated & Rejected
-
-### Skip Fully-Disabled Departments (NO IMPACT)
-
-Disabled cops already short-circuit on a boolean flag check (~10ns). Department-level
-pre-filter would save ~12ms total.
-
-### Faster YAML Parser (LOW IMPACT)
-
-Config loading is only 13-162ms with `.turbocop.cache`. Not worth the effort.
-
-### mmap for File I/O (NO IMPACT)
-
-98.4% of Ruby files are under 32KB. Kernel page cache means `read()` is already
-serving from memory. Zero measurable difference.
-
----
-
-## Proposed Optimizations
-
 ### Optimization 9: Fix Other Hot check_source Cops ✅ DONE
 
 **Status:** Implemented
@@ -183,8 +161,6 @@ Three fixes applied:
 | Layout/SpaceAroundKeyword | 135ms | 20ms | -85% |
 | Performance/CollectionLiteralInLoop | 27ms | ~0ms | eliminated |
 | Layout/SpaceAroundOperators | 59ms | 66ms | ~same |
-
----
 
 ### Optimization 10: File-Level Result Caching (Incremental Linting) ✅ DONE
 
@@ -209,19 +185,36 @@ File hash uses path + content SHA-256.
 
 ---
 
-## Priority Order
+## Investigated & Rejected
 
-### Completed
-1. ~~Node-type dispatch table~~ ✅ -15 to -38% wall time
-2. ~~Pre-computed cop configs~~ ✅ -5 to -23% CPU time
-3. ~~Eliminate per-call Vec allocation~~ ✅ -3 to -14% wall time
-4. ~~Hot cop fixes (Debugger, NoExpectationExample)~~ ✅
-5. ~~Pre-computed cop lists~~ ✅ -33 to -50% filter+config time
-6. ~~Naming/InclusiveLanguage fix~~ ✅ -53% cumulative (1337ms → 628ms)
-7. ~~Other hot check_source cops~~ ✅ SpaceAroundKeyword -85%, CollectionLiteralInLoop eliminated
-8. ~~File-level result caching~~ ✅ 983ms → 356ms warm re-run
+- **Skip fully-disabled departments** — cops already short-circuit on boolean flag (~10ns). Would save ~12ms total.
+- **Faster YAML parser** — config loading is only 13-162ms with `.turbocop.cache`. Diminishing returns.
+- **mmap for file I/O** — 98.4% of files under 32KB. Kernel page cache means `read()` already serves from memory. No measurable difference.
 
-### Rejected
-- Skip disabled departments — no measurable impact
-- Faster YAML parser — diminishing returns
-- mmap file I/O — no effect
+---
+
+## Historical Baseline (2026-02-18, pre-optimization)
+
+Before `.turbocop.cache` and the batched AST walker, bundler shell-outs dominated wall time.
+
+### Bundler overhead
+
+Each `bundle info --path <gem>` spawned a Ruby process (130-440ms each). A project with
+5-8 plugins paid 1-2s just for gem path resolution — 41-48% of total wall time.
+
+| Repo | Files | Bundler | Linting | Total | Bundler % |
+|------|------:|--------:|--------:|------:|----------:|
+| Discourse | 5,895 | 1.2s | 723ms | 2.9s | 41% |
+| Mastodon | 2,540 | 1.6s | 1.0s | 3.3s | 48% |
+
+### RuboCop comparison (pre-optimization)
+
+| Repo | turbocop | RuboCop | Speedup |
+|------|-------:|--------:|--------:|
+| Discourse (with bundler) | 2.9s | 3.45s | 1.2x |
+| Mastodon (with bundler) | 3.3s | 2.49s | 0.8x (slower) |
+| Discourse (linting only) | 723ms | ~3.0s | 4.1x |
+| Mastodon (linting only) | 1.0s | ~2.0s | 2.0x |
+
+The `.turbocop.cache` mechanism (resolves gem paths once, caches to disk) eliminated
+bundler from the hot path entirely.
