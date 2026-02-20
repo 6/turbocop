@@ -41,6 +41,7 @@ fn default_args() -> Args {
         debug: false,
         rubocop_only: false,
         list_cops: false,
+        list_autocorrectable_cops: false,
         stdin: None,
         init: false,
         no_cache: false,

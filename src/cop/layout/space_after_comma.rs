@@ -66,6 +66,7 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(SpaceAfterComma, "cops/layout/space_after_comma");
+    crate::cop_autocorrect_fixture_tests!(SpaceAfterComma, "cops/layout/space_after_comma");
 
     #[test]
     fn autocorrect_insert_space() {

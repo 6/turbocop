@@ -57,6 +57,7 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(SpaceAfterSemicolon, "cops/layout/space_after_semicolon");
+    crate::cop_autocorrect_fixture_tests!(SpaceAfterSemicolon, "cops/layout/space_after_semicolon");
 
     #[test]
     fn autocorrect_insert_space() {

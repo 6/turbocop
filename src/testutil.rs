@@ -851,4 +851,5 @@ mod tests {
         };
         assert_cop_no_offenses_with_config(&LineLength, b"short line\n", config);
     }
+
 }

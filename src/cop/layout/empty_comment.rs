@@ -179,6 +179,7 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(EmptyComment, "cops/layout/empty_comment");
+    crate::cop_autocorrect_fixture_tests!(EmptyComment, "cops/layout/empty_comment");
 
     #[test]
     fn autocorrect_remove_empty_comment() {

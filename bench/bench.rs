@@ -642,6 +642,8 @@ struct TurboCopOffense {
     path: String,
     line: usize,
     cop_name: String,
+    #[serde(default)]
+    corrected: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -1068,6 +1070,290 @@ fn run_autocorrect_conform() -> HashMap<String, AutocorrectConformResult> {
     results
 }
 
+// --- Autocorrect validation ---
+
+/// Per-cop validation stats: how many offenses turbocop corrected vs how many rubocop still finds.
+#[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
+struct CopValidateStats {
+    /// Number of offenses turbocop marked as corrected
+    turbocop_corrected: usize,
+    /// Number of offenses rubocop still finds after turbocop's corrections
+    rubocop_remaining: usize,
+}
+
+/// Per-repo autocorrect validation result.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct AutocorrectValidateResult {
+    cops_tested: usize,
+    cops_clean: usize,
+    cops_with_remaining: usize,
+    per_cop: BTreeMap<String, CopValidateStats>,
+}
+
+/// Get the set of cops that support autocorrect.
+fn get_autocorrectable_cops() -> Vec<String> {
+    let turbocop = turbocop_binary();
+    let output = Command::new(turbocop.as_os_str())
+        .arg("--list-autocorrectable-cops")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .expect("failed to run turbocop --list-autocorrectable-cops");
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Run autocorrect validation: apply `turbocop -A`, then verify with `rubocop --only <cops>`.
+///
+/// For each bench repo:
+/// 1. Copy to temp dir
+/// 2. Run `turbocop -A --format json` to correct files and capture what was corrected
+/// 3. Run `rubocop --only <autocorrectable-cops> --format json` on corrected files
+/// 4. For each autocorrectable cop, remaining rubocop offenses indicate broken autocorrect
+fn run_autocorrect_validate() -> HashMap<String, AutocorrectValidateResult> {
+    let turbocop = turbocop_binary();
+    let autocorrectable = get_autocorrectable_cops();
+    if autocorrectable.is_empty() {
+        eprintln!("No autocorrectable cops found. Nothing to validate.");
+        return HashMap::new();
+    }
+    let cops_csv = autocorrectable.join(",");
+    eprintln!(
+        "{} autocorrectable cops: {}",
+        autocorrectable.len(),
+        cops_csv
+    );
+
+    let mut results = HashMap::new();
+
+    for repo in REPOS {
+        let repo_dir = repos_dir().join(repo.name);
+        if !repo_dir.exists() {
+            eprintln!("Repo {} not found. Run setup first.", repo.name);
+            continue;
+        }
+
+        eprintln!("\n=== Autocorrect validation: {} ===", repo.name);
+
+        let temp_base = std::env::temp_dir().join("turbocop_autocorrect_validate");
+        let _ = fs::remove_dir_all(&temp_base);
+        fs::create_dir_all(&temp_base).unwrap();
+
+        // Copy repo to temp dir
+        let work_dir = temp_base.join(repo.name);
+        copy_repo(&repo_dir, &work_dir);
+
+        // Copy .turbocop.cache if present
+        let lock_src = repo_dir.join(".turbocop.cache");
+        let lock_dst = work_dir.join(".turbocop.cache");
+        if lock_src.exists() {
+            let _ = fs::copy(&lock_src, &lock_dst);
+        }
+
+        // Step 1: Run turbocop -A --format json
+        eprintln!("  Running turbocop -A...");
+        let start = Instant::now();
+        let tc_output = Command::new(turbocop.as_os_str())
+            .args(["-A", work_dir.to_str().unwrap(), "--format", "json"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .expect("failed to run turbocop -A");
+        eprintln!(
+            "  turbocop -A done in {:.1}s",
+            start.elapsed().as_secs_f64()
+        );
+
+        // Parse turbocop output to count corrected offenses per cop
+        let mut per_cop: BTreeMap<String, CopValidateStats> = BTreeMap::new();
+        if let Ok(tc_data) = serde_json::from_slice::<TurboCopOutput>(&tc_output.stdout) {
+            for offense in &tc_data.offenses {
+                if offense.corrected && autocorrectable.contains(&offense.cop_name) {
+                    per_cop
+                        .entry(offense.cop_name.clone())
+                        .or_default()
+                        .turbocop_corrected += 1;
+                }
+            }
+        } else {
+            eprintln!("  Failed to parse turbocop JSON output");
+        }
+
+        let total_corrected: usize = per_cop.values().map(|s| s.turbocop_corrected).sum();
+        eprintln!("  turbocop corrected {} offenses", total_corrected);
+
+        // Step 2: Run rubocop --only <autocorrectable-cops> on corrected files
+        eprintln!("  Running rubocop --only <autocorrectable-cops>...");
+        let start = Instant::now();
+        let rb_output = Command::new("bundle")
+            .args([
+                "exec",
+                "rubocop",
+                "--only",
+                &cops_csv,
+                "--format",
+                "json",
+                "--no-color",
+            ])
+            .current_dir(&work_dir)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .unwrap_or_else(|_| panic!("failed to run rubocop --only"));
+        eprintln!(
+            "  rubocop done in {:.1}s",
+            start.elapsed().as_secs_f64()
+        );
+
+        // Parse rubocop output — remaining offenses
+        if let Ok(rb_data) = serde_json::from_slice::<RubocopOutput>(&rb_output.stdout) {
+            for file in &rb_data.files {
+                for offense in &file.offenses {
+                    if autocorrectable.contains(&offense.cop_name) {
+                        per_cop
+                            .entry(offense.cop_name.clone())
+                            .or_default()
+                            .rubocop_remaining += 1;
+                    }
+                }
+            }
+        } else {
+            eprintln!("  Failed to parse rubocop JSON output");
+        }
+
+        let total_remaining: usize = per_cop.values().map(|s| s.rubocop_remaining).sum();
+        let cops_tested = per_cop.len();
+        let cops_clean = per_cop
+            .values()
+            .filter(|s| s.rubocop_remaining == 0 && s.turbocop_corrected > 0)
+            .count();
+        let cops_with_remaining = per_cop
+            .values()
+            .filter(|s| s.rubocop_remaining > 0)
+            .count();
+
+        eprintln!("  rubocop found {} remaining offenses", total_remaining);
+        eprintln!(
+            "  {} cops tested, {} clean, {} with remaining offenses",
+            cops_tested, cops_clean, cops_with_remaining
+        );
+
+        // Print per-cop details
+        for (cop, stats) in &per_cop {
+            let status = if stats.rubocop_remaining == 0 {
+                "PASS"
+            } else {
+                "FAIL"
+            };
+            eprintln!(
+                "    {} — corrected: {}, remaining: {} [{}]",
+                cop, stats.turbocop_corrected, stats.rubocop_remaining, status
+            );
+        }
+
+        results.insert(
+            repo.name.to_string(),
+            AutocorrectValidateResult {
+                cops_tested,
+                cops_clean,
+                cops_with_remaining,
+                per_cop,
+            },
+        );
+
+        // Clean up temp
+        let _ = fs::remove_dir_all(&temp_base);
+    }
+
+    results
+}
+
+/// Generate a markdown report for autocorrect validation results.
+fn generate_autocorrect_validate_report(
+    results: &HashMap<String, AutocorrectValidateResult>,
+) -> String {
+    let mut md = String::new();
+    let _ = writeln!(md, "# Autocorrect Validation Report\n");
+    let _ = writeln!(
+        md,
+        "Validates that `turbocop -A` corrections are recognized as clean by `rubocop`.\n"
+    );
+
+    // Aggregate per-cop stats across all repos
+    let mut aggregate: BTreeMap<String, CopValidateStats> = BTreeMap::new();
+    for result in results.values() {
+        for (cop, stats) in &result.per_cop {
+            let agg = aggregate.entry(cop.clone()).or_default();
+            agg.turbocop_corrected += stats.turbocop_corrected;
+            agg.rubocop_remaining += stats.rubocop_remaining;
+        }
+    }
+
+    // Summary table
+    let _ = writeln!(md, "## Summary\n");
+    let _ = writeln!(md, "| Cop | Corrected | Remaining | Status |");
+    let _ = writeln!(md, "|-----|-----------|-----------|--------|");
+    for (cop, stats) in &aggregate {
+        let status = if stats.rubocop_remaining == 0 {
+            "PASS"
+        } else {
+            "FAIL"
+        };
+        let _ = writeln!(
+            md,
+            "| {} | {} | {} | {} |",
+            cop, stats.turbocop_corrected, stats.rubocop_remaining, status
+        );
+    }
+
+    let total_cops = aggregate.len();
+    let passing = aggregate
+        .values()
+        .filter(|s| s.rubocop_remaining == 0 && s.turbocop_corrected > 0)
+        .count();
+    let _ = writeln!(
+        md,
+        "\n**{}/{} cops passing** (0 remaining offenses after correction)\n",
+        passing, total_cops
+    );
+
+    // Per-repo details
+    let _ = writeln!(md, "## Per-repo Details\n");
+    let mut repo_names: Vec<&String> = results.keys().collect();
+    repo_names.sort();
+    for repo_name in repo_names {
+        let result = &results[repo_name];
+        let _ = writeln!(md, "### {}\n", repo_name);
+        let _ = writeln!(
+            md,
+            "Cops tested: {}, clean: {}, with remaining: {}\n",
+            result.cops_tested, result.cops_clean, result.cops_with_remaining
+        );
+        if !result.per_cop.is_empty() {
+            let _ = writeln!(md, "| Cop | Corrected | Remaining | Status |");
+            let _ = writeln!(md, "|-----|-----------|-----------|--------|");
+            for (cop, stats) in &result.per_cop {
+                let status = if stats.rubocop_remaining == 0 {
+                    "PASS"
+                } else {
+                    "FAIL"
+                };
+                let _ = writeln!(
+                    md,
+                    "| {} | {} | {} | {} |",
+                    cop, stats.turbocop_corrected, stats.rubocop_remaining, status
+                );
+            }
+        }
+        let _ = writeln!(md);
+    }
+
+    md
+}
+
 /// Collect all .rb files in a directory (relative paths), respecting .gitignore.
 fn collect_rb_files(dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
@@ -1471,8 +1757,24 @@ fn main() {
             fs::write(&json_path, &json).unwrap();
             eprintln!("\nWrote {} ({:.0}s)", json_path.display(), start.elapsed().as_secs_f64());
         }
+        "autocorrect-validate" => {
+            let start = Instant::now();
+            build_turbocop();
+            init_lockfiles();
+            let av_results = run_autocorrect_validate();
+            // Write structured JSON
+            let json_path = project_root().join("bench/autocorrect_validate.json");
+            let json = serde_json::to_string_pretty(&av_results).unwrap();
+            fs::write(&json_path, &json).unwrap();
+            eprintln!("\nWrote {}", json_path.display());
+            // Write markdown report
+            let md = generate_autocorrect_validate_report(&av_results);
+            let md_path = project_root().join("bench/autocorrect_validate.md");
+            fs::write(&md_path, &md).unwrap();
+            eprintln!("Wrote {} ({:.0}s)", md_path.display(), start.elapsed().as_secs_f64());
+        }
         other => {
-            eprintln!("Unknown mode: {other}. Use: setup, bench, conform, report, quick, autocorrect-conform, or all.");
+            eprintln!("Unknown mode: {other}. Use: setup, bench, conform, report, quick, autocorrect-conform, autocorrect-validate, or all.");
             std::process::exit(1);
         }
     }

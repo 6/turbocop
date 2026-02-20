@@ -95,6 +95,7 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(LeadingCommentSpace, "cops/layout/leading_comment_space");
+    crate::cop_autocorrect_fixture_tests!(LeadingCommentSpace, "cops/layout/leading_comment_space");
 
     #[test]
     fn autocorrect_insert_space() {

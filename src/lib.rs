@@ -62,6 +62,21 @@ pub fn run(args: Args) -> Result<i32> {
         return Ok(0);
     }
 
+    // --list-autocorrectable-cops: print cops that support autocorrect and exit
+    if args.list_autocorrectable_cops {
+        let mut names: Vec<&str> = registry
+            .cops()
+            .iter()
+            .filter(|c| c.supports_autocorrect())
+            .map(|c| c.name())
+            .collect();
+        names.sort();
+        for name in names {
+            println!("{name}");
+        }
+        return Ok(0);
+    }
+
     // --cache-clear: remove result cache directory and exit
     if args.cache_clear {
         match cache::clear_cache() {

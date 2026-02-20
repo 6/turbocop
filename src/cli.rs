@@ -50,6 +50,10 @@ pub struct Args {
     #[arg(long)]
     pub list_cops: bool,
 
+    /// List cops that support autocorrect, one per line, then exit
+    #[arg(long)]
+    pub list_autocorrectable_cops: bool,
+
     /// Read source from stdin, use PATH for display and config matching
     #[arg(long, value_name = "PATH")]
     pub stdin: Option<PathBuf>,

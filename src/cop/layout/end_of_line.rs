@@ -114,6 +114,7 @@ mod tests {
     use crate::parse::source::SourceFile;
 
     crate::cop_fixture_tests!(EndOfLine, "cops/layout/end_of_line");
+    crate::cop_autocorrect_fixture_tests!(EndOfLine, "cops/layout/end_of_line");
 
     #[test]
     fn crlf_detected() {

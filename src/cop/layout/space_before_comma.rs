@@ -54,6 +54,7 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(SpaceBeforeComma, "cops/layout/space_before_comma");
+    crate::cop_autocorrect_fixture_tests!(SpaceBeforeComma, "cops/layout/space_before_comma");
 
     #[test]
     fn autocorrect_remove_space() {

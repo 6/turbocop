@@ -129,6 +129,7 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(TrailingWhitespace, "cops/layout/trailing_whitespace");
+    crate::cop_autocorrect_fixture_tests!(TrailingWhitespace, "cops/layout/trailing_whitespace");
 
     #[test]
     fn all_whitespace_line() {

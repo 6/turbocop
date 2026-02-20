@@ -125,6 +125,7 @@ impl Cop for DuplicateMagicComment {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(DuplicateMagicComment, "cops/lint/duplicate_magic_comment");
+    crate::cop_autocorrect_fixture_tests!(DuplicateMagicComment, "cops/lint/duplicate_magic_comment");
 
     #[test]
     fn autocorrect_remove_duplicate() {

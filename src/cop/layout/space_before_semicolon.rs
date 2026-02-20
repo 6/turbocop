@@ -54,6 +54,7 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(SpaceBeforeSemicolon, "cops/layout/space_before_semicolon");
+    crate::cop_autocorrect_fixture_tests!(SpaceBeforeSemicolon, "cops/layout/space_before_semicolon");
 
     #[test]
     fn autocorrect_remove_space() {

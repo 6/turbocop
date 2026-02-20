@@ -78,6 +78,7 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(SpaceBeforeComment, "cops/layout/space_before_comment");
+    crate::cop_autocorrect_fixture_tests!(SpaceBeforeComment, "cops/layout/space_before_comment");
 
     #[test]
     fn autocorrect_insert_space() {

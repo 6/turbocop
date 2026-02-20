@@ -79,6 +79,7 @@ mod tests {
     use crate::testutil::{run_cop_full, run_cop_full_with_config};
 
     crate::cop_fixture_tests!(EmptyLines, "cops/layout/empty_lines");
+    crate::cop_autocorrect_fixture_tests!(EmptyLines, "cops/layout/empty_lines");
 
     #[test]
     fn config_max_2() {

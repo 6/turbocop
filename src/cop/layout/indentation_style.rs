@@ -116,6 +116,7 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(IndentationStyle, "cops/layout/indentation_style");
+    crate::cop_autocorrect_fixture_tests!(IndentationStyle, "cops/layout/indentation_style");
 
     #[test]
     fn autocorrect_tab_to_spaces() {
