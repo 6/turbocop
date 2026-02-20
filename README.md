@@ -108,6 +108,8 @@ Arguments:
   [PATHS]...    Files or directories to lint [default: .]
 
 Options:
+  -a, --autocorrect         Autocorrect offenses (safe cops only)
+  -A, --autocorrect-all     Autocorrect offenses (all cops, including unsafe)
   -c, --config <PATH>       Path to .rubocop.yml
   -f, --format <FORMAT>     Output format: text, json [default: text]
       --only <COPS>         Run only specified cops (comma-separated)

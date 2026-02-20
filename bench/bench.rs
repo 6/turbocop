@@ -5,6 +5,7 @@
 //!   cargo run --release --bin bench_turbocop -- bench  # timing only
 //!   cargo run --release --bin bench_turbocop -- conform # conformance only
 //!   cargo run --release --bin bench_turbocop -- report  # regenerate results.md from cached data
+//!   cargo run --release --bin bench_turbocop -- autocorrect-conform  # autocorrect conformance
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
@@ -906,6 +907,201 @@ fn run_conform() -> HashMap<String, ConformResult> {
     conform_results
 }
 
+// --- Autocorrect conformance ---
+
+#[derive(Debug, Default, serde::Serialize)]
+struct AutocorrectConformResult {
+    files_corrected_rubocop: usize,
+    files_corrected_turbocop: usize,
+    files_match: usize,
+    files_differ: usize,
+    match_rate: f64,
+}
+
+/// Run autocorrect conformance: compare `rubocop -A` vs `turbocop -A` output
+/// on each bench repo. Uses full-file autocorrect (all cops at once).
+fn run_autocorrect_conform() -> HashMap<String, AutocorrectConformResult> {
+    let turbocop = turbocop_binary();
+    let mut results = HashMap::new();
+
+    for repo in REPOS {
+        let repo_dir = repos_dir().join(repo.name);
+        if !repo_dir.exists() {
+            eprintln!("Repo {} not found. Run setup first.", repo.name);
+            continue;
+        }
+
+        eprintln!("\n=== Autocorrect conformance: {} ===", repo.name);
+
+        let temp_base = std::env::temp_dir().join("turbocop_autocorrect_conform");
+        let _ = fs::remove_dir_all(&temp_base);
+        fs::create_dir_all(&temp_base).unwrap();
+
+        // Collect original Ruby files (relative paths)
+        let rb_files = collect_rb_files(&repo_dir);
+        eprintln!("  {} Ruby files", rb_files.len());
+
+        // Read original file contents
+        let originals: HashMap<PathBuf, Vec<u8>> = rb_files
+            .iter()
+            .filter_map(|rel| {
+                let full = repo_dir.join(rel);
+                fs::read(&full).ok().map(|bytes| (rel.clone(), bytes))
+            })
+            .collect();
+
+        // --- Run rubocop -A on a copy ---
+        let rubocop_dir = temp_base.join("rubocop");
+        copy_repo(&repo_dir, &rubocop_dir);
+        eprintln!("  Running rubocop -A...");
+        let start = Instant::now();
+        let _ = Command::new("bundle")
+            .args(["exec", "rubocop", "-A", "--format", "quiet"])
+            .current_dir(&rubocop_dir)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .output();
+        eprintln!("  rubocop -A done in {:.1}s", start.elapsed().as_secs_f64());
+
+        // --- Run turbocop -A on another copy ---
+        let turbocop_dir = temp_base.join("turbocop");
+        copy_repo(&repo_dir, &turbocop_dir);
+        // Copy the .turbocop.cache from the original repo
+        let lock_src = repo_dir.join(".turbocop.cache");
+        let lock_dst = turbocop_dir.join(".turbocop.cache");
+        if lock_src.exists() {
+            let _ = fs::copy(&lock_src, &lock_dst);
+        }
+        eprintln!("  Running turbocop -A...");
+        let start = Instant::now();
+        let _ = Command::new(turbocop.as_os_str())
+            .args(["-A", turbocop_dir.to_str().unwrap()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .output();
+        eprintln!("  turbocop -A done in {:.1}s", start.elapsed().as_secs_f64());
+
+        // --- Compare corrected files ---
+        let mut files_corrected_rubocop = 0;
+        let mut files_corrected_turbocop = 0;
+        let mut files_match = 0;
+        let mut files_differ = 0;
+        let mut diff_examples: Vec<String> = Vec::new();
+
+        for rel in &rb_files {
+            let original = match originals.get(rel) {
+                Some(b) => b,
+                None => continue,
+            };
+            let rubocop_content = fs::read(rubocop_dir.join(rel)).unwrap_or_default();
+            let turbocop_content = fs::read(turbocop_dir.join(rel)).unwrap_or_default();
+
+            let rubocop_changed = rubocop_content != *original;
+            let turbocop_changed = turbocop_content != *original;
+
+            if rubocop_changed {
+                files_corrected_rubocop += 1;
+            }
+            if turbocop_changed {
+                files_corrected_turbocop += 1;
+            }
+
+            // Only compare files that at least one tool changed
+            if rubocop_changed || turbocop_changed {
+                if rubocop_content == turbocop_content {
+                    files_match += 1;
+                } else {
+                    files_differ += 1;
+                    if diff_examples.len() < 5 {
+                        diff_examples.push(rel.display().to_string());
+                    }
+                }
+            }
+        }
+
+        let total = files_match + files_differ;
+        let match_rate = if total == 0 {
+            100.0
+        } else {
+            files_match as f64 / total as f64 * 100.0
+        };
+
+        eprintln!("  rubocop corrected: {} files", files_corrected_rubocop);
+        eprintln!("  turbocop corrected: {} files", files_corrected_turbocop);
+        eprintln!("  matching corrections: {} files", files_match);
+        eprintln!("  differing corrections: {} files", files_differ);
+        eprintln!("  match rate: {:.1}%", match_rate);
+        if !diff_examples.is_empty() {
+            eprintln!("  example diffs: {}", diff_examples.join(", "));
+        }
+
+        results.insert(
+            repo.name.to_string(),
+            AutocorrectConformResult {
+                files_corrected_rubocop,
+                files_corrected_turbocop,
+                files_match,
+                files_differ,
+                match_rate,
+            },
+        );
+
+        // Clean up temp
+        let _ = fs::remove_dir_all(&temp_base);
+    }
+
+    results
+}
+
+/// Collect all .rb files in a directory (relative paths), respecting .gitignore.
+fn collect_rb_files(dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for entry in ignore::WalkBuilder::new(dir)
+        .hidden(false)
+        .git_ignore(true)
+        .build()
+    {
+        if let Ok(entry) = entry {
+            if entry.file_type().is_some_and(|ft| ft.is_file()) {
+                if let Some(ext) = entry.path().extension() {
+                    if ext == "rb" {
+                        if let Ok(rel) = entry.path().strip_prefix(dir) {
+                            files.push(rel.to_path_buf());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
+/// Copy a directory tree (shallow: files only, follows the same structure).
+fn copy_repo(src: &Path, dst: &Path) {
+    for entry in ignore::WalkBuilder::new(src)
+        .hidden(false)
+        .git_ignore(true)
+        .build()
+    {
+        if let Ok(entry) = entry {
+            let rel = match entry.path().strip_prefix(src) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            let target = dst.join(rel);
+            if entry.file_type().is_some_and(|ft| ft.is_dir()) {
+                let _ = fs::create_dir_all(&target);
+            } else if entry.file_type().is_some_and(|ft| ft.is_file()) {
+                if let Some(parent) = target.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                let _ = fs::copy(entry.path(), &target);
+            }
+        }
+    }
+}
+
 // --- Report generation ---
 
 fn format_elapsed(secs: f64) -> String {
@@ -1250,8 +1446,18 @@ fn main() {
             fs::write(&output_path, &md).unwrap();
             eprintln!("Wrote {}", output_path.display());
         }
+        "autocorrect-conform" => {
+            let start = Instant::now();
+            build_turbocop();
+            init_lockfiles();
+            let ac_results = run_autocorrect_conform();
+            let json_path = project_root().join("bench/autocorrect_conform.json");
+            let json = serde_json::to_string_pretty(&ac_results).unwrap();
+            fs::write(&json_path, &json).unwrap();
+            eprintln!("\nWrote {} ({:.0}s)", json_path.display(), start.elapsed().as_secs_f64());
+        }
         other => {
-            eprintln!("Unknown mode: {other}. Use: setup, bench, conform, report, quick, or all.");
+            eprintln!("Unknown mode: {other}. Use: setup, bench, conform, report, quick, autocorrect-conform, or all.");
             std::process::exit(1);
         }
     }

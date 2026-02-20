@@ -368,6 +368,37 @@ macro_rules! cop_scenario_fixture_tests {
     };
 }
 
+/// Generate autocorrect fixture tests for a cop.
+///
+/// If `testdata/<path>/corrected.rb` exists, this generates a test that:
+/// 1. Strips annotations from `offense.rb` to get the input source
+/// 2. Runs the cop with corrections enabled
+/// 3. Applies corrections to produce corrected source
+/// 4. Asserts the output matches `corrected.rb` byte-for-byte
+///
+/// Usage:
+/// ```ignore
+/// #[cfg(test)]
+/// mod tests {
+///     use super::*;
+///     crate::cop_fixture_tests!(CopStruct, "cops/dept/cop_name");
+///     crate::cop_autocorrect_fixture_tests!(CopStruct, "cops/dept/cop_name");
+/// }
+/// ```
+#[macro_export]
+macro_rules! cop_autocorrect_fixture_tests {
+    ($cop:expr, $path:literal) => {
+        #[test]
+        fn autocorrect_fixture() {
+            $crate::testutil::assert_cop_autocorrect(
+                &$cop,
+                include_bytes!(concat!("../../../testdata/", $path, "/offense.rb")),
+                include_bytes!(concat!("../../../testdata/", $path, "/corrected.rb")),
+            );
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -412,6 +412,128 @@ pub fn assert_cop_no_offenses_full_with_config(
     );
 }
 
+// ---- Autocorrect testing helpers ----
+
+/// Run all three cop methods with corrections enabled. Returns (diagnostics, corrections).
+pub fn run_cop_autocorrect(
+    cop: &dyn Cop,
+    source_bytes: &[u8],
+) -> (Vec<Diagnostic>, Vec<crate::correction::Correction>) {
+    run_cop_autocorrect_with_config(cop, source_bytes, CopConfig::default())
+}
+
+/// Run all three cop methods with corrections enabled and a specific config.
+pub fn run_cop_autocorrect_with_config(
+    cop: &dyn Cop,
+    source_bytes: &[u8],
+    config: CopConfig,
+) -> (Vec<Diagnostic>, Vec<crate::correction::Correction>) {
+    run_cop_autocorrect_internal(cop, source_bytes, config, "test.rb")
+}
+
+/// Internal helper that runs all three cop methods with corrections enabled.
+pub fn run_cop_autocorrect_internal(
+    cop: &dyn Cop,
+    source_bytes: &[u8],
+    config: CopConfig,
+    filename: &str,
+) -> (Vec<Diagnostic>, Vec<crate::correction::Correction>) {
+    let source = SourceFile::from_bytes(filename, source_bytes.to_vec());
+    let parse_result = crate::parse::parse_source(source.as_bytes());
+    let code_map = CodeMap::from_parse_result(source.as_bytes(), &parse_result);
+
+    let mut diagnostics = Vec::new();
+    let mut corrections = Vec::new();
+
+    // Line-based checks
+    cop.check_lines(&source, &config, &mut diagnostics, Some(&mut corrections));
+
+    // Source-based checks
+    cop.check_source(&source, &parse_result, &code_map, &config, &mut diagnostics, Some(&mut corrections));
+
+    // AST-based checks — CopWalker doesn't support corrections yet, pass None
+    let mut walker = CopWalker {
+        cop,
+        source: &source,
+        parse_result: &parse_result,
+        cop_config: &config,
+        diagnostics: Vec::new(),
+    };
+    walker.visit(&parse_result.node());
+    diagnostics.extend(walker.diagnostics);
+
+    (diagnostics, corrections)
+}
+
+/// Assert that a cop's autocorrect produces the expected corrected source.
+///
+/// Takes the offense fixture (with ^ annotations), strips annotations to get
+/// the input source, runs the cop with corrections, applies corrections, and
+/// compares byte-for-byte against `expected_bytes`.
+pub fn assert_cop_autocorrect(cop: &dyn Cop, fixture_bytes: &[u8], expected_bytes: &[u8]) {
+    assert_cop_autocorrect_with_config(cop, fixture_bytes, expected_bytes, CopConfig::default());
+}
+
+/// Assert autocorrect with a specific config.
+pub fn assert_cop_autocorrect_with_config(
+    cop: &dyn Cop,
+    fixture_bytes: &[u8],
+    expected_bytes: &[u8],
+    config: CopConfig,
+) {
+    let parsed = parse_fixture(fixture_bytes);
+    let filename = parsed.filename.as_deref().unwrap_or("test.rb");
+    let (_diagnostics, corrections) =
+        run_cop_autocorrect_internal(cop, &parsed.source, config, filename);
+
+    assert!(
+        !corrections.is_empty(),
+        "Cop {} produced no corrections — does it implement autocorrect?",
+        cop.name(),
+    );
+
+    let correction_set = crate::correction::CorrectionSet::from_vec(corrections);
+    let corrected = correction_set.apply(&parsed.source);
+
+    if corrected != expected_bytes {
+        let corrected_str = String::from_utf8_lossy(&corrected);
+        let expected_str = String::from_utf8_lossy(expected_bytes);
+        panic!(
+            "Autocorrect output does not match expected.\n\
+             === Expected ===\n{expected_str}\n\
+             === Got ===\n{corrected_str}\n\
+             === Diff ===\n{}",
+            simple_diff(&expected_str, &corrected_str),
+        );
+    }
+}
+
+/// Simple line-by-line diff for test failure output.
+fn simple_diff(expected: &str, actual: &str) -> String {
+    let exp_lines: Vec<&str> = expected.lines().collect();
+    let act_lines: Vec<&str> = actual.lines().collect();
+    let mut out = String::new();
+    let max_lines = exp_lines.len().max(act_lines.len());
+    for i in 0..max_lines {
+        let exp = exp_lines.get(i).unwrap_or(&"<missing>");
+        let act = act_lines.get(i).unwrap_or(&"<missing>");
+        if exp != act {
+            out.push_str(&format!("  line {}: expected: {exp:?}\n", i + 1));
+            out.push_str(&format!("  line {}:      got: {act:?}\n", i + 1));
+        }
+    }
+    if out.is_empty() {
+        if expected.len() != actual.len() {
+            out.push_str(&format!(
+                "  byte length differs: expected {} vs got {}",
+                expected.len(),
+                actual.len()
+            ));
+        }
+    }
+    out
+}
+
 fn format_expected(expected: &[ExpectedOffense]) -> String {
     expected
         .iter()

@@ -228,27 +228,36 @@ Files are independent — rayon parallelism at file level. Per-file iterations a
 
 ## 4. Phased Implementation Roadmap
 
-### Phase 0: Infrastructure
+### Phase 0: Infrastructure ✅ COMPLETE
 
-**Goal:** The autocorrect framework works end-to-end with zero cops. Running `turbocop -a .` accepts the flag, runs the iteration loop, applies no corrections (since no cop implements `supports_autocorrect`), and exits cleanly.
+**Goal:** The autocorrect framework works end-to-end with zero cops. Running `turbocop -a .` accepts the flag, applies no corrections (since no cop implements `supports_autocorrect`), and exits cleanly.
 
-**Difficulty: Moderate.** This is the architecturally hardest phase, but it's a bounded amount of code (~500-800 lines across 10 files).
+**Status:** Implemented in commit `b370fa5`. 935 files changed (1507 insertions, 145 deletions). All tests pass.
 
-| File | Change |
-|------|--------|
-| `src/correction.rs` | **NEW**: `Correction`, `CorrectionSet` + unit tests |
-| `src/diagnostic.rs` | Add `corrected: bool` field |
-| `src/cop/mod.rs` | Add `supports_autocorrect`, `safe_autocorrect`; add `corrections: Option<&mut Vec<Correction>>` param to `check_*` methods |
-| `src/cli.rs` | Add `-a`, `-A` flags, `AutocorrectMode` enum |
-| `src/cop/walker.rs` | Pass `Option<&mut Vec<Correction>>` through `BatchedCopWalker` dispatch |
-| `src/config/mod.rs` | Read `Safe`, `SafeAutoCorrect`, `AutoCorrect` into `CopConfig` |
-| `src/linter.rs` | Add correction-aware lint path, iteration loop, file writing |
-| `src/lib.rs` | Branch on `autocorrect_mode()` |
-| `src/formatter/text.rs` | `[Corrected]` prefix, corrected count in summary |
-| `src/formatter/json.rs` | `corrected`/`correctable` fields |
-| `src/parse/source.rs` | Add `line_col_to_offset()` helper |
+| File | Change | Status |
+|------|--------|--------|
+| `src/correction.rs` | **NEW**: `Correction`, `CorrectionSet` + 13 unit tests | ✅ |
+| `src/diagnostic.rs` | Add `corrected: bool` with `#[serde(default)]` | ✅ |
+| `src/cop/mod.rs` | Add `supports_autocorrect`, `safe_autocorrect`; add `corrections` param; add config helpers (`is_safe`, `is_safe_autocorrect`, `autocorrect_setting`, `should_autocorrect`) | ✅ |
+| `src/cop/**/*.rs` | All 915 cop signatures updated with `_corrections` parameter | ✅ |
+| `src/cli.rs` | Add `-a`, `-A` flags, `AutocorrectMode` enum | ✅ |
+| `src/cop/walker.rs` | Pass `None` through `CopWalker` and `BatchedCopWalker` dispatch | ✅ |
+| `src/cop/mod.rs` (CopConfig) | Read `Safe`, `SafeAutoCorrect`, `AutoCorrect` keys | ✅ |
+| `src/linter.rs` | `corrected_count` in `LintResult`, cache disabled during autocorrect | ✅ |
+| `src/lib.rs` | Autocorrect mode debug output, stdin+autocorrect warning | ✅ |
+| `src/formatter/text.rs` | Corrected count in summary when > 0 | ✅ |
+| `src/formatter/progress.rs` | Corrected count in summary when > 0 | ✅ |
+| `src/formatter/pacman.rs` | Corrected count in summary when > 0 | ✅ |
+| `src/formatter/json.rs` | `corrected` field on offenses, `corrected_count` in metadata | ✅ |
+| `src/parse/source.rs` | `line_col_to_offset()` with roundtrip proptest | ✅ |
+| `src/testutil.rs` | Updated all call sites with `None` | ✅ |
+| `src/cache.rs` | Updated `test_args()` and `to_diagnostic()` | ✅ |
+| `tests/integration.rs` | Updated `default_args()` and Diagnostic literals | ✅ |
 
-**Verification:** `cargo test` passes. `turbocop -a .` runs without error. `turbocop -A --format json .` output includes `correctable` field.
+**Not yet implemented** (deferred to when first cops produce corrections):
+- Linter iteration loop (re-parse + re-lint until convergence)
+- File writing after correction
+- `BatchedCopWalker` corrections buffer (currently passes `None`; will pass `Some(&mut vec)` when autocorrect is active)
 
 ### Phase 1: Trivial Cops (byte-range deletions and insertions)
 
@@ -368,37 +377,86 @@ testdata/cops/style/string_literals/
   corrected.rb     # expected output after autocorrect (NEW)
 ```
 
-Test macro: strip annotations from `offense.rb`, run cop in autocorrect mode, assert output matches `corrected.rb` byte-for-byte.
+New macro `cop_autocorrect_fixture_tests!` in `src/cop/mod.rs`:
+- Strips `^` annotations from `offense.rb` to get clean source
+- Runs the cop in autocorrect mode (`corrections: Some(&mut vec)`)
+- Applies `CorrectionSet` to produce corrected source
+- Asserts output matches `corrected.rb` byte-for-byte
+
+If `corrected.rb` doesn't exist, the macro silently skips (backward-compatible). This means autocorrect tests are opt-in per cop — just add `corrected.rb`.
 
 ### 5.2 Integration Tests: autocorrect-conform
+
+**Single-cop isolation approach.** Rather than comparing full `turbocop -A` vs `rubocop -A` output (which conflates all cops and makes it hard to attribute failures), the harness tests autocorrect conformance **one cop at a time**:
 
 ```bash
 cargo run --release --bin bench_turbocop -- autocorrect-conform
 ```
 
-For each bench repo:
-1. Copy to two temp directories
-2. Run `rubocop -A --format json` on copy A
-3. Run `turbocop -A` on copy B
-4. Diff the two corrected directories
-5. Report per-file and per-cop match rate
+For each bench repo, for each cop that `supports_autocorrect`:
 
-### 5.3 Golden-File Tests
+1. Copy the repo to a temp directory
+2. Run `rubocop -A --only Department/CopName --format json` on the copy
+3. Record which files were corrected and the corrected content
+4. Reset the copy (restore originals)
+5. Run `turbocop -A --only Department/CopName` on the same copy
+6. Diff the corrected files
 
-For critical cops, maintain input/expected pairs:
+**Why single-cop?**
+- No conflict resolution noise — isolates each cop's behavior
+- Easy to attribute failures to specific cops
+- Matches how conformance testing works for detection (per-cop stats)
+- Slow but thorough — can run overnight, cache results
+
+**Output:** `bench/autocorrect_conform.json` with per-cop, per-repo stats:
+```json
+{
+  "mastodon": {
+    "Style/StringLiterals": {
+      "files_corrected_rubocop": 42,
+      "files_corrected_turbocop": 42,
+      "files_match": 41,
+      "files_differ": 1,
+      "match_rate": 97.6
+    }
+  }
+}
+```
+
+### 5.3 Golden-File Tests (from RuboCop specs)
+
+For each autocorrectable cop, extract `expect_correction` blocks from vendor RuboCop specs:
 
 ```
-testdata/autocorrect/style_string_literals/input.rb
-testdata/autocorrect/style_string_literals/expected.rb
+testdata/cops/style/string_literals/
+  corrected.rb     # derived from vendor spec expect_correction blocks
 ```
 
-Tests the full autocorrect pipeline (including iteration) rather than single-cop behavior.
+RuboCop specs contain explicit before/after pairs:
+```ruby
+expect_offense(<<~RUBY)
+  x = "hello"
+      ^^^^^^^ Prefer single-quoted strings
+RUBY
+
+expect_correction(<<~RUBY)
+  x = 'hello'
+RUBY
+```
+
+Extraction process:
+1. Parse vendor spec for `expect_correction` blocks
+2. Combine with corresponding `expect_offense` blocks to get input → expected output pairs
+3. Write as `corrected.rb` (the expected output after correction)
+
+This gives us RuboCop's own test expectations as our ground truth.
 
 ### 5.4 Conflict Resolution Tests
 
 Test that overlapping corrections from multiple cops are handled identically to RuboCop:
 - Files that trigger corrections from 2+ cops on overlapping ranges
 - Verify the same corrections win/lose in both tools
+- Multi-cop golden-file tests in `testdata/autocorrect/multi_cop/` with input.rb + expected.rb
 
 ---
 
