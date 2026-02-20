@@ -14,6 +14,7 @@ Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (
 - **915 cops** from 6 RuboCop gems (rubocop, rubocop-rails, rubocop-performance, rubocop-rspec, rubocop-rspec_rails, rubocop-factory_bot)
 - **18x faster** than RuboCop (cached), **84x faster** uncached on [rubygems.org](https://github.com/rubygems/rubygems.org) (1,222 files)
 - **100% conformance** against RuboCop on 14 benchmark repos
+- **Autocorrect** (`-a`/`-A`) is not fully supported yet — work in progress
 - Reads your existing `.rubocop.yml` — no migration needed
 - Uses [Prism](https://github.com/ruby/prism) (Ruby's official parser) via `ruby-prism` crate
 - Parallel file processing with [rayon](https://github.com/rayon-rs/rayon)
