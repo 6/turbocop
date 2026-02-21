@@ -72,6 +72,14 @@ pub struct Args {
     #[arg(long)]
     pub doctor: bool,
 
+    /// List all cops with tier, implementation status, and baseline presence, then exit
+    #[arg(long)]
+    pub rules: bool,
+
+    /// Filter --rules output by tier
+    #[arg(long, value_name = "TIER", value_parser = ["stable", "preview"])]
+    pub tier: Option<String>,
+
     /// Read source from stdin, use PATH for display and config matching
     #[arg(long, value_name = "PATH")]
     pub stdin: Option<PathBuf>,
@@ -192,6 +200,8 @@ mod tests {
             list_autocorrectable_cops: false,
             migrate: false,
             doctor: false,
+            rules: false,
+            tier: None,
             stdin: None,
             init: false,
             no_cache: false,

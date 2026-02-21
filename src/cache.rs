@@ -494,6 +494,8 @@ mod tests {
             list_autocorrectable_cops: false,
             migrate: false,
             doctor: false,
+            rules: false,
+            tier: None,
             stdin: None,
             init: false,
             no_cache: false,

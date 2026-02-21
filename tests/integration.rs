@@ -45,6 +45,8 @@ fn default_args() -> Args {
         list_autocorrectable_cops: false,
         migrate: false,
         doctor: false,
+        rules: false,
+        tier: None,
         stdin: None,
         init: false,
         no_cache: false,
@@ -4699,4 +4701,76 @@ fn doctor_detects_gem_version_mismatch() {
     );
 
     fs::remove_dir_all(&dir).ok();
+}
+
+// ---------- --rules CLI tests ----------
+
+#[test]
+fn rules_table_output() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args(["--rules"])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "--rules should exit 0, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("Name"),
+        "Should show header: {stdout}"
+    );
+    assert!(
+        stdout.contains("Layout/TrailingWhitespace"),
+        "Should list a known cop: {stdout}"
+    );
+    assert!(
+        stdout.contains("cops total"),
+        "Should show summary: {stdout}"
+    );
+}
+
+#[test]
+fn rules_tier_filter_preview() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args(["--rules", "--tier", "preview"])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    // All listed cops should be preview-tier
+    assert!(
+        stdout.contains("preview"),
+        "Should show preview cops: {stdout}"
+    );
+    // Should NOT contain stable-only cops
+    assert!(
+        !stdout.contains("Layout/TrailingWhitespace"),
+        "Should not show stable cops when filtered to preview: {stdout}"
+    );
+}
+
+#[test]
+fn rules_json_output() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args(["--rules", "--format", "json"])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    let parsed: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("Should be valid JSON: {e}\n{}", &stdout[..200.min(stdout.len())]));
+    assert!(parsed.is_array(), "Should be a JSON array");
+    let arr = parsed.as_array().unwrap();
+    assert!(arr.len() > 900, "Should have 900+ cops, got {}", arr.len());
+    // Spot-check a known cop
+    let tw = arr.iter().find(|c| c["name"] == "Layout/TrailingWhitespace");
+    assert!(tw.is_some(), "Should contain Layout/TrailingWhitespace");
+    let tw = tw.unwrap();
+    assert_eq!(tw["implemented"], true);
+    assert_eq!(tw["in_baseline"], true);
 }

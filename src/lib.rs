@@ -10,6 +10,7 @@ pub mod fs;
 pub mod linter;
 pub mod migrate;
 pub mod parse;
+pub mod rules;
 
 #[cfg(test)]
 pub mod testutil;
@@ -137,6 +138,18 @@ pub fn run(args: Args) -> Result<i32> {
         names.sort();
         for name in names {
             println!("{name}");
+        }
+        return Ok(0);
+    }
+
+    // --rules: list all cops with tier, implementation status, baseline presence
+    if args.rules {
+        let rule_list =
+            rules::build_rules(&registry, &tier_map, args.tier.as_deref());
+        if args.format == "json" {
+            rules::print_json(&rule_list);
+        } else {
+            rules::print_table(&rule_list);
         }
         return Ok(0);
     }

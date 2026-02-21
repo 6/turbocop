@@ -42,8 +42,8 @@
 
 ### `rules` command
 
-- [ ] `turbocop rules [--tier <stable|preview>] [--format <table|json>]`
-- [ ] Output: name, tier, implemented?, baseline presence, default enabled?
+- [x] `turbocop rules [--tier <stable|preview>] [--format <table|json>]` (`--rules` flag)
+- [x] Output: name, tier, implemented?, baseline presence, default enabled?
 
 ### NodePattern verifier
 
