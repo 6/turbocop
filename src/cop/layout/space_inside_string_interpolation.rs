@@ -14,6 +14,10 @@ impl Cop for SpaceInsideStringInterpolation {
         &[EMBEDDED_STATEMENTS_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -21,7 +25,7 @@ impl Cop for SpaceInsideStringInterpolation {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "no_space");
 
@@ -60,42 +64,66 @@ impl Cop for SpaceInsideStringInterpolation {
                 // Require spaces
                 if !space_after_open {
                     let (line, col) = source.offset_to_line_col(open_end);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        col,
+                    let mut diag = self.diagnostic(
+                        source, line, col,
                         "Missing space inside string interpolation.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: open_end, end: open_end, replacement: " ".to_string(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
                 if !space_before_close {
                     let (line, col) = source.offset_to_line_col(close_start);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        col,
+                    let mut diag = self.diagnostic(
+                        source, line, col,
                         "Missing space inside string interpolation.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: close_start, end: close_start, replacement: " ".to_string(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
             }
             _ => {
                 // "no_space" (default) — flag spaces
                 if space_after_open {
                     let (line, col) = source.offset_to_line_col(open_end);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        col,
+                    let mut diag = self.diagnostic(
+                        source, line, col,
                         "Space inside string interpolation detected.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: open_end, end: open_end + 1, replacement: String::new(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
                 if space_before_close {
                     let (line, col) = source.offset_to_line_col(close_start - 1);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        col,
+                    let mut diag = self.diagnostic(
+                        source, line, col,
                         "Space inside string interpolation detected.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: close_start - 1, end: close_start, replacement: String::new(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
             }
         }
@@ -108,6 +136,10 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(
+        SpaceInsideStringInterpolation,
+        "cops/layout/space_inside_string_interpolation"
+    );
+    crate::cop_autocorrect_fixture_tests!(
         SpaceInsideStringInterpolation,
         "cops/layout/space_inside_string_interpolation"
     );

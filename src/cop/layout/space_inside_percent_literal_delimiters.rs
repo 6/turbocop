@@ -14,6 +14,10 @@ impl Cop for SpaceInsidePercentLiteralDelimiters {
         &[ARRAY_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -21,7 +25,7 @@ impl Cop for SpaceInsidePercentLiteralDelimiters {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check array nodes that are %w or %i style
         let array = match node.as_array_node() {
@@ -67,24 +71,39 @@ impl Cop for SpaceInsidePercentLiteralDelimiters {
         // Check for leading spaces
         if !content.is_empty() && content[0] == b' ' {
             let (line, col) = source.offset_to_line_col(open_end);
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                col,
+            let mut diag = self.diagnostic(
+                source, line, col,
                 "Do not use spaces inside percent literal delimiters.".to_string(),
-            ));
+            );
+            if let Some(ref mut corr) = corrections {
+                // Count leading spaces
+                let leading_count = content.iter().take_while(|&&b| b == b' ').count();
+                corr.push(crate::correction::Correction {
+                    start: open_end, end: open_end + leading_count, replacement: String::new(),
+                    cop_name: self.name(), cop_index: 0,
+                });
+                diag.corrected = true;
+            }
+            diagnostics.push(diag);
         }
 
         // Check for trailing spaces
         if content.len() > 1 && content[content.len() - 1] == b' ' {
-            let trailing_start = close_start - 1;
-            let (line, col) = source.offset_to_line_col(trailing_start);
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                col,
+            let trailing_count = content.iter().rev().take_while(|&&b| b == b' ').count();
+            let trailing_start = close_start - trailing_count;
+            let (line, col) = source.offset_to_line_col(close_start - 1);
+            let mut diag = self.diagnostic(
+                source, line, col,
                 "Do not use spaces inside percent literal delimiters.".to_string(),
-            ));
+            );
+            if let Some(ref mut corr) = corrections {
+                corr.push(crate::correction::Correction {
+                    start: trailing_start, end: close_start, replacement: String::new(),
+                    cop_name: self.name(), cop_index: 0,
+                });
+                diag.corrected = true;
+            }
+            diagnostics.push(diag);
         }
 
     }
@@ -95,6 +114,10 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(
+        SpaceInsidePercentLiteralDelimiters,
+        "cops/layout/space_inside_percent_literal_delimiters"
+    );
+    crate::cop_autocorrect_fixture_tests!(
         SpaceInsidePercentLiteralDelimiters,
         "cops/layout/space_inside_percent_literal_delimiters"
     );

@@ -14,6 +14,10 @@ impl Cop for SpaceAfterColon {
         &[ASSOC_NODE, IMPLICIT_NODE, SYMBOL_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -21,7 +25,7 @@ impl Cop for SpaceAfterColon {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let assoc = match node.as_assoc_node() {
             Some(a) => a,
@@ -52,12 +56,18 @@ impl Cop for SpaceAfterColon {
             Some(b) if b.is_ascii_whitespace() => {}
             _ => {
                 let (line, column) = source.offset_to_line_col(colon_loc.start_offset());
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
+                let mut diag = self.diagnostic(
+                    source, line, column,
                     "Space missing after colon.".to_string(),
-                ));
+                );
+                if let Some(ref mut corr) = corrections {
+                    corr.push(crate::correction::Correction {
+                        start: after_colon, end: after_colon, replacement: " ".to_string(),
+                        cop_name: self.name(), cop_index: 0,
+                    });
+                    diag.corrected = true;
+                }
+                diagnostics.push(diag);
             }
         }
     }
@@ -68,4 +78,5 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(SpaceAfterColon, "cops/layout/space_after_colon");
+    crate::cop_autocorrect_fixture_tests!(SpaceAfterColon, "cops/layout/space_after_colon");
 }

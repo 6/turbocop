@@ -14,6 +14,10 @@ impl Cop for SpaceInsideReferenceBrackets {
         &[CALL_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -21,7 +25,7 @@ impl Cop for SpaceInsideReferenceBrackets {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // This cop checks [] and []= method calls (reference brackets)
         let call = match node.as_call_node() {
@@ -85,23 +89,35 @@ impl Cop for SpaceInsideReferenceBrackets {
                 "no_space" => {
                     if close_start > open_end {
                         let (line, col) = source.offset_to_line_col(open_end);
-                        diagnostics.push(self.diagnostic(
-                            source,
-                            line,
-                            col,
+                        let mut diag = self.diagnostic(
+                            source, line, col,
                             "Do not use space inside empty reference brackets.".to_string(),
-                        ));
+                        );
+                        if let Some(ref mut corr) = corrections {
+                            corr.push(crate::correction::Correction {
+                                start: open_end, end: close_start, replacement: String::new(),
+                                cop_name: self.name(), cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                        diagnostics.push(diag);
                     }
                 }
                 "space" => {
                     if close_start == open_end || (close_start - open_end) != 1 {
                         let (line, col) = source.offset_to_line_col(opening_loc.start_offset());
-                        diagnostics.push(self.diagnostic(
-                            source,
-                            line,
-                            col,
+                        let mut diag = self.diagnostic(
+                            source, line, col,
                             "Use one space inside empty reference brackets.".to_string(),
-                        ));
+                        );
+                        if let Some(ref mut corr) = corrections {
+                            corr.push(crate::correction::Correction {
+                                start: open_end, end: close_start, replacement: " ".to_string(),
+                                cop_name: self.name(), cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                        diagnostics.push(diag);
                     }
                 }
                 _ => {}
@@ -116,41 +132,65 @@ impl Cop for SpaceInsideReferenceBrackets {
             "no_space" => {
                 if space_after_open {
                     let (line, col) = source.offset_to_line_col(open_end);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        col,
+                    let mut diag = self.diagnostic(
+                        source, line, col,
                         "Do not use space inside reference brackets.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: open_end, end: open_end + 1, replacement: String::new(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
                 if space_before_close {
                     let (line, col) = source.offset_to_line_col(close_start - 1);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        col,
+                    let mut diag = self.diagnostic(
+                        source, line, col,
                         "Do not use space inside reference brackets.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: close_start - 1, end: close_start, replacement: String::new(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
             }
             "space" => {
                 if !space_after_open {
                     let (line, col) = source.offset_to_line_col(open_end);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        col,
+                    let mut diag = self.diagnostic(
+                        source, line, col,
                         "Use space inside reference brackets.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: open_end, end: open_end, replacement: " ".to_string(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
                 if !space_before_close {
                     let (line, col) = source.offset_to_line_col(close_start);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        col,
+                    let mut diag = self.diagnostic(
+                        source, line, col,
                         "Use space inside reference brackets.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: close_start, end: close_start, replacement: " ".to_string(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                 }
             }
             _ => {}
@@ -164,6 +204,10 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(
+        SpaceInsideReferenceBrackets,
+        "cops/layout/space_inside_reference_brackets"
+    );
+    crate::cop_autocorrect_fixture_tests!(
         SpaceInsideReferenceBrackets,
         "cops/layout/space_inside_reference_brackets"
     );

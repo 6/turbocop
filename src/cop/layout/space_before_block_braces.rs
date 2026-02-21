@@ -14,6 +14,10 @@ impl Cop for SpaceBeforeBlockBraces {
         &[BLOCK_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -21,7 +25,7 @@ impl Cop for SpaceBeforeBlockBraces {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "space");
         let empty_style = config.get_str("EnforcedStyleForEmptyBraces", "space");
@@ -51,12 +55,18 @@ impl Cop for SpaceBeforeBlockBraces {
             "no_space" => {
                 if before > 0 && bytes[before - 1] == b' ' {
                     let (line, column) = source.offset_to_line_col(before - 1);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
+                    let mut diag = self.diagnostic(
+                        source, line, column,
                         "Space detected to the left of {.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: before - 1, end: before, replacement: String::new(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                     return;
                 }
             }
@@ -64,12 +74,18 @@ impl Cop for SpaceBeforeBlockBraces {
                 // "space" (default)
                 if before > 0 && bytes[before - 1] != b' ' {
                     let (line, column) = source.offset_to_line_col(before);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
+                    let mut diag = self.diagnostic(
+                        source, line, column,
                         "Space missing to the left of {.".to_string(),
-                    ));
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: before, end: before, replacement: " ".to_string(),
+                            cop_name: self.name(), cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
                     return;
                 }
             }
@@ -83,6 +99,7 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(SpaceBeforeBlockBraces, "cops/layout/space_before_block_braces");
+    crate::cop_autocorrect_fixture_tests!(SpaceBeforeBlockBraces, "cops/layout/space_before_block_braces");
 
     #[test]
     fn no_space_style_flags_space() {
