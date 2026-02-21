@@ -11,6 +11,15 @@ bench/repos/
 bench/results/
 bench/conform.json
 
+# Private repo benchmarks (never committed)
+bench/private_repos.json
+bench/private_results/
+bench/private_results.md
+bench/private_conform.json
+bench/private_autocorrect_conform.json
+bench/private_autocorrect_validate.json
+bench/private_autocorrect_validate.md
+
 # Ruby / Gems
 *.gem
 Gemfile.lock

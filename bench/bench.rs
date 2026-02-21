@@ -36,6 +36,14 @@ struct Args {
     /// Output markdown file path (relative to project root)
     #[arg(long)]
     output: Option<PathBuf>,
+
+    /// Run only on private/local repos from bench/private_repos.json
+    #[arg(long)]
+    private: bool,
+
+    /// Run on both public and private repos
+    #[arg(long)]
+    all_repos: bool,
 }
 
 // --- Repo config ---
@@ -119,6 +127,28 @@ static REPOS: &[BenchRepo] = &[
     },
 ];
 
+// --- Unified repo reference ---
+
+#[derive(Clone, Copy, PartialEq)]
+enum RepoSource {
+    /// Public repo cloned into bench/repos/
+    Public,
+    /// Private/local repo from bench/private_repos.json
+    Private,
+}
+
+struct RepoRef {
+    name: String,
+    dir: PathBuf,
+    source: RepoSource,
+}
+
+#[derive(serde::Deserialize)]
+struct PrivateRepoEntry {
+    name: String,
+    path: String,
+}
+
 // --- Helpers ---
 
 fn project_root() -> PathBuf {
@@ -196,6 +226,132 @@ fn format_speedup(slow: f64, fast: f64) -> String {
         return "-".to_string();
     }
     format!("{:.1}x", slow / fast)
+}
+
+// --- Private repo support ---
+
+fn private_repos_config_path() -> PathBuf {
+    bench_dir().join("private_repos.json")
+}
+
+fn private_results_dir() -> PathBuf {
+    bench_dir().join("private_results")
+}
+
+fn results_dir_for(source: RepoSource) -> PathBuf {
+    match source {
+        RepoSource::Public => results_dir(),
+        RepoSource::Private => private_results_dir(),
+    }
+}
+
+fn load_private_repos() -> Vec<RepoRef> {
+    let config_path = private_repos_config_path();
+    if !config_path.exists() {
+        return Vec::new();
+    }
+
+    let content = match fs::read_to_string(&config_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Warning: could not read {}: {e}", config_path.display());
+            return Vec::new();
+        }
+    };
+
+    let entries: Vec<PrivateRepoEntry> = match serde_json::from_str(&content) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("Warning: could not parse {}: {e}", config_path.display());
+            return Vec::new();
+        }
+    };
+
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mut repos = Vec::new();
+
+    for entry in entries {
+        let expanded = if entry.path.starts_with("~/") {
+            format!("{}{}", home, &entry.path[1..])
+        } else {
+            entry.path.clone()
+        };
+        let dir = PathBuf::from(&expanded);
+
+        if !dir.exists() {
+            eprintln!(
+                "Warning: private repo '{}' path does not exist: {}",
+                entry.name,
+                dir.display()
+            );
+            continue;
+        }
+
+        if !dir.join("Gemfile").exists() {
+            eprintln!(
+                "Warning: private repo '{}' has no Gemfile: {}",
+                entry.name,
+                dir.display()
+            );
+            continue;
+        }
+
+        repos.push(RepoRef {
+            name: entry.name,
+            dir,
+            source: RepoSource::Private,
+        });
+    }
+
+    repos
+}
+
+fn resolve_public_repos() -> Vec<RepoRef> {
+    REPOS
+        .iter()
+        .map(|r| RepoRef {
+            name: r.name.to_string(),
+            dir: repos_dir().join(r.name),
+            source: RepoSource::Public,
+        })
+        .collect()
+}
+
+fn resolve_repos(args: &Args) -> Vec<RepoRef> {
+    if args.private && args.all_repos {
+        eprintln!("Error: --private and --all-repos are mutually exclusive.");
+        std::process::exit(1);
+    }
+
+    if args.private {
+        let repos = load_private_repos();
+        if repos.is_empty() {
+            eprintln!(
+                "No private repos configured. Create {} with repo entries.",
+                private_repos_config_path().display()
+            );
+            eprintln!("Format: [{{\"name\": \"my-app\", \"path\": \"~/path/to/my-app\"}}]");
+            std::process::exit(1);
+        }
+        repos
+    } else if args.all_repos {
+        let mut repos = resolve_public_repos();
+        let private = load_private_repos();
+        let public_names: HashSet<String> = repos.iter().map(|r| r.name.clone()).collect();
+        for p in private {
+            if public_names.contains(&p.name) {
+                eprintln!(
+                    "Warning: private repo '{}' has same name as public repo, skipping.",
+                    p.name
+                );
+                continue;
+            }
+            repos.push(p);
+        }
+        repos
+    } else {
+        resolve_public_repos()
+    }
 }
 
 // --- Setup ---
@@ -289,16 +445,15 @@ fn build_turbocop() {
 
 // --- Init lockfiles ---
 
-fn init_lockfiles() {
+fn init_lockfiles(repos: &[RepoRef]) {
     let turbocop = turbocop_binary();
     if !turbocop.exists() {
         eprintln!("turbocop binary not found. Build first.");
         return;
     }
 
-    for repo in REPOS {
-        let repo_dir = repos_dir().join(repo.name);
-        if !repo_dir.exists() {
+    for repo in repos {
+        if !repo.dir.exists() {
             continue;
         }
 
@@ -307,7 +462,7 @@ fn init_lockfiles() {
         // When the binary changes (new cops, different detection logic), stale
         // cached results diverge from fresh results.
         let _ = Command::new(turbocop.as_os_str())
-            .args(["--cache-clear", repo_dir.to_str().unwrap()])
+            .args(["--cache-clear", repo.dir.to_str().unwrap()])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .output();
@@ -315,7 +470,7 @@ fn init_lockfiles() {
         eprintln!("Generating .turbocop.cache for {}...", repo.name);
         let start = Instant::now();
         let output = Command::new(turbocop.as_os_str())
-            .args(["--init", repo_dir.to_str().unwrap()])
+            .args(["--init", repo.dir.to_str().unwrap()])
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .output()
@@ -356,10 +511,8 @@ struct BenchResult {
     rb_count: usize,
 }
 
-fn run_bench(args: &Args) -> HashMap<String, BenchResult> {
+fn run_bench(args: &Args, repos: &[RepoRef]) -> HashMap<String, BenchResult> {
     let turbocop = turbocop_binary();
-    let results_path = results_dir();
-    fs::create_dir_all(&results_path).unwrap();
 
     if !has_command("hyperfine") {
         eprintln!("Error: hyperfine not found. Install via: mise install");
@@ -368,25 +521,27 @@ fn run_bench(args: &Args) -> HashMap<String, BenchResult> {
 
     let mut bench_results = HashMap::new();
 
-    for repo in REPOS {
-        let repo_dir = repos_dir().join(repo.name);
-        if !repo_dir.exists() {
-            eprintln!("Repo {} not found. Run setup first.", repo.name);
+    for repo in repos {
+        let results_path = results_dir_for(repo.source);
+        fs::create_dir_all(&results_path).unwrap();
+
+        if !repo.dir.exists() {
+            eprintln!("Repo {} not found at {}.", repo.name, repo.dir.display());
             continue;
         }
 
-        let rb_count = count_rb_files(&repo_dir);
+        let rb_count = count_rb_files(&repo.dir);
         eprintln!("\n=== Benchmarking {} ({} .rb files) ===", repo.name, rb_count);
 
         let json_file = results_path.join(format!("{}-bench.json", repo.name));
         let turbocop_cmd = format!(
             "{} {} --no-color",
             turbocop.display(),
-            repo_dir.display()
+            repo.dir.display()
         );
         let rubocop_cmd = format!(
             "cd {} && bundle exec rubocop --no-color",
-            repo_dir.display()
+            repo.dir.display()
         );
 
         let status = Command::new("hyperfine")
@@ -430,7 +585,7 @@ fn run_bench(args: &Args) -> HashMap<String, BenchResult> {
             .unwrap();
 
         bench_results.insert(
-            repo.name.to_string(),
+            repo.name.clone(),
             BenchResult {
                 turbocop: turbocop_result,
                 rubocop: rubocop_result,
@@ -767,20 +922,20 @@ fn is_standardrb_only(repo_dir: &Path) -> bool {
     !repo_dir.join(".rubocop.yml").exists() && repo_dir.join(".standard.yml").exists()
 }
 
-fn run_conform() -> HashMap<String, ConformResult> {
+fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
     let turbocop = turbocop_binary();
-    let results_path = results_dir();
-    fs::create_dir_all(&results_path).unwrap();
 
     let covered = get_covered_cops();
     eprintln!("{} cops covered by turbocop", covered.len());
 
     let mut conform_results = HashMap::new();
 
-    for repo in REPOS {
-        let repo_dir = repos_dir().join(repo.name);
-        if !repo_dir.exists() {
-            eprintln!("Repo {} not found. Run setup first.", repo.name);
+    for repo in repos {
+        let results_path = results_dir_for(repo.source);
+        fs::create_dir_all(&results_path).unwrap();
+
+        if !repo.dir.exists() {
+            eprintln!("Repo {} not found at {}.", repo.name, repo.dir.display());
             continue;
         }
 
@@ -792,7 +947,7 @@ fn run_conform() -> HashMap<String, ConformResult> {
         let start = Instant::now();
         let turbocop_out = Command::new(turbocop.as_os_str())
             .args([
-                repo_dir.to_str().unwrap(),
+                repo.dir.to_str().unwrap(),
                 "--format",
                 "json",
                 "--no-color",
@@ -805,14 +960,14 @@ fn run_conform() -> HashMap<String, ConformResult> {
         eprintln!("  turbocop done in {:.1}s", start.elapsed().as_secs_f64());
 
         // Run rubocop (or standardrb for pure-standardrb projects) in JSON mode
-        let use_standardrb = is_standardrb_only(&repo_dir);
+        let use_standardrb = is_standardrb_only(&repo.dir);
         let reference_tool = if use_standardrb { "standardrb" } else { "rubocop" };
         eprintln!("  Running {reference_tool}...");
         let rubocop_json_file = results_path.join(format!("{}-rubocop.json", repo.name));
         let start = Instant::now();
         let rubocop_out = Command::new("bundle")
             .args(["exec", reference_tool, "--format", "json", "--no-color"])
-            .current_dir(&repo_dir)
+            .current_dir(&repo.dir)
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .output()
@@ -824,7 +979,7 @@ fn run_conform() -> HashMap<String, ConformResult> {
         );
 
         // Parse and compare
-        let repo_prefix = format!("{}/", repo_dir.display());
+        let repo_prefix = format!("{}/", repo.dir.display());
 
         let turbocop_data: TurboCopOutput =
             match serde_json::from_slice(&turbocop_out.stdout) {
@@ -844,7 +999,7 @@ fn run_conform() -> HashMap<String, ConformResult> {
         };
 
         // Per-repo cop exclusions (e.g. Lint/Syntax for old-Ruby repos)
-        let repo_excluded = per_repo_excluded_cops(&repo_dir);
+        let repo_excluded = per_repo_excluded_cops(&repo.dir);
 
         type Offense = (String, usize, String); // (path, line, cop_name)
 
@@ -937,14 +1092,13 @@ struct AutocorrectConformResult {
 
 /// Run autocorrect conformance: compare `rubocop -A` vs `turbocop -A` output
 /// on each bench repo. Uses full-file autocorrect (all cops at once).
-fn run_autocorrect_conform() -> HashMap<String, AutocorrectConformResult> {
+fn run_autocorrect_conform(repos: &[RepoRef]) -> HashMap<String, AutocorrectConformResult> {
     let turbocop = turbocop_binary();
     let mut results = HashMap::new();
 
-    for repo in REPOS {
-        let repo_dir = repos_dir().join(repo.name);
-        if !repo_dir.exists() {
-            eprintln!("Repo {} not found. Run setup first.", repo.name);
+    for repo in repos {
+        if !repo.dir.exists() {
+            eprintln!("Repo {} not found at {}.", repo.name, repo.dir.display());
             continue;
         }
 
@@ -955,21 +1109,21 @@ fn run_autocorrect_conform() -> HashMap<String, AutocorrectConformResult> {
         fs::create_dir_all(&temp_base).unwrap();
 
         // Collect original Ruby files (relative paths)
-        let rb_files = collect_rb_files(&repo_dir);
+        let rb_files = collect_rb_files(&repo.dir);
         eprintln!("  {} Ruby files", rb_files.len());
 
         // Read original file contents
         let originals: HashMap<PathBuf, Vec<u8>> = rb_files
             .iter()
             .filter_map(|rel| {
-                let full = repo_dir.join(rel);
+                let full = repo.dir.join(rel);
                 fs::read(&full).ok().map(|bytes| (rel.clone(), bytes))
             })
             .collect();
 
         // --- Run rubocop -A on a copy ---
         let rubocop_dir = temp_base.join("rubocop");
-        copy_repo(&repo_dir, &rubocop_dir);
+        copy_repo(&repo.dir, &rubocop_dir);
         eprintln!("  Running rubocop -A...");
         let start = Instant::now();
         let _ = Command::new("bundle")
@@ -982,9 +1136,9 @@ fn run_autocorrect_conform() -> HashMap<String, AutocorrectConformResult> {
 
         // --- Run turbocop -A on another copy ---
         let turbocop_dir = temp_base.join("turbocop");
-        copy_repo(&repo_dir, &turbocop_dir);
+        copy_repo(&repo.dir, &turbocop_dir);
         // Copy the .turbocop.cache from the original repo
-        let lock_src = repo_dir.join(".turbocop.cache");
+        let lock_src = repo.dir.join(".turbocop.cache");
         let lock_dst = turbocop_dir.join(".turbocop.cache");
         if lock_src.exists() {
             let _ = fs::copy(&lock_src, &lock_dst);
@@ -1053,7 +1207,7 @@ fn run_autocorrect_conform() -> HashMap<String, AutocorrectConformResult> {
         }
 
         results.insert(
-            repo.name.to_string(),
+            repo.name.clone(),
             AutocorrectConformResult {
                 files_corrected_rubocop,
                 files_corrected_turbocop,
@@ -1113,7 +1267,7 @@ fn get_autocorrectable_cops() -> Vec<String> {
 /// 2. Run `turbocop -A --format json` to correct files and capture what was corrected
 /// 3. Run `rubocop --only <autocorrectable-cops> --format json` on corrected files
 /// 4. For each autocorrectable cop, remaining rubocop offenses indicate broken autocorrect
-fn run_autocorrect_validate() -> HashMap<String, AutocorrectValidateResult> {
+fn run_autocorrect_validate(repos: &[RepoRef]) -> HashMap<String, AutocorrectValidateResult> {
     let turbocop = turbocop_binary();
     let autocorrectable = get_autocorrectable_cops();
     if autocorrectable.is_empty() {
@@ -1129,10 +1283,9 @@ fn run_autocorrect_validate() -> HashMap<String, AutocorrectValidateResult> {
 
     let mut results = HashMap::new();
 
-    for repo in REPOS {
-        let repo_dir = repos_dir().join(repo.name);
-        if !repo_dir.exists() {
-            eprintln!("Repo {} not found. Run setup first.", repo.name);
+    for repo in repos {
+        if !repo.dir.exists() {
+            eprintln!("Repo {} not found at {}.", repo.name, repo.dir.display());
             continue;
         }
 
@@ -1143,11 +1296,11 @@ fn run_autocorrect_validate() -> HashMap<String, AutocorrectValidateResult> {
         fs::create_dir_all(&temp_base).unwrap();
 
         // Copy repo to temp dir
-        let work_dir = temp_base.join(repo.name);
-        copy_repo(&repo_dir, &work_dir);
+        let work_dir = temp_base.join(&repo.name);
+        copy_repo(&repo.dir, &work_dir);
 
         // Copy .turbocop.cache if present
-        let lock_src = repo_dir.join(".turbocop.cache");
+        let lock_src = repo.dir.join(".turbocop.cache");
         let lock_dst = work_dir.join(".turbocop.cache");
         if lock_src.exists() {
             let _ = fs::copy(&lock_src, &lock_dst);
@@ -1262,7 +1415,7 @@ fn run_autocorrect_validate() -> HashMap<String, AutocorrectValidateResult> {
         }
 
         results.insert(
-            repo.name.to_string(),
+            repo.name.clone(),
             AutocorrectValidateResult {
                 cops_tested,
                 cops_clean,
@@ -1479,6 +1632,7 @@ fn generate_report(
     bench: &HashMap<String, BenchResult>,
     conform: &HashMap<String, ConformResult>,
     args: &Args,
+    repos: &[RepoRef],
     total_elapsed: Option<f64>,
 ) -> String {
     let platform = shell_output("uname", &["-sm"]);
@@ -1532,8 +1686,8 @@ fn generate_report(
         .unwrap();
         writeln!(md, "|------|----------:|------------------:|-----------------:|--------:|").unwrap();
 
-        for repo in REPOS {
-            if let Some(r) = bench.get(repo.name) {
+        for repo in repos {
+            if let Some(r) = bench.get(&repo.name) {
                 let speedup = format_speedup(r.rubocop.median, r.turbocop.median);
                 writeln!(
                     md,
@@ -1558,8 +1712,8 @@ fn generate_report(
         .unwrap();
         writeln!(md).unwrap();
 
-        for repo in REPOS {
-            if let Some(r) = bench.get(repo.name) {
+        for repo in repos {
+            if let Some(r) = bench.get(&repo.name) {
                 writeln!(md, "### {}", repo.name).unwrap();
                 writeln!(md).unwrap();
                 writeln!(md, "| Tool | Mean | Stddev | Min | Max | Median |").unwrap();
@@ -1619,8 +1773,8 @@ fn generate_report(
         )
         .unwrap();
 
-        for repo in REPOS {
-            if let Some(c) = conform.get(repo.name) {
+        for repo in repos {
+            if let Some(c) = conform.get(&repo.name) {
                 writeln!(
                     md,
                     "| {} | {} | {} | {} | {} | {} | **{:.1}%** |",
@@ -1639,8 +1793,8 @@ fn generate_report(
         writeln!(md).unwrap();
 
         // Per-cop divergence tables
-        for repo in REPOS {
-            if let Some(c) = conform.get(repo.name) {
+        for repo in repos {
+            if let Some(c) = conform.get(&repo.name) {
                 let mut divergent: Vec<(&String, &CopStats)> = c
                     .per_cop
                     .iter()
@@ -1688,10 +1842,10 @@ fn generate_report(
 
 // --- Load cached bench results from hyperfine JSON files ---
 
-fn load_cached_bench() -> HashMap<String, BenchResult> {
+fn load_cached_bench(repos: &[RepoRef]) -> HashMap<String, BenchResult> {
     let mut results = HashMap::new();
-    for repo in REPOS {
-        let json_file = results_dir().join(format!("{}-bench.json", repo.name));
+    for repo in repos {
+        let json_file = results_dir_for(repo.source).join(format!("{}-bench.json", repo.name));
         if !json_file.exists() {
             continue;
         }
@@ -1705,14 +1859,13 @@ fn load_cached_bench() -> HashMap<String, BenchResult> {
         let rubocop_result = parsed.results.iter().find(|r| r.command == "rubocop");
 
         if let (Some(rb), Some(rc)) = (turbocop_result, rubocop_result) {
-            let repo_dir = repos_dir().join(repo.name);
-            let rb_count = if repo_dir.exists() {
-                count_rb_files(&repo_dir)
+            let rb_count = if repo.dir.exists() {
+                count_rb_files(&repo.dir)
             } else {
                 0
             };
             results.insert(
-                repo.name.to_string(),
+                repo.name.clone(),
                 BenchResult {
                     turbocop: HyperfineResult {
                         command: rb.command.clone(),
@@ -1742,39 +1895,63 @@ fn load_cached_bench() -> HashMap<String, BenchResult> {
 
 fn main() {
     let args = Args::parse();
-    let output_path = args
-        .output
-        .clone()
-        .unwrap_or_else(|| project_root().join("bench/results.md"));
+    let repos = resolve_repos(&args);
+
+    let is_private_run = args.private;
+    let output_path = args.output.clone().unwrap_or_else(|| {
+        if is_private_run {
+            project_root().join("bench/private_results.md")
+        } else {
+            project_root().join("bench/results.md")
+        }
+    });
+
+    /// Choose the right JSON output path based on repo source.
+    fn json_output_path(base_name: &str, is_private: bool) -> PathBuf {
+        let prefix = if is_private { "private_" } else { "" };
+        project_root().join(format!("bench/{prefix}{base_name}"))
+    }
 
     match args.mode.as_str() {
         "setup" => {
-            setup_repos();
+            if is_private_run {
+                eprintln!("Validating private repo paths...");
+                for repo in &repos {
+                    if repo.dir.exists() {
+                        let rb_count = count_rb_files(&repo.dir);
+                        eprintln!("  OK: {} ({} .rb files) at {}", repo.name, rb_count, repo.dir.display());
+                    } else {
+                        eprintln!("  MISSING: {} at {}", repo.name, repo.dir.display());
+                    }
+                }
+            } else {
+                setup_repos();
+            }
         }
         "bench" => {
             let start = Instant::now();
             build_turbocop();
-            init_lockfiles();
-            let bench = run_bench(&args);
+            init_lockfiles(&repos);
+            let bench = run_bench(&args, &repos);
             let elapsed = start.elapsed().as_secs_f64();
-            let md = generate_report(&bench, &HashMap::new(), &args, Some(elapsed));
+            let md = generate_report(&bench, &HashMap::new(), &args, &repos, Some(elapsed));
             fs::write(&output_path, &md).unwrap();
             eprintln!("\nWrote {}", output_path.display());
         }
         "conform" => {
             let start = Instant::now();
             build_turbocop();
-            init_lockfiles();
-            let conform = run_conform();
-            // Write structured JSON for coverage_table to consume
-            let json_path = project_root().join("bench/conform.json");
+            init_lockfiles(&repos);
+            let conform = run_conform(&repos);
+            // Write structured JSON
+            let json_path = json_output_path("conform.json", is_private_run);
             let json = serde_json::to_string_pretty(&conform).unwrap();
             fs::write(&json_path, &json).unwrap();
             eprintln!("\nWrote {}", json_path.display());
             // Also write human-readable markdown
-            let bench = load_cached_bench();
+            let bench = load_cached_bench(&repos);
             let elapsed = start.elapsed().as_secs_f64();
-            let md = generate_report(&bench, &conform, &args, Some(elapsed));
+            let md = generate_report(&bench, &conform, &args, &repos, Some(elapsed));
             fs::write(&output_path, &md).unwrap();
             eprintln!("Wrote {}", output_path.display());
         }
@@ -1783,35 +1960,37 @@ fn main() {
             run_quick_bench(&args);
         }
         "report" => {
-            let bench = load_cached_bench();
+            let bench = load_cached_bench(&repos);
             // For conformance, we'd need to re-parse the JSON files.
             // For now, just regenerate from bench data.
-            let md = generate_report(&bench, &HashMap::new(), &args, None);
+            let md = generate_report(&bench, &HashMap::new(), &args, &repos, None);
             fs::write(&output_path, &md).unwrap();
             eprintln!("\nWrote {}", output_path.display());
         }
         "all" => {
             let start = Instant::now();
-            setup_repos();
+            if !is_private_run {
+                setup_repos();
+            }
             build_turbocop();
-            init_lockfiles();
-            let bench = run_bench(&args);
-            let conform = run_conform();
-            let json_path = project_root().join("bench/conform.json");
+            init_lockfiles(&repos);
+            let bench = run_bench(&args, &repos);
+            let conform = run_conform(&repos);
+            let json_path = json_output_path("conform.json", is_private_run);
             let json = serde_json::to_string_pretty(&conform).unwrap();
             fs::write(&json_path, &json).unwrap();
             eprintln!("\nWrote {}", json_path.display());
             let elapsed = start.elapsed().as_secs_f64();
-            let md = generate_report(&bench, &conform, &args, Some(elapsed));
+            let md = generate_report(&bench, &conform, &args, &repos, Some(elapsed));
             fs::write(&output_path, &md).unwrap();
             eprintln!("Wrote {}", output_path.display());
         }
         "autocorrect-conform" => {
             let start = Instant::now();
             build_turbocop();
-            init_lockfiles();
-            let ac_results = run_autocorrect_conform();
-            let json_path = project_root().join("bench/autocorrect_conform.json");
+            init_lockfiles(&repos);
+            let ac_results = run_autocorrect_conform(&repos);
+            let json_path = json_output_path("autocorrect_conform.json", is_private_run);
             let json = serde_json::to_string_pretty(&ac_results).unwrap();
             fs::write(&json_path, &json).unwrap();
             eprintln!("\nWrote {} ({:.0}s)", json_path.display(), start.elapsed().as_secs_f64());
@@ -1819,16 +1998,20 @@ fn main() {
         "autocorrect-validate" => {
             let start = Instant::now();
             build_turbocop();
-            init_lockfiles();
-            let av_results = run_autocorrect_validate();
+            init_lockfiles(&repos);
+            let av_results = run_autocorrect_validate(&repos);
             // Write structured JSON
-            let json_path = project_root().join("bench/autocorrect_validate.json");
+            let json_path = json_output_path("autocorrect_validate.json", is_private_run);
             let json = serde_json::to_string_pretty(&av_results).unwrap();
             fs::write(&json_path, &json).unwrap();
             eprintln!("\nWrote {}", json_path.display());
             // Write markdown report
             let md = generate_autocorrect_validate_report(&av_results);
-            let md_path = project_root().join("bench/autocorrect_validate.md");
+            let md_path = if is_private_run {
+                project_root().join("bench/private_autocorrect_validate.md")
+            } else {
+                project_root().join("bench/autocorrect_validate.md")
+            };
             fs::write(&md_path, &md).unwrap();
             eprintln!("Wrote {} ({:.0}s)", md_path.display(), start.elapsed().as_secs_f64());
         }
