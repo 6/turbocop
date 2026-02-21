@@ -4833,3 +4833,257 @@ fn autocorrect_all_bypasses_allowlist() {
 
     fs::remove_dir_all(&dir).ok();
 }
+
+// ── NodePattern Verifier ──────────────────────────────────────────────────
+
+/// Verify that all patterns in the pattern database parse successfully.
+///
+/// This is the first layer of the verifier: ensuring the interpreter can
+/// handle every pattern we've curated from vendor RuboCop source.
+#[test]
+fn verifier_all_patterns_parse() {
+    use turbocop::node_pattern::pattern_db::PATTERNS;
+    use turbocop::node_pattern::lexer::Lexer;
+    use turbocop::node_pattern::parser::Parser;
+
+    let mut failures = Vec::new();
+
+    for entry in PATTERNS {
+        let mut lexer = Lexer::new(entry.pattern);
+        let tokens = lexer.tokenize();
+        let mut parser = Parser::new(tokens);
+        if parser.parse().is_none() {
+            failures.push(format!(
+                "  {} — failed to parse: {:?}",
+                entry.cop_name, entry.pattern
+            ));
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "Pattern parse failures ({}/{}):\n{}",
+        failures.len(),
+        PATTERNS.len(),
+        failures.join("\n"),
+    );
+
+    eprintln!("verifier: all {}/{} patterns parse OK", PATTERNS.len(), PATTERNS.len());
+}
+
+/// Verify the interpreter produces correct results on known Ruby snippets.
+///
+/// Tests a matrix of (pattern, ruby_source, expected_match) triples to ensure
+/// the interpreter agrees with known-correct answers derived from RuboCop's
+/// behavior.
+#[test]
+fn verifier_known_matches() {
+    use turbocop::node_pattern::interpreter::interpret_pattern;
+
+    struct Case {
+        pattern: &'static str,
+        ruby: &'static [u8],
+        expected: bool,
+        label: &'static str,
+    }
+
+    let cases = [
+        // ── Lint/BooleanSymbol ────────────────────────────────
+        Case {
+            pattern: "(sym {:true :false})",
+            ruby: b":true",
+            expected: true,
+            label: "BooleanSymbol matches :true",
+        },
+        Case {
+            pattern: "(sym {:true :false})",
+            ruby: b":false",
+            expected: true,
+            label: "BooleanSymbol matches :false",
+        },
+        Case {
+            pattern: "(sym {:true :false})",
+            ruby: b":foo",
+            expected: false,
+            label: "BooleanSymbol rejects :foo",
+        },
+        // ── Style/NilComparison ───────────────────────────────
+        Case {
+            pattern: "(send _ {:== :===} nil)",
+            ruby: b"x == nil",
+            expected: true,
+            label: "NilComparison matches x == nil",
+        },
+        Case {
+            pattern: "(send _ {:== :===} nil)",
+            ruby: b"x === nil",
+            expected: true,
+            label: "NilComparison matches x === nil",
+        },
+        Case {
+            pattern: "(send _ {:== :===} nil)",
+            ruby: b"x == 1",
+            expected: false,
+            label: "NilComparison rejects x == 1",
+        },
+        Case {
+            pattern: "(send _ :nil?)",
+            ruby: b"x.nil?",
+            expected: true,
+            label: "NilComparison matches x.nil?",
+        },
+        // ── Style/DoubleNegation ──────────────────────────────
+        Case {
+            pattern: "(send (send _ :!) :!)",
+            ruby: b"!!x",
+            expected: true,
+            label: "DoubleNegation matches !!x",
+        },
+        Case {
+            pattern: "(send (send _ :!) :!)",
+            ruby: b"!x",
+            expected: false,
+            label: "DoubleNegation rejects !x",
+        },
+        // ── Style/SymbolProc/proc_node ────────────────────────
+        Case {
+            pattern: "(send (const {nil? cbase} :Proc) :new)",
+            ruby: b"Proc.new",
+            expected: true,
+            label: "SymbolProc matches Proc.new",
+        },
+        Case {
+            pattern: "(send (const {nil? cbase} :Proc) :new)",
+            ruby: b"Lambda.new",
+            expected: false,
+            label: "SymbolProc rejects Lambda.new",
+        },
+        // ── Lint/RandOne ──────────────────────────────────────
+        Case {
+            pattern: "(send {(const {nil? cbase} :Kernel) nil?} :rand {(int {-1 1}) (float {-1.0 1.0})})",
+            ruby: b"rand(1)",
+            expected: true,
+            label: "RandOne matches rand(1)",
+        },
+        Case {
+            pattern: "(send {(const {nil? cbase} :Kernel) nil?} :rand {(int {-1 1}) (float {-1.0 1.0})})",
+            ruby: b"rand(5)",
+            expected: false,
+            label: "RandOne rejects rand(5)",
+        },
+        // ── Performance/ReverseEach ───────────────────────────
+        Case {
+            pattern: "(send (send _ :reverse) :each)",
+            ruby: b"arr.reverse.each",
+            expected: true,
+            label: "ReverseEach matches arr.reverse.each",
+        },
+        Case {
+            pattern: "(send (send _ :reverse) :each)",
+            ruby: b"arr.sort.each",
+            expected: false,
+            label: "ReverseEach rejects arr.sort.each",
+        },
+        // ── Style/StringConcatenation ─────────────────────────
+        Case {
+            pattern: "{(send str? :+ _) (send _ :+ str?)}",
+            ruby: b"'hello' + x",
+            expected: true,
+            label: "StringConcatenation matches 'hello' + x",
+        },
+        // ── If with no else ───────────────────────────────────
+        Case {
+            pattern: "(if _ _ nil?)",
+            ruby: b"if x; y; end",
+            expected: true,
+            label: "If matches when no else clause",
+        },
+        Case {
+            pattern: "(if _ _ nil?)",
+            ruby: b"if x; y; else; z; end",
+            expected: false,
+            label: "If rejects when else present",
+        },
+        // ── Array with rest ───────────────────────────────────
+        Case {
+            pattern: "(array ...)",
+            ruby: b"[1, 2, 3]",
+            expected: true,
+            label: "Array rest matches [1,2,3]",
+        },
+        // ── Def pattern ───────────────────────────────────────
+        Case {
+            pattern: "(def :initialize ...)",
+            ruby: b"def initialize; end",
+            expected: true,
+            label: "Def matches initialize",
+        },
+        Case {
+            pattern: "(def :initialize ...)",
+            ruby: b"def other_method; end",
+            expected: false,
+            label: "Def rejects other_method",
+        },
+        // ── Boolean/nil literals ──────────────────────────────
+        Case {
+            pattern: "true",
+            ruby: b"true",
+            expected: true,
+            label: "True literal matches true",
+        },
+        Case {
+            pattern: "false",
+            ruby: b"false",
+            expected: true,
+            label: "False literal matches false",
+        },
+        Case {
+            pattern: "nil",
+            ruby: b"nil",
+            expected: true,
+            label: "Nil literal matches nil",
+        },
+        Case {
+            pattern: "true",
+            ruby: b"false",
+            expected: false,
+            label: "True literal rejects false",
+        },
+    ];
+
+    let mut failures = Vec::new();
+
+    for case in &cases {
+        let result = ruby_prism::parse(case.ruby);
+        let root = result.node();
+        let program = root.as_program_node().unwrap();
+        let stmts = program.statements();
+        let node = stmts.body().iter().next().unwrap();
+
+        let got = interpret_pattern(case.pattern, &node);
+        if got != case.expected {
+            failures.push(format!(
+                "  {} — pattern={:?} ruby={:?} expected={} got={}",
+                case.label,
+                case.pattern,
+                std::str::from_utf8(case.ruby).unwrap_or("?"),
+                case.expected,
+                got,
+            ));
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "Verifier known-match failures ({}/{}):\n{}",
+        failures.len(),
+        cases.len(),
+        failures.join("\n"),
+    );
+
+    eprintln!(
+        "verifier: all {}/{} known-match cases pass",
+        cases.len(),
+        cases.len(),
+    );
+}
