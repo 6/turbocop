@@ -1,4 +1,7 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 
 use sha2::{Digest, Sha256};
@@ -9,26 +12,30 @@ use crate::diagnostic::{Diagnostic, Location, Severity};
 
 /// File-level result cache for incremental linting.
 ///
-/// Two-level directory hierarchy:
+/// Single-file index layout:
 /// ```text
 /// <cache_root>/
-/// └── <session_hash>/       # turbocop version + config fingerprint + CLI args
-///     └── <path_hash>       # per-file cache entry (JSON)
+/// └── <session_hash>.index    # all entries for this session (JSON)
 /// ```
 ///
 /// Two-tier lookup per file:
 /// 1. **Stat check** (mtime + size) — no file read needed, instant for local dev
 /// 2. **Content hash** fallback — handles CI, git checkout, and other mtime-unreliable scenarios
 ///
-/// Thread safety: each file gets a unique cache key (path hash), so parallel
-/// rayon workers never write to the same path. No locking needed.
+/// Thread safety: all entries stored in a `RwLock<HashMap>`. Rayon workers take
+/// read locks on stat hits (zero contention), write locks only on cache misses.
 pub struct ResultCache {
-    session_dir: PathBuf,
+    index_path: PathBuf,
     enabled: bool,
+    /// All cache entries loaded into memory at construction.
+    /// Key: path_hash (String), Value: CacheEntry
+    entries: Arc<RwLock<HashMap<String, CacheEntry>>>,
+    /// Track whether any entries were added/updated (need flush on drop).
+    dirty: Arc<AtomicBool>,
 }
 
-/// Full cache entry stored on disk: metadata + diagnostics.
-#[derive(serde::Serialize, serde::Deserialize)]
+/// Full cache entry stored in the index: metadata + diagnostics.
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct CacheEntry {
     /// Seconds since UNIX epoch of the file's mtime when cached.
     mtime_secs: u64,
@@ -43,7 +50,7 @@ struct CacheEntry {
 }
 
 /// Compact diagnostic without the file path (implied by cache key).
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct CachedDiagnostic {
     line: usize,
     column: usize,
@@ -63,7 +70,7 @@ impl CachedDiagnostic {
         }
     }
 
-    fn to_diagnostic(self, path: &str) -> Diagnostic {
+    fn to_diagnostic(&self, path: &str) -> Diagnostic {
         Diagnostic {
             path: path.to_string(),
             location: Location {
@@ -76,8 +83,8 @@ impl CachedDiagnostic {
                 'F' => Severity::Fatal,
                 _ => Severity::Convention,
             },
-            cop_name: self.cop,
-            message: self.message,
+            cop_name: self.cop.clone(),
+            message: self.message.clone(),
             corrected: false,
         }
     }
@@ -98,31 +105,38 @@ impl ResultCache {
     /// Create a new result cache with session-level key.
     pub fn new(version: &str, base_configs: &[CopConfig], args: &Args) -> Self {
         let cache_root = cache_root_dir();
+        let _ = std::fs::create_dir_all(&cache_root);
         let session_hash = compute_session_hash(version, base_configs, args);
-        let session_dir = cache_root.join(&session_hash);
-        let _ = std::fs::create_dir_all(&session_dir);
+        let index_path = cache_root.join(format!("{session_hash}.index"));
+        let entries = load_index(&index_path);
         Self {
-            session_dir,
+            index_path,
             enabled: true,
+            entries: Arc::new(RwLock::new(entries)),
+            dirty: Arc::new(AtomicBool::new(false)),
         }
     }
 
     /// Create a cache rooted at the given directory (for testing).
     pub fn with_root(root: &Path, version: &str, base_configs: &[CopConfig], args: &Args) -> Self {
         let session_hash = compute_session_hash(version, base_configs, args);
-        let session_dir = root.join(&session_hash);
-        let _ = std::fs::create_dir_all(&session_dir);
+        let index_path = root.join(format!("{session_hash}.index"));
+        let entries = load_index(&index_path);
         Self {
-            session_dir,
+            index_path,
             enabled: true,
+            entries: Arc::new(RwLock::new(entries)),
+            dirty: Arc::new(AtomicBool::new(false)),
         }
     }
 
     /// Create a disabled (no-op) cache.
     pub fn disabled() -> Self {
         Self {
-            session_dir: PathBuf::new(),
+            index_path: PathBuf::new(),
             enabled: false,
+            entries: Arc::new(RwLock::new(HashMap::new())),
+            dirty: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -147,7 +161,9 @@ impl ResultCache {
             Err(_) => return CacheLookup::Miss,
         };
 
-        let entry = match self.read_entry(path) {
+        let hash = compute_path_hash(path);
+        let entries = self.entries.read().unwrap();
+        let entry = match entries.get(&hash) {
             Some(e) => e,
             None => return CacheLookup::Miss,
         };
@@ -163,7 +179,7 @@ impl ResultCache {
             CacheLookup::StatHit(
                 entry
                     .diagnostics
-                    .into_iter()
+                    .iter()
                     .map(|e| e.to_diagnostic(&path_str))
                     .collect(),
             )
@@ -185,57 +201,60 @@ impl ResultCache {
             return CacheLookup::Miss;
         }
 
-        let entry = match self.read_entry(path) {
+        let hash = compute_path_hash(path);
+        let content_hash = compute_content_hash(content);
+
+        // Read lock to check if content hash matches
+        {
+            let entries = self.entries.read().unwrap();
+            let entry = match entries.get(&hash) {
+                Some(e) => e,
+                None => return CacheLookup::Miss,
+            };
+
+            if entry.content_hash != content_hash {
+                return CacheLookup::Miss;
+            }
+        }
+
+        // Content matched — update mtime+size with a write lock
+        let meta = std::fs::metadata(path).ok();
+        let (mtime_secs, mtime_nanos) =
+            systemtime_to_parts(meta.as_ref().and_then(|m| m.modified().ok()));
+        let size = meta.map(|m| m.len()).unwrap_or(content.len() as u64);
+
+        let mut entries = self.entries.write().unwrap();
+        let entry = match entries.get_mut(&hash) {
             Some(e) => e,
             None => return CacheLookup::Miss,
         };
 
-        let content_hash = compute_content_hash(content);
-        if entry.content_hash == content_hash {
-            // Content unchanged — update mtime+size for future stat hits
-            let meta = std::fs::metadata(path).ok();
-            let (mtime_secs, mtime_nanos) = systemtime_to_parts(meta.as_ref().and_then(|m| m.modified().ok()));
-            let size = meta.map(|m| m.len()).unwrap_or(content.len() as u64);
+        // Build result before mutating the entry
+        let path_str = path.to_string_lossy();
+        let result: Vec<Diagnostic> = entry
+            .diagnostics
+            .iter()
+            .map(|e| e.to_diagnostic(&path_str))
+            .collect();
 
-            let updated = CacheEntry {
-                mtime_secs,
-                mtime_nanos,
-                size,
-                content_hash: entry.content_hash,
-                diagnostics: entry.diagnostics,
-            };
-            // Re-extract diagnostics before writing (need to clone for return)
-            let path_str = path.to_string_lossy();
-            let result: Vec<Diagnostic> = updated
-                .diagnostics
-                .iter()
-                .map(|e| {
-                    CachedDiagnostic {
-                        line: e.line,
-                        column: e.column,
-                        severity: e.severity,
-                        cop: e.cop.clone(),
-                        message: e.message.clone(),
-                    }
-                    .to_diagnostic(&path_str)
-                })
-                .collect();
+        entry.mtime_secs = mtime_secs;
+        entry.mtime_nanos = mtime_nanos;
+        entry.size = size;
+        self.dirty.store(true, Ordering::Relaxed);
 
-            self.write_entry(path, &updated);
-            CacheLookup::ContentHit(result)
-        } else {
-            CacheLookup::Miss
-        }
+        CacheLookup::ContentHit(result)
     }
 
-    /// Store results for a file. Best-effort — silently ignores write errors.
+    /// Store results for a file. Best-effort — writes to in-memory map only.
+    /// Call `flush()` to persist to disk.
     pub fn put(&self, path: &Path, content: &[u8], diagnostics: &[Diagnostic]) {
         if !self.enabled {
             return;
         }
 
         let meta = std::fs::metadata(path).ok();
-        let (mtime_secs, mtime_nanos) = systemtime_to_parts(meta.as_ref().and_then(|m| m.modified().ok()));
+        let (mtime_secs, mtime_nanos) =
+            systemtime_to_parts(meta.as_ref().and_then(|m| m.modified().ok()));
         let size = meta.map(|m| m.len()).unwrap_or(content.len() as u64);
 
         let entry = CacheEntry {
@@ -249,37 +268,50 @@ impl ResultCache {
                 .collect(),
         };
 
-        self.write_entry(path, &entry);
+        let hash = compute_path_hash(path);
+        let mut entries = self.entries.write().unwrap();
+        entries.insert(hash, entry);
+        self.dirty.store(true, Ordering::Relaxed);
     }
 
-    /// Evict old session directories when total cached files exceed the limit.
-    pub fn evict(&self, max_files: usize) {
+    /// Persist the in-memory cache to disk if any entries were added/updated.
+    /// Uses atomic write (temp file + rename) to avoid corruption.
+    pub fn flush(&self) {
+        if !self.enabled || !self.dirty.load(Ordering::Relaxed) {
+            return;
+        }
+
+        let entries = self.entries.read().unwrap();
+        let json = match serde_json::to_vec(&*entries) {
+            Ok(j) => j,
+            Err(_) => return,
+        };
+        drop(entries);
+
+        let tmp_path = self.index_path.with_extension("tmp");
+        if std::fs::write(&tmp_path, &json).is_ok() {
+            let _ = std::fs::rename(&tmp_path, &self.index_path);
+        }
+    }
+
+    /// Evict old session index files when total sessions exceed the limit.
+    pub fn evict(&self, max_sessions: usize) {
         if !self.enabled {
             return;
         }
         let cache_root = cache_root_dir();
-        let _ = evict_old_sessions(&cache_root, max_files);
+        let _ = evict_old_sessions(&cache_root, max_sessions);
     }
+}
 
-    fn cache_path_for(&self, path: &Path) -> PathBuf {
-        self.session_dir.join(compute_path_hash(path))
-    }
-
-    fn read_entry(&self, path: &Path) -> Option<CacheEntry> {
-        let cache_path = self.cache_path_for(path);
-        let data = std::fs::read(&cache_path).ok()?;
-        serde_json::from_slice(&data).ok()
-    }
-
-    fn write_entry(&self, path: &Path, entry: &CacheEntry) {
-        let cache_path = self.cache_path_for(path);
-        let tmp_path = cache_path.with_extension("tmp");
-        if let Ok(json) = serde_json::to_vec(entry) {
-            if std::fs::write(&tmp_path, &json).is_ok() {
-                let _ = std::fs::rename(&tmp_path, &cache_path);
-            }
-        }
-    }
+/// Load the index file into a HashMap. Returns empty map if file doesn't exist
+/// or can't be parsed.
+fn load_index(index_path: &Path) -> HashMap<String, CacheEntry> {
+    let data = match std::fs::read(index_path) {
+        Ok(d) => d,
+        Err(_) => return HashMap::new(),
+    };
+    serde_json::from_slice(&data).unwrap_or_default()
 }
 
 /// Convert SystemTime to (secs, nanos) since UNIX epoch.
@@ -293,7 +325,7 @@ fn systemtime_to_parts(time: Option<SystemTime>) -> (u64, u32) {
     }
 }
 
-/// Compute a stable hash of just the file path (used as cache filename).
+/// Compute a stable hash of just the file path (used as cache key).
 fn compute_path_hash(path: &Path) -> String {
     let mut hasher = Sha256::new();
     hasher.update(b"turbocop-path-v2:");
@@ -336,7 +368,7 @@ pub(crate) fn cache_root_dir() -> PathBuf {
 /// sort keys before hashing rather than relying on serde_json serialization.
 fn compute_session_hash(version: &str, base_configs: &[CopConfig], args: &Args) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"turbocop-session-v2:");
+    hasher.update(b"turbocop-session-v3:");
     hasher.update(version.as_bytes());
     hasher.update(b":");
 
@@ -392,43 +424,53 @@ pub fn clear_cache() -> std::io::Result<()> {
     Ok(())
 }
 
-/// Evict old session directories when total files exceed max_files.
-fn evict_old_sessions(cache_root: &Path, max_files: usize) -> std::io::Result<()> {
-    let entries: Vec<_> = std::fs::read_dir(cache_root)?
+/// Evict old session index files when total count exceeds max_sessions.
+///
+/// Counts `.index` files in the cache root. When the count exceeds the limit,
+/// removes the oldest sessions (by mtime) until count drops to half the limit.
+/// Also cleans up any leftover old-format session directories (from v2 layout).
+fn evict_old_sessions(cache_root: &Path, max_sessions: usize) -> std::io::Result<()> {
+    let dir_entries: Vec<_> = std::fs::read_dir(cache_root)?
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
         .collect();
 
-    let mut total_files: usize = 0;
-    let mut sessions: Vec<(PathBuf, SystemTime, usize)> = Vec::new();
-
-    for entry in entries {
-        let path = entry.path();
-        let mtime = entry
-            .metadata()
-            .and_then(|m| m.modified())
-            .unwrap_or(SystemTime::UNIX_EPOCH);
-        let file_count = std::fs::read_dir(&path)
-            .map(|rd| rd.count())
-            .unwrap_or(0);
-        total_files += file_count;
-        sessions.push((path, mtime, file_count));
+    // Clean up leftover old-format session directories (not "lockfiles")
+    for entry in &dir_entries {
+        if entry.path().is_dir() && entry.file_name() != "lockfiles" {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
     }
 
-    if total_files <= max_files {
+    let mut sessions: Vec<(PathBuf, SystemTime)> = dir_entries
+        .iter()
+        .filter(|e| {
+            e.path()
+                .extension()
+                .is_some_and(|ext| ext == "index")
+        })
+        .filter_map(|e| {
+            let mtime = e
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+            Some((e.path(), mtime))
+        })
+        .collect();
+
+    if sessions.len() <= max_sessions {
         return Ok(());
     }
 
-    sessions.sort_by_key(|(_, mtime, _)| *mtime);
+    sessions.sort_by_key(|(_, mtime)| *mtime);
 
-    let target = max_files / 2;
-    let mut remaining = total_files;
-    for (path, _, count) in &sessions {
+    let target = std::cmp::max(max_sessions / 2, 1);
+    let mut remaining = sessions.len();
+    for (path, _) in &sessions {
         if remaining <= target {
             break;
         }
-        let _ = std::fs::remove_dir_all(path);
-        remaining -= count;
+        let _ = std::fs::remove_file(path);
+        remaining -= 1;
     }
 
     Ok(())
@@ -512,11 +554,14 @@ mod tests {
                 assert_eq!(cached[0].location.line, 1);
                 assert_eq!(cached[0].location.column, 5);
             }
-            other => panic!("Expected StatHit, got {:?}", match other {
-                CacheLookup::ContentHit(_) => "ContentHit",
-                CacheLookup::Miss => "Miss",
-                _ => "StatHit",
-            }),
+            other => panic!(
+                "Expected StatHit, got {:?}",
+                match other {
+                    CacheLookup::ContentHit(_) => "ContentHit",
+                    CacheLookup::Miss => "Miss",
+                    _ => "StatHit",
+                }
+            ),
         }
     }
 
@@ -545,11 +590,14 @@ mod tests {
             CacheLookup::ContentHit(cached) => {
                 assert!(cached.is_empty());
             }
-            other => panic!("Expected ContentHit, got {:?}", match other {
-                CacheLookup::StatHit(_) => "StatHit",
-                CacheLookup::Miss => "Miss",
-                _ => "ContentHit",
-            }),
+            other => panic!(
+                "Expected ContentHit, got {:?}",
+                match other {
+                    CacheLookup::StatHit(_) => "StatHit",
+                    CacheLookup::Miss => "Miss",
+                    _ => "ContentHit",
+                }
+            ),
         }
 
         // After content hit updated mtime, stat should now hit
@@ -594,9 +642,19 @@ mod tests {
         let cache1 = ResultCache::with_root(tmp.path(), "0.1.0-test", &configs1, &args);
         cache1.put(&rb_file, b"x = 1\n", &[]);
 
-        // Same config = cache hit
+        // Same config = cache hit (same in-memory instance)
+        assert!(matches!(
+            cache1.get_by_stat(&rb_file),
+            CacheLookup::StatHit(_)
+        ));
+
+        // Flush and reload — should still hit
+        cache1.flush();
         let cache1b = ResultCache::with_root(tmp.path(), "0.1.0-test", &configs1, &args);
-        assert!(matches!(cache1b.get_by_stat(&rb_file), CacheLookup::StatHit(_)));
+        assert!(matches!(
+            cache1b.get_by_stat(&rb_file),
+            CacheLookup::StatHit(_)
+        ));
 
         // Different config = different session = cache miss
         let mut config2 = CopConfig::default();
@@ -607,35 +665,130 @@ mod tests {
     }
 
     #[test]
+    fn flush_and_reload_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let args = test_args();
+        let configs = vec![CopConfig::default()];
+
+        let rb_file = tmp.path().join("persist.rb");
+        std::fs::write(&rb_file, b"z = 3\n").unwrap();
+
+        // Populate and flush
+        let cache1 = ResultCache::with_root(tmp.path(), "0.1.0-test", &configs, &args);
+        let diagnostics = vec![Diagnostic {
+            path: rb_file.to_string_lossy().to_string(),
+            location: Location { line: 1, column: 0 },
+            severity: Severity::Warning,
+            cop_name: "Lint/UselessAssignment".to_string(),
+            message: "Useless assignment.".to_string(),
+            corrected: false,
+        }];
+        cache1.put(&rb_file, b"z = 3\n", &diagnostics);
+        cache1.flush();
+
+        // Verify index file exists
+        let session_hash = compute_session_hash("0.1.0-test", &configs, &args);
+        let index_path = tmp.path().join(format!("{session_hash}.index"));
+        assert!(index_path.exists(), "index file should exist after flush");
+
+        // Reload from disk
+        let cache2 = ResultCache::with_root(tmp.path(), "0.1.0-test", &configs, &args);
+        match cache2.get_by_stat(&rb_file) {
+            CacheLookup::StatHit(cached) => {
+                assert_eq!(cached.len(), 1);
+                assert_eq!(cached[0].cop_name, "Lint/UselessAssignment");
+            }
+            _ => panic!("Expected StatHit after reload"),
+        }
+    }
+
+    #[test]
+    fn no_flush_when_not_dirty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let args = test_args();
+        let configs = vec![CopConfig::default()];
+
+        // Create cache, don't put anything
+        let cache = ResultCache::with_root(tmp.path(), "0.1.0-test", &configs, &args);
+        cache.flush();
+
+        // No index file should be written
+        let session_hash = compute_session_hash("0.1.0-test", &configs, &args);
+        let index_path = tmp.path().join(format!("{session_hash}.index"));
+        assert!(
+            !index_path.exists(),
+            "index file should not exist when nothing was cached"
+        );
+    }
+
+    #[test]
     fn eviction_removes_old_sessions() {
         let tmp = tempfile::tempdir().unwrap();
         let args = test_args();
 
+        // Create session 1 and flush
         let configs1 = vec![CopConfig::default()];
         let cache1 = ResultCache::with_root(tmp.path(), "0.1.0-test", &configs1, &args);
-        for i in 0..15 {
-            let f = tmp.path().join(format!("f{i}.rb"));
-            std::fs::write(&f, format!("x{i}").as_bytes()).unwrap();
-            cache1.put(&f, format!("x{i}").as_bytes(), &[]);
-        }
+        let f = tmp.path().join("f0.rb");
+        std::fs::write(&f, b"x0").unwrap();
+        cache1.put(&f, b"x0", &[]);
+        cache1.flush();
 
+        // Small delay so mtimes differ
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        // Create session 2 and flush
         let mut config2 = CopConfig::default();
         config2.enabled = crate::cop::EnabledState::False;
         let configs2 = vec![config2];
         let cache2 = ResultCache::with_root(tmp.path(), "0.1.0-test", &configs2, &args);
-        for i in 0..15 {
-            let f = tmp.path().join(format!("g{i}.rb"));
-            std::fs::write(&f, format!("y{i}").as_bytes()).unwrap();
-            cache2.put(&f, format!("y{i}").as_bytes(), &[]);
-        }
+        let g = tmp.path().join("g0.rb");
+        std::fs::write(&g, b"y0").unwrap();
+        cache2.put(&g, b"y0", &[]);
+        cache2.flush();
 
-        evict_old_sessions(tmp.path(), 20).unwrap();
+        // Both index files should exist
+        let index_count = || {
+            std::fs::read_dir(tmp.path())
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.path()
+                        .extension()
+                        .is_some_and(|ext| ext == "index")
+                })
+                .count()
+        };
+        assert_eq!(index_count(), 2);
 
-        let remaining: Vec<_> = std::fs::read_dir(tmp.path())
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().is_dir())
-            .collect();
-        assert!(remaining.len() <= 2);
+        // Evict with max_sessions=1 — should remove the oldest, keeping 1
+        evict_old_sessions(tmp.path(), 1).unwrap();
+        assert_eq!(index_count(), 1);
+    }
+
+    #[test]
+    fn eviction_cleans_up_old_format_directories() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        // Create an old-format session directory (simulating v2 layout)
+        let old_session_dir = tmp.path().join("abcdef1234567890");
+        std::fs::create_dir_all(&old_session_dir).unwrap();
+        std::fs::write(old_session_dir.join("somefile"), b"data").unwrap();
+
+        // Create a lockfiles directory (should be preserved)
+        let lockfiles_dir = tmp.path().join("lockfiles");
+        std::fs::create_dir_all(&lockfiles_dir).unwrap();
+        std::fs::write(lockfiles_dir.join("lock.json"), b"{}").unwrap();
+
+        // Run eviction
+        evict_old_sessions(tmp.path(), 100).unwrap();
+
+        // Old session dir should be removed
+        assert!(
+            !old_session_dir.exists(),
+            "old-format session directory should be cleaned up"
+        );
+        // lockfiles directory should be preserved
+        assert!(lockfiles_dir.exists(), "lockfiles directory should be preserved");
     }
 }

@@ -538,6 +538,36 @@ struct BenchResult {
     rb_count: usize,
 }
 
+/// Pre-flight check: run a tool once and verify it doesn't fatally error.
+/// Returns true if the tool exited with code 0 or 1 (ok / offenses found).
+/// Returns false if it exited with code 2+ (fatal error like missing lockfile).
+fn preflight_check(name: &str, cmd: &str, repo_name: &str) -> bool {
+    let output = Command::new("sh")
+        .args(["-c", cmd])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output();
+    match output {
+        Ok(o) => {
+            let code = o.status.code().unwrap_or(127);
+            if code > 1 {
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                let first_line = stderr.lines().next().unwrap_or("(no output)");
+                eprintln!(
+                    "  SKIP {repo_name}: {name} exited with code {code}: {first_line}"
+                );
+                false
+            } else {
+                true
+            }
+        }
+        Err(e) => {
+            eprintln!("  SKIP {repo_name}: failed to run {name}: {e}");
+            false
+        }
+    }
+}
+
 fn run_bench(args: &Args, repos: &[RepoRef]) -> HashMap<String, BenchResult> {
     let turbocop = turbocop_binary();
 
@@ -560,13 +590,13 @@ fn run_bench(args: &Args, repos: &[RepoRef]) -> HashMap<String, BenchResult> {
         let rb_count = count_rb_files(&repo.dir);
         eprintln!("\n=== Benchmarking {} ({} .rb files) ===", repo.name, rb_count);
 
-        let json_file = results_path.join(format!("{}-bench.json", repo.name));
-        let turbocop_cmd = format!(
+        // Pre-flight: verify both tools run without fatal errors before benchmarking
+        let turbocop_cmd_str = format!(
             "{} {} --no-color",
             turbocop.display(),
             repo.dir.display()
         );
-        let rubocop_cmd = if needs_mise(&repo.dir) {
+        let rubocop_cmd_str = if needs_mise(&repo.dir) {
             format!(
                 "cd {} && mise exec -- bundle exec rubocop --no-color",
                 repo.dir.display()
@@ -577,6 +607,15 @@ fn run_bench(args: &Args, repos: &[RepoRef]) -> HashMap<String, BenchResult> {
                 repo.dir.display()
             )
         };
+
+        if !preflight_check("turbocop", &turbocop_cmd_str, &repo.name) {
+            continue;
+        }
+        if !preflight_check("rubocop", &rubocop_cmd_str, &repo.name) {
+            continue;
+        }
+
+        let json_file = results_path.join(format!("{}-bench.json", repo.name));
 
         let status = Command::new("hyperfine")
             .args([
@@ -589,10 +628,10 @@ fn run_bench(args: &Args, repos: &[RepoRef]) -> HashMap<String, BenchResult> {
                 json_file.to_str().unwrap(),
                 "--command-name",
                 "turbocop",
-                &turbocop_cmd,
+                &turbocop_cmd_str,
                 "--command-name",
                 "rubocop",
-                &rubocop_cmd,
+                &rubocop_cmd_str,
             ])
             .status()
             .expect("failed to run hyperfine");
@@ -1121,6 +1160,16 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
 
         eprintln!("\n=== Conformance: {} ===", repo.name);
 
+        // Pre-flight: verify turbocop runs without fatal errors
+        let preflight_cmd = format!(
+            "{} {} --no-color",
+            turbocop.display(),
+            repo.dir.display()
+        );
+        if !preflight_check("turbocop", &preflight_cmd, &repo.name) {
+            continue;
+        }
+
         // Run turbocop in JSON mode
         eprintln!("  Running turbocop...");
         let turbocop_json_file = results_path.join(format!("{}-turbocop.json", repo.name));
@@ -1133,9 +1182,16 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
                 "--no-color",
             ])
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .output()
             .expect("failed to run turbocop");
+        let turbocop_exit = turbocop_out.status.code().unwrap_or(127);
+        if turbocop_exit > 1 {
+            let stderr = String::from_utf8_lossy(&turbocop_out.stderr);
+            let first_line = stderr.lines().next().unwrap_or("(no output)");
+            eprintln!("  SKIP {}: turbocop failed (exit {}): {}", repo.name, turbocop_exit, first_line);
+            continue;
+        }
         fs::write(&turbocop_json_file, &turbocop_out.stdout).unwrap();
         let turbocop_secs = start.elapsed().as_secs_f64();
         eprintln!("  turbocop done in {turbocop_secs:.1}s");
@@ -2282,5 +2338,41 @@ fn main() {
             eprintln!("Unknown mode: {other}. Use: setup, bench, conform, report, quick, autocorrect-conform, autocorrect-validate, or all.");
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preflight_passes_exit_code_0() {
+        assert!(preflight_check("true", "true", "test-repo"));
+    }
+
+    #[test]
+    fn preflight_passes_exit_code_1() {
+        // exit 1 = offenses found, should be allowed
+        assert!(preflight_check("test", "exit 1", "test-repo"));
+    }
+
+    #[test]
+    fn preflight_rejects_exit_code_2() {
+        // exit 2 = fatal error (e.g. missing lockfile)
+        assert!(!preflight_check("test", "exit 2", "test-repo"));
+    }
+
+    #[test]
+    fn preflight_rejects_higher_exit_codes() {
+        assert!(!preflight_check("test", "exit 127", "test-repo"));
+    }
+
+    #[test]
+    fn preflight_rejects_command_that_writes_to_stderr_and_fails() {
+        assert!(!preflight_check(
+            "test",
+            "echo 'error: No lockfile found' >&2; exit 2",
+            "test-repo"
+        ));
     }
 }

@@ -243,9 +243,10 @@ pub fn run_linter(
         );
     }
 
-    // Run eviction after linting completes (best-effort)
+    // Flush in-memory cache to disk, then run eviction (best-effort)
     if cache.is_enabled() {
-        cache.evict(20_000);
+        cache.flush();
+        cache.evict(50);
     }
 
     // Per-cop timing: enabled by TURBOCOP_COP_PROFILE=1
