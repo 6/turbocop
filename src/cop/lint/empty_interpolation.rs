@@ -18,6 +18,10 @@ impl Cop for EmptyInterpolation {
         &[EMBEDDED_STATEMENTS_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -25,7 +29,7 @@ impl Cop for EmptyInterpolation {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let embedded = match node.as_embedded_statements_node() {
             Some(n) => n,
@@ -43,12 +47,19 @@ impl Cop for EmptyInterpolation {
 
         let loc = embedded.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(
-            source,
-            line,
-            column,
+        let mut diag = self.diagnostic(
+            source, line, column,
             "Empty interpolation detected.".to_string(),
-        ));
+        );
+        if let Some(ref mut corr) = corrections {
+            corr.push(crate::correction::Correction {
+                start: loc.start_offset(), end: loc.end_offset(),
+                replacement: String::new(),
+                cop_name: self.name(), cop_index: 0,
+            });
+            diag.corrected = true;
+        }
+        diagnostics.push(diag);
     }
 }
 
@@ -56,4 +67,5 @@ impl Cop for EmptyInterpolation {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(EmptyInterpolation, "cops/lint/empty_interpolation");
+    crate::cop_autocorrect_fixture_tests!(EmptyInterpolation, "cops/lint/empty_interpolation");
 }

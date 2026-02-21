@@ -14,6 +14,10 @@ impl Cop for ColonMethodDefinition {
         &[DEF_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -21,7 +25,7 @@ impl Cop for ColonMethodDefinition {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -44,12 +48,19 @@ impl Cop for ColonMethodDefinition {
         }
 
         let (line, column) = source.offset_to_line_col(operator_loc.start_offset());
-        diagnostics.push(self.diagnostic(
-            source,
-            line,
-            column,
+        let mut diag = self.diagnostic(
+            source, line, column,
             "Do not use `::` for defining class methods.".to_string(),
-        ));
+        );
+        if let Some(ref mut corr) = corrections {
+            corr.push(crate::correction::Correction {
+                start: operator_loc.start_offset(), end: operator_loc.end_offset(),
+                replacement: ".".to_string(),
+                cop_name: self.name(), cop_index: 0,
+            });
+            diag.corrected = true;
+        }
+        diagnostics.push(diag);
     }
 }
 
@@ -57,4 +68,5 @@ impl Cop for ColonMethodDefinition {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(ColonMethodDefinition, "cops/style/colon_method_definition");
+    crate::cop_autocorrect_fixture_tests!(ColonMethodDefinition, "cops/style/colon_method_definition");
 }

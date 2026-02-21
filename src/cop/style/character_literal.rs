@@ -14,6 +14,10 @@ impl Cop for CharacterLiteral {
         &[STRING_NODE]
     }
 
+    fn supports_autocorrect(&self) -> bool {
+        true
+    }
+
     fn check_node(
         &self,
         source: &SourceFile,
@@ -21,7 +25,7 @@ impl Cop for CharacterLiteral {
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let string_node = match node.as_string_node() {
             Some(s) => s,
@@ -47,12 +51,28 @@ impl Cop for CharacterLiteral {
 
         let loc = string_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(
-            source,
-            line,
-            column,
+        let mut diag = self.diagnostic(
+            source, line, column,
             "Do not use the character literal - use string literal instead.".to_string(),
-        ));
+        );
+        if let Some(ref mut corr) = corrections {
+            // Replace ?x with "x" (or ?\n with "\n" etc.)
+            let content = string_node.unescaped();
+            let replacement = if content.len() == 1 && content[0].is_ascii_graphic() && content[0] != b'\\' && content[0] != b'"' {
+                format!("\"{}\"", content[0] as char)
+            } else {
+                // For escape sequences like ?\n, use the source text after ?
+                let src = &node_source[1..];
+                format!("\"{}\"", std::str::from_utf8(src).unwrap_or("?"))
+            };
+            corr.push(crate::correction::Correction {
+                start: loc.start_offset(), end: loc.end_offset(),
+                replacement,
+                cop_name: self.name(), cop_index: 0,
+            });
+            diag.corrected = true;
+        }
+        diagnostics.push(diag);
     }
 }
 
@@ -60,4 +80,5 @@ impl Cop for CharacterLiteral {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(CharacterLiteral, "cops/style/character_literal");
+    crate::cop_autocorrect_fixture_tests!(CharacterLiteral, "cops/style/character_literal");
 }
