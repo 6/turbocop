@@ -22,3 +22,9 @@ def liquid_locals
                  custom_message: @custom_message
                })
 end
+# merge! before rescue — return value used as last expression before rescue
+begin
+  h.merge!(a: 1)
+rescue StandardError => e
+  handle(e)
+end

@@ -146,7 +146,7 @@ impl Cop for RedundantMerge {
                 if nt.is_empty() || nt.starts_with(b"#") {
                     continue;
                 }
-                if nt.starts_with(b"end") || nt.starts_with(b"}") {
+                if nt.starts_with(b"end") || nt.starts_with(b"}") || nt.starts_with(b"rescue") || nt.starts_with(b"ensure") || nt.starts_with(b"else") || nt.starts_with(b"elsif") || nt.starts_with(b"when") {
                     return;
                 }
                 break;

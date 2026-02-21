@@ -84,6 +84,11 @@ impl Cop for FindEach {
             return;
         }
 
+        // Skip safe navigation chains (&.where(&.each) — receiver may be nil)
+        if outer_call.call_operator_loc().is_some_and(|op| op.as_slice() == b"&.") {
+            return;
+        }
+
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(

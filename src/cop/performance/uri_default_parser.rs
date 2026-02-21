@@ -44,12 +44,22 @@ impl Cop for UriDefaultParser {
             None => return,
         };
 
-        let recv_name = match constant_name(&receiver) {
-            Some(n) => n,
-            None => return,
-        };
-
-        if recv_name != b"URI" {
+        // Must be exactly `URI` (or `::URI`), not a namespaced variant like `Addressable::URI`
+        if receiver.as_constant_read_node().is_some() {
+            // Simple `URI` — ok
+            if constant_name(&receiver) != Some(b"URI") {
+                return;
+            }
+        } else if let Some(cp) = receiver.as_constant_path_node() {
+            // `::URI` (parent is None, name is URI) — ok
+            // `Addressable::URI` (parent is Some) — skip
+            if cp.parent().is_some() {
+                return;
+            }
+            if cp.name().map(|n| n.as_slice()) != Some(b"URI") {
+                return;
+            }
+        } else {
             return;
         }
 

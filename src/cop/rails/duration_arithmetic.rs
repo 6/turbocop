@@ -62,10 +62,12 @@ fn is_duration(node: &ruby_prism::Node<'_>) -> bool {
         None => return false,
     };
 
-    // Receiver must be int, float, or a method call (e.g., a variable)
-    recv.as_integer_node().is_some()
-        || recv.as_float_node().is_some()
-        || (recv.as_call_node().is_some() && recv.as_call_node().unwrap().receiver().is_none())
+    // Receiver must be an integer or float literal (e.g., 1.day, 2.5.weeks).
+    // RuboCop's NodePattern uses `(send nil _)` which looks like it matches
+    // receiverless method calls, but in Parser's AST `nil` only matches a
+    // NilNode literal (not Ruby's nil for "no receiver"), so method calls
+    // like `n.days` or `something.days` are NOT matched by RuboCop.
+    recv.as_integer_node().is_some() || recv.as_float_node().is_some()
 }
 
 impl Cop for DurationArithmetic {
