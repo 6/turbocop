@@ -97,9 +97,9 @@ pub fn run(args: Args) -> Result<i32> {
         let config_elapsed = config_start.elapsed();
 
         let gem_paths = config::gem_path::drain_resolved_paths();
-        let lock_dir = config
-            .config_dir()
-            .unwrap_or_else(|| target_dir.unwrap_or(std::path::Path::new(".")));
+        // Use target_dir (CLI path), not config_dir(), so read_lock() can find
+        // the lockfile without loading config first (chicken-and-egg).
+        let lock_dir = target_dir.unwrap_or(std::path::Path::new("."));
         config::lockfile::write_lock(&gem_paths, lock_dir)?;
 
         let lockfile_location = config::lockfile::lockfile_path(lock_dir);
