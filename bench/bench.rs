@@ -865,6 +865,14 @@ struct CopStats {
     fn_: usize,
 }
 
+#[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
+struct GemVersionMismatchInfo {
+    gem_name: String,
+    vendor_version: String,
+    project_version: String,
+    attributed_fps: usize,
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 struct ConformResult {
     turbocop_count: usize,
@@ -874,6 +882,10 @@ struct ConformResult {
     false_negatives: usize,
     match_rate: f64,
     per_cop: BTreeMap<String, CopStats>,
+    turbocop_secs: Option<f64>,
+    rubocop_secs: Option<f64>,
+    #[serde(default)]
+    version_mismatches: Vec<GemVersionMismatchInfo>,
 }
 
 fn get_covered_cops() -> HashSet<String> {
@@ -948,6 +960,140 @@ fn per_repo_excluded_cops(repo_dir: &Path) -> HashSet<String> {
     excluded
 }
 
+// --- Gem version mismatch detection ---
+
+/// Gems with vendor submodules under `vendor/` whose cop behavior may diverge
+/// across versions. Each entry here must have a corresponding `vendor/<gem>/`
+/// submodule so `get_vendor_gem_version()` can read its git tag.
+const VERSION_CHECK_GEMS: &[&str] = &[
+    "rubocop",
+    "rubocop-rails",
+    "rubocop-performance",
+    "rubocop-rspec",
+    "rubocop-factory_bot",
+    "rubocop-rspec_rails",
+];
+
+/// Map a cop name to the gem it belongs to.
+fn cop_gem(cop_name: &str) -> &'static str {
+    if cop_name.starts_with("Rails/") {
+        "rubocop-rails"
+    } else if cop_name.starts_with("Performance/") {
+        "rubocop-performance"
+    } else if cop_name.starts_with("FactoryBot/") {
+        "rubocop-factory_bot"
+    } else if cop_name.starts_with("RSpecRails/") {
+        "rubocop-rspec_rails"
+    } else if cop_name.starts_with("RSpec/") || cop_name.starts_with("Capybara/") {
+        "rubocop-rspec"
+    } else {
+        "rubocop"
+    }
+}
+
+/// Get the version from a vendor submodule's git tag (e.g. "v2.34.3" → "2.34.3").
+fn get_vendor_gem_version(gem_name: &str) -> Option<String> {
+    let vendor_dir = project_root().join("vendor").join(gem_name);
+    if !vendor_dir.exists() {
+        return None;
+    }
+    let output = Command::new("git")
+        .args(["describe", "--tags", "--exact-match"])
+        .current_dir(&vendor_dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let tag = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Some(tag.trim_start_matches('v').to_string())
+}
+
+/// Get the version of a gem installed in a project's bundle.
+fn get_project_gem_version(repo_dir: &Path, gem_name: &str) -> Option<String> {
+    let mut cmd = if needs_mise(repo_dir) {
+        let mut c = Command::new("mise");
+        c.arg("exec")
+            .arg("--")
+            .arg("bundle")
+            .arg("info")
+            .arg(gem_name);
+        c
+    } else {
+        let mut c = Command::new("bundle");
+        c.arg("info").arg(gem_name);
+        c
+    };
+    cmd.current_dir(repo_dir);
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::null());
+
+    let output = cmd.output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Parse "  * gem_name (version)" from first line
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("* ") {
+            if let Some(paren_start) = trimmed.find('(') {
+                if let Some(paren_end) = trimmed.find(')') {
+                    return Some(trimmed[paren_start + 1..paren_end].to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Detect gem version mismatches between vendor submodules and the project's installed gems.
+/// Returns a list of mismatches with attributed FP counts from the per-cop stats.
+fn detect_version_mismatches(
+    repo_dir: &Path,
+    per_cop: &BTreeMap<String, CopStats>,
+) -> Vec<GemVersionMismatchInfo> {
+    let mut mismatches = Vec::new();
+
+    for gem_name in VERSION_CHECK_GEMS {
+        let vendor = match get_vendor_gem_version(gem_name) {
+            Some(v) => v,
+            None => continue,
+        };
+        let project = match get_project_gem_version(repo_dir, gem_name) {
+            Some(v) => v,
+            None => continue, // gem not installed in project
+        };
+
+        if vendor != project {
+            // Count FPs from cops belonging to this gem's department
+            let attributed_fps: usize = per_cop
+                .iter()
+                .filter(|(cop, _)| cop_gem(cop) == *gem_name)
+                .map(|(_, stats)| stats.fp)
+                .sum();
+
+            if attributed_fps > 0 {
+                eprintln!(
+                    "  ⚠ {gem_name} version mismatch: project={project}, turbocop targets={vendor} ({attributed_fps} FPs attributed)"
+                );
+            }
+
+            mismatches.push(GemVersionMismatchInfo {
+                gem_name: gem_name.to_string(),
+                vendor_version: vendor,
+                project_version: project,
+                attributed_fps,
+            });
+        }
+    }
+
+    mismatches
+}
+
 /// Detect if a repo is a pure standardrb project (.standard.yml without .rubocop.yml).
 /// For these projects, conformance should compare against `bundle exec standardrb`
 /// instead of `bundle exec rubocop`, since standardrb applies its own config layer
@@ -991,7 +1137,8 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
             .output()
             .expect("failed to run turbocop");
         fs::write(&turbocop_json_file, &turbocop_out.stdout).unwrap();
-        eprintln!("  turbocop done in {:.1}s", start.elapsed().as_secs_f64());
+        let turbocop_secs = start.elapsed().as_secs_f64();
+        eprintln!("  turbocop done in {turbocop_secs:.1}s");
 
         // Run rubocop (or standardrb for pure-standardrb projects) in JSON mode
         let use_standardrb = is_standardrb_only(&repo.dir);
@@ -1005,10 +1152,8 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
             .output()
             .unwrap_or_else(|_| panic!("failed to run {reference_tool}"));
         fs::write(&rubocop_json_file, &rubocop_out.stdout).unwrap();
-        eprintln!(
-            "  {reference_tool} done in {:.1}s",
-            start.elapsed().as_secs_f64()
-        );
+        let rubocop_secs = start.elapsed().as_secs_f64();
+        eprintln!("  {reference_tool} done in {rubocop_secs:.1}s");
 
         // Parse and compare
         let repo_prefix = format!("{}/", repo.dir.display());
@@ -1083,6 +1228,9 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
             per_cop.entry(cop.clone()).or_default().fn_ += 1;
         }
 
+        // Detect gem version mismatches
+        let version_mismatches = detect_version_mismatches(&repo.dir, &per_cop);
+
         eprintln!("  turbocop: {} offenses", turbocop_set.len());
         eprintln!(
             "  {reference_tool}: {} offenses (filtered to {} covered cops)",
@@ -1104,6 +1252,9 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
                 false_negatives: fns.len(),
                 match_rate,
                 per_cop,
+                turbocop_secs: Some(turbocop_secs),
+                rubocop_secs: Some(rubocop_secs),
+                version_mismatches,
             },
         );
     }
@@ -1817,31 +1968,71 @@ fn generate_report(
         )
         .unwrap();
         writeln!(md).unwrap();
-        writeln!(
-            md,
-            "| Repo | turbocop | rubocop | Matches | FP (turbocop only) | FN (rubocop only) | Match rate |"
-        )
-        .unwrap();
-        writeln!(
-            md,
-            "|------|-------:|--------:|--------:|-----------------:|------------------:|-----------:|"
-        )
-        .unwrap();
+        // Check if any conform results have timing data
+        let has_timing = conform.values().any(|c| c.turbocop_secs.is_some());
+
+        if has_timing {
+            writeln!(
+                md,
+                "| Repo | turbocop | rubocop | Matches | FP | FN | Match rate | turbocop time | rubocop time | Speedup |"
+            )
+            .unwrap();
+            writeln!(
+                md,
+                "|------|-------:|--------:|--------:|---:|---:|-----------:|--------------:|-------------:|--------:|"
+            )
+            .unwrap();
+        } else {
+            writeln!(
+                md,
+                "| Repo | turbocop | rubocop | Matches | FP (turbocop only) | FN (rubocop only) | Match rate |"
+            )
+            .unwrap();
+            writeln!(
+                md,
+                "|------|-------:|--------:|--------:|-----------------:|------------------:|-----------:|"
+            )
+            .unwrap();
+        }
 
         for repo in repos {
             if let Some(c) = conform.get(&repo.name) {
-                writeln!(
-                    md,
-                    "| {} | {} | {} | {} | {} | {} | **{:.1}%** |",
-                    repo.name,
-                    c.turbocop_count,
-                    c.rubocop_count,
-                    c.matches,
-                    c.false_positives,
-                    c.false_negatives,
-                    c.match_rate,
-                )
-                .unwrap();
+                if has_timing {
+                    let tc_time = c.turbocop_secs.map(|s| format!("{}ms", (s * 1000.0) as u64)).unwrap_or_default();
+                    let rc_time = c.rubocop_secs.map(|s| format!("{}ms", (s * 1000.0) as u64)).unwrap_or_default();
+                    let speedup = match (c.turbocop_secs, c.rubocop_secs) {
+                        (Some(tc), Some(rc)) if tc > 0.0 => format!("**{:.1}x**", rc / tc),
+                        _ => String::new(),
+                    };
+                    writeln!(
+                        md,
+                        "| {} | {} | {} | {} | {} | {} | **{:.1}%** | {} | {} | {} |",
+                        repo.name,
+                        c.turbocop_count,
+                        c.rubocop_count,
+                        c.matches,
+                        c.false_positives,
+                        c.false_negatives,
+                        c.match_rate,
+                        tc_time,
+                        rc_time,
+                        speedup,
+                    )
+                    .unwrap();
+                } else {
+                    writeln!(
+                        md,
+                        "| {} | {} | {} | {} | {} | {} | **{:.1}%** |",
+                        repo.name,
+                        c.turbocop_count,
+                        c.rubocop_count,
+                        c.matches,
+                        c.false_positives,
+                        c.false_negatives,
+                        c.match_rate,
+                    )
+                    .unwrap();
+                }
             }
         }
 
@@ -1857,36 +2048,53 @@ fn generate_report(
                     .collect();
                 divergent.sort_by_key(|(_, s)| std::cmp::Reverse(s.fp + s.fn_));
 
-                if divergent.is_empty() {
+                if divergent.is_empty() && c.version_mismatches.is_empty() {
                     writeln!(md, "**{}:** All cops match perfectly!", repo.name).unwrap();
                     writeln!(md).unwrap();
                     continue;
                 }
 
-                let shown = divergent.len().min(30);
-                writeln!(
-                    md,
-                    "<details>\n<summary>Divergent cops \u{2014} {} ({} of {} shown)</summary>",
-                    repo.name,
-                    shown,
-                    divergent.len()
-                )
-                .unwrap();
-                writeln!(md).unwrap();
-                writeln!(md, "| Cop | Matches | FP | FN |").unwrap();
-                writeln!(md, "|-----|--------:|---:|---:|").unwrap();
-
-                for (cop, stats) in divergent.iter().take(30) {
+                if divergent.is_empty() {
+                    writeln!(md, "**{}:** All cops match perfectly!", repo.name).unwrap();
+                } else {
+                    let shown = divergent.len().min(30);
                     writeln!(
                         md,
-                        "| {} | {} | {} | {} |",
-                        cop, stats.matches, stats.fp, stats.fn_
+                        "<details>\n<summary>Divergent cops \u{2014} {} ({} of {} shown)</summary>",
+                        repo.name,
+                        shown,
+                        divergent.len()
                     )
                     .unwrap();
+                    writeln!(md).unwrap();
+                    writeln!(md, "| Cop | Matches | FP | FN |").unwrap();
+                    writeln!(md, "|-----|--------:|---:|---:|").unwrap();
+
+                    for (cop, stats) in divergent.iter().take(30) {
+                        writeln!(
+                            md,
+                            "| {} | {} | {} | {} |",
+                            cop, stats.matches, stats.fp, stats.fn_
+                        )
+                        .unwrap();
+                    }
+
+                    writeln!(md).unwrap();
+                    writeln!(md, "</details>").unwrap();
                 }
 
-                writeln!(md).unwrap();
-                writeln!(md, "</details>").unwrap();
+                // Version mismatch attribution
+                for mm in &c.version_mismatches {
+                    if mm.attributed_fps > 0 {
+                        writeln!(
+                            md,
+                            "\n> **{}** version mismatch — {} FPs attributed to {} (project: {}, turbocop targets: {})",
+                            repo.name, mm.attributed_fps, mm.gem_name, mm.project_version, mm.vendor_version,
+                        )
+                        .unwrap();
+                    }
+                }
+
                 writeln!(md).unwrap();
             }
         }

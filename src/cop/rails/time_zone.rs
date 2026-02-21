@@ -88,16 +88,16 @@ impl Cop for TimeZone {
         let style = config.get_str("EnforcedStyle", "flexible");
 
         if style == "flexible" {
-            // In flexible mode, Time.now (and others) are acceptable if followed
-            // by a timezone-aware method like .utc, .in_time_zone, .getutc, etc.
+            // In flexible mode, Time.now (and others) are acceptable if ANY method
+            // in the subsequent chain is timezone-safe (e.g., .utc, .in_time_zone).
+            // RuboCop walks up the AST via node.parent; we scan forward through the
+            // source bytes following the method chain.
+            // Example: Time.at(x).to_datetime.in_time_zone(...) — the chain after
+            // Time.at(x) is ".to_datetime.in_time_zone(...)" and in_time_zone is safe.
             let bytes = source.as_bytes();
             let end = call.location().end_offset();
-            if end < bytes.len() && bytes[end] == b'.' {
-                // Check if a timezone-safe method follows
-                let rest = &bytes[end + 1..];
-                if starts_with_tz_safe_method(rest) {
-                    return;
-                }
+            if chain_contains_tz_safe_method(bytes, end) {
+                return;
             }
         }
 
@@ -200,9 +200,10 @@ fn has_timezone_specifier(bytes: &[u8]) -> bool {
     false
 }
 
-/// Check if the bytes start with a timezone-safe method name followed by a
-/// non-identifier character (or end of file).
-fn starts_with_tz_safe_method(bytes: &[u8]) -> bool {
+/// Scan forward through a method chain starting at `pos` in `bytes`, returning
+/// true if any method in the chain is a timezone-safe method. Handles chains
+/// like `.to_datetime.in_time_zone(...)` by following `.method(args)` segments.
+fn chain_contains_tz_safe_method(bytes: &[u8], start: usize) -> bool {
     const SAFE_METHODS: &[&[u8]] = &[
         b"utc",
         b"getutc",
@@ -211,25 +212,88 @@ fn starts_with_tz_safe_method(bytes: &[u8]) -> bool {
         b"localtime",
         b"iso8601",
         b"xmlschema",
+        b"jisx0301",
+        b"rfc3339",
         b"httpdate",
         b"rfc2822",
         b"rfc822",
         b"to_i",
         b"to_f",
         b"to_r",
+        b"zone",
+        b"current",
     ];
-    for method in SAFE_METHODS {
-        if bytes.starts_with(method) {
-            let after = bytes.get(method.len()).copied();
-            // Must be followed by non-identifier char or EOF
-            if after.is_none()
-                || !after.unwrap().is_ascii_alphanumeric() && after != Some(b'_')
-            {
-                return true;
+
+    let mut pos = start;
+    loop {
+        // Skip whitespace (including newlines for multi-line chains)
+        while pos < bytes.len() && bytes[pos].is_ascii_whitespace() {
+            pos += 1;
+        }
+
+        // Must see '.' or '&.' to continue the chain
+        if pos >= bytes.len() || (bytes[pos] != b'.' && bytes[pos] != b'&') {
+            return false;
+        }
+        if bytes[pos] == b'&' {
+            pos += 1;
+            if pos >= bytes.len() || bytes[pos] != b'.' {
+                return false;
             }
         }
+        pos += 1; // skip the '.'
+
+        // Skip whitespace after dot
+        while pos < bytes.len() && bytes[pos].is_ascii_whitespace() {
+            pos += 1;
+        }
+
+        // Read the method name
+        let method_start = pos;
+        while pos < bytes.len() && (bytes[pos].is_ascii_alphanumeric() || bytes[pos] == b'_') {
+            pos += 1;
+        }
+        if pos == method_start {
+            return false; // no method name found
+        }
+        let method = &bytes[method_start..pos];
+
+        // Check if this method is timezone-safe
+        if SAFE_METHODS.iter().any(|safe| *safe == method) {
+            return true;
+        }
+
+        // Skip past arguments if present: balanced parentheses
+        // Skip whitespace first
+        while pos < bytes.len() && bytes[pos].is_ascii_whitespace() {
+            pos += 1;
+        }
+        if pos < bytes.len() && bytes[pos] == b'(' {
+            let mut depth = 1u32;
+            pos += 1;
+            while pos < bytes.len() && depth > 0 {
+                match bytes[pos] {
+                    b'(' => depth += 1,
+                    b')' => depth -= 1,
+                    b'\'' | b'"' => {
+                        // Skip string literals to avoid counting parens inside strings
+                        let quote = bytes[pos];
+                        pos += 1;
+                        while pos < bytes.len() && bytes[pos] != quote {
+                            if bytes[pos] == b'\\' {
+                                pos += 1; // skip escaped char
+                            }
+                            pos += 1;
+                        }
+                        // pos is at closing quote, will be incremented below
+                    }
+                    _ => {}
+                }
+                pos += 1;
+            }
+        }
+        // Continue to check next chain element
     }
-    false
 }
 
 #[cfg(test)]

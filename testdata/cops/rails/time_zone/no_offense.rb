@@ -20,3 +20,8 @@ Time.parse('2015-03-02T19:05:37-0500')
 Time.at(epoch, in: "UTC")
 Time.now(in: "+09:00")
 Time.new(2023, 1, 1, in: "UTC")
+# Method chains with intermediate calls before timezone-safe method
+Time.at(timestamp).to_datetime.in_time_zone
+Time.at(payload.updated_at / 1000).to_datetime.in_time_zone("UTC")
+Time.now.to_i
+Time.parse(str).iso8601
