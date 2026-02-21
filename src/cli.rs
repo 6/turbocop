@@ -11,6 +11,16 @@ pub enum AutocorrectMode {
     All,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StrictScope {
+    /// Preview-gated cops cause failure (turbocop implements them but didn't run them).
+    Coverage,
+    /// Same as coverage (preview-gated only; unimplemented/outside-baseline are ignored).
+    ImplementedOnly,
+    /// Any skipped cop (preview-gated + unimplemented + outside-baseline) causes failure.
+    All,
+}
+
 #[derive(Parser, Debug)]
 #[command(name = "turbocop", version, about = "A fast Ruby linter")]
 pub struct Args {
@@ -125,6 +135,10 @@ pub struct Args {
     /// Suppress the skip summary notice at the end of a run
     #[arg(long)]
     pub quiet_skips: bool,
+
+    /// Fail with exit code 2 if skipped cops violate the strict scope
+    #[arg(long, value_name = "SCOPE", default_missing_value = "coverage", num_args = 0..=1)]
+    pub strict: Option<String>,
 }
 
 impl Args {
@@ -138,5 +152,78 @@ impl Args {
         } else {
             AutocorrectMode::Off
         }
+    }
+
+    /// Parse the `--strict` value into a `StrictScope`.
+    /// Returns `None` if `--strict` was not passed or the value is invalid.
+    pub fn strict_scope(&self) -> Option<StrictScope> {
+        self.strict.as_deref().and_then(|s| match s {
+            "coverage" => Some(StrictScope::Coverage),
+            "implemented-only" => Some(StrictScope::ImplementedOnly),
+            "all" => Some(StrictScope::All),
+            _ => None,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args_with_strict(val: Option<&str>) -> Args {
+        Args {
+            paths: vec![],
+            config: None,
+            format: "text".to_string(),
+            only: vec![],
+            except: vec![],
+            no_color: false,
+            debug: false,
+            rubocop_only: false,
+            list_cops: false,
+            list_autocorrectable_cops: false,
+            stdin: None,
+            init: false,
+            no_cache: false,
+            cache: "true".to_string(),
+            cache_clear: false,
+            fail_level: "convention".to_string(),
+            fail_fast: false,
+            force_exclusion: false,
+            list_target_files: false,
+            display_cop_names: false,
+            parallel: false,
+            require_libs: vec![],
+            ignore_disable_comments: false,
+            force_default_config: false,
+            autocorrect: false,
+            autocorrect_all: false,
+            preview: false,
+            quiet_skips: false,
+            strict: val.map(|s| s.to_string()),
+        }
+    }
+
+    #[test]
+    fn strict_scope_parsing() {
+        assert_eq!(args_with_strict(None).strict_scope(), None);
+        assert_eq!(
+            args_with_strict(Some("coverage")).strict_scope(),
+            Some(StrictScope::Coverage)
+        );
+        assert_eq!(
+            args_with_strict(Some("implemented-only")).strict_scope(),
+            Some(StrictScope::ImplementedOnly)
+        );
+        assert_eq!(
+            args_with_strict(Some("all")).strict_scope(),
+            Some(StrictScope::All)
+        );
+    }
+
+    #[test]
+    fn strict_scope_invalid() {
+        assert_eq!(args_with_strict(Some("bogus")).strict_scope(), None);
+        assert_eq!(args_with_strict(Some("")).strict_scope(), None);
     }
 }

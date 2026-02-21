@@ -61,6 +61,7 @@ fn default_args() -> Args {
         autocorrect_all: false,
         preview: false,
         quiet_skips: false,
+        strict: None,
     }
 }
 
@@ -4205,4 +4206,228 @@ fn autocorrect_json_output_marks_corrected_offenses() {
     assert!(tw_diags[0].corrected, "The diagnostic should be marked as corrected");
 
     fs::remove_dir_all(&dir).ok();
+}
+
+// ---------- Exit code contract tests ----------
+
+#[test]
+fn internal_error_exits_three() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args(["--no-cache", "/nonexistent/path/that/does/not/exist"])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "Internal error should exit 3, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn strict_flag_accepted() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args(["--strict", "--list-cops"])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    assert!(
+        output.status.success(),
+        "--strict should be accepted, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn strict_coverage_exits_two_for_preview_gated() {
+    // Performance/BigDecimalWithNumericArgument is a preview-tier cop in resources/tiers.json.
+    // Enable it in config, run without --preview → it's preview-gated → --strict exits 2.
+    let dir = temp_dir("strict_coverage_preview");
+    fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
+    fs::write(
+        dir.join(".rubocop.yml"),
+        "Performance/BigDecimalWithNumericArgument:\n  Enabled: true\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--strict",
+            "--only",
+            "Layout/TrailingWhitespace",
+            "--no-cache",
+            "--config",
+            dir.join(".rubocop.yml").to_str().unwrap(),
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "--strict should exit 2 when preview-gated cops exist, stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("--strict=coverage"),
+        "Should print strict warning, stderr: {stderr}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn strict_coverage_with_preview_exits_zero() {
+    // Same as above but with --preview, so the cop is no longer preview-gated → exit 0.
+    let dir = temp_dir("strict_coverage_with_preview");
+    fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
+    fs::write(
+        dir.join(".rubocop.yml"),
+        "Performance/BigDecimalWithNumericArgument:\n  Enabled: true\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--strict",
+            "--preview",
+            "--only",
+            "Layout/TrailingWhitespace",
+            "--no-cache",
+            "--config",
+            dir.join(".rubocop.yml").to_str().unwrap(),
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "--strict with --preview should exit 0 when all preview cops run, stderr: {stderr}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn strict_all_exits_two_for_unimplemented() {
+    // Enable a cop that doesn't exist in the registry → classified as outside-baseline.
+    // --strict=all should exit 2.
+    let dir = temp_dir("strict_all_unimplemented");
+    fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
+    fs::write(
+        dir.join(".rubocop.yml"),
+        "Custom/FakeCop:\n  Enabled: true\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--strict=all",
+            "--only",
+            "Layout/TrailingWhitespace",
+            "--no-cache",
+            "--config",
+            dir.join(".rubocop.yml").to_str().unwrap(),
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "--strict=all should exit 2 for unimplemented/unknown cops, stderr: {stderr}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn strict_implemented_only_ignores_unimplemented() {
+    // Same config as above but --strict=implemented-only → unknown cops are ignored → exit 0.
+    let dir = temp_dir("strict_impl_only_unknown");
+    fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
+    fs::write(
+        dir.join(".rubocop.yml"),
+        "Custom/FakeCop:\n  Enabled: true\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--strict=implemented-only",
+            "--only",
+            "Layout/TrailingWhitespace",
+            "--no-cache",
+            "--config",
+            dir.join(".rubocop.yml").to_str().unwrap(),
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "--strict=implemented-only should exit 0 for unknown cops, stderr: {stderr}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn lint_failure_takes_priority_over_strict() {
+    // Lint offenses AND strict failure → exit 1 (lint takes priority).
+    let dir = temp_dir("strict_lint_priority");
+    fs::write(dir.join("test.rb"), "x = 1   \n").unwrap(); // trailing whitespace → offense
+    fs::write(
+        dir.join(".rubocop.yml"),
+        "Performance/BigDecimalWithNumericArgument:\n  Enabled: true\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--strict",
+            "--only",
+            "Layout/TrailingWhitespace",
+            "--no-cache",
+            "--config",
+            dir.join(".rubocop.yml").to_str().unwrap(),
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "Lint failure (exit 1) should take priority over strict failure (exit 2)"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn strict_invalid_value_errors() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args(["--strict=bogus", "--no-cache", "."])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "Invalid --strict value should exit 3, stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("invalid --strict value"),
+        "Should show helpful error, got: {stderr}"
+    );
 }

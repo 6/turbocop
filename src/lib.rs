@@ -17,16 +17,67 @@ use std::io::Read;
 
 use anyhow::Result;
 
-use cli::Args;
+use cli::{Args, StrictScope};
 use config::load_config;
 use cop::registry::CopRegistry;
-use cop::tiers::TierMap;
+use cop::tiers::{SkipSummary, TierMap};
 use formatter::create_formatter;
 use fs::discover_files;
 use linter::{lint_source, run_linter};
 use parse::source::SourceFile;
 
-/// Run the linter. Returns the exit code: 0 = clean, 1 = offenses found, 2 = error.
+/// Check whether the skip summary violates the given strict scope.
+/// Returns `true` if the strict check fails (i.e., exit 2 should be used).
+fn strict_check_fails(scope: StrictScope, summary: &SkipSummary) -> bool {
+    match scope {
+        StrictScope::Coverage | StrictScope::ImplementedOnly => !summary.preview_gated.is_empty(),
+        StrictScope::All => !summary.is_empty(),
+    }
+}
+
+/// Print a strict-mode warning to stderr.
+fn print_strict_warning(scope: StrictScope, summary: &SkipSummary) {
+    let scope_name = match scope {
+        StrictScope::Coverage => "coverage",
+        StrictScope::ImplementedOnly => "implemented-only",
+        StrictScope::All => "all",
+    };
+    let total = match scope {
+        StrictScope::Coverage | StrictScope::ImplementedOnly => summary.preview_gated.len(),
+        StrictScope::All => summary.total(),
+    };
+    let detail = match scope {
+        StrictScope::Coverage | StrictScope::ImplementedOnly => {
+            format!("{} preview-gated", summary.preview_gated.len())
+        }
+        StrictScope::All => {
+            let mut parts = Vec::new();
+            if !summary.preview_gated.is_empty() {
+                parts.push(format!("{} preview-gated", summary.preview_gated.len()));
+            }
+            if !summary.unimplemented.is_empty() {
+                parts.push(format!("{} unimplemented", summary.unimplemented.len()));
+            }
+            if !summary.outside_baseline.is_empty() {
+                parts.push(format!(
+                    "{} outside baseline",
+                    summary.outside_baseline.len()
+                ));
+            }
+            parts.join(", ")
+        }
+    };
+    let hint = if !summary.preview_gated.is_empty() {
+        " Use --preview to run them."
+    } else {
+        ""
+    };
+    eprintln!(
+        "warning: --strict={scope_name}: {total} skipped cops violate {scope_name} ({detail}).{hint}"
+    );
+}
+
+/// Run the linter. Returns the exit code: 0 = clean, 1 = offenses, 2 = strict failure, 3 = error.
 pub fn run(args: Args) -> Result<i32> {
     // Warn about unsupported --require flag
     if !args.require_libs.is_empty() {
@@ -42,6 +93,15 @@ pub fn run(args: Args) -> Result<i32> {
             args.fail_level
         )
     })?;
+
+    // Validate --strict early
+    if let Some(ref val) = args.strict {
+        if args.strict_scope().is_none() {
+            anyhow::bail!(
+                "invalid --strict value '{val}'. Expected: coverage, implemented-only, all"
+            );
+        }
+    }
 
     let target_dir = args.paths.first().map(|p| {
         if p.is_file() {
@@ -196,14 +256,23 @@ pub fn run(args: Args) -> Result<i32> {
         let source = SourceFile::from_string(display_path.clone(), input);
         let result = lint_source(&source, &config, &registry, &args, &tier_map);
         let mut formatter = create_formatter(&args.format);
-        formatter.set_skip_summary(result.skip_summary);
+        formatter.set_skip_summary(result.skip_summary.clone());
         formatter.print(&result.diagnostics, &[display_path.clone()]);
-        return if result
+        let has_lint_failure = result
             .diagnostics
             .iter()
-            .any(|d| d.severity >= fail_level)
-        {
+            .any(|d| d.severity >= fail_level);
+        let strict_failure = args.strict_scope().is_some_and(|scope| {
+            let fails = strict_check_fails(scope, &result.skip_summary);
+            if fails {
+                print_strict_warning(scope, &result.skip_summary);
+            }
+            fails
+        });
+        return if has_lint_failure {
             Ok(1)
+        } else if strict_failure {
+            Ok(2)
         } else {
             Ok(0)
         };
@@ -257,16 +326,27 @@ pub fn run(args: Args) -> Result<i32> {
         );
     }
 
+    let skip_summary = result.skip_summary.clone();
     let mut formatter = create_formatter(&args.format);
     formatter.set_skip_summary(result.skip_summary);
     formatter.print(&result.diagnostics, &discovered.files);
 
-    if result
+    let has_lint_failure = result
         .diagnostics
         .iter()
-        .any(|d| d.severity >= fail_level)
-    {
+        .any(|d| d.severity >= fail_level);
+    let strict_failure = args.strict_scope().is_some_and(|scope| {
+        let fails = strict_check_fails(scope, &skip_summary);
+        if fails {
+            print_strict_warning(scope, &skip_summary);
+        }
+        fails
+    });
+
+    if has_lint_failure {
         Ok(1)
+    } else if strict_failure {
+        Ok(2)
     } else {
         Ok(0)
     }

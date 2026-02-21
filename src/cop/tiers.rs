@@ -47,7 +47,7 @@ impl TierMap {
 }
 
 /// Tracks cops that were enabled by config but not run.
-#[derive(Default, Debug, Serialize)]
+#[derive(Default, Debug, Clone, Serialize)]
 pub struct SkipSummary {
     /// Implemented cops at preview tier, skipped because `--preview` was not set.
     pub preview_gated: Vec<String>,

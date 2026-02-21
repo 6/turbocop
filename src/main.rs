@@ -10,7 +10,7 @@ fn main() {
         Ok(code) => process::exit(code),
         Err(e) => {
             eprintln!("error: {e:#}");
-            process::exit(2);
+            process::exit(3);
         }
     }
 }

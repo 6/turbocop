@@ -510,6 +510,7 @@ mod tests {
             autocorrect_all: false,
             preview: false,
             quiet_skips: false,
+            strict: None,
         }
     }
 

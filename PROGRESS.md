@@ -20,10 +20,10 @@
 
 ### Exit code contract
 
-- [ ] `--strict[=SCOPE]` flag — `coverage` (default), `implemented-only`, `all`
-- [ ] Exit code 2 for strict coverage failure (skipped cops violate scope)
-- [ ] Exit code 3 for internal errors (panic, IO, config parse)
-- [ ] Tests for exit code semantics
+- [x] `--strict[=SCOPE]` flag — `coverage` (default), `implemented-only`, `all`
+- [x] Exit code 2 for strict coverage failure (skipped cops violate scope)
+- [x] Exit code 3 for internal errors (panic, IO, config parse)
+- [x] Tests for exit code semantics
 
 ### `migrate` command
 
