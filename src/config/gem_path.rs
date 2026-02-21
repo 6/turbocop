@@ -42,19 +42,37 @@ pub fn resolve_gem_path(gem_name: &str, working_dir: &Path) -> Result<PathBuf> {
         }
     }
 
-    // Run bundle info --path from the working directory
+    // Run bundle info --path from the working directory.
+    // Use `mise exec --` if the target project has a .ruby-version or .tool-versions
+    // that may differ from the current shell's Ruby. This ensures the correct
+    // Ruby/Bundler environment resolves the gems.
     let bundle_start = std::time::Instant::now();
-    let output = Command::new("bundle")
-        .args(["info", "--path", gem_name])
-        .current_dir(working_dir)
-        .output()
-        .with_context(|| {
-            format!(
-                "Cannot resolve gem '{}': `bundle` not found on PATH. \
-                 Install Bundler or remove inherit_gem/require from your .rubocop.yml.",
-                gem_name
-            )
-        })?;
+    let needs_mise = needs_mise_exec(working_dir);
+    let output = if needs_mise {
+        Command::new("mise")
+            .args(["exec", "--", "bundle", "info", "--path", gem_name])
+            .current_dir(working_dir)
+            .output()
+            .with_context(|| {
+                format!(
+                    "Cannot resolve gem '{}': `mise exec -- bundle` failed. \
+                     Ensure mise is installed and `bundle install` has been run.",
+                    gem_name
+                )
+            })?
+    } else {
+        Command::new("bundle")
+            .args(["info", "--path", gem_name])
+            .current_dir(working_dir)
+            .output()
+            .with_context(|| {
+                format!(
+                    "Cannot resolve gem '{}': `bundle` not found on PATH. \
+                     Install Bundler or remove inherit_gem/require from your .rubocop.yml.",
+                    gem_name
+                )
+            })?
+    };
     let bundle_elapsed = bundle_start.elapsed();
     eprintln!(
         "debug: bundle info --path {}: {:.0?}",
@@ -117,6 +135,28 @@ pub fn drain_resolved_paths() -> HashMap<String, PathBuf> {
             .collect(),
         None => HashMap::new(),
     }
+}
+
+/// Check if the working directory has a `.ruby-version` or `.tool-versions` file,
+/// indicating it may need `mise exec --` to activate the correct Ruby.
+/// Only returns true if `mise` is actually available on PATH.
+fn needs_mise_exec(working_dir: &Path) -> bool {
+    let has_version_file = working_dir.join(".ruby-version").exists()
+        || working_dir.join(".tool-versions").exists()
+        || working_dir.join(".mise.toml").exists();
+    if !has_version_file {
+        return false;
+    }
+    // Check mise is available (cached after first call)
+    static MISE_AVAILABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *MISE_AVAILABLE.get_or_init(|| {
+        Command::new("mise")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    })
 }
 
 #[cfg(test)]
