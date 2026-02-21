@@ -129,10 +129,26 @@ Introduce `--strict` with a clear contract:
   * Skipped cops **do not** affect exit code.
   * They produce the grouped “skipped cops” notice (unless suppressed).
 
-* **Strict (`--strict`):**
+* **Strict mode** with configurable scope:
 
-  * If config enables any cop that is skipped for *any* reason (preview-gated, unimplemented, outside baseline), exit code is **2** (distinct from lint failures).
-  * This lets CI enforce “no gaps” when teams want that.
+  * `--strict=coverage` **(recommended default for `--strict`):**
+    Fail (exit 2) only for cops turbocop claims to support but didn’t run
+    (e.g., preview-gated cops the user didn’t opt into). Cops that are
+    unimplemented or outside baseline are treated as informational skips,
+    not failures. This is the useful default — “turbocop ran everything
+    it should have.”
+
+  * `--strict=implemented-only`:
+    Ignore unknown/outside-baseline cops entirely. Only fail if a cop
+    turbocop implements (Stable or Preview) was skipped. Useful for teams
+    that know they use unsupported plugins and don’t want noise.
+
+  * `--strict=all`:
+    Any skipped cop for any reason (preview-gated, unimplemented, outside
+    baseline) causes exit 2. The most conservative option. Only useful for
+    teams whose config is fully within turbocop’s baseline.
+
+  Without the `=` form, `--strict` defaults to `coverage`.
 
 Suggested exit codes:
 
@@ -171,10 +187,32 @@ Prevent matcher-layer drift and catch Prism mapping mistakes early:
 
 ## 6) RuboCop oracle at scale (the backbone for tiers)
 
-### Build a corpus (Phase 2)
+### Build a corpus (phased, not heroic)
 
-* Clone/snapshot 500–1000 Ruby repos (gems + popular repos).
-* Record repo + commit hash.
+**Phase 2 target: ~100 repos** (diverse + curated). This is enough to cover
+the major config patterns, gem combinations, and Ruby idioms. The current 14
+public + 14 internal repos already surface most issues — 100 is the next step.
+
+**Phase 3 target: ~300 repos** — only if Phase 2 is still producing novel
+diffs. If 100 repos stopped surfacing new issues at repo 60, 300 isn’t worth it.
+
+**Phase 4 target: 500-1000 repos** — optional. Only if using tarballs/eviction
+and the pipeline is fully automated. This is a “nice to have” for marketing
+(“tested against 1000 repos”) not a correctness necessity.
+
+**Corpus maintenance strategy:**
+
+* **Core frozen set (~50 repos):** never rotated. These are the stability
+  baseline — metrics against these repos should never regress. Pin exact
+  commit hashes.
+* **Rotating set (~50 repos):** refreshed quarterly to find new patterns.
+  Swap in repos with unusual configs, new gem versions, different Ruby
+  versions. This is the exploration arm.
+
+The harness should be built so scaling up is “add rows to a manifest file,”
+not “rewrite the pipeline.”
+
+Record repo + commit hash for reproducibility.
 
 ### Two passes (separates bug categories)
 
@@ -255,15 +293,21 @@ Even before corpus is perfect:
 
 ### Phase 2 (measurement)
 
-* corpus runner + basic diffing + per-cop stats
+* corpus runner + basic diffing + per-cop stats (~100 repos)
 * generate `tiers.json` + compatibility table
 * start promoting/demoting based on data
 
 ### Phase 3 (flywheel + polish)
 
 * regression fixtures + minimizer
+* expand corpus to ~300 repos (only if still producing novel diffs)
 * better bucketing
 * refine docs and UX based on adoption feedback
+
+### Phase 4 (scale, optional)
+
+* corpus to 500-1000 repos (tarball-based, automated maintenance)
+* core frozen set (~50) + rotating set for exploration
 
 ---
 
