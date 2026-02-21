@@ -500,6 +500,31 @@ fn is_directive_redundant(
     }
 }
 
+/// Validate that corrected bytes are still valid Ruby by re-parsing with Prism.
+/// Returns `None` (discarding corrections) if parse errors are found.
+fn validate_corrected_bytes(
+    original_bytes: &[u8],
+    current_bytes: Vec<u8>,
+    path: &std::path::Path,
+) -> Option<Vec<u8>> {
+    if current_bytes == original_bytes {
+        return None;
+    }
+    // Scope the parse_result so its borrow of current_bytes is dropped before we return.
+    let has_errors = {
+        let parse_result = crate::parse::parse_source(&current_bytes);
+        parse_result.errors().count() > 0
+    };
+    if has_errors {
+        eprintln!(
+            "warning: autocorrect produced invalid syntax for {}, skipping corrections",
+            path.display()
+        );
+        return None;
+    }
+    Some(current_bytes)
+}
+
 /// Returns (diagnostics, corrected_bytes, corrected_count).
 /// corrected_count is the total number of offenses corrected across all iterations.
 fn lint_source_inner(
@@ -544,8 +569,8 @@ fn lint_source_inner(
             let mut all_diags = corrected_diags;
             all_diags.extend(diags);
             let total_corrected = all_diags.iter().filter(|d| d.corrected).count();
-            let changed = current_bytes != original_bytes;
-            return (all_diags, if changed { Some(current_bytes) } else { None }, total_corrected);
+            let corrected_bytes = validate_corrected_bytes(original_bytes, current_bytes, &path);
+            return (all_diags, corrected_bytes, total_corrected);
         }
 
         // Collect corrected diagnostics from this iteration
@@ -564,7 +589,7 @@ fn lint_source_inner(
     }
 
     // Hit max iterations — run one final pass without corrections to get clean diagnostics
-    let final_source = SourceFile::from_vec(path, current_bytes.clone());
+    let final_source = SourceFile::from_vec(path.clone(), current_bytes.clone());
     let (diags, _) = lint_source_once(
         &final_source, config, registry, args, cop_filters,
         base_configs, has_dir_overrides, timers,
@@ -573,8 +598,8 @@ fn lint_source_inner(
     let mut all_diags = corrected_diags;
     all_diags.extend(diags);
     let total_corrected = all_diags.iter().filter(|d| d.corrected).count();
-    let changed = current_bytes != original_bytes;
-    (all_diags, if changed { Some(current_bytes) } else { None }, total_corrected)
+    let corrected_bytes = validate_corrected_bytes(original_bytes, current_bytes, &path);
+    (all_diags, corrected_bytes, total_corrected)
 }
 
 /// Run all enabled cops once on a source file. Returns (diagnostics, corrections).
@@ -798,4 +823,151 @@ fn lint_source_once(
     }
 
     (diagnostics, corrections)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    // --- validate_corrected_bytes ---
+
+    #[test]
+    fn validate_corrected_bytes_rejects_invalid_syntax() {
+        let original = b"puts 'hello'";
+        let invalid = b"def (".to_vec();
+        let result = validate_corrected_bytes(original, invalid, &PathBuf::from("test.rb"));
+        assert!(result.is_none(), "should reject invalid Ruby syntax");
+    }
+
+    #[test]
+    fn validate_corrected_bytes_accepts_valid_syntax() {
+        let original = b"puts 'hello'";
+        let valid = b"puts 'world'".to_vec();
+        let result = validate_corrected_bytes(original, valid, &PathBuf::from("test.rb"));
+        assert!(result.is_some(), "should accept valid Ruby syntax");
+        assert_eq!(result.unwrap(), b"puts 'world'");
+    }
+
+    #[test]
+    fn validate_corrected_bytes_returns_none_when_unchanged() {
+        let original = b"puts 'hello'";
+        let unchanged = b"puts 'hello'".to_vec();
+        let result = validate_corrected_bytes(original, unchanged, &PathBuf::from("test.rb"));
+        assert!(result.is_none(), "should return None when source unchanged");
+    }
+
+    // --- parse_renamed_cops ---
+
+    #[test]
+    fn parse_renamed_cops_simple_format() {
+        let yaml = "renamed:\n  Old/Cop: New/Cop\n  Another/Old: Another/New\n";
+        let map = parse_renamed_cops(yaml);
+        assert_eq!(map.get("Old/Cop").unwrap(), "New/Cop");
+        assert_eq!(map.get("Another/Old").unwrap(), "Another/New");
+        assert_eq!(map.len(), 2);
+    }
+
+    #[test]
+    fn parse_renamed_cops_extended_format() {
+        let yaml = "renamed:\n  Naming/PredicateName:\n    new_name: Naming/PredicatePrefix\n    severity: warning\n";
+        let map = parse_renamed_cops(yaml);
+        assert_eq!(map.get("Naming/PredicateName").unwrap(), "Naming/PredicatePrefix");
+        assert_eq!(map.len(), 1);
+    }
+
+    #[test]
+    fn parse_renamed_cops_mixed_formats() {
+        let yaml = "\
+renamed:
+  Simple/Rename: Target/Cop
+  Extended/Rename:
+    new_name: Target/Extended
+    severity: warning
+  Another/Simple: Another/Target
+";
+        let map = parse_renamed_cops(yaml);
+        assert_eq!(map.get("Simple/Rename").unwrap(), "Target/Cop");
+        assert_eq!(map.get("Extended/Rename").unwrap(), "Target/Extended");
+        assert_eq!(map.get("Another/Simple").unwrap(), "Another/Target");
+        assert_eq!(map.len(), 3);
+    }
+
+    #[test]
+    fn parse_renamed_cops_missing_renamed_section() {
+        let yaml = "removed:\n  Some/Cop: true\n";
+        let map = parse_renamed_cops(yaml);
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn parse_renamed_cops_empty_yaml() {
+        let map = parse_renamed_cops("");
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn parse_renamed_cops_invalid_yaml() {
+        let map = parse_renamed_cops("{{invalid yaml::");
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn parse_renamed_cops_extended_missing_new_name_key() {
+        // Extended format but without the new_name key — should be skipped
+        let yaml = "renamed:\n  Bad/Entry:\n    severity: warning\n";
+        let map = parse_renamed_cops(yaml);
+        assert!(map.is_empty(), "entry with empty new_name should be skipped");
+    }
+
+    #[test]
+    fn parse_renamed_cops_real_obsoletion_yml() {
+        // Verify the actual vendor file parses correctly
+        let map = parse_renamed_cops(include_str!(
+            "../vendor/rubocop/config/obsoletion.yml"
+        ));
+        // Spot-check a few known renames
+        assert_eq!(map.get("Layout/Tab").unwrap(), "Layout/IndentationStyle");
+        assert_eq!(map.get("Lint/Eval").unwrap(), "Security/Eval");
+        assert_eq!(map.get("Naming/PredicateName").unwrap(), "Naming/PredicatePrefix");
+        assert_eq!(map.get("Style/PredicateName").unwrap(), "Naming/PredicatePrefix");
+        // Should have a reasonable number of entries
+        assert!(map.len() >= 30, "expected at least 30 renames, got {}", map.len());
+    }
+
+    // --- PhaseTimers ---
+
+    #[test]
+    fn phase_timers_initializes_to_zero() {
+        let t = PhaseTimers::new();
+        assert_eq!(t.file_io_ns.load(Ordering::Relaxed), 0);
+        assert_eq!(t.parse_ns.load(Ordering::Relaxed), 0);
+        assert_eq!(t.codemap_ns.load(Ordering::Relaxed), 0);
+        assert_eq!(t.cop_exec_ns.load(Ordering::Relaxed), 0);
+        assert_eq!(t.cop_filter_ns.load(Ordering::Relaxed), 0);
+        assert_eq!(t.cop_ast_ns.load(Ordering::Relaxed), 0);
+        assert_eq!(t.disable_ns.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn phase_timers_accumulates_across_fetches() {
+        let t = PhaseTimers::new();
+        t.parse_ns.fetch_add(100, Ordering::Relaxed);
+        t.parse_ns.fetch_add(200, Ordering::Relaxed);
+        assert_eq!(t.parse_ns.load(Ordering::Relaxed), 300);
+
+        t.cop_exec_ns.fetch_add(500, Ordering::Relaxed);
+        t.file_io_ns.fetch_add(50, Ordering::Relaxed);
+        assert_eq!(t.cop_exec_ns.load(Ordering::Relaxed), 500);
+        assert_eq!(t.file_io_ns.load(Ordering::Relaxed), 50);
+    }
+
+    // --- RENAMED_COPS static ---
+
+    #[test]
+    fn renamed_cops_static_is_populated() {
+        // The LazyLock should parse the real obsoletion.yml on first access
+        assert!(!RENAMED_COPS.is_empty(), "RENAMED_COPS should not be empty");
+        assert!(RENAMED_COPS.contains_key("Layout/Tab"));
+    }
 }

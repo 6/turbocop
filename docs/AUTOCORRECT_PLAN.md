@@ -224,6 +224,16 @@ for each file (parallel via rayon):
 
 Files are independent — rayon parallelism at file level. Per-file iterations are sequential. `ParseResult` being `!Send` is fine since we re-parse inside the same rayon worker.
 
+### 3.6 Post-Correction Syntax Validation ✅ COMPLETE
+
+After the iteration loop converges (or hits max iterations), the final corrected bytes are validated by re-parsing with Prism before writing to disk. If `parse_result.errors()` reports any syntax errors, the corrections are **discarded entirely** and the original file is preserved, with a warning emitted to stderr.
+
+This is stricter than RuboCop, which writes the (potentially broken) corrected source to disk and only stops further iterations on parse failure. Since turbocop holds corrected bytes in memory until the loop finishes, it can avoid writing invalid Ruby at no additional risk.
+
+**Cost:** One Prism parse per corrected file. Prism parses typical Ruby files in microseconds, so this is negligible relative to the multi-iteration lint passes that precede it.
+
+**Implementation:** `validate_corrected_bytes()` helper in `src/linter.rs`, called at both return points in `lint_source_inner`.
+
 ---
 
 ## 4. Phased Implementation Roadmap
