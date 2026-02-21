@@ -1,0 +1,281 @@
+#!/usr/bin/env python3
+"""Diff turbocop vs RuboCop JSON results and produce a corpus report.
+
+Usage:
+    python3 corpus/diff_results.py \
+        --turbocop-dir results/turbocop \
+        --rubocop-dir results/rubocop \
+        --manifest corpus/manifest.jsonl \
+        --output-json corpus-results.json \
+        --output-md corpus-results.md
+"""
+
+import argparse
+import json
+import os
+import sys
+from collections import defaultdict
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+def strip_repo_prefix(filepath: str) -> str:
+    """Strip the repos/<id>/ prefix to get a path relative to the repo root."""
+    # Paths may look like: repos/mastodon__mastodon__c1f398a/app/models/user.rb
+    # or /full/path/repos/mastodon__mastodon__c1f398a/app/models/user.rb
+    # We want: app/models/user.rb
+    parts = filepath.replace("\\", "/").split("/")
+    # Find "repos" in the path and skip it + the repo id
+    for i, part in enumerate(parts):
+        if part == "repos" and i + 1 < len(parts):
+            return "/".join(parts[i + 2:])
+    return filepath
+
+
+def parse_turbocop_json(path: Path) -> set:
+    """Parse turbocop JSON output. Format: {"offenses": [...]}"""
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, FileNotFoundError):
+        return set()
+
+    offenses = set()
+    for o in data.get("offenses", []):
+        filepath = strip_repo_prefix(o.get("path", ""))
+        line = o.get("line", 0)
+        cop = o.get("cop_name", "")
+        if filepath and cop:
+            offenses.add((filepath, line, cop))
+    return offenses
+
+
+def parse_rubocop_json(path: Path) -> set:
+    """Parse RuboCop JSON output. Format: {"files": [{"path": ..., "offenses": [...]}]}"""
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, FileNotFoundError):
+        return set()
+
+    offenses = set()
+    for f in data.get("files", []):
+        filepath = strip_repo_prefix(f.get("path", ""))
+        for o in f.get("offenses", []):
+            line = o.get("location", {}).get("line", 0)
+            cop = o.get("cop_name", "")
+            if filepath and cop:
+                offenses.add((filepath, line, cop))
+    return offenses
+
+
+def load_manifest(path: Path) -> list:
+    """Load JSONL manifest."""
+    repos = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                repos.append(json.loads(line))
+    return repos
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Diff corpus oracle results")
+    parser.add_argument("--turbocop-dir", required=True, type=Path)
+    parser.add_argument("--rubocop-dir", required=True, type=Path)
+    parser.add_argument("--manifest", required=True, type=Path)
+    parser.add_argument("--output-json", required=True, type=Path)
+    parser.add_argument("--output-md", required=True, type=Path)
+    parser.add_argument("--cop-list", type=Path, help="File with one cop name per line (filter RuboCop to these)")
+    args = parser.parse_args()
+
+    manifest = load_manifest(args.manifest)
+    manifest_ids = {r["id"] for r in manifest}
+
+    # Load cop filter (only compare offenses from cops turbocop knows about)
+    covered_cops = None
+    if args.cop_list and args.cop_list.exists():
+        covered_cops = {line.strip() for line in args.cop_list.read_text().splitlines() if line.strip()}
+        print(f"Filtering to {len(covered_cops)} covered cops", file=sys.stderr)
+
+    # Collect all repo IDs that have results
+    tc_files = {f.stem: f for f in args.turbocop_dir.glob("*.json")} if args.turbocop_dir.exists() else {}
+    rc_files = {f.stem: f for f in args.rubocop_dir.glob("*.json")} if args.rubocop_dir.exists() else {}
+    all_ids = sorted(set(tc_files.keys()) | set(rc_files.keys()))
+
+    # Per-repo results
+    repo_results = []
+    by_cop_matches = defaultdict(int)
+    by_cop_fp = defaultdict(int)  # turbocop-only
+    by_cop_fn = defaultdict(int)  # rubocop-only
+    total_matches = 0
+    total_fp = 0
+    total_fn = 0
+    repos_perfect = 0
+    repos_error = 0
+
+    for repo_id in all_ids:
+        tc_path = tc_files.get(repo_id)
+        rc_path = rc_files.get(repo_id)
+
+        if not tc_path or not rc_path:
+            repo_results.append({
+                "repo": repo_id,
+                "status": "missing_results",
+                "match_rate": 0,
+                "matches": 0,
+                "fp": 0,
+                "fn": 0,
+            })
+            repos_error += 1
+            continue
+
+        tc_offenses = parse_turbocop_json(tc_path)
+        rc_offenses = parse_rubocop_json(rc_path)
+
+        # Filter to covered cops only (drop offenses from cops turbocop doesn't implement)
+        if covered_cops is not None:
+            tc_offenses = {o for o in tc_offenses if o[2] in covered_cops}
+            rc_offenses = {o for o in rc_offenses if o[2] in covered_cops}
+
+        matches = tc_offenses & rc_offenses
+        fp = tc_offenses - rc_offenses  # turbocop-only (false positives)
+        fn = rc_offenses - tc_offenses  # rubocop-only (false negatives)
+
+        n_matches = len(matches)
+        n_fp = len(fp)
+        n_fn = len(fn)
+        total = n_matches + n_fn  # rubocop is the oracle
+        match_rate = n_matches / total if total > 0 else 1.0
+
+        total_matches += n_matches
+        total_fp += n_fp
+        total_fn += n_fn
+
+        if n_fp == 0 and n_fn == 0:
+            repos_perfect += 1
+
+        # Per-cop aggregation
+        for _, _, cop in matches:
+            by_cop_matches[cop] += 1
+        for _, _, cop in fp:
+            by_cop_fp[cop] += 1
+        for _, _, cop in fn:
+            by_cop_fn[cop] += 1
+
+        repo_results.append({
+            "repo": repo_id,
+            "status": "ok",
+            "match_rate": round(match_rate, 4),
+            "matches": n_matches,
+            "fp": n_fp,
+            "fn": n_fn,
+            "turbocop_total": len(tc_offenses),
+            "rubocop_total": len(rc_offenses),
+        })
+
+    # Build per-cop table (sorted by divergence descending)
+    all_cops = sorted(set(by_cop_matches) | set(by_cop_fp) | set(by_cop_fn))
+    by_cop = []
+    for cop in all_cops:
+        m = by_cop_matches.get(cop, 0)
+        fp = by_cop_fp.get(cop, 0)
+        fn = by_cop_fn.get(cop, 0)
+        total = m + fn
+        rate = m / total if total > 0 else 1.0
+        by_cop.append({
+            "cop": cop,
+            "matches": m,
+            "fp": fp,
+            "fn": fn,
+            "match_rate": round(rate, 4),
+        })
+    by_cop.sort(key=lambda x: x["fp"] + x["fn"], reverse=True)
+
+    # Overall stats
+    oracle_total = total_matches + total_fn
+    overall_rate = total_matches / oracle_total if oracle_total > 0 else 1.0
+
+    # ── Write JSON ──
+    json_output = {
+        "schema": 1,
+        "run_date": datetime.now(timezone.utc).isoformat(),
+        "baseline": {
+            "rubocop": "1.84.2",
+            "rubocop-rails": "2.34.3",
+            "rubocop-performance": "1.26.1",
+            "rubocop-rspec": "3.9.0",
+            "rubocop-rspec_rails": "2.32.0",
+            "rubocop-factory_bot": "2.28.0",
+        },
+        "summary": {
+            "total_repos": len(all_ids),
+            "repos_perfect": repos_perfect,
+            "repos_error": repos_error,
+            "total_offenses_compared": oracle_total,
+            "matches": total_matches,
+            "fp": total_fp,
+            "fn": total_fn,
+            "overall_match_rate": round(overall_rate, 4),
+        },
+        "by_cop": by_cop[:50],  # top 50 diverging
+        "by_repo": repo_results,
+    }
+    args.output_json.write_text(json.dumps(json_output, indent=2) + "\n")
+
+    # ── Write Markdown ──
+    md = []
+    md.append(f"# Corpus Oracle Results — {datetime.now(timezone.utc).strftime('%Y-%m-%d')}")
+    md.append("")
+    md.append(f"**Corpus**: {len(all_ids)} repos ({repos_perfect} perfect match)")
+    md.append(f"**Baseline**: rubocop 1.84.2, rubocop-rails 2.34.3, rubocop-performance 1.26.1, rubocop-rspec 3.9.0")
+    md.append("")
+    md.append("## Overall")
+    md.append("")
+    md.append("| Metric | Count |")
+    md.append("|--------|------:|")
+    md.append(f"| Total repos | {len(all_ids)} |")
+    md.append(f"| Repos with 100% match | {repos_perfect} |")
+    md.append(f"| Repos with errors | {repos_error} |")
+    md.append(f"| Total offenses compared | {oracle_total:,} |")
+    md.append(f"| Matches | {total_matches:,} |")
+    md.append(f"| FP (turbocop only) | {total_fp:,} |")
+    md.append(f"| FN (rubocop only) | {total_fn:,} |")
+    md.append(f"| Overall match rate | {overall_rate:.1%} |")
+    md.append("")
+
+    # Top diverging cops (only those with divergence)
+    diverging = [c for c in by_cop if c["fp"] + c["fn"] > 0]
+    if diverging:
+        md.append("## Top Diverging Cops")
+        md.append("")
+        md.append("| Cop | Matches | FP | FN | Match % |")
+        md.append("|-----|--------:|---:|---:|--------:|")
+        for c in diverging[:30]:
+            total = c["matches"] + c["fn"]
+            pct = f"{c['match_rate']:.1%}" if total > 0 else "N/A"
+            md.append(f"| {c['cop']} | {c['matches']} | {c['fp']} | {c['fn']} | {pct} |")
+        md.append("")
+
+    # Per-repo summary
+    md.append("## Per-Repo Summary")
+    md.append("")
+    md.append("| Repo | Status | Match Rate | Matches | FP | FN |")
+    md.append("|------|--------|----------:|--------:|---:|---:|")
+    for r in sorted(repo_results, key=lambda x: x.get("match_rate", 0)):
+        rate = f"{r['match_rate']:.1%}" if r["status"] == "ok" else "—"
+        md.append(f"| {r['repo']} | {r['status']} | {rate} | {r['matches']} | {r['fp']} | {r['fn']} |")
+    md.append("")
+
+    args.output_md.write_text("\n".join(md) + "\n")
+
+    # Print summary to stderr
+    print(f"\nCorpus: {len(all_ids)} repos, {repos_perfect} perfect, {repos_error} errors", file=sys.stderr)
+    print(f"Offenses: {oracle_total:,} compared, {total_matches:,} match, {total_fp:,} FP, {total_fn:,} FN", file=sys.stderr)
+    print(f"Overall match rate: {overall_rate:.1%}", file=sys.stderr)
+
+    # Exit 0 always for now — CI gating can be added later via --strict flag
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

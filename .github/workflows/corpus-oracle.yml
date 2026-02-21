@@ -1,0 +1,257 @@
+name: Corpus Oracle
+
+concurrency:
+  group: corpus-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  # Weekly Sunday night
+  schedule:
+    - cron: "0 4 * * 0"
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      batch_filter:
+        description: "Run only this batch index (0-based), or 'all'"
+        default: "all"
+  # On cop implementation changes
+  pull_request:
+    paths:
+      - "src/cop/**"
+      - "src/config/**"
+      - "resources/tiers.json"
+      - "corpus/**"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── Build turbocop release binary ──────────────────────────────
+  build-turbocop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: turbocop-binary
+          path: target/release/turbocop
+          retention-days: 1
+
+  # ── Compute matrix batches from manifest ───────────────────────
+  compute-matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate matrix
+        id: matrix
+        run: |
+          # Read manifest, split into batches of 5 repos each
+          python3 << 'PYEOF'
+          import json, math, os, sys
+
+          repos = []
+          with open('corpus/manifest.jsonl') as f:
+              for line in f:
+                  line = line.strip()
+                  if line:
+                      repos.append(json.loads(line))
+
+          batch_size = 5
+          num_batches = math.ceil(len(repos) / batch_size)
+          batches = []
+          for i in range(num_batches):
+              chunk = repos[i*batch_size:(i+1)*batch_size]
+              batches.append({
+                  'index': i,
+                  'repos': json.dumps(chunk)
+              })
+
+          batch_filter = os.environ.get('BATCH_FILTER', 'all')
+          if batch_filter != 'all':
+              idx = int(batch_filter)
+              batches = [b for b in batches if b['index'] == idx]
+
+          print(f'Generated {len(batches)} batches from {len(repos)} repos', file=sys.stderr)
+          matrix = {'include': batches}
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'matrix={json.dumps(matrix)}\n')
+          PYEOF
+        env:
+          BATCH_FILTER: ${{ github.event.inputs.batch_filter || 'all' }}
+
+  # ── Run oracle on each batch ───────────────────────────────────
+  oracle-batch:
+    needs: [build-turbocop, compute-matrix]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.compute-matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Download turbocop binary
+        uses: actions/download-artifact@v4
+        with:
+          name: turbocop-binary
+          path: bin/
+
+      - name: Make binary executable
+        run: chmod +x bin/turbocop
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Cache baseline bundle
+        uses: actions/cache@v4
+        with:
+          path: corpus/vendor/bundle
+          key: corpus-bundle-${{ hashFiles('corpus/Gemfile') }}
+
+      - name: Install baseline gems
+        run: |
+          cd corpus
+          bundle config set --local path vendor/bundle
+          bundle install --jobs 4 --retry 3
+
+      - name: Clone repos in this batch
+        run: |
+          mkdir -p repos
+          echo '${{ matrix.repos }}' | python3 -c "
+          import json, sys, subprocess
+
+          repos = json.load(sys.stdin)
+          for repo in repos:
+              name = repo['id']
+              url = repo['repo_url']
+              sha = repo['sha']
+              dest = f'repos/{name}'
+              print(f'Cloning {name} at {sha[:7]}...', file=sys.stderr)
+
+              # Clone then checkout exact SHA (shallow clone at SHA requires upload-pack allowReachableSHA1InWant)
+              result = subprocess.run(
+                  ['git', 'clone', '--depth', '50', '--no-recurse-submodules',
+                   '--single-branch', url, dest],
+                  capture_output=True, text=True
+              )
+              if result.returncode != 0:
+                  print(f'  Clone failed: {result.stderr.strip()}', file=sys.stderr)
+                  continue
+
+              result = subprocess.run(
+                  ['git', '-C', dest, 'checkout', sha],
+                  capture_output=True, text=True
+              )
+              if result.returncode != 0:
+                  # Shallow clone may not have the SHA; try fetching deeper
+                  subprocess.run(['git', '-C', dest, 'fetch', '--depth', '200'], capture_output=True)
+                  result = subprocess.run(
+                      ['git', '-C', dest, 'checkout', sha],
+                      capture_output=True, text=True
+                  )
+                  if result.returncode != 0:
+                      print(f'  Checkout {sha[:7]} failed, using HEAD', file=sys.stderr)
+          "
+
+      - name: Export turbocop cop list
+        run: |
+          bin/turbocop --list-cops > turbocop-cops.txt
+
+      - name: Run turbocop on each repo
+        run: |
+          mkdir -p results/turbocop
+          for repo_dir in repos/*/; do
+            repo_name=$(basename "$repo_dir")
+            echo "=== turbocop: $repo_name ==="
+            BUNDLE_GEMFILE=$PWD/corpus/Gemfile \
+            BUNDLE_PATH=$PWD/corpus/vendor/bundle \
+            bin/turbocop \
+              --format json \
+              --config corpus/baseline_rubocop.yml \
+              "$repo_dir" \
+              > "results/turbocop/${repo_name}.json" 2>/dev/null || true
+          done
+
+      - name: Run RuboCop on each repo
+        run: |
+          mkdir -p results/rubocop
+          for repo_dir in repos/*/; do
+            repo_name=$(basename "$repo_dir")
+            echo "=== rubocop: $repo_name ==="
+            BUNDLE_GEMFILE=$PWD/corpus/Gemfile \
+            BUNDLE_PATH=$PWD/corpus/vendor/bundle \
+            bundle exec rubocop \
+              --config corpus/baseline_rubocop.yml \
+              --format json \
+              --force-exclusion \
+              --cache false \
+              "$repo_dir" \
+              > "results/rubocop/${repo_name}.json" 2>/dev/null || true
+          done
+
+      - name: Upload batch results
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-results-batch-${{ matrix.index }}
+          path: |
+            results/
+            turbocop-cops.txt
+          retention-days: 7
+
+  # ── Collect and diff all results ───────────────────────────────
+  collect-results:
+    needs: [oracle-batch]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all batch results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: corpus-results-batch-*
+          path: all-results/
+          merge-multiple: true
+
+      - name: Diff and generate report
+        run: |
+          # Cop list is uploaded alongside results from any batch
+          COP_LIST=$(find all-results -name turbocop-cops.txt -print -quit)
+          python3 corpus/diff_results.py \
+            --turbocop-dir all-results/turbocop \
+            --rubocop-dir all-results/rubocop \
+            --manifest corpus/manifest.jsonl \
+            --output-json corpus-results.json \
+            --output-md corpus-results.md \
+            ${COP_LIST:+--cop-list "$COP_LIST"}
+
+      - name: Print summary
+        run: cat corpus-results.md
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-report
+          path: |
+            corpus-results.json
+            corpus-results.md
+          retention-days: 30

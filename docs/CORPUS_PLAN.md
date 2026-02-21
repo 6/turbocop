@@ -436,55 +436,56 @@ Cops enter `autocorrect_safe_allowlist.json` only after 0 mismatches + 0 gate fa
 
 ### Phase 0: Foundations
 
-* [ ] **Define baseline versions** in one place
+* [x] **Define baseline versions** in one place
 
-  * `bench/Gemfile` pins RuboCop + plugins to turbocop baseline
-  * **Done when**: `bench/Gemfile` versions match vendor submodule tags.
+  * `corpus/Gemfile` pins RuboCop + plugins to turbocop baseline
+  * **Done when**: `corpus/Gemfile` versions match vendor submodule tags.
 
-* [ ] **Create `corpus/manifest.jsonl`** with initial ~20 repos
+* [x] **Create `corpus/manifest.jsonl`** with initial ~20 repos
 
-  * Include current bench repos (already known-good).
-  * Mark as `set: "frozen"`.
+  * 14 bench repos (known-good) + 8 new repos for diversity (22 total).
+  * All marked as `set: "frozen"` with pinned SHAs.
   * **Done when**: manifest is checked in and parseable.
 
-* [ ] **Implement path exclusions** shared by all runs
+* [x] **Implement path exclusions** shared by all runs
 
-  * Hard exclude: `.git/`, `vendor/`, `node_modules/`, `tmp/`, `coverage/`, `dist/`, `build/`
+  * `corpus/baseline_rubocop.yml` excludes: `vendor/`, `node_modules/`, `tmp/`, `coverage/`, `dist/`, `build/`, `.git/`, `db/schema.rb`, `bin/`
   * **Done when**: both tools use equivalent exclusions.
 
 ---
 
 ### Phase 1: CI workflow MVP (~20 repos)
 
-* [ ] **`build-turbocop` job**
+* [x] **`build-turbocop` job**
 
-  * Build release binary on `ubuntu-latest`.
+  * Build release binary on `ubuntu-24.04`.
   * Upload as artifact.
   * **Done when**: binary builds and is downloadable by downstream jobs.
 
-* [ ] **`setup-bench` or inline step**
+* [x] **`setup-bench` or inline step**
 
-  * Install Ruby + bench bundle.
-  * Cache with `actions/cache` keyed on `bench/Gemfile.lock`.
+  * Install Ruby + corpus bundle per batch job.
+  * Cache with `actions/cache` keyed on `corpus/Gemfile` hash.
   * **Done when**: `bundle exec rubocop --version` prints baseline version.
 
-* [ ] **`corpus-matrix` job (batch of ~5 repos per job)**
+* [x] **`corpus-matrix` job (batch of ~5 repos per job)**
 
   * Read manifest, compute matrix batches.
-  * Per batch: shallow clone repos, pre-scan configs, run both tools, upload results.
-  * **Done when**: per-repo JSON results are uploaded for all 20 repos.
+  * Per batch: shallow clone repos, run both tools, upload results.
+  * **Done when**: per-repo JSON results are uploaded for all repos.
 
-* [ ] **`collect-results` job**
+* [x] **`collect-results` job**
 
-  * Download all artifacts, run diff engine, generate `results.md` + `corpus_results.json`.
+  * Download all artifacts, run diff engine, generate `corpus-results.md` + `corpus-results.json`.
   * Upload as workflow artifacts.
   * **Done when**: results are visible in the Actions tab after a successful run.
 
-* [ ] **Diff engine** (extend existing `bench_turbocop`)
+* [x] **Diff engine** (`corpus/diff_results.py`)
 
-  * Accept per-repo JSON files as input (not just local bench repos).
+  * Accept per-repo JSON files as input.
   * Produce normalized per-cop + per-repo diffs.
-  * Output `results.md` and `corpus_results.json`.
+  * Output `corpus-results.md` and `corpus-results.json`.
+  * Filters to covered cops only via `--cop-list`.
   * **Done when**: diff engine runs in the collect job and output matches expected format.
 
 ---

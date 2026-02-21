@@ -1,0 +1,25 @@
+# Baseline RuboCop config for corpus oracle runs.
+# All defaults, all plugins enabled. Used in baseline mode where
+# the repo's own .rubocop.yml is ignored.
+
+require:
+  - rubocop-rails
+  - rubocop-performance
+  - rubocop-rspec
+  - rubocop-rspec_rails
+  - rubocop-factory_bot
+
+AllCops:
+  NewCops: enable
+  SuggestExtensions: false
+  # Standard junk exclusions — same for both tools
+  Exclude:
+    - "vendor/**/*"
+    - "node_modules/**/*"
+    - "tmp/**/*"
+    - "coverage/**/*"
+    - "dist/**/*"
+    - "build/**/*"
+    - ".git/**/*"
+    - "db/schema.rb"
+    - "bin/**/*"

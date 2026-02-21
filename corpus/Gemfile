@@ -1,0 +1,10 @@
+# Baseline gem versions for corpus oracle runs.
+# These MUST match the vendor submodule tags turbocop targets.
+source "https://rubygems.org"
+
+gem "rubocop", "1.84.2"
+gem "rubocop-rails", "2.34.3"
+gem "rubocop-performance", "1.26.1"
+gem "rubocop-rspec", "3.9.0"
+gem "rubocop-rspec_rails", "2.32.0"
+gem "rubocop-factory_bot", "2.28.0"
