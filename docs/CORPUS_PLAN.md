@@ -539,6 +539,73 @@ This section is deliberately concrete: it’s the work items an engineer can exe
 
 ---
 
+### Phase 8: Autocorrect oracle harness (separate lane)
+
+Autocorrect is higher risk than linting — a wrong rewrite silently breaks code. Treat as an independent oracle lane with stricter gates and conservative defaults.
+
+**Existing infrastructure**: `bench_turbocop autocorrect-conform` already copies bench repos, runs `rubocop -A` and `turbocop -A`, and diffs `.rb` files. Extend this with per-cop granularity and safety gates.
+
+* [ ] **Isolated working copy mechanism**
+
+  * Temp copy of each repo checkout (or overlayfs).
+  * Never modify canonical `corpus/repos/*/checkout`.
+  * **Done when**: autocorrect runs on a disposable copy and original is untouched.
+
+* [ ] **Pre/post state capture**
+
+  * Enumerate Ruby files, record per-file SHA-256 hash before and after autocorrect.
+  * Save unified diff per changed file.
+  * **Done when**: can compare pre→post for both RuboCop and turbocop.
+
+* [ ] **Oracle autocorrect runner (safe mode)**
+
+  * Run RuboCop baseline bundle with `--autocorrect` (safe only).
+  * Restrict to cops in `autocorrect_safe_allowlist.json`.
+  * Store oracle post-state hashes + diffs under `results/autocorrect/rubocop/baseline_safe/`.
+  * **Done when**: oracle run completes on 10 repos without touching repo Gemfiles.
+
+* [ ] **turbocop autocorrect runner (safe mode)**
+
+  * Run turbocop with `-a` restricted to same cop allowlist.
+  * Store post-state under `results/autocorrect/turbocop/baseline_safe/`.
+  * **Done when**: turbocop run completes on same 10 repos.
+
+* [ ] **Safety gates (must-pass before oracle comparison)**
+
+  * **Parse gate**: every changed file parses successfully with Prism.
+  * **Idempotence gate**: running autocorrect twice yields no further edits.
+  * **Non-overlap gate**: edits don't overlap and have valid byte ranges.
+  * **No-op gate**: if tool reports edits, at least one file hash must change.
+  * **Done when**: gates run automatically and failures are bucketed as `autocorrect_invalid_output`.
+
+* [ ] **Autocorrect diffing**
+
+  * Compare post-state file hashes between RuboCop and turbocop.
+  * Per-cop: match, mismatch, oracle_failed, tool_failed, invalid_output.
+  * **Done when**: per-cop autocorrect parity table is produced.
+
+* [ ] **Autocorrect allowlist generator**
+
+  * Input: autocorrect diff results.
+  * Output: `autocorrect_safe_allowlist.json` — only cops with 0 mismatches + 0 gate failures.
+  * **Done when**: allowlist is deterministically generated and reviewable in git.
+
+* [ ] **Autocorrect noise buckets**
+
+  * `autocorrect_mismatch` — outputs differ
+  * `autocorrect_invalid_output` — safety gate failed (higher severity)
+  * `autocorrect_oracle_failed` — RuboCop crashed
+  * `autocorrect_tool_failed` — turbocop crashed
+  * **Done when**: buckets are assigned and only `autocorrect_mismatch` blocks promotion.
+
+* [ ] **Autocorrect repro artifacts**
+
+  * Store per mismatch: `pre.rb`, `rubocop_post.rb`, `turbocop_post.rb`, patches, `meta.json`.
+  * Under `results/autocorrect_artifacts/<repo_id>/<cop_name>/`.
+  * **Done when**: any mismatch can be reproduced locally.
+
+---
+
 ### Acceptance criteria for “Phase 2 MVP complete”
 
 Phase 2 MVP is complete when, on a corpus of at least ~100 repos:
@@ -548,3 +615,5 @@ Phase 2 MVP is complete when, on a corpus of at least ~100 repos:
 * turbocop produces normalized JSON results in both modes.
 * Diffing produces a per-cop FP/FN table and highlights top divergences.
 * Tier generator can output a reviewable `tiers.json` that turbocop uses.
+* Autocorrect oracle (safe mode) runs on the corpus and produces per-cop pass/fail.
+* `autocorrect_safe_allowlist.json` is generated from corpus results.

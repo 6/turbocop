@@ -69,10 +69,26 @@ Then use corpus oracle to correct mistakes quickly.
 * Any confirmed Stable FP/FN → demote cop to Preview immediately (until fixed).
 * This keeps CI adoption safe even if initial Stable set is aggressive.
 
-### Autocorrect policy tied to tiers
+### Autocorrect: separate maturity track
 
-* Stable autocorrect: allowed with `-a` / `--autocorrect=safe` (default is off).
-* Preview autocorrect: requires `-A` / `--autocorrect=all` (explicit opt-in for unsafe corrections).
+Autocorrect is **independent from lint parity**. A cop can be Stable for linting but still have autocorrect disabled. Wrong rewrites silently break code — higher risk than a false lint warning.
+
+**Defaults:**
+
+* Autocorrect is **off** by default. `-a` enables safe-only; `-A` enables all.
+* Ship with a small `autocorrect_safe_allowlist.json` — only cops that pass the autocorrect oracle with 0 mismatches on the corpus.
+* Preview cops' autocorrect requires `-A` (explicit opt-in for unsafe corrections).
+
+**Autocorrect oracle lane (Phase 2+):**
+
+* Run RuboCop baseline autocorrect and turbocop autocorrect on disposable repo copies.
+* Compare post-state file contents (hash match).
+* Gate on: parse validity, idempotence (running twice yields no further edits), and non-overlapping edits.
+* Every mismatch becomes a regression fixture.
+* Cops only enter `autocorrect_safe_allowlist.json` after 0 mismatches across the corpus.
+* Any autocorrect bug report immediately removes the cop from the allowlist.
+
+**`migrate` reports autocorrect eligibility** alongside lint status — users can see which cops support autocorrect and which don't.
 
 ---
 
@@ -289,6 +305,7 @@ Even before corpus is perfect:
 * `migrate` (ship early) + `doctor`
 * exit code + strict semantics nailed down
 * NodePattern verifier completed + CI integrated
+* Autocorrect off by default; `-a`/`-A` flags working for existing cops
 * (Optional but recommended) `verify` command (Ruby required, very explicit)
 
 ### Phase 2 (measurement)
@@ -296,6 +313,8 @@ Even before corpus is perfect:
 * corpus runner + basic diffing + per-cop stats (~100 repos)
 * generate `tiers.json` + compatibility table
 * start promoting/demoting based on data
+* **Autocorrect oracle lane**: safe-mode autocorrect comparison on corpus (disposable copies)
+* Initial `autocorrect_safe_allowlist.json` from corpus results
 
 ### Phase 3 (flywheel + polish)
 
@@ -303,11 +322,13 @@ Even before corpus is perfect:
 * expand corpus to ~300 repos (only if still producing novel diffs)
 * better bucketing
 * refine docs and UX based on adoption feedback
+* Expand autocorrect allowlist as cops pass oracle gates
 
 ### Phase 4 (scale, optional)
 
 * corpus to 500-1000 repos (tarball-based, automated maintenance)
 * core frozen set (~50) + rotating set for exploration
+* (Optional) unsafe autocorrect oracle lane
 
 ---
 
