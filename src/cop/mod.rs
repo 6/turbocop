@@ -13,6 +13,7 @@ pub mod rspec;
 pub mod rspec_rails;
 pub mod security;
 pub mod style;
+pub mod tiers;
 pub mod node_type;
 pub mod util;
 pub mod walker;

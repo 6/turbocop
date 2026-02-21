@@ -2073,7 +2073,12 @@ impl ResolvedConfig {
     /// This resolves all enabled states, include/exclude patterns, and global
     /// excludes into compiled `GlobSet` matchers. Call once at startup, then
     /// share across rayon workers.
-    pub fn build_cop_filters(&self, registry: &CopRegistry) -> CopFilterSet {
+    pub fn build_cop_filters(
+        &self,
+        registry: &CopRegistry,
+        tier_map: &crate::cop::tiers::TierMap,
+        preview: bool,
+    ) -> CopFilterSet {
         // Build global exclude set (globs + regexes)
         let global_exclude_pats: Vec<&str> =
             self.global_excludes.iter().map(|s| s.as_str()).collect();
@@ -2172,6 +2177,14 @@ impl ResolvedConfig {
                     enabled = false;
                 }
 
+                // Preview tier gating: preview cops are disabled unless --preview
+                if enabled
+                    && !preview
+                    && tier_map.tier_for(name) == crate::cop::tiers::Tier::Preview
+                {
+                    enabled = false;
+                }
+
                 if !enabled {
                     return CopFilter {
                         enabled: false,
@@ -2264,6 +2277,50 @@ impl ResolvedConfig {
             })
             .map(|(name, _)| name.clone())
             .collect()
+    }
+
+    /// Compute which cops are enabled by config but will not run, grouped by reason.
+    pub fn compute_skip_summary(
+        &self,
+        registry: &CopRegistry,
+        tier_map: &crate::cop::tiers::TierMap,
+        preview: bool,
+    ) -> crate::cop::tiers::SkipSummary {
+        use std::collections::HashSet;
+
+        let registry_names: HashSet<&str> = registry.cops().iter().map(|c| c.name()).collect();
+        let baseline: HashSet<&str> = self
+            .rubocop_known_cops
+            .iter()
+            .map(|s| s.as_str())
+            .chain(self.require_known_cops.iter().map(|s| s.as_str()))
+            .collect();
+
+        let mut summary = crate::cop::tiers::SkipSummary::default();
+
+        for name in self.enabled_cop_names() {
+            if registry_names.contains(name.as_str()) {
+                // Implemented — check if preview-gated
+                if !preview
+                    && tier_map.tier_for(&name) == crate::cop::tiers::Tier::Preview
+                {
+                    summary.preview_gated.push(name);
+                }
+            } else if baseline.contains(name.as_str()) {
+                // In vendor baseline but not implemented
+                summary.unimplemented.push(name);
+            } else {
+                // Not in vendor baseline at all
+                summary.outside_baseline.push(name);
+            }
+        }
+
+        // Sort each bucket for deterministic output
+        summary.preview_gated.sort();
+        summary.unimplemented.sort();
+        summary.outside_baseline.sort();
+
+        summary
     }
 }
 

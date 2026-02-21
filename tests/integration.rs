@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use turbocop::cli::Args;
 use turbocop::config::load_config;
 use turbocop::cop::registry::CopRegistry;
+use turbocop::cop::tiers::TierMap;
 use turbocop::fs::DiscoveredFiles;
 use turbocop::linter::run_linter;
 
@@ -58,6 +59,8 @@ fn default_args() -> Args {
         force_default_config: false,
         autocorrect: false,
         autocorrect_all: false,
+        preview: false,
+        quiet_skips: false,
     }
 }
 
@@ -83,7 +86,7 @@ fn lint_clean_file_no_offenses() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     assert_eq!(result.file_count, 1);
     assert!(
         result.diagnostics.is_empty(),
@@ -106,7 +109,7 @@ fn lint_file_with_multiple_offenses() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     assert_eq!(result.file_count, 1);
 
     let cop_names: Vec<&str> = result.diagnostics.iter().map(|d| d.cop_name.as_str()).collect();
@@ -136,7 +139,7 @@ fn lint_multiple_files() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[f1, f2]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[f1, f2]), &config, &registry, &args, &TierMap::load());
     assert_eq!(result.file_count, 2);
 
     // a.rb should be clean, b.rb should have offenses
@@ -170,7 +173,7 @@ fn only_filter_limits_cops() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
 
     // Only TrailingWhitespace should fire
     for d in &result.diagnostics {
@@ -202,7 +205,7 @@ fn except_filter_excludes_cops() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
 
     let excluded_cops = ["Style/FrozenStringLiteralComment", "Layout/TrailingWhitespace"];
     for d in &result.diagnostics {
@@ -227,7 +230,7 @@ fn only_with_single_cop_on_clean_file() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     assert!(result.diagnostics.is_empty());
 
     fs::remove_dir_all(&dir).ok();
@@ -248,7 +251,7 @@ fn config_disables_cop() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
 
     let disabled_cops = [
         "Layout/TrailingWhitespace",
@@ -286,7 +289,7 @@ fn config_line_length_max_override() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
 
     assert!(
         !result.diagnostics.is_empty(),
@@ -316,7 +319,7 @@ fn default_line_length_allows_120() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     assert!(
         result.diagnostics.is_empty(),
         "120-char line should not trigger default LineLength"
@@ -335,7 +338,7 @@ fn empty_file_no_crash() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     assert_eq!(result.file_count, 1);
     // Should not panic; may or may not have offenses (FrozenStringLiteralComment fires)
 
@@ -352,7 +355,7 @@ fn file_with_syntax_errors_still_lints() {
     let args = default_args();
 
     // Should not panic
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     assert_eq!(result.file_count, 1);
     // Line-based cops should still find offenses (at minimum FrozenStringLiteralComment)
 
@@ -369,7 +372,7 @@ fn binary_content_no_crash() {
     let args = default_args();
 
     // Should not panic
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     assert_eq!(result.file_count, 1);
 
     fs::remove_dir_all(&dir).ok();
@@ -390,7 +393,7 @@ fn crlf_line_endings_detected() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     assert!(
         !result.diagnostics.is_empty(),
         "EndOfLine should detect CRLF"
@@ -415,7 +418,7 @@ fn diagnostics_are_sorted_by_path_then_location() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[f1, f2]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[f1, f2]), &config, &registry, &args, &TierMap::load());
     assert_eq!(result.diagnostics.len(), 2);
     // Diagnostics should be sorted: a.rb before b.rb
     assert!(
@@ -442,7 +445,7 @@ fn all_registered_cops_can_fire() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
 
     let cop_names: Vec<&str> = result
         .diagnostics
@@ -1138,7 +1141,7 @@ fn performance_cops_fire_on_slow_patterns() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let perf_diags: Vec<_> = result
         .diagnostics
         .iter()
@@ -1183,7 +1186,7 @@ fn lint_cops_fire_on_bad_code() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let lint_diags: Vec<_> = result
         .diagnostics
         .iter()
@@ -1232,7 +1235,7 @@ fn json_formatter_includes_all_departments() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
 
     // Collect unique department prefixes
     let departments: std::collections::HashSet<&str> = result
@@ -1287,7 +1290,7 @@ fn migration_cop_filtered_by_path() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[migrate_file, model_file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[migrate_file, model_file]), &config, &registry, &args, &TierMap::load());
 
     // Only the migration file should have offenses
     let migrate_offenses: Vec<_> = result
@@ -1334,7 +1337,7 @@ fn global_exclude_skips_file() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[vendor_file, app_file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[vendor_file, app_file]), &config, &registry, &args, &TierMap::load());
 
     let vendor_offenses: Vec<_> = result
         .diagnostics
@@ -1380,7 +1383,7 @@ fn user_include_override_widens_scope() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[seeds_file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[seeds_file]), &config, &registry, &args, &TierMap::load());
 
     assert!(
         !result.diagnostics.is_empty(),
@@ -1571,7 +1574,7 @@ fn metrics_cops_fire_on_complex_code() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     assert!(
         !result.diagnostics.is_empty(),
         "Metrics/MethodLength should fire on 16-line method"
@@ -1597,7 +1600,7 @@ fn naming_cops_fire_on_bad_names() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let cop_names: Vec<&str> = result.diagnostics.iter().map(|d| d.cop_name.as_str()).collect();
     assert!(
         cop_names.contains(&"Naming/MethodName"),
@@ -1628,7 +1631,7 @@ fn config_overrides_new_departments() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     assert!(
         !result.diagnostics.is_empty(),
         "Metrics/MethodLength should fire with Max:3 on 4-line method"
@@ -1923,7 +1926,7 @@ fn inherited_config_affects_linting() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     assert!(
         result.diagnostics.is_empty(),
         "TrailingWhitespace should be disabled by inherited config, got {} offenses",
@@ -1947,7 +1950,7 @@ fn lint_source_directly() {
         ..default_args()
     };
 
-    let result = lint_source(&source, &config, &registry, &args);
+    let result = lint_source(&source, &config, &registry, &args, &TierMap::load());
     assert_eq!(result.file_count, 1);
     assert!(
         !result.diagnostics.is_empty(),
@@ -2327,7 +2330,7 @@ fn no_redundant_disable_unknown_cop_in_known_department() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2358,7 +2361,7 @@ fn no_redundant_disable_unknown_department() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2388,7 +2391,7 @@ fn no_redundant_disable_running_cop_no_offense() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2417,7 +2420,7 @@ fn no_redundant_disable_when_offense_suppressed() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2462,7 +2465,7 @@ fn no_redundant_disable_with_only_flag() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2493,7 +2496,7 @@ fn redundant_disable_disabled_cop() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2528,7 +2531,7 @@ fn no_redundant_disable_department_used() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2557,7 +2560,7 @@ fn redundant_disable_todo_directive() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2590,7 +2593,7 @@ fn no_redundant_disable_all() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2621,7 +2624,7 @@ fn redundant_disable_renamed_cop_extended_format() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2657,7 +2660,7 @@ fn redundant_disable_renamed_cop_simple_value() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2760,7 +2763,7 @@ fn cache_produces_same_results_as_uncached() {
         cache: "false".to_string(),
         ..default_args()
     };
-    let result_no_cache = run_linter(&discovered(&[file1.clone(), file2.clone()]), &config, &registry, &args_no_cache);
+    let result_no_cache = run_linter(&discovered(&[file1.clone(), file2.clone()]), &config, &registry, &args_no_cache, &TierMap::load());
 
     // Run with cache (cold)
     let cache_dir = dir.join("cache");
@@ -2772,10 +2775,10 @@ fn cache_produces_same_results_as_uncached() {
         cache: "true".to_string(),
         ..default_args()
     };
-    let result_cold = run_linter(&discovered(&[file1.clone(), file2.clone()]), &config, &registry, &args_cached);
+    let result_cold = run_linter(&discovered(&[file1.clone(), file2.clone()]), &config, &registry, &args_cached, &TierMap::load());
 
     // Run with cache (warm)
-    let result_warm = run_linter(&discovered(&[file1.clone(), file2.clone()]), &config, &registry, &args_cached);
+    let result_warm = run_linter(&discovered(&[file1.clone(), file2.clone()]), &config, &registry, &args_cached, &TierMap::load());
 
     unsafe { std::env::remove_var("TURBOCOP_CACHE_DIR") };
 
@@ -2820,14 +2823,14 @@ fn cache_invalidated_by_file_change() {
     };
 
     // First run: should detect trailing whitespace
-    let result1 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    let result1 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load());
     assert_eq!(result1.diagnostics.len(), 1, "Should detect trailing whitespace");
 
     // Modify file to remove the offense
     fs::write(&file, b"x = 1\n").unwrap();
 
     // Second run: file changed, cache should miss, no offense
-    let result2 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    let result2 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load());
     assert_eq!(result2.diagnostics.len(), 0, "After fix, should find no offenses");
 
     unsafe { std::env::remove_var("TURBOCOP_CACHE_DIR") };
@@ -2852,7 +2855,7 @@ fn cache_invalidated_by_config_change() {
         cache: "true".to_string(),
         ..default_args()
     };
-    let result1 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args1);
+    let result1 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args1, &TierMap::load());
     assert_eq!(result1.diagnostics.len(), 1);
 
     // Run with --only a different cop — different session hash, so cache miss
@@ -2861,7 +2864,7 @@ fn cache_invalidated_by_config_change() {
         cache: "true".to_string(),
         ..default_args()
     };
-    let result2 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args2);
+    let result2 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args2, &TierMap::load());
     // Should get different results (FrozenStringLiteralComment, not TrailingWhitespace)
     for d in &result2.diagnostics {
         assert_ne!(
@@ -2961,7 +2964,7 @@ fn redundant_disable_for_disabled_cop() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3007,7 +3010,7 @@ fn redundant_disable_excluded_cop() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3054,7 +3057,7 @@ fn no_redundant_disable_include_mismatch_cop() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3085,7 +3088,7 @@ fn no_redundant_disable_self_referential() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3124,7 +3127,7 @@ fn redundant_disable_mixed_excluded_and_active() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3177,7 +3180,7 @@ fn no_redundant_disable_executed_cop_no_offense() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3208,7 +3211,7 @@ fn redundant_disable_for_renamed_cop() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3244,7 +3247,7 @@ fn no_redundant_disable_for_unknown_cop() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3274,7 +3277,7 @@ fn no_redundant_disable_for_department_only() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3304,7 +3307,7 @@ fn no_redundant_disable_for_all_wildcard() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load());
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3817,7 +3820,7 @@ fn autocorrect_fixes_file_on_disk() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load());
     assert!(
         result.corrected_count > 0,
         "Expected corrected_count > 0, got {}",
@@ -3852,7 +3855,7 @@ fn autocorrect_inserts_frozen_string_literal() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load());
     assert!(
         result.corrected_count > 0,
         "Expected corrected_count > 0, got {}",
@@ -3894,7 +3897,7 @@ fn autocorrect_safe_mode_skips_unsafe_cops() {
         ..default_args()
     };
 
-    let _result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    let _result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load());
 
     let corrected = fs::read(&file).unwrap();
     // TrailingWhitespace should be fixed (safe autocorrect)
@@ -3930,7 +3933,7 @@ fn autocorrect_all_mode_includes_unsafe_cops() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load());
     assert!(
         result.corrected_count > 0,
         "Expected corrected_count > 0, got {}",
@@ -3963,7 +3966,7 @@ fn autocorrect_clean_file_unchanged() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load());
     assert_eq!(
         result.corrected_count, 0,
         "Clean file should have no corrections"
@@ -3998,7 +4001,7 @@ fn autocorrect_multi_iteration_converges() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load());
     assert!(
         result.corrected_count >= 2,
         "Expected at least 2 corrections (leading blanks + trailing whitespace), got {}",
@@ -4032,7 +4035,7 @@ fn autocorrect_corrected_count_across_iterations() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load());
     assert!(
         result.corrected_count >= 3,
         "Expected at least 3 corrections, got {}",
@@ -4063,12 +4066,12 @@ fn autocorrect_idempotent_second_run() {
     };
 
     // First run: fix offenses
-    let result1 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    let result1 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load());
     assert!(result1.corrected_count > 0);
     let after_first = fs::read(&file).unwrap();
 
     // Second run: should find nothing to correct
-    let result2 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    let result2 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load());
     assert_eq!(
         result2.corrected_count, 0,
         "Second run should have no corrections"
@@ -4091,7 +4094,7 @@ fn autocorrect_empty_file_no_crash() {
     };
 
     // Should not panic
-    let _result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    let _result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load());
 
     fs::remove_dir_all(&dir).ok();
 }
@@ -4116,7 +4119,7 @@ fn autocorrect_no_write_when_no_corrections() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load());
     assert_eq!(result.corrected_count, 0);
 
     let mtime_after = fs::metadata(&file).unwrap().modified().unwrap();
@@ -4148,7 +4151,7 @@ fn autocorrect_diagnostics_include_corrected_offenses() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load());
 
     // The file should be corrected
     let content = fs::read_to_string(&file).unwrap();
@@ -4190,7 +4193,7 @@ fn autocorrect_json_output_marks_corrected_offenses() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load());
 
     assert_eq!(result.corrected_count, 1, "Should have corrected 1 offense");
 

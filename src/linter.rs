@@ -10,6 +10,7 @@ use crate::cache::ResultCache;
 use crate::cli::Args;
 use crate::config::{CopFilterSet, ResolvedConfig};
 use crate::cop::registry::CopRegistry;
+use crate::cop::tiers::{SkipSummary, TierMap};
 use crate::cop::walker::BatchedCopWalker;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Location, Severity};
@@ -123,6 +124,7 @@ pub struct LintResult {
     pub diagnostics: Vec<Diagnostic>,
     pub file_count: usize,
     pub corrected_count: usize,
+    pub skip_summary: SkipSummary,
 }
 
 /// Lint a single SourceFile (already loaded into memory). Used for --stdin mode.
@@ -131,8 +133,9 @@ pub fn lint_source(
     config: &ResolvedConfig,
     registry: &CopRegistry,
     args: &Args,
+    tier_map: &TierMap,
 ) -> LintResult {
-    let cop_filters = config.build_cop_filters(registry);
+    let cop_filters = config.build_cop_filters(registry, tier_map, args.preview);
     let base_configs = config.precompute_cop_configs(registry);
     let has_dir_overrides = config.has_dir_overrides();
     let (diagnostics, _corrected_bytes, corrected_count) = lint_source_inner(
@@ -147,10 +150,12 @@ pub fn lint_source(
     );
     let mut sorted = diagnostics;
     sorted.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
+    let skip_summary = config.compute_skip_summary(registry, tier_map, args.preview);
     LintResult {
         diagnostics: sorted,
         file_count: 1,
         corrected_count,
+        skip_summary,
     }
 }
 
@@ -159,11 +164,12 @@ pub fn run_linter(
     config: &ResolvedConfig,
     registry: &CopRegistry,
     args: &Args,
+    tier_map: &TierMap,
 ) -> LintResult {
     let files = &discovered.files;
     let wall_start = std::time::Instant::now();
     // Build cop filters once before the parallel loop
-    let cop_filters = config.build_cop_filters(registry);
+    let cop_filters = config.build_cop_filters(registry, tier_map, args.preview);
     // Pre-compute base cop configs once (avoids HashMap clone per cop per file)
     let base_configs = config.precompute_cop_configs(registry);
     let has_dir_overrides = config.has_dir_overrides();
@@ -317,10 +323,12 @@ pub fn run_linter(
     }
 
     let corrected_count = total_corrected.load(std::sync::atomic::Ordering::Relaxed);
+    let skip_summary = config.compute_skip_summary(registry, tier_map, args.preview);
     LintResult {
         diagnostics: sorted,
         file_count: files.len(),
         corrected_count,
+        skip_summary,
     }
 }
 

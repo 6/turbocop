@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "default_tier": "stable",
+  "overrides": {
+    "Performance/BigDecimalWithNumericArgument": "preview",
+    "Performance/RedundantMerge": "preview",
+    "Rails/Pluck": "preview",
+    "Rails/I18nLocaleAssignment": "preview",
+    "Rails/CompactBlank": "preview",
+    "Rails/Presence": "preview",
+    "Rails/Pick": "preview",
+    "Rails/Exit": "preview"
+  }
+}

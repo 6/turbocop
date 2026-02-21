@@ -9,10 +9,14 @@ pub mod text;
 use std::io::Write;
 use std::path::PathBuf;
 
+use crate::cop::tiers::SkipSummary;
 use crate::diagnostic::Diagnostic;
 
 pub trait Formatter {
     fn format_to(&self, diagnostics: &[Diagnostic], files: &[PathBuf], out: &mut dyn Write);
+
+    /// Provide skip summary data for formatters that include it in output (e.g. JSON).
+    fn set_skip_summary(&mut self, _summary: SkipSummary) {}
 
     fn print(&self, diagnostics: &[Diagnostic], files: &[PathBuf]) {
         let stdout = std::io::stdout();
@@ -23,7 +27,7 @@ pub trait Formatter {
 
 pub fn create_formatter(format: &str) -> Box<dyn Formatter> {
     match format {
-        "json" => Box::new(json::JsonFormatter),
+        "json" => Box::new(json::JsonFormatter::new()),
         "github" => Box::new(github::GithubFormatter),
         "pacman" => Box::new(pacman::PacmanFormatter),
         "quiet" => Box::new(quiet::QuietFormatter),

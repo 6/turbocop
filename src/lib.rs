@@ -20,6 +20,7 @@ use anyhow::Result;
 use cli::Args;
 use config::load_config;
 use cop::registry::CopRegistry;
+use cop::tiers::TierMap;
 use formatter::create_formatter;
 use fs::discover_files;
 use linter::{lint_source, run_linter};
@@ -51,6 +52,7 @@ pub fn run(args: Args) -> Result<i32> {
     });
 
     let registry = CopRegistry::default_registry();
+    let tier_map = TierMap::load();
 
     // --list-cops: print all registered cop names and exit (no config needed)
     if args.list_cops {
@@ -192,8 +194,9 @@ pub fn run(args: Args) -> Result<i32> {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input)?;
         let source = SourceFile::from_string(display_path.clone(), input);
-        let result = lint_source(&source, &config, &registry, &args);
-        let formatter = create_formatter(&args.format);
+        let result = lint_source(&source, &config, &registry, &args, &tier_map);
+        let mut formatter = create_formatter(&args.format);
+        formatter.set_skip_summary(result.skip_summary);
         formatter.print(&result.diagnostics, &[display_path.clone()]);
         return if result
             .diagnostics
@@ -210,7 +213,7 @@ pub fn run(args: Args) -> Result<i32> {
 
     // --list-target-files (-L): print files that would be linted, then exit
     if args.list_target_files {
-        let cop_filters = config.build_cop_filters(&registry);
+        let cop_filters = config.build_cop_filters(&registry, &tier_map, args.preview);
         for file in &discovered.files {
             if cop_filters.is_globally_excluded(file) {
                 let is_explicit = discovered.explicit.contains(file)
@@ -232,8 +235,30 @@ pub fn run(args: Args) -> Result<i32> {
         eprintln!("debug: {} cops registered", registry.len());
     }
 
-    let result = run_linter(&discovered, &config, &registry, &args);
-    let formatter = create_formatter(&args.format);
+    let result = run_linter(&discovered, &config, &registry, &args, &tier_map);
+
+    // Print skip summary to stderr unless suppressed
+    if !args.quiet_skips && !result.skip_summary.is_empty() {
+        let s = &result.skip_summary;
+        let mut parts = Vec::new();
+        if !s.preview_gated.is_empty() {
+            parts.push(format!("{} preview-gated", s.preview_gated.len()));
+        }
+        if !s.unimplemented.is_empty() {
+            parts.push(format!("{} unimplemented", s.unimplemented.len()));
+        }
+        if !s.outside_baseline.is_empty() {
+            parts.push(format!("{} outside baseline", s.outside_baseline.len()));
+        }
+        eprintln!(
+            "Skipped {} cops ({}). Run `turbocop migrate` for details.",
+            s.total(),
+            parts.join(", "),
+        );
+    }
+
+    let mut formatter = create_formatter(&args.format);
+    formatter.set_skip_summary(result.skip_summary);
     formatter.print(&result.diagnostics, &discovered.files);
 
     if result

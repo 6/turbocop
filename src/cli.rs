@@ -117,6 +117,14 @@ pub struct Args {
     /// Autocorrect offenses (all cops, including unsafe)
     #[arg(short = 'A', long = "autocorrect-all")]
     pub autocorrect_all: bool,
+
+    /// Enable preview-tier cops (unstable, may have false positives)
+    #[arg(long)]
+    pub preview: bool,
+
+    /// Suppress the skip summary notice at the end of a run
+    #[arg(long)]
+    pub quiet_skips: bool,
 }
 
 impl Args {

@@ -3,15 +3,28 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+use crate::cop::tiers::SkipSummary;
 use crate::diagnostic::Diagnostic;
 use crate::formatter::Formatter;
 
-pub struct JsonFormatter;
+pub struct JsonFormatter {
+    skip_summary: Option<SkipSummary>,
+}
+
+impl JsonFormatter {
+    pub fn new() -> Self {
+        Self {
+            skip_summary: None,
+        }
+    }
+}
 
 #[derive(Serialize)]
 struct JsonOutput {
     metadata: Metadata,
     offenses: Vec<Offense>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    skipped: Option<SkippedOutput>,
 }
 
 #[derive(Serialize)]
@@ -32,9 +45,29 @@ struct Offense {
     corrected: bool,
 }
 
+#[derive(Serialize)]
+struct SkippedOutput {
+    preview_gated: Vec<String>,
+    unimplemented: Vec<String>,
+    outside_baseline: Vec<String>,
+    total: usize,
+}
+
 impl Formatter for JsonFormatter {
+    fn set_skip_summary(&mut self, summary: SkipSummary) {
+        self.skip_summary = Some(summary);
+    }
+
     fn format_to(&self, diagnostics: &[Diagnostic], files: &[PathBuf], out: &mut dyn Write) {
         let corrected_count = diagnostics.iter().filter(|d| d.corrected).count();
+
+        let skipped = self.skip_summary.as_ref().map(|s| SkippedOutput {
+            total: s.total(),
+            preview_gated: s.preview_gated.clone(),
+            unimplemented: s.unimplemented.clone(),
+            outside_baseline: s.outside_baseline.clone(),
+        });
+
         let output = JsonOutput {
             metadata: Metadata {
                 files_inspected: files.len(),
@@ -53,6 +86,7 @@ impl Formatter for JsonFormatter {
                     corrected: d.corrected,
                 })
                 .collect(),
+            skipped,
         };
         // Safe to unwrap: our types always serialize successfully
         let _ = writeln!(out, "{}", serde_json::to_string_pretty(&output).unwrap());
@@ -66,7 +100,19 @@ mod tests {
 
     fn render(diagnostics: &[Diagnostic], files: &[PathBuf]) -> String {
         let mut buf = Vec::new();
-        JsonFormatter.format_to(diagnostics, files, &mut buf);
+        JsonFormatter::new().format_to(diagnostics, files, &mut buf);
+        String::from_utf8(buf).unwrap()
+    }
+
+    fn render_with_skips(
+        diagnostics: &[Diagnostic],
+        files: &[PathBuf],
+        summary: SkipSummary,
+    ) -> String {
+        let mut f = JsonFormatter::new();
+        f.set_skip_summary(summary);
+        let mut buf = Vec::new();
+        f.format_to(diagnostics, files, &mut buf);
         String::from_utf8(buf).unwrap()
     }
 
@@ -80,6 +126,29 @@ mod tests {
     }
 
     #[test]
+    fn no_skipped_field_without_summary() {
+        let out = render(&[], &[]);
+        let parsed: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
+        assert!(parsed.get("skipped").is_none());
+    }
+
+    #[test]
+    fn skipped_field_present_with_summary() {
+        let summary = SkipSummary {
+            preview_gated: vec!["Rails/Pluck".into()],
+            unimplemented: vec!["Custom/Foo".into(), "Custom/Bar".into()],
+            outside_baseline: vec!["Unknown/Baz".into()],
+        };
+        let out = render_with_skips(&[], &[], summary);
+        let parsed: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
+        let skipped = &parsed["skipped"];
+        assert_eq!(skipped["total"], 4);
+        assert_eq!(skipped["preview_gated"].as_array().unwrap().len(), 1);
+        assert_eq!(skipped["unimplemented"].as_array().unwrap().len(), 2);
+        assert_eq!(skipped["outside_baseline"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
     fn offense_fields_present() {
         let d = Diagnostic {
             path: "foo.rb".to_string(),
@@ -87,7 +156,6 @@ mod tests {
             severity: Severity::Warning,
             cop_name: "Style/Foo".to_string(),
             message: "bad".to_string(),
-
             corrected: false,
         };
         let out = render(&[d], &[PathBuf::from("foo.rb")]);
@@ -105,7 +173,7 @@ mod tests {
 
     #[test]
     fn corrected_field_serialized() {
-        let mut d1 = Diagnostic {
+        let d1 = Diagnostic {
             path: "a.rb".to_string(),
             location: Location { line: 1, column: 0 },
             severity: Severity::Convention,
