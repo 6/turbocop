@@ -1,18 +1,18 @@
 # turbocop
 
-A RuboCop rewrite in Rust. 18x faster, 900+ cops, drop-in compatible.
+A RuboCop rewrite in Rust. 23x faster, 900+ cops, drop-in compatible.
 
 Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (1,222 files), Apple Silicon:
 
-| Mode | turbocop | RuboCop | Speedup |
-|------|-------:|--------:|--------:|
-| Cached (warm) | **81ms** | 1.47s | **18x** |
-| No cache | **203ms** | 17.53s | **86x** |
+| Scenario | turbocop | RuboCop | Speedup |
+|----------|-------:|--------:|--------:|
+| Local dev (50 files changed) | **62ms** | 1.41s | **23x** |
+| CI (no cache) | **198ms** | 17.03s | **86x** |
 
 **Features**
 
 - **915 cops** from 6 RuboCop gems (rubocop, rubocop-rails, rubocop-performance, rubocop-rspec, rubocop-rspec_rails, rubocop-factory_bot)
-- **18x faster** than RuboCop (cached), **84x faster** uncached on [rubygems.org](https://github.com/rubygems/rubygems.org) (1,222 files)
+- **23x faster** than RuboCop (local dev), **86x faster** uncached on [rubygems.org](https://github.com/rubygems/rubygems.org) (1,222 files)
 - **100% conformance** against RuboCop on 14 benchmark repos
 - **Autocorrect** (`-a`/`-A`) is not fully supported yet — work in progress
 - Reads your existing `.rubocop.yml` — no migration needed
