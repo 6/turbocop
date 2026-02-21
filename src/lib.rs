@@ -11,6 +11,7 @@ pub mod linter;
 pub mod migrate;
 pub mod parse;
 pub mod rules;
+pub mod verify;
 
 #[cfg(test)]
 pub mod testutil;
@@ -271,6 +272,21 @@ pub fn run(args: Args) -> Result<i32> {
     if args.doctor {
         doctor::run_doctor(&config, &registry, &tier_map, target_dir);
         return Ok(0);
+    }
+
+    // --verify: compare turbocop output against RuboCop
+    if args.verify {
+        let result = verify::run_verify(&args, &config, &registry, &tier_map, &allowlist)?;
+        if args.format == "json" {
+            verify::print_json(&result);
+        } else {
+            verify::print_text(&result);
+        }
+        return Ok(if result.false_positives + result.false_negatives > 0 {
+            1
+        } else {
+            0
+        });
     }
 
     if args.debug {

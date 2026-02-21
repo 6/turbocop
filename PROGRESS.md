@@ -60,9 +60,9 @@
 
 ### `verify` command (optional but recommended)
 
-- [ ] `turbocop verify [PATH]` — oracle mode, requires Ruby
-- [ ] Runs both tools, normalizes JSON, diffs per cop
-- [ ] Exit codes: 0 (match), 1 (diffs), 3 (tool error)
+- [x] `turbocop verify [PATH]` — oracle mode, requires Ruby
+- [x] Runs both tools, normalizes JSON, diffs per cop
+- [x] Exit codes: 0 (match), 1 (diffs), 3 (tool error)
 
 ### Doc consolidation
 

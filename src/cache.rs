@@ -515,6 +515,8 @@ mod tests {
             preview: false,
             quiet_skips: false,
             strict: None,
+            verify: false,
+            rubocop_cmd: "bundle exec rubocop".to_string(),
         }
     }
 

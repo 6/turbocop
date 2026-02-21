@@ -155,6 +155,14 @@ pub struct Args {
     /// Fail with exit code 2 if skipped cops violate the strict scope
     #[arg(long, value_name = "SCOPE", default_missing_value = "coverage", num_args = 0..=1)]
     pub strict: Option<String>,
+
+    /// Compare turbocop output against RuboCop (requires Ruby), then exit
+    #[arg(long)]
+    pub verify: bool,
+
+    /// Override RuboCop command for --verify (default: "bundle exec rubocop")
+    #[arg(long, value_name = "CMD", default_value = "bundle exec rubocop")]
+    pub rubocop_cmd: String,
 }
 
 impl Args {
@@ -221,6 +229,8 @@ mod tests {
             preview: false,
             quiet_skips: false,
             strict: val.map(|s| s.to_string()),
+            verify: false,
+            rubocop_cmd: "bundle exec rubocop".to_string(),
         }
     }
 
