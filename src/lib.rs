@@ -12,6 +12,7 @@ pub mod migrate;
 pub mod node_pattern;
 pub mod parse;
 pub mod rules;
+pub mod schema;
 pub mod verify;
 
 #[cfg(test)]

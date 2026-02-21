@@ -476,7 +476,7 @@ fn all_registered_cops_can_fire() {
 #[test]
 fn registry_has_expected_cop_count() {
     let registry = CopRegistry::default_registry();
-    assert_eq!(registry.len(), 915, "Expected 915 registered cops");
+    assert_eq!(registry.len(), 917, "Expected 917 registered cops");
 
     let names = registry.names();
     let expected = [
@@ -1027,8 +1027,9 @@ fn registry_has_expected_cop_count() {
         "Rails/ToFormattedS",
         "Rails/ToSWithArgument",
         "Rails/TransactionExitStatement",
-        // UniqueValidationWithoutIndex disabled (requires schema analysis)
+        "Rails/UniqueValidationWithoutIndex",
         "Rails/UnknownEnv",
+        "Rails/UnusedIgnoredColumns",
         "Rails/UnusedRenderContent",
         "Rails/Validation",
         "Rails/WhereExists",
@@ -1991,8 +1992,8 @@ fn list_cops_prints_all_registered_cops() {
     let lines: Vec<&str> = stdout.lines().collect();
     assert_eq!(
         lines.len(),
-        915,
-        "Expected 915 cop names, got {}",
+        917,
+        "Expected 917 cop names, got {}",
         lines.len()
     );
 

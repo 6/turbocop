@@ -171,6 +171,10 @@ pub fn run_linter(
 ) -> LintResult {
     let files = &discovered.files;
     let wall_start = std::time::Instant::now();
+
+    // Initialize schema (db/schema.rb) for schema-aware cops
+    crate::schema::init(config.config_dir());
+
     // Build cop filters once before the parallel loop
     let cop_filters = config.build_cop_filters(registry, tier_map, args.preview);
     // Pre-compute base cop configs once (avoids HashMap clone per cop per file)

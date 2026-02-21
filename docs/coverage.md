@@ -4,14 +4,14 @@
 
 ## Cop Coverage
 
-**turbocop cops:** 915
+**turbocop cops:** 917
 
 ### By Gem
 
 | Gem | Version | Departments | RuboCop | turbocop | Coverage |
 |-----|---------|-------------|--------:|-------:|---------:|
 | rubocop | 1.84.2 | Layout, Lint, Style, Metrics, Naming, Security, Bundler, Gemspec, Migration | 593 | 595 | **100%** |
-| rubocop-rails | 2.34.3 | Rails | 138 | 136 | 99% |
+| rubocop-rails | 2.34.3 | Rails | 138 | 138 | **100%** |
 | rubocop-performance | 1.26.1 | Performance | 52 | 52 | **100%** |
 | rubocop-rspec | 3.9.0 | RSpec | 113 | 113 | **100%** |
 | rubocop-rspec_rails | 2.32.0 | RSpecRails | 8 | 8 | **100%** |
@@ -30,20 +30,16 @@
 | Bundler | 7 | 7 | **100%** |
 | Gemspec | 10 | 10 | **100%** |
 | Migration | 1 | 1 | **100%** |
-| Rails | 138 | 136 | 99% |
+| Rails | 138 | 138 | **100%** |
 | Performance | 52 | 52 | **100%** |
 | RSpec | 113 | 113 | **100%** |
 | RSpecRails (gem) | 8 | 8 | **100%** |
 | FactoryBot | 11 | 11 | **100%** |
-| **Total** | **915** | **915** | **100.0%** |
+| **Total** | **915** | **917** | **100.2%** |
 
 ## Missing Cops
 
-### Rails (2 missing)
-
-- `Rails/UniqueValidationWithoutIndex`
-- `Rails/UnusedIgnoredColumns`
-
+All vendor cops are implemented.
 
 ### Extra Cops (in turbocop, not in vendor)
 
@@ -53,7 +49,7 @@
 
 ## Conformance
 
-Location-level comparison: file + line + cop_name. Only cops implemented by turbocop (915) are compared.
+Location-level comparison: file + line + cop_name. Only cops implemented by turbocop (917) are compared.
 
 | Repo | turbocop | rubocop | Matches | FP (turbocop only) | FN (rubocop only) | Match rate |
 |------|-------:|--------:|--------:|-----------------:|------------------:|-----------:|

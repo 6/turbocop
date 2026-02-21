@@ -1,14 +1,25 @@
-# Not a uniqueness validation
-validates :account, length: { minimum: 5 }
+class User < ApplicationRecord
+  # Has a matching unique index on email
+  validates :email, uniqueness: true
 
-# Uniqueness explicitly false
-validates :account, uniqueness: false
+  # Not a uniqueness validation
+  validates :account, length: { minimum: 5 }
 
-# Presence validation
-validates :name, presence: true
+  # Uniqueness explicitly false
+  validates :account, uniqueness: false
 
-# Format validation
-validates :email, format: { with: /\A[^@]+@[^@]+\z/ }
+  # Presence validation
+  validates :name, presence: true
 
-# Other validation types
-validates :age, numericality: { greater_than: 0 }
+  # Format validation
+  validates :email, format: { with: /\A[^@]+@[^@]+\z/ }
+
+  # Other validation types
+  validates :account, numericality: { greater_than: 0 }
+
+  # Conditional uniqueness — skipped
+  validates :account, uniqueness: true, if: :active?
+
+  # Conditional inside uniqueness hash — skipped
+  validates :account, uniqueness: { unless: :draft? }
+end

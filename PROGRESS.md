@@ -1,6 +1,6 @@
 # turbocop — Phase 1 Progress
 
-> For pre-Phase-1 history (M0–M20, 915 cops, 12/12 bench repos at 100%), see
+> For pre-Phase-1 history (M0–M20, 917 cops, 12/12 bench repos at 100%), see
 > `docs/archive/PROGRESS_v1.md`. For the full plan, see `docs/PLAN.md`.
 
 ## Phase 1: Adoption + Safety
@@ -76,6 +76,6 @@ See **[docs/coverage.md](docs/coverage.md)** for the auto-generated coverage tab
 
 | Stat | Value |
 |------|-------|
-| Cops registered | 915 |
+| Cops registered | 917 |
 | Bench repos at 100% | 12/12 |
 | Departments at 100% | 14 |

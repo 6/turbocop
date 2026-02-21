@@ -192,31 +192,7 @@ impl Cop for SpecFilePathFormat {
 }
 
 fn camel_to_snake(s: &str) -> String {
-    // Matches Ruby's ActiveSupport `underscore` method:
-    // 1. Insert underscore between acronym run and next word: "URLValidator" → "URL_Validator"
-    // 2. Insert underscore between lowercase/digit and uppercase: "fooBar" → "foo_Bar"
-    // 3. Lowercase everything
-    let chars: Vec<char> = s.chars().collect();
-    let mut result = String::new();
-    for (i, &c) in chars.iter().enumerate() {
-        if c.is_uppercase() && i > 0 {
-            let prev = chars[i - 1];
-            if prev.is_lowercase() || prev.is_ascii_digit() {
-                // Pattern: lowercase/digit followed by uppercase → insert underscore
-                result.push('_');
-            } else if prev.is_uppercase() {
-                // Check if next char is lowercase (end of acronym)
-                // "URL" + "Validator" → at 'V', prev='L' is upper, next='a' is lower
-                // But at 'L' in "URL", prev='R' is upper, next='V' is upper → no underscore
-                if i + 1 < chars.len() && chars[i + 1].is_lowercase() {
-                    // This uppercase char starts a new word after an acronym
-                    result.push('_');
-                }
-            }
-        }
-        result.push(c.to_ascii_lowercase());
-    }
-    result
+    crate::schema::camel_to_snake(s)
 }
 
 fn path_matches(path: &str, expected_class: &str, method: Option<&str>) -> bool {
