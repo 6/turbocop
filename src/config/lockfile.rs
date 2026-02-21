@@ -169,3 +169,180 @@ fn days_to_ymd(mut days: u64) -> (u64, u64, u64) {
 fn is_leap(y: u64) -> bool {
     (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::sync::Mutex;
+
+    /// Mutex to serialize tests that mutate TURBOCOP_CACHE_DIR.
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
+
+    /// Run a closure with TURBOCOP_CACHE_DIR pointed at a temp directory.
+    /// Serialized via ENV_MUTEX to prevent races with other tests.
+    fn with_cache_dir(tmp: &Path, f: impl FnOnce()) {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let prev = std::env::var("TURBOCOP_CACHE_DIR").ok();
+        // SAFETY: holding ENV_MUTEX ensures no other test is concurrently
+        // reading/writing this env var.
+        unsafe { std::env::set_var("TURBOCOP_CACHE_DIR", tmp) };
+        f();
+        match prev {
+            Some(v) => unsafe { std::env::set_var("TURBOCOP_CACHE_DIR", v) },
+            None => unsafe { std::env::remove_var("TURBOCOP_CACHE_DIR") },
+        }
+    }
+
+    #[test]
+    fn lockfile_path_lives_under_lockfiles_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        with_cache_dir(tmp.path(), || {
+            let project = tempfile::tempdir().unwrap();
+            let path = lockfile_path(project.path());
+            // The path should contain a "lockfiles" component and end with .json
+            let components: Vec<_> = path.components().collect();
+            let has_lockfiles = components.iter().any(|c| {
+                c.as_os_str() == "lockfiles"
+            });
+            assert!(has_lockfiles, "path should contain 'lockfiles' dir: {}", path.display());
+            assert!(path.to_string_lossy().ends_with(".json"), "path should end with .json: {}", path.display());
+        });
+    }
+
+    #[test]
+    fn lockfile_path_is_stable_for_same_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        with_cache_dir(tmp.path(), || {
+            let project = tempfile::tempdir().unwrap();
+            let p1 = lockfile_path(project.path());
+            let p2 = lockfile_path(project.path());
+            assert_eq!(p1, p2);
+        });
+    }
+
+    #[test]
+    fn lockfile_path_differs_for_different_dirs() {
+        let tmp = tempfile::tempdir().unwrap();
+        with_cache_dir(tmp.path(), || {
+            let project_a = tempfile::tempdir().unwrap();
+            let project_b = tempfile::tempdir().unwrap();
+            let p1 = lockfile_path(project_a.path());
+            let p2 = lockfile_path(project_b.path());
+            assert_ne!(p1, p2);
+        });
+    }
+
+    #[test]
+    fn symlink_resolves_to_same_lockfile() {
+        let tmp = tempfile::tempdir().unwrap();
+        with_cache_dir(tmp.path(), || {
+            let project = tempfile::tempdir().unwrap();
+            let link = tmp.path().join("symlink_project");
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(project.path(), &link).unwrap();
+            #[cfg(not(unix))]
+            return; // skip on non-unix
+            let p1 = lockfile_path(project.path());
+            let p2 = lockfile_path(&link);
+            assert_eq!(p1, p2);
+        });
+    }
+
+    #[test]
+    fn write_read_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        // Create a Gemfile.lock so hash_file succeeds
+        std::fs::write(project.path().join("Gemfile.lock"), b"GEM\n").unwrap();
+
+        with_cache_dir(tmp.path(), || {
+            let mut gems = HashMap::new();
+            gems.insert("rubocop".to_string(), PathBuf::from("/usr/gems/rubocop"));
+
+            write_lock(&gems, project.path()).unwrap();
+
+            // Verify file was created at the expected location
+            let expected = lockfile_path(project.path());
+            assert!(expected.exists(), "lockfile not created at {}", expected.display());
+
+            // Verify no .turbocop.cache was created in project dir
+            assert!(!project.path().join(".turbocop.cache").exists());
+
+            // Read it back
+            let lock = read_lock(project.path()).unwrap();
+            assert_eq!(lock.version, 1);
+            assert_eq!(lock.gems.len(), 1);
+            assert_eq!(
+                lock.gems.get("rubocop").unwrap(),
+                &PathBuf::from("/usr/gems/rubocop")
+            );
+            assert!(lock.gemfile_lock_sha256.is_some());
+        });
+    }
+
+    #[test]
+    fn read_lock_falls_back_to_legacy_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+
+        // Write a legacy .turbocop.cache in the project root
+        let legacy = TurboCopLock {
+            version: 1,
+            generated_at: "2026-01-01T00:00:00Z".to_string(),
+            gemfile_lock_sha256: None,
+            gems: HashMap::new(),
+        };
+        let json = serde_json::to_string_pretty(&legacy).unwrap();
+        std::fs::write(project.path().join(".turbocop.cache"), json).unwrap();
+
+        with_cache_dir(tmp.path(), || {
+            // No new-location lockfile exists, should fall back to legacy
+            let lock = read_lock(project.path()).unwrap();
+            assert_eq!(lock.version, 1);
+            assert_eq!(lock.generated_at, "2026-01-01T00:00:00Z");
+        });
+    }
+
+    #[test]
+    fn new_location_takes_precedence_over_legacy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(project.path().join("Gemfile.lock"), b"GEM\n").unwrap();
+
+        // Write a legacy .turbocop.cache in the project root
+        let legacy = TurboCopLock {
+            version: 1,
+            generated_at: "legacy".to_string(),
+            gemfile_lock_sha256: None,
+            gems: HashMap::new(),
+        };
+        let json = serde_json::to_string_pretty(&legacy).unwrap();
+        std::fs::write(project.path().join(".turbocop.cache"), json).unwrap();
+
+        with_cache_dir(tmp.path(), || {
+            // Write to new location
+            let mut gems = HashMap::new();
+            gems.insert("rails".to_string(), PathBuf::from("/gems/rails"));
+            write_lock(&gems, project.path()).unwrap();
+
+            // Should read from new location, not legacy
+            let lock = read_lock(project.path()).unwrap();
+            assert_eq!(lock.gems.len(), 1);
+            assert!(lock.gems.contains_key("rails"));
+        });
+    }
+
+    #[test]
+    fn read_lock_missing_returns_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+
+        with_cache_dir(tmp.path(), || {
+            let err = read_lock(project.path()).unwrap_err();
+            let msg = err.to_string();
+            assert!(msg.contains("No lockfile found"), "unexpected error: {msg}");
+            assert!(msg.contains("turbocop --init"), "unexpected error: {msg}");
+        });
+    }
+}
