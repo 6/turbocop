@@ -23,15 +23,19 @@ impl Cop for Caller {
     diagnostics: &mut Vec<Diagnostic>,
     _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Pattern 1: caller.first or caller[n]
+        // Pattern: caller.first, caller[n], caller_locations.first, caller_locations[n]
         if let Some(chain) = as_method_chain(node) {
-            if chain.inner_method == b"caller" && chain.inner_call.receiver().is_none() {
-                // inner call is bare `caller` (no receiver)
+            let is_caller = chain.inner_method == b"caller";
+            let is_caller_locations = chain.inner_method == b"caller_locations";
+            if (is_caller || is_caller_locations) && chain.inner_call.receiver().is_none() {
+                // inner call is bare `caller` or `caller_locations` (no receiver)
                 if chain.inner_call.arguments().is_none() {
                     if chain.outer_method == b"first" || chain.outer_method == b"[]" {
                         let loc = node.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        diagnostics.push(self.diagnostic(source, line, column, "Use `caller(n..n).first` instead of `caller.first` or `caller[n]`.".to_string()));
+                        let method = if is_caller { "caller" } else { "caller_locations" };
+                        diagnostics.push(self.diagnostic(source, line, column,
+                            format!("Use `{method}(n..n).first` instead of `{method}.first` or `{method}[n]`.")));
                     }
                 }
             }

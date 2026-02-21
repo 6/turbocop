@@ -25,65 +25,84 @@ impl Cop for QuotedSymbols {
     ) {
         let style = config.get_str("EnforcedStyle", "same_as_string_literals");
 
-        // Check for quoted symbols :'foo' or :"foo"
-        let loc = node.location();
+        let sym = match node.as_symbol_node() {
+            Some(s) => s,
+            None => return,
+        };
+
+        let loc = sym.location();
         let src_bytes = loc.as_slice();
 
-        if node.as_symbol_node().is_some() {
-            // Check if it's a quoted symbol
-            if src_bytes.starts_with(b":\"") {
-                // Double-quoted symbol
-                // Check if it needs interpolation or escape sequences
-                if src_bytes.len() > 3 {
-                    let inner = &src_bytes[2..src_bytes.len().saturating_sub(1)];
-                    let has_interpolation = inner.windows(2).any(|w| w == b"#{");
-                    let has_escape = inner.contains(&b'\\');
-                    let has_single_quote = inner.contains(&b'\'');
+        // Determine if this is a hash-key symbol (e.g. "invest": or 'invest':)
+        // vs a standalone symbol (e.g. :"foo" or :'foo')
+        let is_hash_key_double = src_bytes.starts_with(b"\"") && src_bytes.ends_with(b"\":");
+        let is_hash_key_single = src_bytes.starts_with(b"'") && src_bytes.ends_with(b"':");
+        let is_standalone_double = src_bytes.starts_with(b":\"");
+        let is_standalone_single = src_bytes.starts_with(b":'");
 
-                    if has_interpolation || has_escape {
-                        return; // Double quotes needed
-                    }
+        let is_double_quoted = is_hash_key_double || is_standalone_double;
+        let is_single_quoted = is_hash_key_single || is_standalone_single;
 
-                    let prefer_single = match style {
-                        "single_quotes" => true,
-                        "same_as_string_literals" => {
-                            // Look up the Style/StringLiterals EnforcedStyle (injected by config)
-                            let sl_style = config.get_str("StringLiteralsEnforcedStyle", "single_quotes");
-                            sl_style != "double_quotes"
-                        }
-                        "double_quotes" => false,
-                        _ => true,
-                    };
+        if is_double_quoted {
+            // Extract inner content (between the quotes)
+            let inner = if is_hash_key_double {
+                &src_bytes[1..src_bytes.len().saturating_sub(2)] // strip leading " and trailing ":
+            } else {
+                &src_bytes[2..src_bytes.len().saturating_sub(1)] // strip leading :" and trailing "
+            };
+            if inner.is_empty() {
+                return;
+            }
 
-                    if prefer_single && !has_single_quote {
-                        let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        diagnostics.push(self.diagnostic(
-                            source,
-                            line,
-                            column,
-                            "Prefer single-quoted symbols when you don't need string interpolation or special symbols.".to_string(),
-                        ));
-                    }
+            let has_interpolation = inner.windows(2).any(|w| w == b"#{");
+            let has_escape = inner.contains(&b'\\');
+            let has_single_quote = inner.contains(&b'\'');
+
+            if has_interpolation || has_escape {
+                return; // Double quotes needed
+            }
+
+            let prefer_single = match style {
+                "single_quotes" => true,
+                "same_as_string_literals" => {
+                    let sl_style = config.get_str("StringLiteralsEnforcedStyle", "single_quotes");
+                    sl_style != "double_quotes"
                 }
-            } else if src_bytes.starts_with(b":'") {
-                // Single-quoted symbol
-                if src_bytes.len() > 3 {
-                    let inner = &src_bytes[2..src_bytes.len().saturating_sub(1)];
-                    let has_double_quote = inner.contains(&b'"');
+                "double_quotes" => false,
+                _ => true,
+            };
 
-                    if style == "double_quotes" && !has_double_quote {
-                        let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        diagnostics.push(self.diagnostic(
-                            source,
-                            line,
-                            column,
-                            "Prefer double-quoted symbols.".to_string(),
-                        ));
-                    }
-                }
+            if prefer_single && !has_single_quote {
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Prefer single-quoted symbols when you don't need string interpolation or special symbols.".to_string(),
+                ));
+            }
+        } else if is_single_quoted {
+            let inner = if is_hash_key_single {
+                &src_bytes[1..src_bytes.len().saturating_sub(2)] // strip leading ' and trailing ':
+            } else {
+                &src_bytes[2..src_bytes.len().saturating_sub(1)] // strip leading :' and trailing '
+            };
+            if inner.is_empty() {
+                return;
+            }
+
+            let has_double_quote = inner.contains(&b'"');
+
+            if style == "double_quotes" && !has_double_quote {
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Prefer double-quoted symbols.".to_string(),
+                ));
             }
         }
-
     }
 }
 

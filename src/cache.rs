@@ -508,6 +508,8 @@ mod tests {
             force_default_config: false,
             autocorrect: false,
             autocorrect_all: false,
+            preview: false,
+            quiet_skips: false,
         }
     }
 
