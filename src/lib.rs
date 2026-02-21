@@ -116,6 +116,7 @@ pub fn run(args: Args) -> Result<i32> {
 
     let registry = CopRegistry::default_registry();
     let tier_map = TierMap::load();
+    let allowlist = cop::autocorrect_allowlist::AutocorrectAllowlist::load();
 
     // --list-cops: print all registered cop names and exit (no config needed)
     if args.list_cops {
@@ -286,7 +287,7 @@ pub fn run(args: Args) -> Result<i32> {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input)?;
         let source = SourceFile::from_string(display_path.clone(), input);
-        let result = lint_source(&source, &config, &registry, &args, &tier_map);
+        let result = lint_source(&source, &config, &registry, &args, &tier_map, &allowlist);
         let mut formatter = create_formatter(&args.format);
         formatter.set_skip_summary(result.skip_summary.clone());
         formatter.print(&result.diagnostics, &[display_path.clone()]);
@@ -336,7 +337,7 @@ pub fn run(args: Args) -> Result<i32> {
         eprintln!("debug: {} cops registered", registry.len());
     }
 
-    let result = run_linter(&discovered, &config, &registry, &args, &tier_map);
+    let result = run_linter(&discovered, &config, &registry, &args, &tier_map, &allowlist);
 
     // Print skip summary to stderr unless suppressed
     if !args.quiet_skips && !result.skip_summary.is_empty() {

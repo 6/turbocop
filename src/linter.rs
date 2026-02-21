@@ -134,6 +134,7 @@ pub fn lint_source(
     registry: &CopRegistry,
     args: &Args,
     tier_map: &TierMap,
+    allowlist: &crate::cop::autocorrect_allowlist::AutocorrectAllowlist,
 ) -> LintResult {
     let cop_filters = config.build_cop_filters(registry, tier_map, args.preview);
     let base_configs = config.precompute_cop_configs(registry);
@@ -147,6 +148,7 @@ pub fn lint_source(
         &base_configs,
         has_dir_overrides,
         None,
+        allowlist,
     );
     let mut sorted = diagnostics;
     sorted.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
@@ -165,6 +167,7 @@ pub fn run_linter(
     registry: &CopRegistry,
     args: &Args,
     tier_map: &TierMap,
+    allowlist: &crate::cop::autocorrect_allowlist::AutocorrectAllowlist,
 ) -> LintResult {
     let files = &discovered.files;
     let wall_start = std::time::Instant::now();
@@ -225,6 +228,7 @@ pub fn run_linter(
                 &cache_misses,
                 &discovered.explicit,
                 &total_corrected,
+                allowlist,
             );
             if args.fail_fast && !result.is_empty() {
                 found_offense.store(true, Ordering::Relaxed);
@@ -347,6 +351,7 @@ fn lint_file(
     cache_misses: &std::sync::atomic::AtomicUsize,
     explicit_files: &HashSet<std::path::PathBuf>,
     total_corrected: &std::sync::atomic::AtomicUsize,
+    allowlist: &crate::cop::autocorrect_allowlist::AutocorrectAllowlist,
 ) -> Vec<Diagnostic> {
     use crate::cache::CacheLookup;
 
@@ -404,6 +409,7 @@ fn lint_file(
         base_configs,
         has_dir_overrides,
         timers,
+        allowlist,
     );
     if corrected_count > 0 {
         total_corrected.fetch_add(corrected_count, Ordering::Relaxed);
@@ -545,6 +551,7 @@ fn lint_source_inner(
     base_configs: &[CopConfig],
     has_dir_overrides: bool,
     timers: Option<&PhaseTimers>,
+    allowlist: &crate::cop::autocorrect_allowlist::AutocorrectAllowlist,
 ) -> (Vec<Diagnostic>, Option<Vec<u8>>, usize) {
     let autocorrect_mode = args.autocorrect_mode();
 
@@ -552,7 +559,7 @@ fn lint_source_inner(
         // Fast path: no autocorrect, run once
         let (diags, _) = lint_source_once(
             source, config, registry, args, cop_filters,
-            base_configs, has_dir_overrides, timers, autocorrect_mode,
+            base_configs, has_dir_overrides, timers, autocorrect_mode, allowlist,
         );
         return (diags, None, 0);
     }
@@ -569,7 +576,7 @@ fn lint_source_inner(
         let iter_source = SourceFile::from_vec(path.clone(), current_bytes.clone());
         let (diags, corrections) = lint_source_once(
             &iter_source, config, registry, args, cop_filters,
-            base_configs, has_dir_overrides, timers, autocorrect_mode,
+            base_configs, has_dir_overrides, timers, autocorrect_mode, allowlist,
         );
 
         if corrections.is_empty() {
@@ -602,7 +609,7 @@ fn lint_source_inner(
     let (diags, _) = lint_source_once(
         &final_source, config, registry, args, cop_filters,
         base_configs, has_dir_overrides, timers,
-        crate::cli::AutocorrectMode::Off,
+        crate::cli::AutocorrectMode::Off, allowlist,
     );
     let mut all_diags = corrected_diags;
     all_diags.extend(diags);
@@ -622,6 +629,7 @@ fn lint_source_once(
     has_dir_overrides: bool,
     timers: Option<&PhaseTimers>,
     autocorrect_mode: crate::cli::AutocorrectMode,
+    allowlist: &crate::cop::autocorrect_allowlist::AutocorrectAllowlist,
 ) -> (Vec<Diagnostic>, Vec<crate::correction::Correction>) {
     // Parse on this thread (ParseResult is !Send)
     let parse_start = std::time::Instant::now();
@@ -684,7 +692,8 @@ fn lint_source_once(
 
         let should_correct = autocorrect_mode != crate::cli::AutocorrectMode::Off
             && cop.supports_autocorrect()
-            && cop_config.should_autocorrect(autocorrect_mode);
+            && cop_config.should_autocorrect(autocorrect_mode)
+            && (autocorrect_mode == crate::cli::AutocorrectMode::All || allowlist.contains(name));
 
         if should_correct {
             cop.check_lines(source, cop_config, &mut diagnostics, Some(&mut corrections));
@@ -728,7 +737,8 @@ fn lint_source_once(
 
         let should_correct = autocorrect_mode != crate::cli::AutocorrectMode::Off
             && cop.supports_autocorrect()
-            && cop_config.should_autocorrect(autocorrect_mode);
+            && cop_config.should_autocorrect(autocorrect_mode)
+            && (autocorrect_mode == crate::cli::AutocorrectMode::All || allowlist.contains(name));
 
         if should_correct {
             cop.check_lines(source, cop_config, &mut diagnostics, Some(&mut corrections));
@@ -767,7 +777,11 @@ fn lint_source_once(
         let (walker_diags, walker_corrections) = walker.into_results();
         diagnostics.extend(walker_diags);
         if let Some(wc) = walker_corrections {
-            corrections.extend(wc);
+            if autocorrect_mode == crate::cli::AutocorrectMode::Safe {
+                corrections.extend(wc.into_iter().filter(|c| allowlist.contains(c.cop_name)));
+            } else {
+                corrections.extend(wc);
+            }
         }
     }
     if let Some(t) = timers {

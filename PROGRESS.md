@@ -55,8 +55,8 @@
 ### Autocorrect
 
 - [x] `-a`/`-A` flags working for existing cops (Phase 0 infrastructure)
-- [ ] `resources/autocorrect_safe_allowlist.json` — initial safe cop list
-- [ ] `-a` restricted to allowlisted cops only
+- [x] `resources/autocorrect_safe_allowlist.json` — initial safe cop list (54 cops)
+- [x] `-a` restricted to allowlisted cops only; `-A` bypasses allowlist
 
 ### `verify` command (optional but recommended)
 
