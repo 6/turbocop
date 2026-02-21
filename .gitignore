@@ -10,6 +10,7 @@ target/
 bench/repos/
 bench/results/
 bench/conform.json
+bench/autocorrect_validate.json
 
 # Private repo benchmarks (never committed)
 bench/private_repos.json
