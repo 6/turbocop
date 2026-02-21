@@ -468,7 +468,10 @@ fn all_registered_cops_can_fire() {
         cop_names.contains(&"Layout/TrailingWhitespace"),
         "TrailingWhitespace should fire"
     );
-    assert!(cop_names.contains(&"Style/Tab"), "Tab should fire");
+    assert!(
+        cop_names.contains(&"Layout/IndentationStyle"),
+        "IndentationStyle should fire"
+    );
 
     fs::remove_dir_all(&dir).ok();
 }
@@ -476,7 +479,7 @@ fn all_registered_cops_can_fire() {
 #[test]
 fn registry_has_expected_cop_count() {
     let registry = CopRegistry::default_registry();
-    assert_eq!(registry.len(), 917, "Expected 917 registered cops");
+    assert_eq!(registry.len(), 915, "Expected 915 registered cops");
 
     let names = registry.names();
     let expected = [
@@ -1076,7 +1079,6 @@ fn registry_has_expected_cop_count() {
         "Style/NumericLiterals",
         "Style/NumericPredicate",
         "Style/ObjectThen",
-        "Style/OneClassPerFile",
         "Style/OpenStructUse",
         "Style/OptionalBooleanParameter",
         "Style/OrAssignment",
@@ -1113,7 +1115,6 @@ fn registry_has_expected_cop_count() {
         "Style/Strip",
         "Style/SymbolArray",
         "Style/SymbolLiteral",
-        "Style/Tab",
         "Style/TernaryParentheses",
         "Style/TrailingCommaInArguments",
         "Style/TrailingCommaInArrayLiteral",
@@ -1992,8 +1993,8 @@ fn list_cops_prints_all_registered_cops() {
     let lines: Vec<&str> = stdout.lines().collect();
     assert_eq!(
         lines.len(),
-        917,
-        "Expected 917 cop names, got {}",
+        915,
+        "Expected 915 cop names, got {}",
         lines.len()
     );
 

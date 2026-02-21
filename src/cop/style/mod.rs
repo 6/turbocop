@@ -168,7 +168,6 @@ pub mod numeric_literal_prefix;
 pub mod numeric_literals;
 pub mod numeric_predicate;
 pub mod object_then;
-pub mod one_class_per_file;
 pub mod one_line_conditional;
 pub mod open_struct_use;
 pub mod operator_method_call;
@@ -262,7 +261,6 @@ pub mod swap_values;
 pub mod symbol_array;
 pub mod symbol_literal;
 pub mod symbol_proc;
-pub mod tab;
 pub mod ternary_parentheses;
 pub mod top_level_method_definition;
 pub mod trailing_body_on_class;
@@ -294,7 +292,6 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(
         frozen_string_literal_comment::FrozenStringLiteralComment,
     ));
-    registry.register(Box::new(tab::Tab));
     registry.register(Box::new(string_literals::StringLiterals));
     registry.register(Box::new(redundant_return::RedundantReturn));
     registry.register(Box::new(numeric_literals::NumericLiterals));
@@ -371,7 +368,6 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(select_by_regexp::SelectByRegexp));
     registry.register(Box::new(redundant_file_extension_in_require::RedundantFileExtensionInRequire));
     registry.register(Box::new(guard_clause::GuardClause));
-    registry.register(Box::new(one_class_per_file::OneClassPerFile));
     registry.register(Box::new(optional_boolean_parameter::OptionalBooleanParameter));
     registry.register(Box::new(commented_keyword::CommentedKeyword));
     registry.register(Box::new(encoding::Encoding));

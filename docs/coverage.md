@@ -4,13 +4,13 @@
 
 ## Cop Coverage
 
-**turbocop cops:** 917
+**turbocop cops:** 915
 
 ### By Gem
 
 | Gem | Version | Departments | RuboCop | turbocop | Coverage |
 |-----|---------|-------------|--------:|-------:|---------:|
-| rubocop | 1.84.2 | Layout, Lint, Style, Metrics, Naming, Security, Bundler, Gemspec, Migration | 593 | 595 | **100%** |
+| rubocop | 1.84.2 | Layout, Lint, Style, Metrics, Naming, Security, Bundler, Gemspec, Migration | 593 | 593 | **100%** |
 | rubocop-rails | 2.34.3 | Rails | 138 | 138 | **100%** |
 | rubocop-performance | 1.26.1 | Performance | 52 | 52 | **100%** |
 | rubocop-rspec | 3.9.0 | RSpec | 113 | 113 | **100%** |
@@ -23,7 +23,7 @@
 |------------|--------:|-------:|---------:|
 | Layout | 100 | 100 | **100%** |
 | Lint | 152 | 152 | **100%** |
-| Style | 287 | 289 | **100%** |
+| Style | 287 | 287 | **100%** |
 | Metrics | 10 | 10 | **100%** |
 | Naming | 19 | 19 | **100%** |
 | Security | 7 | 7 | **100%** |
@@ -35,21 +35,15 @@
 | RSpec | 113 | 113 | **100%** |
 | RSpecRails (gem) | 8 | 8 | **100%** |
 | FactoryBot | 11 | 11 | **100%** |
-| **Total** | **915** | **917** | **100.2%** |
+| **Total** | **915** | **915** | **100.0%** |
 
 ## Missing Cops
 
 All vendor cops are implemented.
 
-### Extra Cops (in turbocop, not in vendor)
-
-- `Style/OneClassPerFile`
-- `Style/Tab`
-
-
 ## Conformance
 
-Location-level comparison: file + line + cop_name. Only cops implemented by turbocop (917) are compared.
+Location-level comparison: file + line + cop_name. Only cops implemented by turbocop (915) are compared.
 
 | Repo | turbocop | rubocop | Matches | FP (turbocop only) | FN (rubocop only) | Match rate |
 |------|-------:|--------:|--------:|-----------------:|------------------:|-----------:|
