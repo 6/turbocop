@@ -479,20 +479,21 @@ fn init_lockfiles(repos: &[RepoRef]) {
         return;
     }
 
+    // Clear stale result caches once before all inits.
+    // The result cache stores per-file lint results keyed by session hash.
+    // When the binary changes (new cops, different detection logic), stale
+    // cached results diverge from fresh results. Clearing once avoids
+    // accidentally deleting lockfiles created by earlier repos in this loop.
+    let _ = Command::new(turbocop.as_os_str())
+        .args(["--cache-clear", "."])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+
     for repo in repos {
         if !repo.dir.exists() {
             continue;
         }
-
-        // Clear stale file-level result caches before regenerating.
-        // The result cache stores per-file lint results keyed by content hash.
-        // When the binary changes (new cops, different detection logic), stale
-        // cached results diverge from fresh results.
-        let _ = Command::new(turbocop.as_os_str())
-            .args(["--cache-clear", repo.dir.to_str().unwrap()])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .output();
 
         eprintln!("Generating lockfile for {}...", repo.name);
         let start = Instant::now();
@@ -536,6 +537,8 @@ struct BenchResult {
     turbocop: HyperfineResult,
     rubocop: HyperfineResult,
     rb_count: usize,
+    /// Number of files mtime-invalidated before each run.
+    touched_count: usize,
 }
 
 /// Pre-flight check: run a tool once and verify it doesn't fatally error.
@@ -615,7 +618,15 @@ fn run_bench(args: &Args, repos: &[RepoRef]) -> HashMap<String, BenchResult> {
             continue;
         }
 
+        // Touch 10% of .rb files (capped at 50) before each run to simulate
+        // "git pull brought changes". Both caches are warm from preflight.
+        let touched_count = std::cmp::min(std::cmp::max(rb_count / 10, 1), 50);
         let json_file = results_path.join(format!("{}-bench.json", repo.name));
+        let prepare_cmd = format!(
+            "find {} -name '*.rb' -not -path '*/vendor/*' -not -path '*/node_modules/*' | shuf -n {} | xargs touch",
+            repo.dir.display(),
+            touched_count
+        );
 
         let status = Command::new("hyperfine")
             .args([
@@ -623,6 +634,8 @@ fn run_bench(args: &Args, repos: &[RepoRef]) -> HashMap<String, BenchResult> {
                 &args.warmup.to_string(),
                 "--runs",
                 &args.runs.to_string(),
+                "--prepare",
+                &prepare_cmd,
                 "--ignore-failure",
                 "--export-json",
                 json_file.to_str().unwrap(),
@@ -646,23 +659,36 @@ fn run_bench(args: &Args, repos: &[RepoRef]) -> HashMap<String, BenchResult> {
 
         let turbocop_result = parsed
             .results
-            .into_iter()
+            .iter()
             .find(|r| r.command == "turbocop")
             .unwrap();
-        let rubocop_result_json = fs::read_to_string(&json_file).unwrap();
-        let parsed2: HyperfineOutput = serde_json::from_str(&rubocop_result_json).unwrap();
-        let rubocop_result = parsed2
+        let rubocop_result = parsed
             .results
-            .into_iter()
+            .iter()
             .find(|r| r.command == "rubocop")
             .unwrap();
 
         bench_results.insert(
             repo.name.clone(),
             BenchResult {
-                turbocop: turbocop_result,
-                rubocop: rubocop_result,
+                turbocop: HyperfineResult {
+                    command: turbocop_result.command.clone(),
+                    mean: turbocop_result.mean,
+                    stddev: turbocop_result.stddev,
+                    median: turbocop_result.median,
+                    min: turbocop_result.min,
+                    max: turbocop_result.max,
+                },
+                rubocop: HyperfineResult {
+                    command: rubocop_result.command.clone(),
+                    mean: rubocop_result.mean,
+                    stddev: rubocop_result.stddev,
+                    median: rubocop_result.median,
+                    min: rubocop_result.min,
+                    max: rubocop_result.max,
+                },
                 rb_count,
+                touched_count,
             },
         );
     }
@@ -1934,28 +1960,35 @@ fn generate_report(
     if !bench.is_empty() {
         writeln!(md, "## Performance").unwrap();
         writeln!(md).unwrap();
+
         writeln!(
             md,
-            "Median of {} runs via [hyperfine](https://github.com/sharkdp/hyperfine). Both tools use built-in file cache (warm after hyperfine warmup runs).",
-            args.runs
+            "Median of {} runs via [hyperfine](https://github.com/sharkdp/hyperfine). \
+             10% of `.rb` files (capped at 50) are mtime-invalidated before each run, simulating re-linting after a `git pull`.",
+            args.runs,
         )
         .unwrap();
         writeln!(md).unwrap();
         writeln!(
             md,
-            "| Repo | .rb files | turbocop | rubocop | Speedup |"
+            "| Repo | .rb files | Files changed | turbocop | rubocop | Speedup |"
         )
         .unwrap();
-        writeln!(md, "|------|----------:|------------------:|-----------------:|--------:|").unwrap();
+        writeln!(
+            md,
+            "|------|----------:|--------------:|------------------:|-----------------:|--------:|"
+        )
+        .unwrap();
 
         for repo in repos {
             if let Some(r) = bench.get(&repo.name) {
                 let speedup = format_speedup(r.rubocop.median, r.turbocop.median);
                 writeln!(
                     md,
-                    "| {} | {} | **{}** | {} | **{}** |",
+                    "| {} | {} | {} | **{}** | {} | **{}** |",
                     repo.name,
                     r.rb_count,
+                    r.touched_count,
                     format_time(r.turbocop.median),
                     format_time(r.rubocop.median),
                     speedup,
@@ -1966,52 +1999,6 @@ fn generate_report(
 
         writeln!(md).unwrap();
 
-        // Detailed stats (collapsible)
-        writeln!(
-            md,
-            "<details>\n<summary>Detailed timing (mean \u{00b1} stddev, min\u{2026}max)</summary>"
-        )
-        .unwrap();
-        writeln!(md).unwrap();
-
-        for repo in repos {
-            if let Some(r) = bench.get(&repo.name) {
-                writeln!(md, "### {}", repo.name).unwrap();
-                writeln!(md).unwrap();
-                writeln!(md, "| Tool | Mean | Stddev | Min | Max | Median |").unwrap();
-                writeln!(md, "|------|-----:|-------:|----:|----:|-------:|").unwrap();
-
-                for (name, result) in [("turbocop", &r.turbocop), ("rubocop", &r.rubocop)] {
-                    let bold = name == "turbocop";
-                    let fmt = |v: f64| -> String {
-                        let s = format_time(v);
-                        if bold {
-                            format!("**{s}**")
-                        } else {
-                            s
-                        }
-                    };
-                    writeln!(
-                        md,
-                        "| {}{}{} | {} | {} | {} | {} | {} |",
-                        if bold { "**" } else { "" },
-                        name,
-                        if bold { "**" } else { "" },
-                        fmt(result.mean),
-                        format_time(result.stddev),
-                        fmt(result.min),
-                        fmt(result.max),
-                        fmt(result.median),
-                    )
-                    .unwrap();
-                }
-
-                writeln!(md).unwrap();
-            }
-        }
-
-        writeln!(md, "</details>").unwrap();
-        writeln!(md).unwrap();
     }
 
     // --- Conformance table ---
@@ -2164,7 +2151,8 @@ fn generate_report(
 fn load_cached_bench(repos: &[RepoRef]) -> HashMap<String, BenchResult> {
     let mut results = HashMap::new();
     for repo in repos {
-        let json_file = results_dir_for(repo.source).join(format!("{}-bench.json", repo.name));
+        let results_path = results_dir_for(repo.source);
+        let json_file = results_path.join(format!("{}-bench.json", repo.name));
         if !json_file.exists() {
             continue;
         }
@@ -2183,6 +2171,7 @@ fn load_cached_bench(repos: &[RepoRef]) -> HashMap<String, BenchResult> {
             } else {
                 0
             };
+
             results.insert(
                 repo.name.clone(),
                 BenchResult {
@@ -2203,11 +2192,28 @@ fn load_cached_bench(repos: &[RepoRef]) -> HashMap<String, BenchResult> {
                         max: rc.max,
                     },
                     rb_count,
+                    touched_count: std::cmp::min(std::cmp::max(rb_count / 10, 1), 50),
                 },
             );
         }
     }
     results
+}
+
+fn load_cached_conform(is_private: bool) -> HashMap<String, ConformResult> {
+    let json_path = project_root().join(if is_private {
+        "bench/private_conform.json"
+    } else {
+        "bench/conform.json"
+    });
+    if !json_path.exists() {
+        return HashMap::new();
+    }
+    let content = match fs::read_to_string(&json_path) {
+        Ok(c) => c,
+        Err(_) => return HashMap::new(),
+    };
+    serde_json::from_str(&content).unwrap_or_default()
 }
 
 // --- Main ---
@@ -2252,8 +2258,9 @@ fn main() {
             build_turbocop();
             init_lockfiles(&repos);
             let bench = run_bench(&args, &repos);
+            let conform = load_cached_conform(is_private_run);
             let elapsed = start.elapsed().as_secs_f64();
-            let md = generate_report(&bench, &HashMap::new(), &args, &repos, Some(elapsed));
+            let md = generate_report(&bench, &conform, &args, &repos, Some(elapsed));
             fs::write(&output_path, &md).unwrap();
             eprintln!("\nWrote {}", output_path.display());
         }
@@ -2280,9 +2287,8 @@ fn main() {
         }
         "report" => {
             let bench = load_cached_bench(&repos);
-            // For conformance, we'd need to re-parse the JSON files.
-            // For now, just regenerate from bench data.
-            let md = generate_report(&bench, &HashMap::new(), &args, &repos, None);
+            let conform = load_cached_conform(is_private_run);
+            let md = generate_report(&bench, &conform, &args, &repos, None);
             fs::write(&output_path, &md).unwrap();
             eprintln!("\nWrote {}", output_path.display());
         }
