@@ -57,23 +57,14 @@ pub fn write_lock(gems: &HashMap<String, PathBuf>, project_dir: &Path) -> Result
 }
 
 /// Read and parse the lockfile for the given project directory.
-///
-/// Checks the XDG cache location first, then falls back to the legacy
-/// `.turbocop.cache` in the project root for backward compatibility.
 pub fn read_lock(dir: &Path) -> Result<TurboCopLock> {
-    let new_path = lockfile_path(dir);
-    let legacy_path = dir.join(".turbocop.cache");
-
-    let cache_path = if new_path.exists() {
-        new_path
-    } else if legacy_path.exists() {
-        legacy_path
-    } else {
+    let cache_path = lockfile_path(dir);
+    if !cache_path.exists() {
         anyhow::bail!(
             "No lockfile found for {}. Run 'turbocop --init' first.",
             dir.display()
         );
-    };
+    }
 
     let content = std::fs::read_to_string(&cache_path)
         .with_context(|| format!("Failed to read {}", cache_path.display()))?;
@@ -278,58 +269,6 @@ mod tests {
                 &PathBuf::from("/usr/gems/rubocop")
             );
             assert!(lock.gemfile_lock_sha256.is_some());
-        });
-    }
-
-    #[test]
-    fn read_lock_falls_back_to_legacy_path() {
-        let tmp = tempfile::tempdir().unwrap();
-        let project = tempfile::tempdir().unwrap();
-
-        // Write a legacy .turbocop.cache in the project root
-        let legacy = TurboCopLock {
-            version: 1,
-            generated_at: "2026-01-01T00:00:00Z".to_string(),
-            gemfile_lock_sha256: None,
-            gems: HashMap::new(),
-        };
-        let json = serde_json::to_string_pretty(&legacy).unwrap();
-        std::fs::write(project.path().join(".turbocop.cache"), json).unwrap();
-
-        with_cache_dir(tmp.path(), || {
-            // No new-location lockfile exists, should fall back to legacy
-            let lock = read_lock(project.path()).unwrap();
-            assert_eq!(lock.version, 1);
-            assert_eq!(lock.generated_at, "2026-01-01T00:00:00Z");
-        });
-    }
-
-    #[test]
-    fn new_location_takes_precedence_over_legacy() {
-        let tmp = tempfile::tempdir().unwrap();
-        let project = tempfile::tempdir().unwrap();
-        std::fs::write(project.path().join("Gemfile.lock"), b"GEM\n").unwrap();
-
-        // Write a legacy .turbocop.cache in the project root
-        let legacy = TurboCopLock {
-            version: 1,
-            generated_at: "legacy".to_string(),
-            gemfile_lock_sha256: None,
-            gems: HashMap::new(),
-        };
-        let json = serde_json::to_string_pretty(&legacy).unwrap();
-        std::fs::write(project.path().join(".turbocop.cache"), json).unwrap();
-
-        with_cache_dir(tmp.path(), || {
-            // Write to new location
-            let mut gems = HashMap::new();
-            gems.insert("rails".to_string(), PathBuf::from("/gems/rails"));
-            write_lock(&gems, project.path()).unwrap();
-
-            // Should read from new location, not legacy
-            let lock = read_lock(project.path()).unwrap();
-            assert_eq!(lock.gems.len(), 1);
-            assert!(lock.gems.contains_key("rails"));
         });
     }
 
