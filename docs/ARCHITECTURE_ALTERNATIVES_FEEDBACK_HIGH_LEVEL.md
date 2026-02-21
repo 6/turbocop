@@ -71,8 +71,8 @@ Then use corpus oracle to correct mistakes quickly.
 
 ### Autocorrect policy tied to tiers
 
-* Stable autocorrect: allowed in `--autocorrect=safe` (default can be `off` or `safe`, your call).
-* Preview autocorrect: requires `--autocorrect=unsafe` (explicit opt-in).
+* Stable autocorrect: allowed with `-a` / `--autocorrect=safe` (default is off).
+* Preview autocorrect: requires `-A` / `--autocorrect=all` (explicit opt-in for unsafe corrections).
 
 ---
 
@@ -98,7 +98,7 @@ Then use corpus oracle to correct mistakes quickly.
     * `turbocop check --preview --fail-level warning .`
 * `turbocop doctor`
 
-  * prints baseline versions + config sources + skip summary + autocorrect mode
+  * prints baseline versions + config sources + skip summary + autocorrect mode + gem version mismatch warnings
 * `turbocop rules [--tier stable|preview] [--format table|json]`
 
   * lists rule name, tier, short description, known divergence count (if available)

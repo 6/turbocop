@@ -33,11 +33,14 @@
 **Flags**
 
 * `--preview` (bool): allow running preview-tier cops.
-* `--strict` (bool): skipped cops cause a coverage failure exit code.
+* `--strict[=SCOPE]`: skipped cops cause a coverage failure exit code.
+  Scope: `coverage` (default), `implemented-only`, `all`. See section 5.
 * `--fail-level <level>`: set failure threshold. Levels (example): `refactor|convention|warning|error|fatal`.
 * `--format <text|json>`: output format.
 * `--quiet-skips` (bool): suppress grouped skip notice.
-* `--autocorrect <off|safe|all|unsafe>` (optional; if you support autocorrect now)
+* `-a` / `--autocorrect=safe`: apply safe corrections only.
+* `-A` / `--autocorrect=all`: apply all corrections including unsafe.
+  (Matches current CLI; `off` is the default when neither flag is given.)
 
 **Algorithm**
 
@@ -99,17 +102,22 @@ Add `--format json` with schema:
 
 Must include:
 
-* Baseline versions
-* Config root + config files loaded
-* Ruby version detection (optional) + Gemfile.lock detected versions (warnings only)
-* Summary of skipped cops (same categories as above)
+* Baseline versions (vendored RuboCop + plugin versions turbocop targets)
+* Config root + config files loaded (full inheritance chain)
+* Gem version mismatch warnings: compare Gemfile.lock plugin versions against baseline and warn if they differ (this is already implemented in the bench harness — promote to user-facing output)
+* Summary of skipped cops (same 4 categories as `check`)
 * Autocorrect mode (if relevant)
 
 ### `turbocop rules`
 
-Lists all cops turbocop knows about:
+**Purpose**: list all cops turbocop knows about.
 
-* name, tier, implemented?, baseline presence, short description, default enabled? (optional)
+**Flags**
+
+* `--tier <stable|preview>`: filter by tier.
+* `--format <table|json>`: output format (default: table).
+
+**Output columns**: name, tier, implemented?, baseline presence, short description, default enabled?, known divergence count (if corpus data available).
 
 ### `turbocop verify [PATH]` (Ruby required)
 
@@ -150,10 +158,11 @@ Lists all cops turbocop knows about:
 
 Implementer must mark explicitly what’s supported:
 
-* `AllCops: Exclude/Include` patterns
-* `inherit_from` (local file paths)
-* `inherit_gem` (optional in phase 1; if unsupported, classify as “config unsupported” and show in migrate/doctor)
-* per-cop `Enabled`, and per-cop key-value settings you already support
+* `AllCops: Exclude/Include` patterns ✅ implemented
+* `inherit_from` (local file paths) ✅ implemented
+* `inherit_gem` ✅ implemented (resolves gem paths via `bundle info --path`)
+* `inherit_mode` (merge/override behavior) ✅ implemented
+* per-cop `Enabled`, and per-cop key-value settings ✅ implemented
 
 ### Unknown config keys
 
@@ -166,7 +175,7 @@ Implementer must mark explicitly what’s supported:
 
 ### Data model
 
-Check in a file: `crates/turbocop_core/resources/tiers.json`
+Check in a file: `resources/tiers.json` (embedded at compile time)
 
 ```json
 {
@@ -271,19 +280,33 @@ If “0 diffs” is too strict early on, use a temporary policy:
 
 ## 5) Exit codes + `--fail-level` (define now, don’t change later)
 
-### Exit codes (recommended)
+### Exit codes (final)
 
-* `0`: success (no offenses at/above fail-level) AND (if `--strict`) no skipped cops
-* `1`: lint failure (>= fail-level offenses exist)
-* `2`: strict coverage failure (skipped cops exist) **and** no lint failure at/above fail-level (or even if there is—pick one rule; recommended: coverage failure can still be `2` even if lint fails? Better: prefer `1` for lint, `2` for coverage, or provide combined bitmask. Simpler: `1` for lint, `2` for strict skip; if both, return `1` and print both summaries.)
-* `3`: internal error (panic, IO error, config parse failure, etc.)
+* `0`: success — no offenses at/above fail-level, and (if `--strict`) no coverage failures
+* `1`: lint failure — offenses exist at/above fail-level
+* `2`: strict coverage failure — skipped cops exist that violate the strict scope (only when no lint failures; if both lint and strict fail, exit `1` and print both summaries)
+* `3`: internal error — panic, IO error, config parse failure, etc.
+
+**When both lint and strict fail:** exit `1` (lint takes priority), print both the lint results and a strict coverage warning. Rationale: lint failures are more immediately actionable.
 
 ### Strict mode semantics
 
-If `--strict`:
+`--strict` accepts a scope (default: `coverage`):
 
-* Any skipped cop of any category triggers “coverage failure” behavior.
-* Still print lint output; exit code per rule above.
+* **`--strict=coverage`** (default when bare `--strict` is used):
+  Fail (exit 2) for cops turbocop implements (Stable or Preview) that were
+  skipped (e.g., preview-gated cops without `--preview`). Unimplemented and
+  outside-baseline cops are informational — they don't trigger failure.
+
+* **`--strict=implemented-only`**:
+  Ignore unknown/outside-baseline cops entirely. Only fail if a cop turbocop
+  implements (Stable or Preview) was skipped. Useful for teams that know they
+  use unsupported plugins and don't want noise.
+
+* **`--strict=all`**:
+  Any skipped cop for any reason (preview-gated, unimplemented, outside
+  baseline) triggers coverage failure. Most conservative; only useful when
+  the project's config is fully within turbocop's baseline.
 
 ### `--fail-level`
 
@@ -352,29 +375,42 @@ Assert equal over a node corpus. On mismatch, dump:
 
 ### Where it runs
 
-* `cargo test -p turbocop_verifier` in CI
+* `cargo test verifier` in CI (test module within the main crate, not a separate workspace crate).
 * Gate merges that modify matching logic/mapping tables.
 
 **Note**: this does not replace end-to-end correctness measurement; it prevents a big bug class cheaply.
+
+**Existing work**: `src/bin/node_pattern_codegen.rs` contains a complete NodePattern lexer/parser (~1,880 lines) that can be adapted into the interpreter. The lexer/parser is fully functional; only the code generation backend needs to be replaced with an interpreter evaluation loop.
 
 ---
 
 ## 8) Corpus oracle tooling (phase 2, but define interfaces now)
 
-Create a separate binary crate: `turbocop-bench`
+**Existing infrastructure**: `bench/bench.rs` (`bench_turbocop` binary) already implements `setup`, `bench`, `conform`, `report`, `autocorrect-conform`, and `autocorrect-validate` subcommands. The `conform` subcommand runs both tools and produces `bench/conform.json` with per-cop FP/FN/match data. Extend this, don't rewrite.
 
-### Commands
+### New subcommands to add
 
-* `turbocop-bench corpus fetch --list repos.txt --dest corpus/`
-* `turbocop-bench run rubocop --corpus corpus/ --out results/rubocop/`
-* `turbocop-bench run turbocop --corpus corpus/ --out results/turbocop/`
-* `turbocop-bench diff --rubocop results/rubocop --turbocop results/turbocop --by-cop --out diff.json`
-* `turbocop-bench gen-tiers --diff diff.json --out tiers.json`
+* `bench_turbocop corpus fetch --list repos.txt` — clone/update repos from manifest
+* `bench_turbocop gen-tiers --diff bench/conform.json --out resources/tiers.json` — generate tier assignments from conformance data
+
+The existing `conform` subcommand already handles running both tools + diffing + noise detection (including gem version mismatch attribution). It needs:
+
+* phased corpus manifest support (core frozen set + rotating set)
+* noise bucketing categories aligned with the skip classification
+
+### Corpus scale (phased, matching high-level plan)
+
+* **Phase 2**: ~100 repos (current 14 public + 14 private → expand to 100)
+* **Phase 3**: ~300 repos (only if Phase 2 still producing novel diffs)
+* **Phase 4**: 500-1000 repos (optional, marketing value)
+
+Core frozen set (~50 repos) pinned to exact commit hashes; rotating set (~50) refreshed quarterly.
 
 ### RuboCop invocation
 
 * Pin RuboCop versions to turbocop baseline (preferred) OR run `bundle exec rubocop` and accept noise (not preferred).
 * If pinning: maintain a Bundler Gemfile in the bench harness and install to a cache directory.
+* The existing bench harness already handles both modes and detects version mismatches.
 
 ### Diffing rules
 
@@ -387,7 +423,8 @@ Normalize diagnostics, then compare by key:
 
 At minimum:
 
-* parse/syntax bucket
+* parse/syntax bucket (Lint/Syntax, Prism vs Parser recovery differences)
+* gem version mismatch bucket (already detected by bench harness)
 * outside baseline / unimplemented bucket
 * true diffs
 * crashes/timeouts
@@ -396,51 +433,73 @@ At minimum:
 
 ## 9) Phase plan (deliverables & acceptance criteria)
 
-### Phase 1 (ship tiers + migration UX + verifier)
+### Phase 1 (adoption + safety)
 
 Deliverables:
 
-* `check`, `migrate`, `doctor`, JSON output, skip categories
-* `tiers.json` support (default stable + overrides)
-* exit code contract implemented
+* Skip classification (4 categories) + grouped notice in `check` output
+* `tiers.json` support (default stable + curated preview overrides)
+* `migrate` command (config analysis, no linting)
+* `doctor` command (debug/support output)
+* Exit code contract (0/1/2/3) + `--strict` with scope categories
 * NodePattern verifier in CI (bench-repo node corpus)
+* (Optional but recommended) `verify` command
 
 Acceptance:
 
-* Running `turbocop migrate` on a repo answers “what will run?” in <5s.
+* Running `turbocop migrate` on a repo answers “what will run?” clearly.
 * `check` produces deterministic skip summaries.
-* `--strict` behaves per spec.
+* `--strict=coverage` correctly distinguishes implemented-but-skipped from unimplemented.
 * Verifier catches intentional mismatch in a test case.
 
-### Phase 2 (oracle-at-scale MVP)
+### Phase 2 (measurement, ~100 repos)
 
 Deliverables:
 
-* `turbocop-bench` corpus runner + diff per cop
-* generate tiers from diff
-* start promoting/demoting by data
+* Corpus manifest + fetch tooling for ~100 repos
+* Extend `bench_turbocop conform` with noise bucketing
+* `gen-tiers` subcommand to produce `tiers.json` from conformance data
+* Generated compatibility table (`docs/compatibility.md`)
+* Start promoting/demoting cops based on data
 
 Acceptance:
 
-* Can produce per-cop FP/FN table across N repos.
-* Can regenerate tiers.json deterministically.
+* Can produce per-cop FP/FN table across 100 repos.
+* Can regenerate `tiers.json` deterministically from corpus data.
+* Gem version mismatch diffs are bucketed separately from true diffs.
 
-### Phase 3 (regression flywheel)
+### Phase 3 (flywheel + polish, ~300 repos)
 
 Deliverables:
 
-* store repro fixtures for each diff
-* (optional later) minimizer
+* Regression fixture extraction (save repro for each true diff)
+* Expand corpus to ~300 repos (only if still producing novel diffs)
+* Better noise bucketing + diff categorization
+* (Optional later) fixture minimizer
 
 Acceptance:
 
 * Any newly discovered diff becomes a checked-in fixture and stays fixed.
+* Corpus expansion produces diminishing returns (validates that 100 was sufficient, or catches the tail).
+
+### Phase 4 (scale, optional)
+
+Deliverables:
+
+* Corpus to 500-1000 repos (tarball-based, automated maintenance)
+* Core frozen set (~50 repos) + rotating set for exploration
+* Fully automated pipeline (“add rows to manifest file”)
+
+Acceptance:
+
+* Pipeline runs unattended on new repos without manual intervention.
+* Core frozen set metrics never regress across releases.
 
 ---
 
 ## 10) What implementers should *not* build yet (to prevent scope creep)
 
 * `.turbocop.yml` (until real demand)
-* per-repo version emulation (explicitly out of scope)
-* fancy minimizer (store full repros first)
-* deep `inherit_gem` unless you already have it (otherwise document as unsupported and surface in migrate/doctor)
+* Per-repo version emulation (explicitly out of scope — behavior is baseline-defined)
+* Fancy fixture minimizer (store full repros first)
+* Subcommand-level binaries (keep everything in `bench_turbocop` for now, not separate crates)
