@@ -202,6 +202,71 @@ Before corpus oracle exists:
 * Any confirmed FP/FN on a stable cop → add to overrides as preview in the next patch release.
 * Promotion is data-driven (via corpus stats).
 
+## Tier promotion criteria (Preview → Stable)
+
+A cop may be promoted to **Stable** only when all applicable gates pass:
+
+### Gate A: End-to-end parity (required)
+
+Run turbocop vs the **pinned RuboCop baseline** on the corpus (baseline mode and, if available, repo-config mode). For this cop:
+
+* **True diffs = 0** across the corpus
+
+  * FP = 0, FN = 0
+  * Excluding “noise buckets” (see Gate D)
+* **Crashes/timeouts = 0** attributable to this cop (or any run that enables it)
+
+If the corpus is still small, require the above across:
+
+* all bench repos + at least N additional repos (choose N, e.g. 50–100), and
+* at least M total opportunities (e.g. ≥ 1,000 occurrences of candidate nodes or ≥ 100 offenses in RuboCop), to avoid “stable by lack of coverage.”
+
+### Gate B: NodePattern verifier (required when applicable)
+
+If the cop uses `def_node_matcher` / NodePattern-derived matching:
+
+* Compiled matcher == NodePattern interpreter on harvested AST nodes
+* **0 verifier mismatches** in CI across the node corpus
+
+If the cop has no NodePattern patterns, Gate B is “not applicable.”
+
+### Gate C: Autocorrect safety (required if cop supports autocorrect)
+
+If the cop can autocorrect:
+
+* Autocorrect is either **disabled in Stable by default** *or* it passes an autocorrect gate:
+
+  * On a fixture set (from corpus diffs + hand tests), turbocop’s corrected output matches RuboCop baseline (or matches a defined normalization) with **0 diffs**.
+* No “unsafe edit” class bugs open for this cop (crashes, corrupt output, wrong offsets).
+
+### Gate D: Noise bucket exclusions (defined up front)
+
+These do **not** count as “true diffs” for Gate A (but must be tracked separately):
+
+* Parser recovery / syntax differences (`Lint/Syntax`, parse failures due to Prism vs Parser)
+* “Outside baseline” cops (cop doesn’t exist in baseline snapshot)
+* “Unimplemented” cops (exists in baseline but not implemented)
+* Config features explicitly marked “unsupported” (if any)
+
+Important: if a cop’s behavior diff is *caused by your config loader diverging* (not an explicitly unsupported feature), it **does** count as a true diff.
+
+### Demotion rule (Stable → Preview)
+
+A Stable cop is demoted to **Preview** immediately if any of the following occur:
+
+* Any confirmed FP/FN vs baseline (not in a noise bucket)
+* Any crash/timeout attributable to the cop
+* Any NodePattern verifier mismatch (if applicable)
+* Any autocorrect regression (if autocorrect is enabled for Stable)
+
+### Practical thresholds (if you want numbers)
+
+If “0 diffs” is too strict early on, use a temporary policy:
+
+* Stable requires **0 diffs on bench + 0 diffs on ≥ 100 repos**, and
+* Preview may have diffs but must be below a small rate (e.g. < 1 per 50k LOC) to be considered “near-stable.”
+  Then tighten over time toward 0-diff Stable.
+
 ---
 
 ## 5) Exit codes + `--fail-level` (define now, don’t change later)
