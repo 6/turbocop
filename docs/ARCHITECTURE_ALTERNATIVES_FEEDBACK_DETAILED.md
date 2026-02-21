@@ -409,7 +409,9 @@ Assert equal over a node corpus. On mismatch, dump:
 
 ## 8) Corpus oracle tooling (phase 2, but define interfaces now)
 
-**Existing infrastructure**: `bench/bench.rs` (`bench_turbocop` binary) already implements `setup`, `bench`, `conform`, `report`, `autocorrect-conform`, and `autocorrect-validate` subcommands. The `conform` subcommand runs both tools and produces `bench/conform.json` with per-cop FP/FN/match data. Extend this, don't rewrite.
+**Execution model**: runs in **GitHub Actions CI**, not locally. Public repos get unlimited free minutes on standard runners. Matrix jobs fan out per repo batch. Results are uploaded as workflow artifacts (`results.md` + `corpus_results.json`). See `docs/CORPUS_PLAN.md` for full CI workflow design.
+
+**Existing infrastructure**: `bench/bench.rs` (`bench_turbocop` binary) already implements `setup`, `bench`, `conform`, `report`, `autocorrect-conform`, and `autocorrect-validate` subcommands. The `conform` subcommand runs both tools and produces `bench/conform.json` with per-cop FP/FN/match data. Extend this for use in CI, don't rewrite.
 
 ### New subcommands to add
 

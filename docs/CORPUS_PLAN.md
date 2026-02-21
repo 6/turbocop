@@ -4,53 +4,56 @@
 
 Build a repeatable, apples-to-apples correctness harness that:
 
-* Assembles a **large, diverse Ruby code corpus** (500–1000 repos) pinned to **immutable commits**.
-* Runs a **pinned RuboCop “oracle”** (same baseline versions turbocop targets) **without installing each repo’s dependencies**.
+* Assembles a **large, diverse Ruby code corpus** (~100 repos, scaling to 300+) pinned to **immutable commits**.
+* Runs a **pinned RuboCop "oracle"** (same baseline versions turbocop targets) **without installing each repo's dependencies**.
 * Runs turbocop on the same corpus and **diffs results per cop** to drive **Stable/Preview tiering** and regression fixtures.
-* Minimizes security risk: **never execute repo code**, minimize network exposure, and avoid per-repo Bundler installs.
+* Runs entirely in **GitHub Actions CI** — no local setup required, sandboxing handled by ephemeral VMs.
 
 ## Non-goals
 
-* Emulating each repo’s Gemfile.lock versions.
+* Emulating each repo's Gemfile.lock versions.
 * Making repo-config mode succeed on every repo regardless of custom plugins.
 * Executing test suites or any repo scripts.
 
 ---
 
-## Threat model & safety constraints
+## Why GitHub Actions (not local execution)
 
-### What we assume can be malicious
+Running the corpus harness in CI rather than locally solves several problems:
 
-* Repos may contain files that would be dangerous **if executed**.
-* `.rubocop.yml` may include `require:` entries that could attempt to `require` local files.
-* Some repos use `inherit_gem` / `require` for third-party RuboCop plugins.
+1. **Sandboxing is free.** Each job runs in a fresh ephemeral VM that's destroyed after. No need for containers, unprivileged users, overlayfs, or read-only mounts.
+2. **Reproducibility.** Pinned runner images, no local machine state drift, results tied to commit SHAs.
+3. **Parallelism.** Matrix jobs fan out across repos. Free tier for public repos: 20 concurrent jobs, 2000 min/month.
+4. **No local disk management.** Repos are fetched fresh each run (shallow clones are fast). Results are stored as GitHub Artifacts.
+5. **Accessible to contributors.** Anyone with a fork can run the corpus without special setup.
 
-### Safety rules (hard requirements)
+### CI budget
 
-1. **Never run Bundler inside a repo**.
+For **public repos** (turbocop is open source): GitHub Actions minutes are **unlimited** on standard runners. No budget constraints — run as often as needed.
+
+For private forks: 2000 min/month on the free tier. A full 100-repo run takes ~200–500 min (RuboCop is the bottleneck at ~30s–5min per repo), so ~4–10 runs/month.
+
+Since turbocop is a public repo, this is effectively free. Run nightly, on cop-changing PRs, and on manual trigger without worrying about budget.
+
+---
+
+## Safety constraints (simplified for CI)
+
+GitHub Actions VMs are ephemeral and unprivileged. The main remaining safety rules:
+
+1. **Never run Bundler inside a repo.**
 
    * No `bundle install` in the repo.
-   * No `bundle exec rubocop` using the repo’s Gemfile.
+   * No `bundle exec rubocop` using the repo's Gemfile.
+   * Always use the bench bundle (pinned baseline versions).
 
 2. **Never allow RuboCop to `require` local repo paths.**
 
-   * In repo-config mode, treat any `require:` that is:
+   * In repo-config mode, pre-scan `.rubocop.yml` and skip repos with unsafe `require:` entries (relative/absolute paths, non-allowlisted gems).
 
-     * a relative path (`./foo`, `foo.rb`, `../bar`), or
-     * an absolute path, or
-     * anything not in an allowlisted gem-name form
-       as **unsafe**. Skip repo-config mode for that repo.
+3. **Disable submodules** — fetch with `--no-recurse-submodules`.
 
-3. Run harness in a **sandboxed environment**:
-
-   * Container/VM, unprivileged user.
-   * Prefer **no network** during execution runs (fetching can be separate phase).
-   * Read-only mount corpus during linting runs.
-
-4. Explicitly **disable submodules** and avoid any `git` features that execute hooks.
-
-   * No `--recurse-submodules`.
-   * Don’t run any repo-provided hooks/scripts.
+4. **Never execute repo code** — repos are data (source to lint), not code to run.
 
 ---
 
@@ -67,7 +70,7 @@ Build candidates from multiple feeds for diversity, then dedupe.
 
 2. **RubyGems popular gems**
 
-   * Use RubyGems “most downloaded” / “top” lists to get library-heavy code.
+   * Use RubyGems "most downloaded" / "top" lists to get library-heavy code.
 
 3. **Repos that use RuboCop configs**
 
@@ -77,97 +80,159 @@ Build candidates from multiple feeds for diversity, then dedupe.
 
 ### Filters (keep runs tractable)
 
-Apply filters during fetch:
-
-* Skip if repo size exceeds limits (pick limits that match your hardware):
-
-  * e.g. > 2GB checkout or > 200k files.
+* Skip if repo has > 50k `.rb` files or > 1GB checkout size.
 * Skip if last update is ancient (optional), but keep some older repos for syntax diversity.
-* During file discovery, always exclude:
+* During file discovery, always exclude: `vendor/`, `node_modules/`, `tmp/`, `coverage/`, `dist/`, `build/`, `.git/`
 
-  * `vendor/`, `node_modules/`, `tmp/`, `coverage/`, `dist/`, `build/`, `.git/`
+### Manifest format (JSONL, checked in)
 
-### Snapshotting (pin to SHA)
-
-Each corpus entry is **pinned to a commit SHA** to prevent flakiness.
-
-* For each chosen repo:
-
-  * record `repo_url`, `commit_sha`, and metadata (stars, feed source, fetched_at).
-
-### Manifest format (JSONL)
-
-Store one line per repo:
+Store one line per repo in `corpus/manifest.jsonl`:
 
 ```json
-{"id":"rails__rails__<sha>","repo_url":"https://github.com/rails/rails","sha":"<sha>","source":"github_stars","fetched_at":"2026-02-21","notes":""}
+{"id":"rails__rails__abc1234","repo_url":"https://github.com/rails/rails","sha":"abc1234...","source":"github_stars","set":"frozen","notes":""}
 ```
 
-### Storage layout
+Fields:
 
-```
-corpus/
-  manifest.jsonl
-  repos/
-    rails__rails__<sha>/
-      checkout/   # working tree
-      meta.json
-      config_scan.json
-```
+* `id`: deterministic `<owner>__<repo>__<sha7>`
+* `repo_url`, `sha`: pinned commit
+* `source`: which feed found it (`github_stars`, `rubygems`, `rubocop_config`)
+* `set`: `frozen` (core ~50 repos, never rotated) or `rotating` (refreshed quarterly)
+* `notes`: optional
+
+The manifest is checked into the repo. Adding repos = adding lines to this file.
 
 ---
 
-## Fetching repos efficiently (without surprises)
+## CI workflow design
 
-### Principle
+### Workflow: `corpus-oracle.yml`
 
-Fetching source code is safe as long as you treat it as **data** and never execute it.
+**Triggers:**
 
-### Recommended fetch approach
+* `schedule`: weekly (e.g., Sunday night)
+* `workflow_dispatch`: manual trigger with optional params (repo subset, mode)
+* `pull_request`: only when paths match `src/cop/**`, `src/config/**`, `resources/tiers.json` (cop implementation changes)
 
-* Fetch pinned SHAs with minimal history.
-* Avoid submodules.
-* Avoid large binary blobs when possible.
+### Job structure
 
-Examples (choose one):
-
-#### Option 1: Shallow fetch by SHA (works for many repos)
-
-```bash
-mkdir -p corpus/repos/$ID
-cd corpus/repos/$ID
-
-git init checkout
-cd checkout
-
-git remote add origin "$URL"
-# Fetch only the pinned commit
-git fetch --depth 1 origin $SHA
-# Checkout detached at SHA
-git checkout --detach $SHA
+```
+┌─────────────────────┐
+│   build-turbocop    │  Build release binary, upload as artifact
+└──────────┬──────────┘
+           │
+┌──────────▼──────────┐
+│   setup-bench       │  Install bench bundle (Ruby + baseline gems), cache it
+└──────────┬──────────┘
+           │
+┌──────────▼──────────┐
+│  corpus-matrix      │  Matrix: one job per repo (or batch of ~5 repos)
+│  [repo_1]           │  - Shallow clone repo at pinned SHA
+│  [repo_2]           │  - Run RuboCop baseline + repo-config (if eligible)
+│  [repo_3]           │  - Run turbocop baseline + repo-config (if eligible)
+│  ...                │  - Upload per-repo JSON results as artifacts
+└──────────┬──────────┘
+           │
+┌──────────▼──────────┐
+│   collect-results   │  Download all per-repo artifacts
+│                     │  Run diff engine + noise bucketing
+│                     │  Generate results.md + corpus_results.json
+│                     │  Upload as workflow artifacts
+│                     │  (Optional) commit results to a branch or create PR
+└─────────────────────┘
 ```
 
-#### Option 2: GitHub tarball at SHA (no git history)
+### Matrix batching
 
-* Download `archive/<sha>.tar.gz`, unpack into `checkout/`.
-* Pros: very space efficient.
-* Cons: requires HTTP fetch logic; no git metadata.
+With 100 repos and 20 concurrent jobs:
 
-### Hard fetch rules
+* **Option A**: 1 repo per job (100 jobs, max parallelism, ~5 min each).
+* **Option B**: 5 repos per job (20 jobs, better cache reuse, ~25 min each).
 
-* Do not recurse submodules.
-* Do not run any repo scripts.
-* Keep corpus checkouts read-only during lint runs.
+Start with Option B (20 jobs × 5 repos) to stay within reasonable job counts. Switch to Option A if individual repos are slow enough to warrant it.
+
+### Caching
+
+* **Bench bundle**: `actions/cache` keyed on `bench/Gemfile.lock` hash. Saves ~2 min/job.
+* **turbocop binary**: built once in `build-turbocop` job, shared via `actions/upload-artifact`.
+* **Repo checkouts**: NOT cached (shallow clones are fast, and caching 100 repos uses too much cache space).
+
+### Per-repo job steps
+
+```yaml
+# Inside each matrix job:
+- uses: actions/checkout@v4          # turbocop repo (for bench config)
+- uses: actions/download-artifact@v4  # turbocop binary
+- uses: ruby/setup-ruby@v1           # Ruby for RuboCop
+- name: Restore bench bundle
+  uses: actions/cache@v4
+  with:
+    path: bench/vendor/bundle
+    key: bench-bundle-${{ hashFiles('bench/Gemfile.lock') }}
+
+- name: Fetch corpus repos (this batch)
+  run: |
+    # For each repo in this batch:
+    #   git clone --depth 1 --no-recurse-submodules <url> -b <sha> repos/<id>
+
+- name: Pre-scan configs
+  run: |
+    # Scan .rubocop.yml for require/inherit_gem safety
+    # Write eligibility status per repo
+
+- name: Run RuboCop (baseline mode)
+  run: |
+    for repo in repos/*/; do
+      BUNDLE_GEMFILE=$PWD/bench/Gemfile \
+      BUNDLE_PATH=$PWD/bench/vendor/bundle \
+      bundle exec rubocop \
+        --config bench/baseline_rubocop.yml \
+        --format json \
+        --force-exclusion \
+        --cache false \
+        "$repo" > "results/rubocop/baseline/$(basename $repo).json" 2>&1 || true
+    done
+
+- name: Run RuboCop (repo-config mode, eligible only)
+  run: |
+    # Similar, but use repo's .rubocop.yml for eligible repos
+
+- name: Run turbocop (both modes)
+  run: |
+    for repo in repos/*/; do
+      ./turbocop --format json "$repo" > "results/turbocop/baseline/$(basename $repo).json" 2>&1 || true
+    done
+
+- name: Upload per-repo results
+  uses: actions/upload-artifact@v4
+  with:
+    name: corpus-results-${{ matrix.batch }}
+    path: results/
+```
+
+### Collect job
+
+The final `collect-results` job:
+
+1. Downloads all per-repo result artifacts.
+2. Runs the diff engine (Rust binary or script) to produce:
+   * `corpus_results.json` — detailed per-cop, per-repo FP/FN/match data
+   * `results.md` — human-readable summary with:
+     * Overall match rate
+     * Per-cop divergence table (top 30 diverging cops)
+     * Per-repo summary (match rate, timing, status)
+     * Noise bucket breakdown
+     * Autocorrect parity summary (if autocorrect lane ran)
+3. Uploads both as workflow artifacts (visible in GitHub Actions UI).
+4. (Optional) Opens a PR or commits to a `corpus-results` branch for easy diffing between runs.
 
 ---
 
-## Oracle: running RuboCop at turbocop’s baseline WITHOUT per-repo bundle installs
+## Oracle: running RuboCop at turbocop's baseline
 
 ### Baseline bundle
 
-Create a dedicated “bench bundle” that pins your baseline versions.
-
-`bench/Gemfile`:
+`bench/Gemfile` pins baseline versions:
 
 ```ruby
 source "https://rubygems.org"
@@ -179,441 +244,324 @@ gem "rubocop-performance", "1.aa.a"
 # add any baseline plugins turbocop vendors
 ```
 
-Install once:
-
-```bash
-cd bench
-bundle install --path vendor/bundle
-```
-
-### Oracle run command (baseline bundle)
-
-All oracle runs must use the baseline bundle, never the repo’s bundle:
-
-```bash
-BUNDLE_GEMFILE=$BENCH_DIR/Gemfile \
-BUNDLE_PATH=$BENCH_DIR/vendor/bundle \
-bundle exec rubocop --format json --force-exclusion --cache false --stdin < /dev/null
-```
-
-Notes:
-
-* Run in repo working directory (so file paths are correct), but **do not use repo Gemfile**.
-* `--cache false` avoids RuboCop writing caches into repos (or configure a dedicated cache dir).
+All oracle runs use `BUNDLE_GEMFILE=bench/Gemfile` + `BUNDLE_PATH=bench/vendor/bundle`. Never the repo's Gemfile.
 
 ### Ruby version
 
-Pick a single Ruby version consistent with your baseline (e.g., Ruby 3.3+). Record it in results metadata.
+Pin in the workflow: `ruby/setup-ruby@v1` with a specific version (e.g., `3.3`). Record in results metadata.
 
 ---
 
-## Repo-config mode safety: allowlist or skip
+## Repo-config mode: allowlist or skip
 
-Repo-config mode is valuable but is where safety + dependency issues appear.
+### Pre-scan `.rubocop.yml`
 
-### Pre-scan `.rubocop.yml` before running oracle
-
-Implement a lightweight YAML scan that extracts:
-
-* `require:` entries
-* `inherit_gem:` entries
-* `inherit_from:` entries
-* `AllCops: TargetRubyVersion` (if present)
-
-Write result to `config_scan.json`.
+Lightweight YAML scan extracts: `require:`, `inherit_gem:`, `inherit_from:`, `AllCops: TargetRubyVersion`.
 
 ### Allowlist policy
 
-Define `allowed_rubocop_plugins` (exactly the gems included in your baseline bundle, optionally plus a small “extended” list).
+`allowed_rubocop_plugins` = exactly the gems in `bench/Gemfile`.
 
 Repo-config mode is **eligible** only if:
 
-* every `require:` is either absent or a gem name in allowlist (no paths)
+* every `require:` is either absent or a gem name in the allowlist (no paths)
 * every `inherit_gem:` references allowlisted gems
 
-If not eligible, bucket repo-config mode as:
-
-* `config_deps_missing_or_unsafe`
-
-…and do **baseline mode only**.
-
-This prevents accidentally executing repo-local code via `require: ./something`.
+Ineligible repos run **baseline mode only** and are bucketed as `config_deps_missing_or_unsafe`.
 
 ---
 
-## Two passes (exact definitions)
+## Two passes
 
 ### Pass 1: Baseline mode (clean semantics signal)
 
-Purpose: measure core cop semantics without config/plugin variability.
-
 * Ignore repo `.rubocop.yml`.
-* Use a harness config you control (minimal).
+* Use `bench/baseline_rubocop.yml` (controlled config).
 * Exclude standard junk directories.
-
-Example oracle invocation:
-
-```bash
-BUNDLE_GEMFILE=bench/Gemfile bundle exec rubocop \
-  --config bench/baseline_rubocop.yml \
-  --format json \
-  --force-exclusion \
-  --cache false \
-  $REPO_ROOT
-```
 
 ### Pass 2: Repo-config mode (config compatibility signal)
 
-Purpose: measure how well turbocop matches RuboCop when using real configs.
-
-* Only run if repo is eligible per allowlist scan.
-* Use repo `.rubocop.yml`.
-
-Example oracle invocation:
-
-```bash
-BUNDLE_GEMFILE=bench/Gemfile bundle exec rubocop \
-  --format json \
-  --force-exclusion \
-  --cache false \
-  $REPO_ROOT
-```
-
-Record per repo whether baseline mode and/or repo-config mode ran.
-
----
-
-## Result storage & caching
-
-### Per-repo result files
-
-Store results so you can re-diff without re-running tools:
-
-```
-results/
-  rubocop/
-    baseline/<repo_id>.json
-    repo_config/<repo_id>.json
-  turbocop/
-    baseline/<repo_id>.json
-    repo_config/<repo_id>.json
-  meta/
-    <repo_id>.json
-```
-
-### Metadata per run
-
-`meta/<repo_id>.json` includes:
-
-* repo_id, url, sha
-* mode: baseline vs repo_config
-* tool versions: turbocop baseline, rubocop baseline gem versions
-* ruby version
-* status: ok | skipped (reason) | error (reason)
-* timing stats
+* Only for eligible repos (per allowlist scan).
+* Use repo's `.rubocop.yml`.
+* Same baseline bundle (never repo's Gemfile).
 
 ---
 
 ## Diffing & noise buckets
 
-### Normalized diagnostic key (MVP)
+### Normalized diagnostic key
 
-Compare offenses by:
+Compare offenses by: `file + line + column + cop_name`
 
-* `file + line + column + cop_name`
+### Buckets
 
-(Optionally include message normalization later.)
-
-### Buckets (minimum viable)
-
-Classify diffs into:
-
-* `syntax_or_parse` (RuboCop reports syntax, turbocop doesn’t; parse errors)
-* `outside_baseline` (cop not present)
-* `unimplemented`
-* `config_deps_missing_or_unsafe`
-* `true_behavior_diff`
+* `syntax_or_parse` — Prism vs Parser recovery differences
+* `gem_version_mismatch` — cop behavior differs due to version gap (already detected by bench harness)
+* `outside_baseline` — cop not in turbocop's baseline
+* `unimplemented` — cop in baseline but not implemented
+* `config_deps_missing_or_unsafe` — repo-config mode skipped
+* `true_behavior_diff` — genuine implementation divergence
 * `tool_crash_or_timeout`
 
 Only `true_behavior_diff` counts against Stable promotion.
 
 ---
 
-## Scaling & performance
+## Output artifacts
 
-### Parallelization
+### `results.md` (human-readable summary)
 
-Parallelize by **repo**, not by file:
+```markdown
+# Corpus Oracle Results — 2026-02-21
 
-* each worker takes a repo_id + mode, produces one JSON output.
-* avoid shared mutable state.
+**Corpus**: 100 repos (50 frozen + 50 rotating)
+**Baseline**: rubocop 1.xx.x, rubocop-rails 2.yy.y, ...
+**turbocop**: v0.x.x (commit abc1234)
 
-### Disk management
+## Overall
+| Metric | Count |
+|--------|------:|
+| Total repos | 100 |
+| Repos with 100% match | 72 |
+| Total offenses compared | 45,231 |
+| Matches | 44,890 |
+| True FP | 142 |
+| True FN | 199 |
+| Overall match rate | 99.2% |
 
-* Prefer tarball fetch or shallow fetch to reduce space.
-* Keep checkouts only as long as needed; optionally “evict” old checkouts and keep only manifests + results.
-* Consider storing only the subset of files needed for repro fixtures (later phase).
+## Top diverging cops
+| Cop | Matches | FP | FN | Match % |
+|-----|--------:|---:|---:|--------:|
+| ... | ... | ... | ... | ... |
+
+## Per-repo summary
+| Repo | Match rate | True FP | True FN | Status |
+|------|----------:|--------:|--------:|--------|
+| ... | ... | ... | ... | ... |
+
+## Noise buckets
+| Bucket | Count |
+|--------|------:|
+| syntax_or_parse | ... |
+| gem_version_mismatch | ... |
+| ... | ... |
+```
+
+### `corpus_results.json` (machine-readable)
+
+```json
+{
+  "schema": 1,
+  "run_date": "2026-02-21T...",
+  "baseline": {"rubocop": "1.xx.x", "...": "..."},
+  "turbocop_version": "0.x.x",
+  "turbocop_commit": "abc1234",
+  "summary": {
+    "total_repos": 100,
+    "repos_100pct_match": 72,
+    "total_offenses": 45231,
+    "matches": 44890,
+    "true_fp": 142,
+    "true_fn": 199
+  },
+  "by_cop": [
+    {"cop": "Style/Foo", "matches": 500, "fp": 2, "fn": 0, "noise": {"syntax": 1}},
+    "..."
+  ],
+  "by_repo": [
+    {"repo": "rails__rails__abc1234", "status": "ok", "match_rate": 0.99, "fp": 3, "fn": 1},
+    "..."
+  ],
+  "noise_buckets": {
+    "syntax_or_parse": 45,
+    "gem_version_mismatch": 102,
+    "outside_baseline": 0,
+    "true_behavior_diff": 341,
+    "tool_crash_or_timeout": 0
+  }
+}
+```
+
+### Autocorrect results (when autocorrect lane runs)
+
+Appended to both `results.md` and `corpus_results.json`:
+
+* Per-cop autocorrect parity (match/mismatch/gate failures)
+* Safety gate pass rates
+* Autocorrect allowlist candidates (cops with 0 mismatches)
+
+---
+
+## Autocorrect oracle harness (separate CI lane)
+
+Autocorrect is higher risk — a wrong rewrite silently breaks code. Runs as a separate CI job or workflow.
+
+**Existing infrastructure**: `bench_turbocop autocorrect-conform` already copies bench repos, runs both tools with `-A`, and diffs `.rb` files. The CI lane extends this to the full corpus with per-cop granularity and safety gates.
+
+### CI workflow addition
+
+Add an `autocorrect-oracle` job (or separate workflow) that:
+
+1. For each repo, creates a temp copy of the checkout.
+2. Runs RuboCop `--autocorrect` (safe only) with the bench bundle, restricted to allowlisted cops.
+3. Captures post-state file hashes.
+4. Resets to pre-state, runs turbocop `-a` with the same cop set.
+5. Diffs post-state file hashes between the two tools.
+6. Runs safety gates on turbocop output: parse, idempotence, non-overlap.
+7. Uploads per-repo autocorrect results as artifacts.
+
+### Safety gates
+
+* **Parse gate**: every changed file parses successfully with Prism.
+* **Idempotence gate**: running autocorrect twice yields no further edits.
+* **Non-overlap gate**: edits don't overlap and have valid byte ranges.
+* **No-op gate**: if tool reports edits, at least one file hash must change.
+
+Gate failures are bucketed as `autocorrect_invalid_output` (higher severity than mismatches).
+
+### Noise buckets (autocorrect-specific)
+
+* `autocorrect_mismatch` — outputs differ
+* `autocorrect_invalid_output` — safety gate failed
+* `autocorrect_oracle_failed` — RuboCop crashed
+* `autocorrect_tool_failed` — turbocop crashed
+
+### Allowlist promotion
+
+Cops enter `autocorrect_safe_allowlist.json` only after 0 mismatches + 0 gate failures across the corpus. Any bug report removes the cop until fixed.
 
 ---
 
 ## Implementation checklist
 
-This section is deliberately concrete: it’s the work items an engineer can execute in order, with clear “done” criteria.
+### Phase 0: Foundations
 
-### Phase 0: Foundations (plumbing + safety)
+* [ ] **Define baseline versions** in one place
 
-* [ ] **Define baseline versions** in one place (source of truth)
+  * `bench/Gemfile` pins RuboCop + plugins to turbocop baseline
+  * **Done when**: `bench/Gemfile` versions match vendor submodule tags.
 
-  * `bench/Gemfile` pins `rubocop` + plugins to turbocop baseline
-  * `bench/baseline_versions.json` mirrors the same versions for metadata
-  * **Done when**: `turbocop doctor` and harness metadata can print the same baseline set.
+* [ ] **Create `corpus/manifest.jsonl`** with initial ~20 repos
 
-* [ ] **Create sandbox execution wrapper**
-
-  * Unprivileged user, optional container/VM support
-  * “no network during runs” toggle (fetch phase may use network)
-  * Read-only mount of `corpus/repos/*/checkout` during tool runs
-  * **Done when**: a simple repo can be linted in baseline mode with no network.
+  * Include current bench repos (already known-good).
+  * Mark as `set: "frozen"`.
+  * **Done when**: manifest is checked in and parseable.
 
 * [ ] **Implement path exclusions** shared by all runs
 
   * Hard exclude: `.git/`, `vendor/`, `node_modules/`, `tmp/`, `coverage/`, `dist/`, `build/`
-  * **Done when**: both RuboCop and turbocop are invoked with equivalent exclusions.
+  * **Done when**: both tools use equivalent exclusions.
 
 ---
 
-### Phase 1: Corpus manifest + fetcher (repeatable inputs)
+### Phase 1: CI workflow MVP (~20 repos)
 
-* [ ] **Manifest schema + loader/writer** (`manifest.jsonl`)
+* [ ] **`build-turbocop` job**
 
-  * Fields: `id`, `repo_url`, `sha`, `source`, `fetched_at`, `notes`
-  * Deterministic `id` format: `<owner>__<repo>__<sha7>` (or similar)
-  * **Done when**: harness can read/write manifest and iterate repos deterministically.
+  * Build release binary on `ubuntu-latest`.
+  * Upload as artifact.
+  * **Done when**: binary builds and is downloadable by downstream jobs.
 
-* [ ] **Repo candidate list builder** (produces an initial manifest)
+* [ ] **`setup-bench` or inline step**
 
-  * Accepts multiple input feeds (GitHub stars list, RubyGems list, `.rubocop.yml` search)
-  * Dedup by canonical URL
-  * Applies size/activity filters (configurable)
-  * **Done when**: produces a manifest of N repos and logs inclusion/exclusion reasons.
+  * Install Ruby + bench bundle.
+  * Cache with `actions/cache` keyed on `bench/Gemfile.lock`.
+  * **Done when**: `bundle exec rubocop --version` prints baseline version.
 
-* [ ] **Fetcher** (pins repos to SHAs)
+* [ ] **`corpus-matrix` job (batch of ~5 repos per job)**
 
-  * Implement either:
+  * Read manifest, compute matrix batches.
+  * Per batch: shallow clone repos, pre-scan configs, run both tools, upload results.
+  * **Done when**: per-repo JSON results are uploaded for all 20 repos.
 
-    * Git tarball download at SHA, or
-    * shallow git fetch by SHA
-  * Must not fetch submodules
-  * Writes `meta.json` per repo
-  * **Done when**: `corpus/repos/<id>/checkout` exists and is at the pinned SHA.
+* [ ] **`collect-results` job**
 
----
+  * Download all artifacts, run diff engine, generate `results.md` + `corpus_results.json`.
+  * Upload as workflow artifacts.
+  * **Done when**: results are visible in the Actions tab after a successful run.
 
-### Phase 2: Config pre-scan + eligibility (safe repo-config mode)
+* [ ] **Diff engine** (extend existing `bench_turbocop`)
 
-* [ ] **Config scanner** for `.rubocop.yml`
-
-  * Extract: `require`, `inherit_gem`, `inherit_from`, `AllCops: TargetRubyVersion`
-  * Output: `config_scan.json`
-  * **Done when**: scanner is fast (<100ms typical) and robust to YAML quirks.
-
-* [ ] **Eligibility classifier**
-
-  * Reject/mark unsafe if any `require:` looks like a path (relative/absolute) or non-allowlisted value
-  * Reject/mark missing deps if `inherit_gem` / `require` references gems not in allowlist
-  * Emits bucket reason: `config_deps_missing_or_unsafe`
-  * **Done when**: repo-config mode only runs on allowlisted configs.
-
-* [ ] **Allowlist definition**
-
-  * `allowed_rubocop_plugins` defaults to exactly the gems present in `bench/Gemfile`
-  * Optional: support an “extended” allowlist bundle later
-  * **Done when**: eligibility uses allowlist and never expands it implicitly.
+  * Accept per-repo JSON files as input (not just local bench repos).
+  * Produce normalized per-cop + per-repo diffs.
+  * Output `results.md` and `corpus_results.json`.
+  * **Done when**: diff engine runs in the collect job and output matches expected format.
 
 ---
 
-### Phase 3: Oracle runner (RuboCop baseline bundle, no per-repo bundler)
+### Phase 2: Scale to ~100 repos + noise bucketing
 
-* [ ] **Bench bundle install (one-time)**
+* [ ] **Expand manifest to ~100 repos**
 
-  * `bundle install --path bench/vendor/bundle`
-  * Ensure RuboCop runs from the bench bundle with `BUNDLE_GEMFILE` and `BUNDLE_PATH`
-  * **Done when**: `bench/bundle_doctor` command prints exact gem versions.
+  * Use the 3 feed sources (GitHub stars, RubyGems, `.rubocop.yml` search).
+  * Mark ~50 as `frozen`, ~50 as `rotating`.
+  * **Done when**: manifest has ~100 entries with diverse sources.
 
-* [ ] **RuboCop runner: baseline mode**
+* [ ] **Config pre-scan + eligibility**
 
-  * Uses `--config bench/baseline_rubocop.yml`
-  * Uses `--format json`, `--force-exclusion`, `--cache false` (or dedicated cache dir)
-  * Writes `results/rubocop/baseline/<repo_id>.json` + `results/meta/<repo_id>__baseline.json`
-  * **Done when**: can run across 10 repos without touching repo Gemfiles.
+  * Scan `.rubocop.yml` for unsafe `require:` / `inherit_gem:`.
+  * Skip repo-config mode for ineligible repos, bucket appropriately.
+  * **Done when**: repo-config mode only runs on safe repos.
 
-* [ ] **RuboCop runner: repo-config mode (eligible only)**
+* [ ] **Noise bucket classification**
 
-  * Uses repo’s `.rubocop.yml`
-  * Same JSON output pathing under `results/rubocop/repo_config/`
-  * **Done when**: runs successfully on a subset and correctly buckets ineligible repos.
-
----
-
-### Phase 4: turbocop runner (same modes, same normalization)
-
-* [ ] **turbocop JSON output schema v1**
-
-  * Includes: diagnostics[], baseline versions, skipped summary buckets
-  * **Done when**: schema is stable and can be diffed without ad-hoc parsing.
-
-* [ ] **turbocop runner: baseline mode**
-
-  * Mirrors RuboCop baseline-mode file discovery/exclusions as closely as possible
-  * Outputs to `results/turbocop/baseline/<repo_id>.json` + meta
-  * **Done when**: outputs exist for same 10 repos and include timing + status.
-
-* [ ] **turbocop runner: repo-config mode**
-
-  * Uses repo `.rubocop.yml` only when eligible by the same classifier
-  * Outputs to `results/turbocop/repo_config/<repo_id>.json`
-  * **Done when**: mode parity with RuboCop runner (eligible repos line up).
-
----
-
-### Phase 5: Diff engine + reports
-
-* [ ] **Normalizer** (RuboCop JSON → normalized diagnostics)
-
-  * Produce comparable `DiagnosticKey = (file,line,col,cop)` records
-  * **Done when**: normalization is deterministic across runs.
-
-* [ ] **Diffing**
-
-  * Compute per-cop: matches, FP, FN
-  * Compute repo-level health: ok / skipped(reason) / error(reason)
-  * **Done when**: `turbocop-bench diff --by-cop` produces a stable table.
-
-* [ ] **Noise bucket classification (MVP)**
-
-  * Assign diffs into: `syntax_or_parse`, `outside_baseline`, `unimplemented`, `config_deps_missing_or_unsafe`, `true_behavior_diff`, `tool_crash_or_timeout`
-  * **Done when**: tier promotion excludes non-true diffs.
-
-* [ ] **Artifacts**
-
-  * `diff/by_cop.json` (machine-readable)
-  * `diff/by_cop.md` (human table)
-  * `diff/top_divergences.md`
-  * **Done when**: implementers can answer “which cops diverge most?” immediately.
-
----
-
-### Phase 6: Tier generation + integration
+  * Assign diffs into: `syntax_or_parse`, `gem_version_mismatch`, `outside_baseline`, `unimplemented`, `config_deps_missing_or_unsafe`, `true_behavior_diff`, `tool_crash_or_timeout`.
+  * **Done when**: `results.md` has a noise bucket breakdown and only `true_behavior_diff` counts against tiers.
 
 * [ ] **Tier generator** (`gen-tiers`)
 
-  * Input: `diff/by_cop.json`
-  * Output: `tiers.json` (Stable/Preview overrides)
-  * Applies the Tier Promotion Criteria gates (excluding noise buckets)
-  * **Done when**: running generator is deterministic and changes are reviewable in git.
-
-* [ ] **Wire tiers into turbocop**
-
-  * turbocop reads `tiers.json` at build-time or runtime
-  * `--preview` enables preview cops
-  * `migrate` reports Stable vs Preview vs skipped categories
-  * **Done when**: toggling tiers changes what runs, and `migrate` reflects it.
+  * Input: `corpus_results.json`.
+  * Output: `resources/tiers.json` (Stable/Preview overrides).
+  * **Done when**: deterministic and reviewable in git.
 
 ---
 
-### Phase 7: Regression fixtures (turn diffs into tests)
+### Phase 3: Autocorrect oracle lane
 
-* [ ] **Fixture capture**
+* [ ] **Add `autocorrect-oracle` job to CI**
 
-  * For any `true_behavior_diff`, store:
-
-    * offending file (or minimal file set)
-    * minimal config context
-    * expected RuboCop diagnostics
-    * observed turbocop diagnostics
-  * **Done when**: a diff can be reproduced locally without re-cloning the repo.
-
-* [ ] **(Optional) Minimization**
-
-  * Add later; MVP is storing whole files first.
-
----
-
-### Phase 8: Autocorrect oracle harness (separate lane)
-
-Autocorrect is higher risk than linting — a wrong rewrite silently breaks code. Treat as an independent oracle lane with stricter gates and conservative defaults.
-
-**Existing infrastructure**: `bench_turbocop autocorrect-conform` already copies bench repos, runs `rubocop -A` and `turbocop -A`, and diffs `.rb` files. Extend this with per-cop granularity and safety gates.
-
-* [ ] **Isolated working copy mechanism**
-
-  * Temp copy of each repo checkout (or overlayfs).
-  * Never modify canonical `corpus/repos/*/checkout`.
-  * **Done when**: autocorrect runs on a disposable copy and original is untouched.
-
-* [ ] **Pre/post state capture**
-
-  * Enumerate Ruby files, record per-file SHA-256 hash before and after autocorrect.
-  * Save unified diff per changed file.
-  * **Done when**: can compare pre→post for both RuboCop and turbocop.
-
-* [ ] **Oracle autocorrect runner (safe mode)**
-
-  * Run RuboCop baseline bundle with `--autocorrect` (safe only).
-  * Restrict to cops in `autocorrect_safe_allowlist.json`.
-  * Store oracle post-state hashes + diffs under `results/autocorrect/rubocop/baseline_safe/`.
-  * **Done when**: oracle run completes on 10 repos without touching repo Gemfiles.
-
-* [ ] **turbocop autocorrect runner (safe mode)**
-
-  * Run turbocop with `-a` restricted to same cop allowlist.
-  * Store post-state under `results/autocorrect/turbocop/baseline_safe/`.
-  * **Done when**: turbocop run completes on same 10 repos.
-
-* [ ] **Safety gates (must-pass before oracle comparison)**
-
-  * **Parse gate**: every changed file parses successfully with Prism.
-  * **Idempotence gate**: running autocorrect twice yields no further edits.
-  * **Non-overlap gate**: edits don't overlap and have valid byte ranges.
-  * **No-op gate**: if tool reports edits, at least one file hash must change.
-  * **Done when**: gates run automatically and failures are bucketed as `autocorrect_invalid_output`.
-
-* [ ] **Autocorrect diffing**
-
-  * Compare post-state file hashes between RuboCop and turbocop.
-  * Per-cop: match, mismatch, oracle_failed, tool_failed, invalid_output.
-  * **Done when**: per-cop autocorrect parity table is produced.
+  * Temp-copy repos, run both tools' autocorrect, compare post-state, run safety gates.
+  * Upload autocorrect results as artifacts.
+  * **Done when**: autocorrect parity is reported in `results.md`.
 
 * [ ] **Autocorrect allowlist generator**
 
-  * Input: autocorrect diff results.
-  * Output: `autocorrect_safe_allowlist.json` — only cops with 0 mismatches + 0 gate failures.
-  * **Done when**: allowlist is deterministically generated and reviewable in git.
-
-* [ ] **Autocorrect noise buckets**
-
-  * `autocorrect_mismatch` — outputs differ
-  * `autocorrect_invalid_output` — safety gate failed (higher severity)
-  * `autocorrect_oracle_failed` — RuboCop crashed
-  * `autocorrect_tool_failed` — turbocop crashed
-  * **Done when**: buckets are assigned and only `autocorrect_mismatch` blocks promotion.
-
-* [ ] **Autocorrect repro artifacts**
-
-  * Store per mismatch: `pre.rb`, `rubocop_post.rb`, `turbocop_post.rb`, patches, `meta.json`.
-  * Under `results/autocorrect_artifacts/<repo_id>/<cop_name>/`.
-  * **Done when**: any mismatch can be reproduced locally.
+  * Input: autocorrect results from CI.
+  * Output: `resources/autocorrect_safe_allowlist.json`.
+  * **Done when**: allowlist is generated from corpus data.
 
 ---
 
-### Acceptance criteria for “Phase 2 MVP complete”
+### Phase 4: Regression fixtures
 
-Phase 2 MVP is complete when, on a corpus of at least ~100 repos:
+* [ ] **Fixture capture**
 
-* Baseline mode runs RuboCop from the **bench bundle** (no per-repo Bundler installs).
-* Repo-config mode runs only on eligible repos and safely buckets the rest.
-* turbocop produces normalized JSON results in both modes.
-* Diffing produces a per-cop FP/FN table and highlights top divergences.
-* Tier generator can output a reviewable `tiers.json` that turbocop uses.
-* Autocorrect oracle (safe mode) runs on the corpus and produces per-cop pass/fail.
+  * For any `true_behavior_diff`, extract: offending file, minimal config, expected vs observed.
+  * Store in `testdata/corpus_regressions/` (checked in).
+  * **Done when**: diffs can be reproduced locally without re-cloning.
+
+* [ ] **(Optional) Minimization**
+
+  * Later; MVP is storing whole files.
+
+---
+
+### Phase 5: Scale to ~300 repos (only if needed)
+
+* [ ] **Expand manifest** (only if Phase 2 still producing novel diffs)
+* [ ] **Optimize CI budget**: skip repos that have been 100% match for N consecutive runs
+* [ ] **Consider splitting into multiple workflows** if budget is tight
+
+---
+
+## Acceptance criteria for "Corpus MVP complete"
+
+On a corpus of at least ~100 repos:
+
+* CI workflow runs end-to-end on schedule + manual trigger.
+* `results.md` is generated as a workflow artifact with overall match rate, top diverging cops, per-repo summary, and noise bucket breakdown.
+* `corpus_results.json` is generated with full machine-readable data.
+* Tier generator can produce a reviewable `tiers.json` from corpus data.
+* Autocorrect oracle lane runs and reports per-cop parity.
 * `autocorrect_safe_allowlist.json` is generated from corpus results.
+* Entire pipeline requires zero local setup — contributors can trigger from the Actions tab.

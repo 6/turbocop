@@ -203,7 +203,13 @@ Prevent matcher-layer drift and catch Prism mapping mistakes early:
 
 ## 6) RuboCop oracle at scale (the backbone for tiers)
 
-### Build a corpus (phased, not heroic)
+### Build a corpus (phased, CI-driven)
+
+**Runs in GitHub Actions CI**, not locally. Public repos get unlimited free minutes
+on standard runners — no budget constraints. Each run produces `results.md`
+(human summary) and `corpus_results.json` (machine-readable) as workflow artifacts.
+Matrix jobs fan out per repo batch for parallelism. See `docs/CORPUS_PLAN.md` for
+full CI workflow design.
 
 **Phase 2 target: ~100 repos** (diverse + curated). This is enough to cover
 the major config patterns, gem combinations, and Ruby idioms. The current 14
