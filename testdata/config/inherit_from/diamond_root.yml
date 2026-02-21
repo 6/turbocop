@@ -1,0 +1,3 @@
+inherit_from:
+  - diamond_left.yml
+  - diamond_right.yml

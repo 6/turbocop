@@ -1679,14 +1679,40 @@ fn inherit_from_merges_configs() {
 
 #[test]
 fn circular_inherit_from_is_detected() {
+    // A→B→A circular inheritance is safely broken: the second visit returns
+    // an empty layer instead of recursing. This handles both true cycles and
+    // diamond dependencies (e.g., standard's base.yml referenced from multiple paths).
     let circular_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("testdata/config/inherit_from/circular_a.yml");
     let result = load_config(Some(circular_path.as_path()), None, None);
-    assert!(result.is_err(), "Circular inheritance should fail");
-    let err_msg = format!("{:#}", result.unwrap_err());
     assert!(
-        err_msg.contains("Circular config inheritance"),
-        "Error should mention circular inheritance, got: {err_msg}"
+        result.is_ok(),
+        "Circular inheritance should be safely broken, got: {result:?}"
+    );
+}
+
+#[test]
+fn diamond_dependency_does_not_error() {
+    // diamond_root → diamond_left → diamond_base
+    //             → diamond_right → diamond_base
+    // diamond_base is visited twice from different paths. Should not error.
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("testdata/config/inherit_from/diamond_root.yml");
+    let config = load_config(Some(path.as_path()), None, None)
+        .expect("Diamond dependency should load successfully");
+    // Verify the config chain loaded correctly — DisabledByDefault from base should apply
+    assert!(
+        !config.is_cop_enabled("Style/Foo", Path::new("a.rb"), &[], &[]),
+        "DisabledByDefault from diamond_base.yml should disable unknown cops"
+    );
+    // But explicitly enabled cops from left/right branches should be on
+    assert!(
+        config.is_cop_enabled("Style/FrozenStringLiteralComment", Path::new("a.rb"), &[], &[]),
+        "Style/FrozenStringLiteralComment enabled in diamond_left.yml should be on"
+    );
+    assert!(
+        config.is_cop_enabled("Style/StringLiterals", Path::new("a.rb"), &[], &[]),
+        "Style/StringLiterals enabled in diamond_right.yml should be on"
     );
 }
 

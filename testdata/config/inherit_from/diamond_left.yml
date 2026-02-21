@@ -1,0 +1,4 @@
+inherit_from: diamond_base.yml
+
+Style/FrozenStringLiteralComment:
+  Enabled: true

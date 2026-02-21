@@ -212,6 +212,33 @@ fn count_rb_files(dir: &Path) -> usize {
     count
 }
 
+/// Check if a repo directory needs `mise exec --` to activate the correct Ruby.
+fn needs_mise(repo_dir: &Path) -> bool {
+    (repo_dir.join(".ruby-version").exists()
+        || repo_dir.join(".tool-versions").exists()
+        || repo_dir.join(".mise.toml").exists())
+        && has_command("mise")
+}
+
+/// Build a `Command` for `bundle exec <tool> [args...]`, using `mise exec --`
+/// when the repo has a `.ruby-version`/`.tool-versions` that may differ from the
+/// current shell's Ruby.
+fn bundle_exec_command(repo_dir: &Path, tool: &str, extra_args: &[&str]) -> Command {
+    if needs_mise(repo_dir) {
+        let mut cmd = Command::new("mise");
+        cmd.arg("exec").arg("--").arg("bundle").arg("exec").arg(tool);
+        cmd.args(extra_args);
+        cmd.current_dir(repo_dir);
+        cmd
+    } else {
+        let mut cmd = Command::new("bundle");
+        cmd.arg("exec").arg(tool);
+        cmd.args(extra_args);
+        cmd.current_dir(repo_dir);
+        cmd
+    }
+}
+
 fn format_time(seconds: f64) -> String {
     if seconds >= 1.0 {
         format!("{seconds:.2}s")
@@ -539,10 +566,17 @@ fn run_bench(args: &Args, repos: &[RepoRef]) -> HashMap<String, BenchResult> {
             turbocop.display(),
             repo.dir.display()
         );
-        let rubocop_cmd = format!(
-            "cd {} && bundle exec rubocop --no-color",
-            repo.dir.display()
-        );
+        let rubocop_cmd = if needs_mise(&repo.dir) {
+            format!(
+                "cd {} && mise exec -- bundle exec rubocop --no-color",
+                repo.dir.display()
+            )
+        } else {
+            format!(
+                "cd {} && bundle exec rubocop --no-color",
+                repo.dir.display()
+            )
+        };
 
         let status = Command::new("hyperfine")
             .args([
@@ -965,9 +999,7 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
         eprintln!("  Running {reference_tool}...");
         let rubocop_json_file = results_path.join(format!("{}-rubocop.json", repo.name));
         let start = Instant::now();
-        let rubocop_out = Command::new("bundle")
-            .args(["exec", reference_tool, "--format", "json", "--no-color"])
-            .current_dir(&repo.dir)
+        let rubocop_out = bundle_exec_command(&repo.dir, reference_tool, &["--format", "json", "--no-color"])
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .output()
@@ -1126,9 +1158,7 @@ fn run_autocorrect_conform(repos: &[RepoRef]) -> HashMap<String, AutocorrectConf
         copy_repo(&repo.dir, &rubocop_dir);
         eprintln!("  Running rubocop -A...");
         let start = Instant::now();
-        let _ = Command::new("bundle")
-            .args(["exec", "rubocop", "-A", "--format", "quiet"])
-            .current_dir(&rubocop_dir)
+        let _ = bundle_exec_command(&rubocop_dir, "rubocop", &["-A", "--format", "quiet"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .output();
@@ -1349,15 +1379,7 @@ fn run_autocorrect_validate(repos: &[RepoRef]) -> HashMap<String, AutocorrectVal
         let linter_name = if uses_standardrb { "standardrb" } else { "rubocop" };
         eprintln!("  Running {}...", linter_name);
         let start = Instant::now();
-        let rb_output = Command::new("bundle")
-            .args([
-                "exec",
-                linter_name,
-                "--format",
-                "json",
-                "--no-color",
-            ])
-            .current_dir(&work_dir)
+        let rb_output = bundle_exec_command(&work_dir, linter_name, &["--format", "json", "--no-color"])
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .output()

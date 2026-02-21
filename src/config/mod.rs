@@ -1025,12 +1025,13 @@ fn load_config_recursive_inner(
             .join(config_path)
     };
 
-    // Circular inheritance detection
+    // Diamond dependency detection: if this file was already loaded via a different
+    // inheritance path, return an empty layer. This handles cases like standard's
+    // base.yml being referenced both directly (inherit_gem: standard: config/base.yml)
+    // and indirectly (ruby-3.3.yml -> inherit_from: ./base.yml). True circular
+    // inheritance can't happen because we return early before recursing.
     if !visited.insert(abs_path.clone()) {
-        anyhow::bail!(
-            "Circular config inheritance detected: {}",
-            abs_path.display()
-        );
+        return Ok(ConfigLayer::empty());
     }
 
     let contents = if let Some(s) = override_contents {
@@ -1267,10 +1268,6 @@ fn load_config_recursive_inner(
                 match load_config_recursive(&inherited_path, working_dir, visited, gem_cache) {
                     Ok(layer) => merge_layer_into(&mut base_layer, &layer, None),
                     Err(e) => {
-                        // Circular inheritance errors should propagate
-                        if format!("{e:#}").contains("Circular config inheritance") {
-                            return Err(e);
-                        }
                         eprintln!(
                             "warning: failed to load inherited config {}: {e:#}",
                             inherited_path.display()
@@ -3098,7 +3095,9 @@ mod tests {
     }
 
     #[test]
-    fn circular_inherit_from_detected() {
+    fn circular_inherit_from_breaks_cycle() {
+        // A→B→A is a true cycle but it's safely broken: the second visit to
+        // a.yml returns an empty layer instead of recursing. No infinite loop.
         let dir = std::env::temp_dir().join("turbocop_test_inherit_circular");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
@@ -3108,12 +3107,7 @@ mod tests {
 
         let path = dir.join("a.yml");
         let result = load_config(Some(&path), None, None);
-        assert!(result.is_err());
-        let err_msg = format!("{:#}", result.unwrap_err());
-        assert!(
-            err_msg.contains("Circular config inheritance"),
-            "Expected circular inheritance error, got: {err_msg}"
-        );
+        assert!(result.is_ok(), "Expected cycle to be safely broken, got: {result:?}");
 
         fs::remove_dir_all(&dir).ok();
     }
