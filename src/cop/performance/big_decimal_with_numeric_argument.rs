@@ -32,42 +32,66 @@ impl Cop for BigDecimalWithNumericArgument {
             None => return,
         };
 
-        if call.name().as_slice() != b"BigDecimal" {
-            return;
+        let method_name = call.name().as_slice();
+
+        if method_name == b"BigDecimal" {
+            // BigDecimal() is a Kernel method, so no receiver
+            if call.receiver().is_some() {
+                return;
+            }
+
+            let arguments = match call.arguments() {
+                Some(a) => a,
+                None => return,
+            };
+
+            let args = arguments.arguments();
+            if args.is_empty() {
+                return;
+            }
+
+            // RuboCop only flags:
+            // - Float arguments: BigDecimal(1.2) → BigDecimal('1.2')
+            // - String arguments containing only digits: BigDecimal('1') → BigDecimal(1)
+            // Integer arguments like BigDecimal(0) are NOT flagged.
+            let first_arg = match args.iter().next() {
+                Some(a) => a,
+                None => return,
+            };
+
+            if let ruby_prism::Node::FloatNode { .. } = first_arg {
+                let loc = first_arg.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                diagnostics.push(self.diagnostic(source, line, column, "Convert float literal to string and pass it to `BigDecimal`.".to_string()));
+            } else if let Some(str_node) = first_arg.as_string_node() {
+                let content = str_node.unescaped();
+                // Only flag string integers like BigDecimal('1'), not BigDecimal('1.5')
+                if !content.is_empty() && content.iter().all(|b| b.is_ascii_digit()) {
+                    let loc = first_arg.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    diagnostics.push(self.diagnostic(source, line, column, "Convert string literal to integer and pass it to `BigDecimal`.".to_string()));
+                }
+            }
+        } else if method_name == b"to_d" {
+            // receiver.to_d — flag float receivers and string receivers with digit-only content
+            let receiver = match call.receiver() {
+                Some(r) => r,
+                None => return,
+            };
+
+            if let ruby_prism::Node::FloatNode { .. } = receiver {
+                let loc = receiver.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                diagnostics.push(self.diagnostic(source, line, column, "Convert float literal to string and pass it to `BigDecimal`.".to_string()));
+            } else if let Some(str_node) = receiver.as_string_node() {
+                let content = str_node.unescaped();
+                if !content.is_empty() && content.iter().all(|b| b.is_ascii_digit()) {
+                    let loc = receiver.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    diagnostics.push(self.diagnostic(source, line, column, "Convert string literal to integer and pass it to `BigDecimal`.".to_string()));
+                }
+            }
         }
-
-        // BigDecimal() is a Kernel method, so no receiver
-        if call.receiver().is_some() {
-            return;
-        }
-
-        let arguments = match call.arguments() {
-            Some(a) => a,
-            None => return,
-        };
-
-        let args = arguments.arguments();
-        if args.is_empty() {
-            return;
-        }
-
-        // Check if first argument is an IntegerNode or FloatNode
-        let first_arg = match args.iter().next() {
-            Some(a) => a,
-            None => return,
-        };
-        let is_numeric = matches!(
-            first_arg,
-            ruby_prism::Node::IntegerNode { .. } | ruby_prism::Node::FloatNode { .. }
-        );
-
-        if !is_numeric {
-            return;
-        }
-
-        let loc = call.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(source, line, column, "Use a string argument to `BigDecimal` instead of a numeric argument.".to_string()));
     }
 }
 

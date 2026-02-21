@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+#
+# pre-commit hook: prevent private repo names from leaking into committed code.
+# Scans staged diff content for names listed in bench/private_repos.json.
+#
+# Setup: git config core.hooksPath .githooks
+
+CONFIG="$(git rev-parse --show-toplevel)/bench/private_repos.json"
+
+if [ ! -f "$CONFIG" ]; then
+    exit 0
+fi
+
+# Extract "name" values from the JSON config.
+if command -v python3 &>/dev/null; then
+    NAMES=$(python3 -c "
+import json, sys
+try:
+    repos = json.load(open('$CONFIG'))
+    for r in repos:
+        print(r['name'])
+except Exception:
+    sys.exit(0)
+" 2>/dev/null)
+else
+    NAMES=$(grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG" | sed 's/.*"name"[[:space:]]*:[[:space:]]*"//;s/"//')
+fi
+
+if [ -z "$NAMES" ]; then
+    exit 0
+fi
+
+# Get the staged diff (only added/modified lines)
+DIFF=$(git diff --cached --diff-filter=ACMR)
+
+FOUND=""
+
+while IFS= read -r name; do
+    # Search added lines (starting with +, but not +++ header) for the name
+    MATCHES=$(echo "$DIFF" | grep -n "^+" | grep -v "^[0-9]*:+++" | grep -i "$name" || true)
+    if [ -n "$MATCHES" ]; then
+        FOUND="${FOUND}\n  '${name}' found in staged changes:\n"
+        while IFS= read -r match; do
+            # Strip the grep line number prefix, show the diff line
+            LINE=$(echo "$match" | sed 's/^[0-9]*:/  /')
+            FOUND="${FOUND}    ${LINE}\n"
+        done <<< "$MATCHES"
+    fi
+done <<< "$NAMES"
+
+if [ -n "$FOUND" ]; then
+    echo "ERROR: Staged changes contain private repo name(s):"
+    echo -e "$FOUND"
+    echo "These names are from bench/private_repos.json and must not appear in commits."
+    echo "Use 'git commit --no-verify' to bypass (use with caution)."
+    exit 1
+fi
+
+exit 0

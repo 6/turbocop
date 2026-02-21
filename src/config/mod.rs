@@ -857,7 +857,11 @@ pub fn load_config(
             }
         }
 
-        // Reset cop-level enabled states that came from defaults (not user config)
+        // Reset cop-level enabled states that came from defaults (not user config).
+        // Under DisabledByDefault, only cops with explicit Enabled: true from user
+        // config (not require: defaults) should stay enabled. Department-level
+        // Enabled: true does NOT override DisabledByDefault for individual cops —
+        // this matches RuboCop's enable_cop? logic (vendor/rubocop/lib/rubocop/config.rb).
         for (cop_name, cop_cfg) in base.cop_configs.iter_mut() {
             if cop_cfg.enabled == EnabledState::True {
                 let user_enabled = project_layer
@@ -865,13 +869,7 @@ pub fn load_config(
                     .get(cop_name)
                     .is_some_and(|c| c.enabled == EnabledState::True)
                     && !project_layer.require_enabled_cops.contains(cop_name);
-                let dept = cop_name.split('/').next().unwrap_or("");
-                let dept_enabled = project_layer
-                    .department_configs
-                    .get(dept)
-                    .is_some_and(|dc| dc.enabled == EnabledState::True)
-                    && !project_layer.require_enabled_depts.contains(dept);
-                if !user_enabled && !dept_enabled {
+                if !user_enabled {
                     cop_cfg.enabled = EnabledState::Unset;
                 }
             }
@@ -1738,7 +1736,11 @@ impl ResolvedConfig {
             EnabledState::False
         } else if cop_enabled_state != EnabledState::Unset {
             cop_enabled_state
-        } else if dept_enabled_state != EnabledState::Unset {
+        } else if dept_enabled_state == EnabledState::False {
+            EnabledState::False
+        } else if !self.disabled_by_default
+            && dept_enabled_state != EnabledState::Unset
+        {
             dept_enabled_state
         } else {
             EnabledState::Unset
@@ -2147,7 +2149,17 @@ impl ResolvedConfig {
                     EnabledState::False
                 } else if cop_enabled_state != EnabledState::Unset {
                     cop_enabled_state
-                } else if dept_enabled_state != EnabledState::Unset {
+                } else if dept_enabled_state == EnabledState::False {
+                    // Department explicitly disabled — cop inherits that.
+                    EnabledState::False
+                } else if !self.disabled_by_default
+                    && dept_enabled_state != EnabledState::Unset
+                {
+                    // Department-level promotion only applies when DisabledByDefault
+                    // is NOT active. Under DisabledByDefault, only cops with explicit
+                    // Enabled: true in their own config are enabled — department-level
+                    // Enabled: true does NOT override DisabledByDefault for individual
+                    // cops. This matches RuboCop's enable_cop? logic.
                     dept_enabled_state
                 } else {
                     EnabledState::Unset
@@ -3448,6 +3460,79 @@ mod tests {
         // Unmentioned cops are disabled (DisabledByDefault from inherited gem)
         assert!(!config.is_cop_enabled("Style/Bar", Path::new("a.rb"), &[], &[]));
         assert!(!config.is_cop_enabled("Lint/SomeOtherCop", Path::new("a.rb"), &[], &[]));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn disabled_by_default_dept_enable_does_not_promote_cops() {
+        // Simulates the my-company-style pattern: a gem chain with DisabledByDefault: true,
+        // require: loading a plugin gem (sets cops to Enabled: true), and a
+        // department-level Enabled: true. Individual cops from the plugin should
+        // NOT be promoted to enabled just because the department is enabled.
+        // This matches RuboCop's enable_cop? behavior where department-level
+        // Enabled: true does NOT override DisabledByDefault for individual cops.
+        let dir =
+            std::env::temp_dir().join("turbocop_test_disabled_by_default_dept_no_promote");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        // Fake plugin gem: config/default.yml enables a department and its cops
+        let plugin_dir = dir.join("rubocop-fakeplugin");
+        fs::create_dir_all(plugin_dir.join("config")).unwrap();
+        write_yaml(
+            &plugin_dir.join("config"),
+            "default.yml",
+            "FakePlugin:\n  Enabled: true\n\
+             FakePlugin/CopA:\n  Enabled: true\n\
+             FakePlugin/CopB:\n  Enabled: true\n\
+             FakePlugin/CopC:\n  Enabled: true\n",
+        );
+
+        // Fake style gem: sets DisabledByDefault and selectively enables
+        let style_dir = dir.join("my-company-style");
+        fs::create_dir_all(&style_dir).unwrap();
+        // default.yml inherits from core.yml
+        write_yaml(&style_dir, "default.yml", "inherit_from: core.yml\n");
+        // core.yml: require plugin + inherit_gem for overrides + DisabledByDefault
+        write_yaml(
+            &style_dir,
+            "core.yml",
+            "require:\n  - rubocop-fakeplugin\n\
+             AllCops:\n  DisabledByDefault: true\n\
+             FakePlugin:\n  Enabled: true\n\
+             FakePlugin/CopA:\n  Enabled: true\n",
+        );
+
+        let mut gem_cache = HashMap::new();
+        gem_cache.insert("rubocop-fakeplugin".to_string(), plugin_dir);
+        gem_cache.insert("my-company-style".to_string(), style_dir);
+
+        // Project config: inherit_gem from my-company-style
+        let path = write_config(
+            &dir,
+            "inherit_gem:\n  my-company-style: default.yml\n",
+        );
+        let config = load_config(Some(&path), None, Some(&gem_cache)).unwrap();
+
+        // CopA is explicitly enabled in core.yml → should be enabled
+        assert!(
+            config.is_cop_enabled("FakePlugin/CopA", Path::new("a.rb"), &[], &[]),
+            "CopA should be enabled (explicitly set in user config)"
+        );
+
+        // CopB is NOT explicitly enabled — only has Enabled: true from require: defaults.
+        // Department-level Enabled: true should NOT promote it under DisabledByDefault.
+        assert!(
+            !config.is_cop_enabled("FakePlugin/CopB", Path::new("a.rb"), &[], &[]),
+            "CopB should be disabled (only enabled by require: defaults, not user config)"
+        );
+
+        // CopC same as CopB
+        assert!(
+            !config.is_cop_enabled("FakePlugin/CopC", Path::new("a.rb"), &[], &[]),
+            "CopC should be disabled (only enabled by require: defaults, not user config)"
+        );
 
         fs::remove_dir_all(&dir).ok();
     }

@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+#
+# commit-msg hook: prevent private repo names from leaking into commit messages.
+# Reads repo names from bench/private_repos.json (if it exists).
+#
+# Setup: git config core.hooksPath .githooks
+
+COMMIT_MSG_FILE="$1"
+CONFIG="$(git rev-parse --show-toplevel)/bench/private_repos.json"
+
+if [ ! -f "$CONFIG" ]; then
+    exit 0
+fi
+
+# Extract "name" values from the JSON config.
+# Uses python3 if available, falls back to grep/sed.
+if command -v python3 &>/dev/null; then
+    NAMES=$(python3 -c "
+import json, sys
+try:
+    repos = json.load(open('$CONFIG'))
+    for r in repos:
+        print(r['name'])
+except Exception:
+    sys.exit(0)
+" 2>/dev/null)
+else
+    NAMES=$(grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG" | sed 's/.*"name"[[:space:]]*:[[:space:]]*"//;s/"//')
+fi
+
+if [ -z "$NAMES" ]; then
+    exit 0
+fi
+
+MSG=$(cat "$COMMIT_MSG_FILE")
+FOUND=""
+
+while IFS= read -r name; do
+    if echo "$MSG" | grep -qi "$name"; then
+        FOUND="${FOUND}  - ${name}\n"
+    fi
+done <<< "$NAMES"
+
+if [ -n "$FOUND" ]; then
+    echo "ERROR: Commit message contains private repo name(s):"
+    echo -e "$FOUND"
+    echo "These names are from bench/private_repos.json and must not appear in commits."
+    echo "Please edit your commit message to remove or redact them."
+    exit 1
+fi
+
+exit 0

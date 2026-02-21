@@ -1,10 +1,14 @@
-BigDecimal(2)
-^^^^^^^^^^^^^ Performance/BigDecimalWithNumericArgument: Use a string argument to `BigDecimal` instead of a numeric argument.
 BigDecimal(2.5)
-^^^^^^^^^^^^^^^ Performance/BigDecimalWithNumericArgument: Use a string argument to `BigDecimal` instead of a numeric argument.
-BigDecimal(1)
-^^^^^^^^^^^^^ Performance/BigDecimalWithNumericArgument: Use a string argument to `BigDecimal` instead of a numeric argument.
+           ^^^ Performance/BigDecimalWithNumericArgument: Convert float literal to string and pass it to `BigDecimal`.
 BigDecimal(1.5, exception: true)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/BigDecimalWithNumericArgument: Use a string argument to `BigDecimal` instead of a numeric argument.
+           ^^^ Performance/BigDecimalWithNumericArgument: Convert float literal to string and pass it to `BigDecimal`.
 BigDecimal(3.14, 1)
-^^^^^^^^^^^^^^^^^^^ Performance/BigDecimalWithNumericArgument: Use a string argument to `BigDecimal` instead of a numeric argument.
+           ^^^^ Performance/BigDecimalWithNumericArgument: Convert float literal to string and pass it to `BigDecimal`.
+BigDecimal('1')
+           ^^^ Performance/BigDecimalWithNumericArgument: Convert string literal to integer and pass it to `BigDecimal`.
+BigDecimal('42', 2)
+           ^^^^ Performance/BigDecimalWithNumericArgument: Convert string literal to integer and pass it to `BigDecimal`.
+1.5.to_d
+^^^ Performance/BigDecimalWithNumericArgument: Convert float literal to string and pass it to `BigDecimal`.
+'4'.to_d
+^^^ Performance/BigDecimalWithNumericArgument: Convert string literal to integer and pass it to `BigDecimal`.
