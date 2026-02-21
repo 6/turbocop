@@ -50,7 +50,7 @@
 - [x] Finish interpreter (adapt `node_pattern_codegen.rs` lexer/parser)
 - [x] Verifier harness: compiled vs interpreted matching on bench-repo AST nodes
 - [x] `cargo test verifier` in CI
-- [ ] Gate merges that modify matching logic
+- [x] Gate merges that modify matching logic
 
 ### Autocorrect
 
