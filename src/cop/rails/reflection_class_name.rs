@@ -49,9 +49,12 @@ impl Cop for ReflectionClassName {
             // RuboCop flags non-string values (constants, method calls) for class_name.
             // ActiveRecord expects class_name to be a string.
             // Symbols are also acceptable (e.g., `class_name: :Article`).
+            // Method calls ending in .to_s are also acceptable — they produce strings.
+            let is_to_s = value.as_call_node().is_some_and(|c| c.name().as_slice() == b"to_s");
             if value.as_string_node().is_none()
                 && value.as_symbol_node().is_none()
                 && value.as_interpolated_string_node().is_none()
+                && !is_to_s
             {
                 let loc = value.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());

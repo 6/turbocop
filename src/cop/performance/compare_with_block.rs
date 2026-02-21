@@ -40,6 +40,15 @@ impl Cop for CompareWithBlock {
             return;
         }
 
+        // Skip safe navigation (&.sort) — RuboCop only matches `send`, not `csend`
+        if call.call_operator_loc().is_some() {
+            let op = call.call_operator_loc().unwrap();
+            let op_bytes = &source.as_bytes()[op.start_offset()..op.end_offset()];
+            if op_bytes == b"&." {
+                return;
+            }
+        }
+
         let block = match call.block() {
             Some(b) => b,
             None => return,
@@ -172,7 +181,40 @@ impl Cop for CompareWithBlock {
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(source, line, column, "Use `sort_by(&:method)` instead of `sort { |a, b| a.method <=> b.method }`.".to_string()));
+
+        if method_a == b"[]" {
+            // For [] indexing: require exactly 1 argument that is a literal (sym/str/int),
+            // and both sides must use the same key.
+            let args_a: Vec<_> = recv_call.arguments().map_or(vec![], |a| a.arguments().iter().collect());
+            let args_b: Vec<_> = arg_call.arguments().map_or(vec![], |a| a.arguments().iter().collect());
+            if args_a.len() != 1 || args_b.len() != 1 {
+                return;
+            }
+            let key_a = &args_a[0];
+            let key_b = &args_b[0];
+            // Must be a literal type (string, symbol, or integer)
+            let is_literal = key_a.as_string_node().is_some()
+                || key_a.as_symbol_node().is_some()
+                || key_a.as_integer_node().is_some();
+            if !is_literal {
+                return;
+            }
+            // Both keys must be the same literal (compare source bytes)
+            let key_a_src = &source.as_bytes()[key_a.location().start_offset()..key_a.location().end_offset()];
+            let key_b_src = &source.as_bytes()[key_b.location().start_offset()..key_b.location().end_offset()];
+            if key_a_src != key_b_src {
+                return;
+            }
+            let key_display = std::str::from_utf8(key_a_src).unwrap_or("key");
+            diagnostics.push(self.diagnostic(source, line, column,
+                format!("Use `sort_by {{ |a| a[{key_display}] }}` instead of `sort {{ |a, b| a[{key_display}] <=> b[{key_display}] }}`.")));
+        } else {
+            // For regular method calls: require zero arguments
+            if recv_call.arguments().is_some() || arg_call.arguments().is_some() {
+                return;
+            }
+            diagnostics.push(self.diagnostic(source, line, column, "Use `sort_by(&:method)` instead of `sort { |a, b| a.method <=> b.method }`.".to_string()));
+        }
     }
 }
 

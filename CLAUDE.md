@@ -208,6 +208,28 @@ Conformance filters RuboCop offenses to only cops in turbocop's registry (`--lis
 
 **Autocorrect conformance** (`autocorrect-conform`) copies each bench repo, runs `rubocop -A` on one copy and `turbocop -A` on the other, then diffs all `.rb` files. Reports per-repo match/mismatch/error counts. This is the integration-level test that autocorrect output matches RuboCop exactly.
 
+### Private Repo Benchmarking
+
+Private/local repos are configured in `bench/private_repos.json` (gitignored). Each entry has a `name` and a `path` (supports `~/` expansion):
+
+```json
+[
+  {"name": "my-app", "path": "~/path/to/my-app"}
+]
+```
+
+The repo must exist and contain a `Gemfile`. To add a new repo, append an entry to the JSON array.
+
+Run benchmarks on private repos:
+
+```
+cargo run --release --bin bench_turbocop -- conform --private        # private repos only
+cargo run --release --bin bench_turbocop -- conform --all-repos      # public + private
+cargo run --release --bin bench_turbocop -- bench --private           # timing only
+```
+
+Results go to `bench/private_results.md` and `bench/private_conform.json` (both gitignored), separate from public results.
+
 ## RubyGem Distribution
 
 See [docs/rubygem.md](docs/rubygem.md) for the gem build/release pipeline, platform variants, and build scripts.

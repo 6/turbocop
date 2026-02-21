@@ -68,11 +68,15 @@ impl Cop for StubbedMock {
         // 3. matcher_with_blockpass: receive/receive_message_chain with &block_pass
         // 4. Block on the matcher (receive(:foo) { 'bar' }) — block attached to CallNode
         // 5. Block on the .to call (without explicit parens, block goes to .to)
+        // Note: we intentionally do NOT check for do...end blocks on the .to call.
+        // In Ruby, `do...end` binds to the outermost method (.to), not to the matcher.
+        // RuboCop's `expectation` pattern captures `$_` (the matcher argument), which
+        // is just the send node without the block. Only `{ }` blocks (which bind to the
+        // inner matcher call) are caught by is_matcher_with_block.
         let has_response = is_matcher_with_configured_response(matcher)
             || is_matcher_with_hash(matcher)
             || is_matcher_with_blockpass(matcher)
-            || is_matcher_with_block(matcher)
-            || is_to_call_with_block_on_message_expectation(&call, matcher);
+            || is_matcher_with_block(matcher);
 
         if !has_response {
             return;
@@ -297,41 +301,6 @@ fn is_matcher_with_block(node: &ruby_prism::Node<'_>) -> bool {
     false
 }
 
-/// Check if the .to call itself has a block and the matcher is a message_expectation.
-/// This handles `expect(foo).to receive(:bar) { 'baz' }` without explicit parens,
-/// where the block is attached to the .to call rather than the receive call.
-fn is_to_call_with_block_on_message_expectation(
-    to_call: &ruby_prism::CallNode<'_>,
-    matcher: &ruby_prism::Node<'_>,
-) -> bool {
-    // The matcher must be a message_expectation
-    if !is_message_expectation(matcher) {
-        return false;
-    }
-
-    if let Some(block) = to_call.block() {
-        if let Some(bn) = block.as_block_node() {
-            // Block with params like |x| is dynamic, not a stubbed response
-            if let Some(params) = bn.parameters() {
-                if let Some(bp) = params.as_block_parameters_node() {
-                    if let Some(p) = bp.parameters() {
-                        let req: Vec<_> = p.requireds().iter().collect();
-                        if !req.is_empty() {
-                            return false;
-                        }
-                    }
-                }
-            }
-            return true;
-        }
-        // Block argument (&canned) on .to — this is a blockpass on .to
-        if block.as_block_argument_node().is_some() {
-            return true;
-        }
-    }
-
-    false
-}
 
 #[cfg(test)]
 mod tests {

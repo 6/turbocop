@@ -876,22 +876,27 @@ pub fn load_config(
         }
     }
 
-    // Fall back to .ruby-version file if TargetRubyVersion wasn't set in config.
-    // RuboCop reads this file to determine the target Ruby version.
-    let target_ruby_version = base.target_ruby_version.or_else(|| {
-        let ruby_version_path = config_dir.join(".ruby-version");
-        if let Ok(content) = std::fs::read_to_string(&ruby_version_path) {
-            let trimmed = content.trim();
-            // Parse version like "3.4.4" -> 3.4
-            let parts: Vec<&str> = trimmed.split('.').collect();
-            if parts.len() >= 2 {
-                if let (Ok(major), Ok(minor)) = (parts[0].parse::<u64>(), parts[1].parse::<u64>()) {
-                    return Some(major as f64 + minor as f64 / 10.0);
+    // Fall back to gemspec required_ruby_version, then .ruby-version file.
+    // RuboCop's resolution order: EnvVar → Config → Gemspec → .ruby-version → ...
+    let target_ruby_version = base
+        .target_ruby_version
+        .or_else(|| resolve_ruby_version_from_gemspec(&config_dir))
+        .or_else(|| {
+            let ruby_version_path = config_dir.join(".ruby-version");
+            if let Ok(content) = std::fs::read_to_string(&ruby_version_path) {
+                let trimmed = content.trim();
+                // Parse version like "3.4.4" -> 3.4
+                let parts: Vec<&str> = trimmed.split('.').collect();
+                if parts.len() >= 2 {
+                    if let (Ok(major), Ok(minor)) =
+                        (parts[0].parse::<u64>(), parts[1].parse::<u64>())
+                    {
+                        return Some(major as f64 + minor as f64 / 10.0);
+                    }
                 }
             }
-        }
-        None
-    });
+            None
+        });
 
     // Fall back to Gemfile.lock if TargetRailsVersion wasn't set in config.
     // RuboCop looks for the 'railties' gem in the lockfile.
@@ -2531,6 +2536,70 @@ fn is_plugin_department(dept: &str) -> bool {
     PLUGIN_GEM_DEPARTMENTS
         .iter()
         .any(|(d, _)| *d == dept)
+}
+
+/// Resolve TargetRubyVersion from a gemspec's `required_ruby_version` constraint.
+/// Mirrors RuboCop's `TargetRuby::GemspecFile` source which finds the minimum known
+/// Ruby version that satisfies the constraint.
+fn resolve_ruby_version_from_gemspec(config_dir: &Path) -> Option<f64> {
+    // Known Ruby versions (same as RuboCop's KNOWN_RUBIES)
+    const KNOWN_RUBIES: &[f64] = &[
+        2.0, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 3.0, 3.1, 3.2, 3.3, 3.4, 4.0, 4.1,
+    ];
+
+    // Find a single .gemspec file in config_dir (Bundler convention)
+    let entries: Vec<_> = std::fs::read_dir(config_dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.path()
+                .extension()
+                .is_some_and(|ext| ext == "gemspec")
+        })
+        .collect();
+    if entries.len() != 1 {
+        return None; // Must be exactly one gemspec
+    }
+    let content = std::fs::read_to_string(entries[0].path()).ok()?;
+
+    // Find required_ruby_version assignment and extract the constraint string.
+    // Handles patterns like: spec.required_ruby_version = ">= 3.2.0"
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        if !trimmed.contains(".required_ruby_version") {
+            continue;
+        }
+        let after = trimmed.split(".required_ruby_version").nth(1)?;
+        let after = after.trim_start();
+        if !after.starts_with('=') {
+            continue;
+        }
+        // Find the first quoted string
+        let quote_start = after.find(|c: char| c == '\'' || c == '"')?;
+        let qc = after.as_bytes()[quote_start] as char;
+        let rest = &after[quote_start + 1..];
+        let quote_end = rest.find(qc)?;
+        let constraint = &rest[..quote_end];
+
+        // Parse the constraint: extract operator and version digits
+        let version_part = constraint.trim_start_matches(|c: char| !c.is_ascii_digit());
+        let digits: Vec<&str> = version_part.split('.').collect();
+        if digits.len() < 2 {
+            return None;
+        }
+        let major: u64 = digits[0].parse().ok()?;
+        let minor: u64 = digits[1].parse().ok()?;
+        let min_version = major as f64 + minor as f64 / 10.0;
+
+        // Find the minimum known Ruby that satisfies the constraint.
+        // For ">= X.Y", this is X.Y if it's in KNOWN_RUBIES.
+        // For "~> X.Y", this is X.Y (pessimistic: >= X.Y, < (X+1).0).
+        return KNOWN_RUBIES.iter().copied().find(|&v| v >= min_version);
+    }
+    None
 }
 
 /// Parse a gem's major.minor version from a Gemfile.lock/gems.locked file.

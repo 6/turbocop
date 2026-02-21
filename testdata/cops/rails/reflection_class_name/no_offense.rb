@@ -14,3 +14,7 @@ belongs_to :root_article, class_name: :Article
 
 # Interpolated strings are still strings
 has_many :events, class_name: "Events::#{name}Event"
+
+# .to_s calls produce strings
+has_many :events, class_name: event_klass.name.to_s
+belongs_to :aggregate, class_name: klass.to_s

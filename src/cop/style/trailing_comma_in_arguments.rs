@@ -154,7 +154,26 @@ impl Cop for TrailingCommaInArguments {
 
         match style {
             "comma" | "consistent_comma" => {
-                if is_multiline && !has_comma {
+                // For "comma" style, RuboCop also checks no_elements_on_same_line:
+                // each pair of consecutive elements (plus closing bracket) must be
+                // on separate lines. If any two share a line, no trailing comma needed.
+                let all_on_own_line = if style == "comma" {
+                    let mut lines: Vec<(usize, usize)> = Vec::new(); // (last_line, next_first_line)
+                    let args_vec: Vec<_> = arg_list.iter().collect();
+                    for i in 0..args_vec.len() {
+                        let end_line = source.offset_to_line_col(args_vec[i].location().end_offset()).0;
+                        let next_start_line = if i + 1 < args_vec.len() {
+                            source.offset_to_line_col(args_vec[i + 1].location().start_offset()).0
+                        } else {
+                            close_line
+                        };
+                        lines.push((end_line, next_start_line));
+                    }
+                    lines.iter().all(|(a, b)| a != b)
+                } else {
+                    true
+                };
+                if is_multiline && !has_comma && all_on_own_line {
                     let (line, column) = source.offset_to_line_col(last_end);
                     diagnostics.push(self.diagnostic(
                         source,
@@ -236,5 +255,32 @@ mod tests {
         let source = b"foo(\n  1,\n  2,\n)\n";
         let diags = run_cop_full_with_config(&TrailingCommaInArguments, source, consistent_comma_config());
         assert!(diags.is_empty(), "Multiline with trailing comma should be ok");
+    }
+
+    fn comma_config() -> CopConfig {
+        use std::collections::HashMap;
+        CopConfig {
+            options: HashMap::from([
+                ("EnforcedStyleForMultiline".into(), serde_yml::Value::String("comma".into())),
+            ]),
+            ..CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn comma_style_args_on_same_line_no_offense() {
+        // When multiple args share a line, comma style does NOT require trailing comma.
+        // This matches RuboCop's no_elements_on_same_line? check.
+        let source = b"not_change(\n  event.class, :count\n)\n";
+        let diags = run_cop_full_with_config(&TrailingCommaInArguments, source, comma_config());
+        assert!(diags.is_empty(), "comma style should not flag when args share a line");
+    }
+
+    #[test]
+    fn comma_style_each_arg_own_line_offense() {
+        // When each arg is on its own line, comma style requires trailing comma.
+        let source = b"not_change(\n  event.class,\n  :count\n)\n";
+        let diags = run_cop_full_with_config(&TrailingCommaInArguments, source, comma_config());
+        assert_eq!(diags.len(), 1, "comma style should flag when each arg is on its own line");
     }
 }

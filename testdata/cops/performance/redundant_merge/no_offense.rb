@@ -14,6 +14,8 @@ end
 items.each do |item|
   item.data.merge!(status: :done)
 end
+# merge! inside single-line .each block — return value unused
+items.each { |item| item.merge!(key: value) }
 # merge! with splat
 hash.merge!(**other)
 # Multi-line merge! as last expression in method — return value used

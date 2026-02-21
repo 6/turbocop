@@ -21,3 +21,11 @@ expect(foo).to receive_message_chain(:bar, :baz)
 # and_call_original/and_wrap_original take no arguments, so not flagged
 expect(foo).to receive(:bar).and_call_original
 expect(foo).to receive(:bar).and_wrap_original
+
+# do...end blocks bind to .to, not to the matcher — not flagged
+expect(foo).to receive(:bar).with(42) do
+  some_side_effect
+end
+
+# Block with params is dynamic, not stubbed
+expect(foo).to receive(:bar) { |x| bar }

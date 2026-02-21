@@ -124,8 +124,10 @@ impl Cop for RedundantMerge {
         }
         if pos < bytes.len() {
             let next = bytes[pos];
-            // Result is chained, used as sub-expression, or otherwise consumed
-            if next == b'.' || next == b')' || next == b']' || next == b'&' {
+            // Result is chained, used as sub-expression, or otherwise consumed.
+            // Also skip `}` — merge! is the last expression in a single-line block,
+            // its return value becomes the block's return value.
+            if next == b'.' || next == b')' || next == b']' || next == b'&' || next == b'}' {
                 return;
             }
         }
