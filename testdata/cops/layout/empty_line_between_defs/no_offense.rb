@@ -50,3 +50,21 @@ class Qux
     1
   end
 end
+
+# Two defs separated by blank line + comments — no offense
+class Quux
+  def alpha
+    1
+  end
+
+  # comment about bravo
+  def bravo
+    2
+  end
+
+  # first comment
+  # second comment
+  def charlie
+    3
+  end
+end

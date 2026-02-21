@@ -214,9 +214,15 @@ impl Cop for EmptyLineBetweenDefs {
         }
 
         // Scan backwards from the def line, counting blank lines.
-        // Only flag if we hit `end` or a previous def-like macro without enough blank lines.
+        // Comments are NOT skipped — they are treated as non-blank content.
+        // When we hit a non-blank line (comment or code), we stop counting
+        // blank lines and then determine whether it's a definition boundary.
+        // If the non-blank line is a comment, we scan past the comment block
+        // to find the actual boundary (end, opening line, etc.).
         let mut check_line = def_line - 1; // 1-indexed
         let mut blank_count = 0;
+
+        // Phase 1: Count blank lines immediately above the def.
         loop {
             if check_line < 1 {
                 return;
@@ -230,53 +236,84 @@ impl Cop for EmptyLineBetweenDefs {
                 check_line -= 1;
                 continue;
             }
+            // Hit a non-blank line — stop counting blanks.
+            break;
+        }
+
+        // Phase 2: If the first non-blank line is a comment, scan past the
+        // comment block (and any interleaved blank lines) to find the actual
+        // boundary line.  Accumulate any additional blank lines found between
+        // the comment block and the boundary into blank_count so that the
+        // total reflects ALL blank lines in the gap between the two defs.
+        loop {
+            if check_line < 1 {
+                return;
+            }
+            let line = match line_at(source, check_line) {
+                Some(l) => l,
+                None => return,
+            };
             if is_comment_line(line) {
                 check_line -= 1;
                 continue;
             }
-            // Check if this is an opening line (class, module, def, etc.)
-            if is_opening_line(line) {
+            if is_blank(line) {
+                blank_count += 1;
+                check_line -= 1;
+                continue;
+            }
+            // Found a non-blank, non-comment line — this is the boundary.
+            break;
+        }
+
+        // Phase 3: Evaluate the boundary line.
+        let boundary_line = match line_at(source, check_line) {
+            Some(l) => l,
+            None => return,
+        };
+
+        // Check if this is an opening line (class, module, def, etc.)
+        if is_opening_line(boundary_line) {
+            return;
+        }
+
+        // Check if this line is `end` (with optional leading whitespace)
+        let trimmed: Vec<u8> = boundary_line
+            .iter()
+            .copied()
+            .skip_while(|&b| b == b' ' || b == b'\t')
+            .collect();
+        if trimmed == b"end" || trimmed.starts_with(b"end ") || trimmed.starts_with(b"end\t") {
+            // Only treat as a previous definition boundary if the `end`
+            // closes a def/class/module (not a block, conditional, etc.)
+            if !is_definition_end(source, check_line) {
+                // Not a definition end — skip and keep scanning
                 return;
             }
-            // Check if this line is `end` (with optional leading whitespace)
-            let trimmed: Vec<u8> = line
-                .iter()
-                .copied()
-                .skip_while(|&b| b == b' ' || b == b'\t')
-                .collect();
-            if trimmed == b"end" || trimmed.starts_with(b"end ") || trimmed.starts_with(b"end\t") {
-                // Only treat as a previous definition boundary if the `end`
-                // closes a def/class/module (not a block, conditional, etc.)
-                if !is_definition_end(source, check_line) {
-                    // Not a definition end — skip and keep scanning
-                    return;
-                }
-                // Previous definition ended here — check blank line count
-                if blank_count >= number_of_empty_lines {
-                    return;
-                }
-                break;
+            // Previous definition ended here — check blank line count
+            // RuboCop requires exactly NumberOfEmptyLines, not at-least
+            if blank_count == number_of_empty_lines {
+                return;
             }
+        } else if !def_like_macros.is_empty() {
             // Check if this line is a def-like macro call
-            if !def_like_macros.is_empty() {
-                let trimmed_str = std::str::from_utf8(&trimmed).unwrap_or("");
-                let is_macro_line = def_like_macros.iter().any(|m| {
-                    trimmed_str == m.as_str()
-                        || trimmed_str.starts_with(&format!("{m} "))
-                        || trimmed_str.starts_with(&format!("{m}("))
-                });
-                if is_macro_line {
-                    if blank_count >= number_of_empty_lines {
-                        return;
-                    }
-                    break;
-                }
+            let trimmed_str = std::str::from_utf8(&trimmed).unwrap_or("");
+            let is_macro_line = def_like_macros.iter().any(|m| {
+                trimmed_str == m.as_str()
+                    || trimmed_str.starts_with(&format!("{m} "))
+                    || trimmed_str.starts_with(&format!("{m}("))
+            });
+            if !is_macro_line || blank_count == number_of_empty_lines {
+                return;
             }
+        } else {
             // Something else (e.g., LONG_DESC, attr_accessor, etc.) — don't flag
             return;
         }
 
-        let msg = if number_of_empty_lines == 1 {
+        let msg = if blank_count > number_of_empty_lines {
+            format!("Expected {number_of_empty_lines} empty line between method definitions; found {blank_count}.")
+        } else if number_of_empty_lines == 1 {
             "Use empty lines between method definitions.".to_string()
         } else {
             format!("Use {number_of_empty_lines} empty lines between method definitions.")
@@ -284,18 +321,21 @@ impl Cop for EmptyLineBetweenDefs {
 
         let mut diag = self.diagnostic(source, def_line, def_col, msg);
         if let Some(ref mut corr) = corrections {
-            // Insert missing blank lines before the def line
-            let lines_to_add = number_of_empty_lines - blank_count;
-            if let Some(offset) = source.line_col_to_offset(def_line, 0) {
-                corr.push(crate::correction::Correction {
-                    start: offset,
-                    end: offset,
-                    replacement: "\n".repeat(lines_to_add),
-                    cop_name: self.name(),
-                    cop_index: 0,
-                });
-                diag.corrected = true;
+            if blank_count < number_of_empty_lines {
+                // Insert missing blank lines before the def line
+                let lines_to_add = number_of_empty_lines - blank_count;
+                if let Some(offset) = source.line_col_to_offset(def_line, 0) {
+                    corr.push(crate::correction::Correction {
+                        start: offset,
+                        end: offset,
+                        replacement: "\n".repeat(lines_to_add),
+                        cop_name: self.name(),
+                        cop_index: 0,
+                    });
+                    diag.corrected = true;
+                }
             }
+            // TODO: autocorrect for excess blank lines (remove extra lines)
         }
         diagnostics.push(diag);
     }

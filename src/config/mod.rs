@@ -880,7 +880,8 @@ pub fn load_config(
         disabled_by_default,
         require_known_cops: base.require_known_cops,
         require_departments: base.require_departments,
-        target_ruby_version,
+        // Default to 2.7 if no TargetRubyVersion resolved — matches RuboCop's default.
+        target_ruby_version: target_ruby_version.or(Some(2.7)),
         target_rails_version,
         active_support_extensions_enabled: base.active_support_extensions_enabled.unwrap_or(false),
         rubocop_known_cops,

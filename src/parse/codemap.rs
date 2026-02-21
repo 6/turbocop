@@ -33,6 +33,13 @@ impl CodeMap {
         };
         collector.visit(&parse_result.node());
 
+        // Content after __END__ marker is not code (data section).
+        // Add to string_ranges before merging so it's excluded from both
+        // is_code() and is_not_string() queries.
+        if let Some(data_loc) = parse_result.data_loc() {
+            string_ranges.push((data_loc.start_offset(), data_loc.end_offset()));
+        }
+
         // Sort and merge string ranges
         string_ranges.sort_unstable();
         let string_ranges = merge_ranges(string_ranges);
@@ -41,7 +48,7 @@ impl CodeMap {
         heredoc_ranges.sort_unstable();
         let heredoc_ranges = merge_ranges(heredoc_ranges);
 
-        // Full non-code ranges include comments + strings
+        // Full non-code ranges include comments + strings + __END__ data section
         let mut ranges = string_ranges.clone();
         for comment in parse_result.comments() {
             let loc = comment.location();
@@ -312,6 +319,58 @@ mod tests {
 
         let comma_offset = source.iter().position(|&b| b == b',').unwrap();
         assert!(!cm.is_code(comma_offset));
+    }
+
+    #[test]
+    fn end_marker_content_is_non_code() {
+        let source = b"x = 1\n__END__\nfoo; bar\na + b\n";
+        let pr = parse_source(source);
+        let cm = CodeMap::from_parse_result(source, &pr);
+
+        // "x" at offset 0 is code
+        assert!(cm.is_code(0));
+
+        // The __END__ marker itself should be non-code
+        let end_offset = source
+            .windows(7)
+            .position(|w| w == b"__END__")
+            .unwrap();
+        assert!(
+            !cm.is_code(end_offset),
+            "__END__ marker at offset {} should be non-code",
+            end_offset
+        );
+
+        // The semicolon after __END__ should be non-code
+        let semi_offset = source.iter().position(|&b| b == b';').unwrap();
+        assert!(
+            !cm.is_code(semi_offset),
+            "Semicolon after __END__ at offset {} should be non-code",
+            semi_offset
+        );
+
+        // The "+" after __END__ should be non-code
+        let plus_offset = source.iter().position(|&b| b == b'+').unwrap();
+        assert!(
+            !cm.is_code(plus_offset),
+            "Plus sign after __END__ at offset {} should be non-code",
+            plus_offset
+        );
+    }
+
+    #[test]
+    fn no_end_marker_all_code() {
+        let source = b"x = 1; y = 2\n";
+        let pr = parse_source(source);
+        let cm = CodeMap::from_parse_result(source, &pr);
+
+        // Semicolon is code when there is no __END__
+        let semi_offset = source.iter().position(|&b| b == b';').unwrap();
+        assert!(
+            cm.is_code(semi_offset),
+            "Semicolon at offset {} should be code without __END__",
+            semi_offset
+        );
     }
 
     mod prop_tests {
