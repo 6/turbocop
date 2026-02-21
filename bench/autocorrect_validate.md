@@ -6,18 +6,11 @@ Validates that `turbocop -A` corrections are recognized as clean by `rubocop`.
 
 | Cop | Corrected | Remaining | Status |
 |-----|-----------|-----------|--------|
-| Layout/EmptyLineAfterGuardClause | 11 | 1 | FAIL |
+| Layout/EmptyLineAfterGuardClause | 12 | 0 | PASS |
 | Layout/EmptyLinesAfterModuleInclusion | 64 | 0 | PASS |
+| Layout/SpaceInsideBlockBraces | 1 | 0 | PASS |
 
-**1/2 cops passing** (0 remaining offenses after correction)
-
-## Detection Gaps
-
-Offenses rubocop finds that turbocop did not detect (not an autocorrect issue).
-
-| Cop | Rubocop Offenses |
-|-----|-----------------|
-| Layout/SpaceInsideBlockBraces | 1 |
+**3/3 cops passing** (0 remaining offenses after correction)
 
 ## Per-repo Details
 
@@ -31,12 +24,12 @@ Offenses rubocop finds that turbocop did not detect (not an autocorrect issue).
 
 ### doorkeeper
 
-**Detection gaps:**
+**Autocorrect validation:**
 
-| Cop | Rubocop Offenses |
-|-----|-----------------|
-| Layout/EmptyLineAfterGuardClause | 1 |
-| Layout/SpaceInsideBlockBraces | 1 |
+| Cop | Corrected | Remaining | Status |
+|-----|-----------|-----------|--------|
+| Layout/EmptyLineAfterGuardClause | 1 | 0 | PASS |
+| Layout/SpaceInsideBlockBraces | 1 | 0 | PASS |
 
 ### errbit
 

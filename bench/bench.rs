@@ -1156,6 +1156,15 @@ fn run_autocorrect_conform(repos: &[RepoRef]) -> HashMap<String, AutocorrectConf
         // --- Run rubocop -A on a copy ---
         let rubocop_dir = temp_base.join("rubocop");
         copy_repo(&repo.dir, &rubocop_dir);
+        // copy_repo() respects .gitignore, so explicitly copy files that may be
+        // gitignored but are needed (Gemfile.lock for bundler resolution).
+        for name in &["Gemfile.lock"] {
+            let src = repo.dir.join(name);
+            let dst = rubocop_dir.join(name);
+            if src.exists() {
+                let _ = fs::copy(&src, &dst);
+            }
+        }
         eprintln!("  Running rubocop -A...");
         let start = Instant::now();
         let _ = bundle_exec_command(&rubocop_dir, "rubocop", &["-A", "--format", "quiet"])
@@ -1167,11 +1176,14 @@ fn run_autocorrect_conform(repos: &[RepoRef]) -> HashMap<String, AutocorrectConf
         // --- Run turbocop -A on another copy ---
         let turbocop_dir = temp_base.join("turbocop");
         copy_repo(&repo.dir, &turbocop_dir);
-        // Copy the .turbocop.cache from the original repo
-        let lock_src = repo.dir.join(".turbocop.cache");
-        let lock_dst = turbocop_dir.join(".turbocop.cache");
-        if lock_src.exists() {
-            let _ = fs::copy(&lock_src, &lock_dst);
+        // copy_repo() respects .gitignore, so explicitly copy files that may be
+        // gitignored but are needed for linting.
+        for name in &[".turbocop.cache", "Gemfile.lock"] {
+            let src = repo.dir.join(name);
+            let dst = turbocop_dir.join(name);
+            if src.exists() {
+                let _ = fs::copy(&src, &dst);
+            }
         }
         eprintln!("  Running turbocop -A...");
         let start = Instant::now();
@@ -1329,11 +1341,15 @@ fn run_autocorrect_validate(repos: &[RepoRef]) -> HashMap<String, AutocorrectVal
         let work_dir = temp_base.join(&repo.name);
         copy_repo(&repo.dir, &work_dir);
 
-        // Copy .turbocop.cache if present
-        let lock_src = repo.dir.join(".turbocop.cache");
-        let lock_dst = work_dir.join(".turbocop.cache");
-        if lock_src.exists() {
-            let _ = fs::copy(&lock_src, &lock_dst);
+        // Copy files that may be gitignored but are needed for linting.
+        // copy_repo() respects .gitignore to avoid copying large vendor/ dirs,
+        // but Gemfile.lock and .turbocop.cache are often gitignored and required.
+        for name in &[".turbocop.cache", "Gemfile.lock"] {
+            let src = repo.dir.join(name);
+            let dst = work_dir.join(name);
+            if src.exists() {
+                let _ = fs::copy(&src, &dst);
+            }
         }
 
         // Step 1: Run turbocop -A --format json
@@ -1342,7 +1358,7 @@ fn run_autocorrect_validate(repos: &[RepoRef]) -> HashMap<String, AutocorrectVal
         let tc_output = Command::new(turbocop.as_os_str())
             .args(["-A", work_dir.to_str().unwrap(), "--format", "json"])
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .output()
             .expect("failed to run turbocop -A");
         eprintln!(
@@ -1362,47 +1378,101 @@ fn run_autocorrect_validate(repos: &[RepoRef]) -> HashMap<String, AutocorrectVal
                 }
             }
         } else {
-            eprintln!("  Failed to parse turbocop JSON output");
+            let stderr = String::from_utf8_lossy(&tc_output.stderr);
+            let stderr = stderr.trim();
+            if stderr.is_empty() {
+                eprintln!("  Failed to parse turbocop JSON output (empty stdout)");
+            } else {
+                eprintln!("  Failed to parse turbocop JSON output: {}", stderr);
+            }
         }
 
         let total_corrected: usize = per_cop.values().map(|s| s.turbocop_corrected).sum();
         eprintln!("  turbocop corrected {} offenses", total_corrected);
 
-        // Step 2: Run rubocop (respecting project config) on corrected files,
-        // then filter to autocorrectable cops. We intentionally do NOT use --only
-        // because it overrides Enabled: false in the project config, causing false
-        // "detection gaps" for cops the project has disabled.
-        // For standardrb repos (no .rubocop.yml), use `standardrb` instead of `rubocop`
-        // since raw `rubocop` ignores standard's config and enables all cops.
-        let uses_standardrb = !work_dir.join(".rubocop.yml").exists()
-            && work_dir.join(".standard.yml").exists();
-        let linter_name = if uses_standardrb { "standardrb" } else { "rubocop" };
-        eprintln!("  Running {}...", linter_name);
-        let start = Instant::now();
-        let rb_output = bundle_exec_command(&work_dir, linter_name, &["--format", "json", "--no-color"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output()
-            .unwrap_or_else(|_| panic!("failed to run {}", linter_name));
-        eprintln!(
-            "  rubocop done in {:.1}s",
-            start.elapsed().as_secs_f64()
-        );
+        // Step 2: Run rubocop --only <corrected-cops> to verify corrections.
+        // We only verify cops that turbocop actually corrected, using --only to scope
+        // the check. This is safe because --only overrides Enabled: false, but if
+        // turbocop corrected an offense, the cop must be enabled in the project config.
+        //
+        // We copy corrected .rb files back into the original repo (so rubocop runs
+        // with the correct Ruby, gems, config, and path-relative exclusions), run
+        // rubocop there, then restore the originals.
+        let corrected_cops: Vec<String> = per_cop
+            .iter()
+            .filter(|(_, s)| s.turbocop_corrected > 0)
+            .map(|(name, _)| name.clone())
+            .collect();
 
-        // Parse rubocop output — remaining offenses
-        if let Ok(rb_data) = serde_json::from_slice::<RubocopOutput>(&rb_output.stdout) {
-            for file in &rb_data.files {
-                for offense in &file.offenses {
-                    if autocorrectable.contains(&offense.cop_name) {
-                        per_cop
-                            .entry(offense.cop_name.clone())
-                            .or_default()
-                            .rubocop_remaining += 1;
-                    }
+        if corrected_cops.is_empty() {
+            eprintln!("  Skipping rubocop (no corrections to verify)");
+        } else {
+            // Save originals, copy corrected files into repo
+            let rb_files = collect_rb_files(&repo.dir);
+            let originals: Vec<(PathBuf, Vec<u8>)> = rb_files
+                .iter()
+                .filter_map(|rel| {
+                    let full = repo.dir.join(rel);
+                    fs::read(&full).ok().map(|bytes| (rel.clone(), bytes))
+                })
+                .collect();
+            // Copy corrected files from work_dir into repo.dir
+            for (rel, _) in &originals {
+                let src = work_dir.join(rel);
+                let dst = repo.dir.join(rel);
+                if src.exists() {
+                    let _ = fs::copy(&src, &dst);
                 }
             }
-        } else {
-            eprintln!("  Failed to parse rubocop JSON output");
+
+            let uses_standardrb = !repo.dir.join(".rubocop.yml").exists()
+                && repo.dir.join(".standard.yml").exists();
+            let linter_name = if uses_standardrb { "standardrb" } else { "rubocop" };
+            let only_arg = corrected_cops.join(",");
+            eprintln!("  Running {} --only {}...", linter_name, only_arg);
+            let start = Instant::now();
+            let rb_output = bundle_exec_command(&repo.dir, linter_name, &[
+                "--only", &only_arg,
+                "--format", "json", "--no-color",
+            ])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output()
+                .unwrap_or_else(|_| panic!("failed to run {}", linter_name));
+
+            // Restore original files
+            for (rel, bytes) in &originals {
+                let dst = repo.dir.join(rel);
+                let _ = fs::write(&dst, bytes);
+            }
+            eprintln!(
+                "  {} done in {:.1}s",
+                linter_name,
+                start.elapsed().as_secs_f64()
+            );
+
+            // Parse rubocop output — remaining offenses for corrected cops only
+            if let Ok(rb_data) = serde_json::from_slice::<RubocopOutput>(&rb_output.stdout) {
+                for file in &rb_data.files {
+                    for offense in &file.offenses {
+                        if per_cop.contains_key(&offense.cop_name) {
+                            per_cop
+                                .entry(offense.cop_name.clone())
+                                .or_default()
+                                .rubocop_remaining += 1;
+                        }
+                    }
+                }
+            } else {
+                let stderr = String::from_utf8_lossy(&rb_output.stderr);
+                let stderr = stderr.trim();
+                if stderr.is_empty() {
+                    let stdout_preview: String = String::from_utf8_lossy(&rb_output.stdout).chars().take(200).collect();
+                    eprintln!("  Failed to parse rubocop JSON output: {}", stdout_preview);
+                } else {
+                    eprintln!("  Failed to parse rubocop JSON output: {}", stderr.lines().next().unwrap_or(""));
+                }
+            }
         }
 
         let total_remaining: usize = per_cop.values().map(|s| s.rubocop_remaining).sum();
@@ -1415,31 +1485,22 @@ fn run_autocorrect_validate(repos: &[RepoRef]) -> HashMap<String, AutocorrectVal
             .values()
             .filter(|s| s.rubocop_remaining > 0 && s.turbocop_corrected > 0)
             .count();
-        let detection_gaps = per_cop
-            .values()
-            .filter(|s| s.rubocop_remaining > 0 && s.turbocop_corrected == 0)
-            .count();
 
-        eprintln!("  rubocop found {} remaining offenses", total_remaining);
+        if !corrected_cops.is_empty() {
+            eprintln!("  rubocop found {} remaining offenses", total_remaining);
+        }
         eprintln!(
-            "  {} cops tested, {} clean, {} with remaining, {} detection gaps",
-            cops_tested, cops_clean, cops_with_remaining, detection_gaps
+            "  {} cops tested, {} clean, {} with remaining",
+            cops_tested, cops_clean, cops_with_remaining,
         );
 
         // Print per-cop details
         for (cop, stats) in &per_cop {
-            if stats.turbocop_corrected > 0 {
-                let status = if stats.rubocop_remaining == 0 { "PASS" } else { "FAIL" };
-                eprintln!(
-                    "    {} — corrected: {}, remaining: {} [{}]",
-                    cop, stats.turbocop_corrected, stats.rubocop_remaining, status
-                );
-            } else if stats.rubocop_remaining > 0 {
-                eprintln!(
-                    "    {} — detection gap: {} rubocop offenses not detected by turbocop",
-                    cop, stats.rubocop_remaining
-                );
-            }
+            let status = if stats.rubocop_remaining == 0 { "PASS" } else { "FAIL" };
+            eprintln!(
+                "    {} — corrected: {}, remaining: {} [{}]",
+                cop, stats.turbocop_corrected, stats.rubocop_remaining, status
+            );
         }
 
         results.insert(
@@ -1480,14 +1541,10 @@ fn generate_autocorrect_validate_report(
         }
     }
 
-    // Split into validated cops (turbocop corrected > 0) and detection gaps
+    // Only report cops where turbocop actually corrected something
     let validated: BTreeMap<&String, &CopValidateStats> = aggregate
         .iter()
         .filter(|(_, s)| s.turbocop_corrected > 0)
-        .collect();
-    let detection_gaps: BTreeMap<&String, &CopValidateStats> = aggregate
-        .iter()
-        .filter(|(_, s)| s.turbocop_corrected == 0 && s.rubocop_remaining > 0)
         .collect();
 
     // Autocorrect validation table (only cops where turbocop actually corrected something)
@@ -1523,21 +1580,6 @@ fn generate_autocorrect_validate_report(
         );
     }
 
-    // Detection gaps table (rubocop finds offenses but turbocop didn't detect them)
-    if !detection_gaps.is_empty() {
-        let _ = writeln!(md, "## Detection Gaps\n");
-        let _ = writeln!(
-            md,
-            "Offenses rubocop finds that turbocop did not detect (not an autocorrect issue).\n"
-        );
-        let _ = writeln!(md, "| Cop | Rubocop Offenses |");
-        let _ = writeln!(md, "|-----|-----------------|");
-        for (cop, stats) in &detection_gaps {
-            let _ = writeln!(md, "| {} | {} |", cop, stats.rubocop_remaining);
-        }
-        let _ = writeln!(md);
-    }
-
     // Per-repo details
     let _ = writeln!(md, "## Per-repo Details\n");
     let mut repo_names: Vec<&String> = results.keys().collect();
@@ -1549,13 +1591,7 @@ fn generate_autocorrect_validate_report(
             .iter()
             .filter(|(_, s)| s.turbocop_corrected > 0)
             .collect();
-        let gap_cops: Vec<_> = result
-            .per_cop
-            .iter()
-            .filter(|(_, s)| s.turbocop_corrected == 0 && s.rubocop_remaining > 0)
-            .collect();
-
-        if validated_cops.is_empty() && gap_cops.is_empty() {
+        if validated_cops.is_empty() {
             continue; // Skip repos with nothing to report
         }
 
@@ -1580,15 +1616,6 @@ fn generate_autocorrect_validate_report(
             let _ = writeln!(md);
         }
 
-        if !gap_cops.is_empty() {
-            let _ = writeln!(md, "**Detection gaps:**\n");
-            let _ = writeln!(md, "| Cop | Rubocop Offenses |");
-            let _ = writeln!(md, "|-----|-----------------|");
-            for (cop, stats) in &gap_cops {
-                let _ = writeln!(md, "| {} | {} |", cop, stats.rubocop_remaining);
-            }
-            let _ = writeln!(md);
-        }
     }
 
     md
