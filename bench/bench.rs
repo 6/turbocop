@@ -731,55 +731,79 @@ fn run_quick_bench(args: &Args) {
 
     let rb_count = count_rb_files(&repo_dir);
     let runs = args.runs;
+    let touched_count = std::cmp::min(std::cmp::max(rb_count / 10, 1), 50);
     eprintln!(
-        "\n=== Quick Bench: {} ({} .rb files, {} runs) ===",
-        repo_name, rb_count, runs
+        "\n=== Quick Bench: {} ({} .rb files, {} changed, {} runs) ===",
+        repo_name, rb_count, touched_count, runs
     );
 
-    // --- Cached (warm) scenario ---
-    eprintln!("\n--- Cached (warm) ---");
-    let cached_json = results_path.join("quick-cached.json");
-    let turbocop_cached_cmd = format!("{} {} --no-color", turbocop.display(), repo_dir.display());
-    let rubocop_cached_cmd = format!(
+    let turbocop_cmd = format!("{} {} --no-color", turbocop.display(), repo_dir.display());
+    let rubocop_cmd = format!(
         "cd {} && bundle exec rubocop --no-color",
         repo_dir.display()
     );
 
+    // Pre-flight check
+    if !preflight_check("turbocop", &turbocop_cmd, repo_name) {
+        std::process::exit(1);
+    }
+    if !preflight_check("rubocop", &rubocop_cmd, repo_name) {
+        std::process::exit(1);
+    }
+
+    // --- Partial invalidation (local dev scenario) ---
+    eprintln!("\n--- Partial invalidation ({touched_count} files touched) ---");
+    let partial_json = results_path.join("quick-partial.json");
+    let prepare_cmd = format!(
+        "find {} -name '*.rb' -not -path '*/vendor/*' -not -path '*/node_modules/*' | shuf -n {} | xargs touch",
+        repo_dir.display(),
+        touched_count
+    );
+
     let status = Command::new("hyperfine")
         .args([
             "--warmup",
-            "1",
+            &args.warmup.to_string(),
             "--runs",
             &runs.to_string(),
+            "--prepare",
+            &prepare_cmd,
             "--ignore-failure",
             "--export-json",
-            cached_json.to_str().unwrap(),
+            partial_json.to_str().unwrap(),
             "--command-name",
             "turbocop",
-            &turbocop_cached_cmd,
+            &turbocop_cmd,
             "--command-name",
             "rubocop",
-            &rubocop_cached_cmd,
+            &rubocop_cmd,
         ])
         .status()
         .expect("failed to run hyperfine");
     if !status.success() {
-        eprintln!("hyperfine failed for cached scenario");
+        eprintln!("hyperfine failed for partial invalidation");
         std::process::exit(1);
     }
 
-    // --- No cache scenario ---
-    eprintln!("\n--- No cache ---");
-    let uncached_json = results_path.join("quick-uncached.json");
-    let turbocop_uncached_cmd = format!(
+    // --- No cache (CI scenario) ---
+    eprintln!("\n--- No cache (CI) ---");
+    let nocache_json = results_path.join("quick-nocache.json");
+    let turbocop_nocache_cmd = format!(
         "{} --cache false {} --no-color",
         turbocop.display(),
         repo_dir.display()
     );
-    let rubocop_uncached_cmd = format!(
-        "cd {} && bundle exec rubocop --cache false --no-color",
-        repo_dir.display()
-    );
+    let rubocop_nocache_cmd = if needs_mise(&repo_dir) {
+        format!(
+            "cd {} && mise exec -- bundle exec rubocop --cache false --no-color",
+            repo_dir.display()
+        )
+    } else {
+        format!(
+            "cd {} && bundle exec rubocop --cache false --no-color",
+            repo_dir.display()
+        )
+    };
 
     let status = Command::new("hyperfine")
         .args([
@@ -789,47 +813,31 @@ fn run_quick_bench(args: &Args) {
             &runs.to_string(),
             "--ignore-failure",
             "--export-json",
-            uncached_json.to_str().unwrap(),
+            nocache_json.to_str().unwrap(),
             "--command-name",
             "turbocop",
-            &turbocop_uncached_cmd,
+            &turbocop_nocache_cmd,
             "--command-name",
             "rubocop",
-            &rubocop_uncached_cmd,
+            &rubocop_nocache_cmd,
         ])
         .status()
         .expect("failed to run hyperfine");
     if !status.success() {
-        eprintln!("hyperfine failed for uncached scenario");
+        eprintln!("hyperfine failed for no-cache scenario");
         std::process::exit(1);
     }
 
     // Parse results
-    let cached: HyperfineOutput =
-        serde_json::from_str(&fs::read_to_string(&cached_json).unwrap()).unwrap();
-    let uncached: HyperfineOutput =
-        serde_json::from_str(&fs::read_to_string(&uncached_json).unwrap()).unwrap();
+    let partial: HyperfineOutput =
+        serde_json::from_str(&fs::read_to_string(&partial_json).unwrap()).unwrap();
+    let nocache: HyperfineOutput =
+        serde_json::from_str(&fs::read_to_string(&nocache_json).unwrap()).unwrap();
 
-    let cached_turbocop = cached
-        .results
-        .iter()
-        .find(|r| r.command == "turbocop")
-        .unwrap();
-    let cached_rubocop = cached
-        .results
-        .iter()
-        .find(|r| r.command == "rubocop")
-        .unwrap();
-    let uncached_turbocop = uncached
-        .results
-        .iter()
-        .find(|r| r.command == "turbocop")
-        .unwrap();
-    let uncached_rubocop = uncached
-        .results
-        .iter()
-        .find(|r| r.command == "rubocop")
-        .unwrap();
+    let partial_tc = partial.results.iter().find(|r| r.command == "turbocop").unwrap();
+    let partial_rc = partial.results.iter().find(|r| r.command == "rubocop").unwrap();
+    let nocache_tc = nocache.results.iter().find(|r| r.command == "turbocop").unwrap();
+    let nocache_rc = nocache.results.iter().find(|r| r.command == "rubocop").unwrap();
 
     // Generate report
     let date = shell_output("date", &["-u", "+%Y-%m-%d %H:%M UTC"]);
@@ -845,7 +853,7 @@ fn run_quick_bench(args: &Args) {
     .unwrap();
     writeln!(md, "> Last updated: {date} on `{platform}`").unwrap();
     writeln!(md).unwrap();
-    writeln!(md, "**Repo:** {repo_name} ({rb_count} .rb files)").unwrap();
+    writeln!(md, "**Repo:** {repo_name} ({rb_count} .rb files, {touched_count} mtime-invalidated per run)").unwrap();
     writeln!(md, "**Benchmark config:** {runs} runs").unwrap();
     writeln!(
         md,
@@ -856,22 +864,22 @@ fn run_quick_bench(args: &Args) {
     writeln!(md).unwrap();
     writeln!(md, "## Results").unwrap();
     writeln!(md).unwrap();
-    writeln!(md, "| Mode | turbocop | rubocop | Speedup |").unwrap();
-    writeln!(md, "|------|-------:|--------:|--------:|").unwrap();
+    writeln!(md, "| Scenario | turbocop | rubocop | Speedup |").unwrap();
+    writeln!(md, "|----------|-------:|--------:|--------:|").unwrap();
     writeln!(
         md,
-        "| Cached (warm) | **{}** | {} | **{}** |",
-        format_time(cached_turbocop.median),
-        format_time(cached_rubocop.median),
-        format_speedup(cached_rubocop.median, cached_turbocop.median),
+        "| Local dev ({touched_count} files changed) | **{}** | {} | **{}** |",
+        format_time(partial_tc.median),
+        format_time(partial_rc.median),
+        format_speedup(partial_rc.median, partial_tc.median),
     )
     .unwrap();
     writeln!(
         md,
-        "| No cache | **{}** | {} | **{}** |",
-        format_time(uncached_turbocop.median),
-        format_time(uncached_rubocop.median),
-        format_speedup(uncached_rubocop.median, uncached_turbocop.median),
+        "| CI (no cache) | **{}** | {} | **{}** |",
+        format_time(nocache_tc.median),
+        format_time(nocache_rc.median),
+        format_speedup(nocache_rc.median, nocache_tc.median),
     )
     .unwrap();
     writeln!(md).unwrap();
