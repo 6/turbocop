@@ -2019,71 +2019,31 @@ fn generate_report(
         )
         .unwrap();
         writeln!(md).unwrap();
-        // Check if any conform results have timing data
-        let has_timing = conform.values().any(|c| c.turbocop_secs.is_some());
-
-        if has_timing {
-            writeln!(
-                md,
-                "| Repo | turbocop | rubocop | Matches | FP | FN | Match rate | turbocop time | rubocop time | Speedup |"
-            )
-            .unwrap();
-            writeln!(
-                md,
-                "|------|-------:|--------:|--------:|---:|---:|-----------:|--------------:|-------------:|--------:|"
-            )
-            .unwrap();
-        } else {
-            writeln!(
-                md,
-                "| Repo | turbocop | rubocop | Matches | FP (turbocop only) | FN (rubocop only) | Match rate |"
-            )
-            .unwrap();
-            writeln!(
-                md,
-                "|------|-------:|--------:|--------:|-----------------:|------------------:|-----------:|"
-            )
-            .unwrap();
-        }
+        writeln!(
+            md,
+            "| Repo | turbocop | rubocop | Matches | FP (turbocop only) | FN (rubocop only) | Match rate |"
+        )
+        .unwrap();
+        writeln!(
+            md,
+            "|------|-------:|--------:|--------:|-----------------:|------------------:|-----------:|"
+        )
+        .unwrap();
 
         for repo in repos {
             if let Some(c) = conform.get(&repo.name) {
-                if has_timing {
-                    let tc_time = c.turbocop_secs.map(|s| format!("{}ms", (s * 1000.0) as u64)).unwrap_or_default();
-                    let rc_time = c.rubocop_secs.map(|s| format!("{}ms", (s * 1000.0) as u64)).unwrap_or_default();
-                    let speedup = match (c.turbocop_secs, c.rubocop_secs) {
-                        (Some(tc), Some(rc)) if tc > 0.0 => format!("**{:.1}x**", rc / tc),
-                        _ => String::new(),
-                    };
-                    writeln!(
-                        md,
-                        "| {} | {} | {} | {} | {} | {} | **{:.1}%** | {} | {} | {} |",
-                        repo.name,
-                        c.turbocop_count,
-                        c.rubocop_count,
-                        c.matches,
-                        c.false_positives,
-                        c.false_negatives,
-                        c.match_rate,
-                        tc_time,
-                        rc_time,
-                        speedup,
-                    )
-                    .unwrap();
-                } else {
-                    writeln!(
-                        md,
-                        "| {} | {} | {} | {} | {} | {} | **{:.1}%** |",
-                        repo.name,
-                        c.turbocop_count,
-                        c.rubocop_count,
-                        c.matches,
-                        c.false_positives,
-                        c.false_negatives,
-                        c.match_rate,
-                    )
-                    .unwrap();
-                }
+                writeln!(
+                    md,
+                    "| {} | {} | {} | {} | {} | {} | **{:.1}%** |",
+                    repo.name,
+                    c.turbocop_count,
+                    c.rubocop_count,
+                    c.matches,
+                    c.false_positives,
+                    c.false_negatives,
+                    c.match_rate,
+                )
+                .unwrap();
             }
         }
 
