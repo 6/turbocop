@@ -527,7 +527,7 @@ fn lint_source_inner(
     let original_bytes = source.as_bytes();
     let mut current_bytes = original_bytes.to_vec();
     let path = source.path.clone();
-    let mut total_corrected: usize = 0;
+    let mut corrected_diags: Vec<Diagnostic> = Vec::new();
 
     const MAX_ITERATIONS: usize = 200;
 
@@ -539,22 +539,25 @@ fn lint_source_inner(
         );
 
         if corrections.is_empty() {
-            // Converged — no more corrections.
-            let pass_corrected = diags.iter().filter(|d| d.corrected).count();
-            total_corrected += pass_corrected;
+            // Converged — no more corrections. Merge corrected diagnostics from
+            // earlier iterations with the remaining diagnostics from this pass.
+            let mut all_diags = corrected_diags;
+            all_diags.extend(diags);
+            let total_corrected = all_diags.iter().filter(|d| d.corrected).count();
             let changed = current_bytes != original_bytes;
-            return (diags, if changed { Some(current_bytes) } else { None }, total_corrected);
+            return (all_diags, if changed { Some(current_bytes) } else { None }, total_corrected);
         }
 
-        // Count corrected offenses from this iteration
-        total_corrected += diags.iter().filter(|d| d.corrected).count();
+        // Collect corrected diagnostics from this iteration
+        corrected_diags.extend(diags.into_iter().filter(|d| d.corrected));
 
         let correction_set = crate::correction::CorrectionSet::from_vec(corrections);
         let new_bytes = correction_set.apply(&current_bytes);
 
         if new_bytes == current_bytes {
             // Source unchanged despite corrections — bail to avoid infinite loop.
-            return (diags, None, total_corrected);
+            let total_corrected = corrected_diags.iter().filter(|d| d.corrected).count();
+            return (corrected_diags, None, total_corrected);
         }
 
         current_bytes = new_bytes;
@@ -567,8 +570,11 @@ fn lint_source_inner(
         base_configs, has_dir_overrides, timers,
         crate::cli::AutocorrectMode::Off,
     );
+    let mut all_diags = corrected_diags;
+    all_diags.extend(diags);
+    let total_corrected = all_diags.iter().filter(|d| d.corrected).count();
     let changed = current_bytes != original_bytes;
-    (diags, if changed { Some(current_bytes) } else { None }, total_corrected)
+    (all_diags, if changed { Some(current_bytes) } else { None }, total_corrected)
 }
 
 /// Run all enabled cops once on a source file. Returns (diagnostics, corrections).

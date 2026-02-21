@@ -4101,3 +4101,79 @@ fn autocorrect_no_write_when_no_corrections() {
 
     fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn autocorrect_diagnostics_include_corrected_offenses() {
+    // When turbocop -A corrects an offense, the returned diagnostics should
+    // include that offense with `corrected: true`. Previously, the autocorrect
+    // loop would re-lint the corrected source and return only the remaining
+    // (uncorrected) diagnostics, losing the corrected ones from the output.
+    let dir = temp_dir("autocorrect_corrected_diags");
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"x = 1  \n",  // trailing whitespace
+    );
+    let config = load_config(None, None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        autocorrect: true,
+        only: vec!["Layout/TrailingWhitespace".to_string()],
+        ..default_args()
+    };
+
+    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+
+    // The file should be corrected
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "x = 1\n", "File should have trailing whitespace removed");
+
+    // The diagnostics should include the corrected offense
+    let corrected_diags: Vec<_> = result.diagnostics.iter().filter(|d| d.corrected).collect();
+    assert!(
+        !corrected_diags.is_empty(),
+        "Expected at least one diagnostic with corrected=true, but found none. \
+         All diagnostics: {:?}",
+        result.diagnostics.iter().map(|d| (&d.cop_name, d.corrected)).collect::<Vec<_>>()
+    );
+
+    // Verify it's specifically the TrailingWhitespace offense
+    assert!(
+        corrected_diags.iter().any(|d| d.cop_name == "Layout/TrailingWhitespace"),
+        "Expected a corrected Layout/TrailingWhitespace diagnostic"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn autocorrect_json_output_marks_corrected_offenses() {
+    // End-to-end test: corrected offenses should appear with corrected: true
+    // alongside any remaining (uncorrected) offenses.
+    let dir = temp_dir("autocorrect_json_corrected");
+    let file = write_file(
+        &dir,
+        "test.rb",
+        b"x = 1  \ny = 2\n",  // trailing whitespace on line 1, clean line 2
+    );
+    let config = load_config(None, None, None).unwrap();
+    let registry = CopRegistry::default_registry();
+    let args = Args {
+        autocorrect: true,
+        only: vec!["Layout/TrailingWhitespace".to_string()],
+        ..default_args()
+    };
+
+    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args);
+
+    assert_eq!(result.corrected_count, 1, "Should have corrected 1 offense");
+
+    // There should be exactly 1 diagnostic, and it should be marked corrected
+    let tw_diags: Vec<_> = result.diagnostics.iter()
+        .filter(|d| d.cop_name == "Layout/TrailingWhitespace")
+        .collect();
+    assert_eq!(tw_diags.len(), 1, "Should have exactly 1 TrailingWhitespace diagnostic");
+    assert!(tw_diags[0].corrected, "The diagnostic should be marked as corrected");
+
+    fs::remove_dir_all(&dir).ok();
+}
