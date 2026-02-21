@@ -10,7 +10,9 @@ pub mod mapping;
 pub mod parser;
 pub mod pattern_db;
 
-pub use extract::{extract_patterns, ExtractedPattern, PatternKind};
+pub use extract::{
+    cop_name_from_path, extract_patterns, walk_vendor_patterns, ExtractedPattern, PatternKind,
+};
 pub use interpreter::interpret_pattern;
 pub use lexer::{Lexer, Token};
 pub use mapping::{build_mapping_table, NodeMapping};

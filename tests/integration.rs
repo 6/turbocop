@@ -5087,3 +5087,100 @@ fn verifier_known_matches() {
         cases.len(),
     );
 }
+
+// ---------- Vendor pattern parse coverage ----------
+
+#[test]
+fn verifier_vendor_pattern_parse_coverage() {
+    use std::collections::HashMap;
+    use turbocop::node_pattern::{walk_vendor_patterns, Lexer, Parser};
+
+    let vendor_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("vendor");
+    if !vendor_root.is_dir() {
+        eprintln!("vendor/ directory not found — skipping vendor parse coverage test");
+        return;
+    }
+
+    let patterns = walk_vendor_patterns(&vendor_root);
+    if patterns.is_empty() {
+        eprintln!("No vendor patterns extracted — submodules may not be initialized. Skipping.");
+        return;
+    }
+
+    let mut total = 0;
+    let mut parse_ok = 0;
+    let mut parse_fail = 0;
+    let mut failures: Vec<String> = Vec::new();
+    let mut dept_stats: HashMap<String, (usize, usize)> = HashMap::new(); // (ok, fail)
+
+    for (cop_name, extracted) in &patterns {
+        total += 1;
+        let dept = cop_name
+            .split('/')
+            .next()
+            .unwrap_or("Unknown")
+            .to_string();
+
+        let mut lexer = Lexer::new(&extracted.pattern);
+        let tokens = lexer.tokenize();
+        let mut parser = Parser::new(tokens);
+
+        let entry = dept_stats.entry(dept.clone()).or_insert((0, 0));
+
+        if parser.parse().is_some() {
+            parse_ok += 1;
+            entry.0 += 1;
+        } else {
+            parse_fail += 1;
+            entry.1 += 1;
+            failures.push(format!(
+                "  FAIL: {cop_name}::{} — {}",
+                extracted.method_name,
+                extracted.pattern.chars().take(80).collect::<String>(),
+            ));
+        }
+    }
+
+    // Report stats
+    eprintln!("\n=== Vendor Pattern Parse Coverage ===");
+    eprintln!("Total patterns: {total}");
+    eprintln!("Parse OK:       {parse_ok}");
+    eprintln!("Parse FAIL:     {parse_fail}");
+    let rate = if total > 0 {
+        (parse_ok as f64 / total as f64) * 100.0
+    } else {
+        0.0
+    };
+    eprintln!("Parse rate:     {rate:.1}%");
+    eprintln!();
+
+    // Per-department breakdown
+    let mut depts: Vec<_> = dept_stats.iter().collect();
+    depts.sort_by_key(|(name, _)| name.clone());
+    for (dept, (ok, fail)) in &depts {
+        let dept_total = ok + fail;
+        let dept_rate = if dept_total > 0 {
+            (*ok as f64 / dept_total as f64) * 100.0
+        } else {
+            0.0
+        };
+        eprintln!("  {dept:20} {ok:4}/{dept_total:4} ({dept_rate:.0}%)");
+    }
+
+    if !failures.is_empty() {
+        eprintln!("\nParse failures (first 20):");
+        for f in failures.iter().take(20) {
+            eprintln!("{f}");
+        }
+        if failures.len() > 20 {
+            eprintln!("  ... and {} more", failures.len() - 20);
+        }
+    }
+
+    // Assert parse rate > 90% to catch major regressions
+    assert!(
+        rate > 90.0,
+        "Vendor pattern parse rate {rate:.1}% is below 90% threshold. \
+         {parse_fail} of {total} patterns failed to parse.",
+    );
+}

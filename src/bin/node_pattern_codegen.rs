@@ -30,8 +30,8 @@ use std::io::{self, Write};
 use std::process;
 
 use turbocop::node_pattern::{
-    build_mapping_table, extract_patterns, pattern_summary, ExtractedPattern, Lexer,
-    NodeMapping, Parser, PatternKind, PatternNode,
+    build_mapping_table, extract_patterns, pattern_summary, walk_vendor_patterns,
+    ExtractedPattern, Lexer, NodeMapping, Parser, PatternKind, PatternNode,
 };
 
 // ---------------------------------------------------------------------------
@@ -787,7 +787,7 @@ impl CodeGenerator {
 
 fn print_usage() {
     eprintln!(
-        "Usage: node_pattern_codegen <generate|verify> <ruby_file> [rust_file]"
+        "Usage: node_pattern_codegen <command> [args]"
     );
     eprintln!();
     eprintln!("Commands:");
@@ -796,6 +796,9 @@ fn print_usage() {
     );
     eprintln!(
         "  verify <ruby_file> <rust_file>     Compare generated vs existing Rust code"
+    );
+    eprintln!(
+        "  dump-patterns [--stats]            Walk vendor dirs, print patterns + parse status"
     );
 }
 
@@ -887,10 +890,130 @@ fn cmd_verify(ruby_path: &str, rust_path: &str) {
     eprintln!("  Rust file: {rust_path}");
 }
 
+fn cmd_dump_patterns(stats_only: bool) {
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    let vendor_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("vendor");
+    if !vendor_root.is_dir() {
+        eprintln!("vendor/ directory not found. Run: git submodule update --init");
+        process::exit(1);
+    }
+
+    let patterns = walk_vendor_patterns(&vendor_root);
+    if patterns.is_empty() {
+        eprintln!("No patterns extracted. Are vendor submodules initialized?");
+        process::exit(1);
+    }
+
+    let mut total = 0usize;
+    let mut parse_ok = 0usize;
+    let mut parse_fail = 0usize;
+    let mut gem_stats: HashMap<String, (usize, usize)> = HashMap::new();
+    let mut dept_stats: HashMap<String, (usize, usize)> = HashMap::new();
+
+    for (cop_name, extracted) in &patterns {
+        total += 1;
+
+        let dept = cop_name
+            .split('/')
+            .next()
+            .unwrap_or("Unknown")
+            .to_string();
+
+        // Infer gem from department
+        let gem = match dept.as_str() {
+            "Rails" => "rubocop-rails",
+            "RSpec" => "rubocop-rspec",
+            "RSpecRails" => "rubocop-rspec_rails",
+            "Performance" => "rubocop-performance",
+            "FactoryBot" => "rubocop-factory_bot",
+            _ => "rubocop",
+        }
+        .to_string();
+
+        let mut lexer = Lexer::new(&extracted.pattern);
+        let tokens = lexer.tokenize();
+        let mut parser = Parser::new(tokens);
+        let parsed = parser.parse().is_some();
+
+        let gem_entry = gem_stats.entry(gem).or_insert((0, 0));
+        let dept_entry = dept_stats.entry(dept.clone()).or_insert((0, 0));
+
+        if parsed {
+            parse_ok += 1;
+            gem_entry.0 += 1;
+            dept_entry.0 += 1;
+        } else {
+            parse_fail += 1;
+            gem_entry.1 += 1;
+            dept_entry.1 += 1;
+        }
+
+        if !stats_only {
+            let kind_label = match extracted.kind {
+                PatternKind::Matcher => "matcher",
+                PatternKind::Search => "search",
+            };
+            let status = if parsed { "OK" } else { "FAIL" };
+            let pattern_preview: String =
+                extracted.pattern.replace('\n', " ").chars().take(80).collect();
+            println!(
+                "{status:4}  {cop_name}::{} [{kind_label}] {pattern_preview}",
+                extracted.method_name,
+            );
+        }
+    }
+
+    // Always print stats
+    let rate = if total > 0 {
+        (parse_ok as f64 / total as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    eprintln!();
+    eprintln!("=== Pattern Parse Stats ===");
+    eprintln!("Total:     {total}");
+    eprintln!("Parse OK:  {parse_ok}");
+    eprintln!("Parse FAIL:{parse_fail}");
+    eprintln!("Rate:      {rate:.1}%");
+    eprintln!();
+
+    // Gem breakdown
+    eprintln!("By gem:");
+    let mut gems: Vec<_> = gem_stats.iter().collect();
+    gems.sort_by_key(|(name, _)| (*name).clone());
+    for (gem, (ok, fail)) in &gems {
+        let t = ok + fail;
+        let r = if t > 0 {
+            (*ok as f64 / t as f64) * 100.0
+        } else {
+            0.0
+        };
+        eprintln!("  {gem:30} {ok:4}/{t:4} ({r:.0}%)");
+    }
+    eprintln!();
+
+    // Department breakdown
+    eprintln!("By department:");
+    let mut depts: Vec<_> = dept_stats.iter().collect();
+    depts.sort_by_key(|(name, _)| (*name).clone());
+    for (dept, (ok, fail)) in &depts {
+        let t = ok + fail;
+        let r = if t > 0 {
+            (*ok as f64 / t as f64) * 100.0
+        } else {
+            0.0
+        };
+        eprintln!("  {dept:20} {ok:4}/{t:4} ({r:.0}%)");
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    if args.len() < 3 {
+    if args.len() < 2 {
         print_usage();
         process::exit(1);
     }
@@ -898,6 +1021,11 @@ fn main() {
     let command = &args[1];
     match command.as_str() {
         "generate" => {
+            if args.len() < 3 {
+                eprintln!("generate requires a <ruby_file> argument");
+                print_usage();
+                process::exit(1);
+            }
             let ruby_path = &args[2];
             if let Err(e) = cmd_generate(ruby_path) {
                 eprintln!("Error: {e}");
@@ -911,6 +1039,10 @@ fn main() {
                 process::exit(1);
             }
             cmd_verify(&args[2], &args[3]);
+        }
+        "dump-patterns" => {
+            let stats_only = args.iter().any(|a| a == "--stats");
+            cmd_dump_patterns(stats_only);
         }
         _ => {
             eprintln!("Unknown command: {command}");

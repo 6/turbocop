@@ -217,11 +217,10 @@ impl<'a> Lexer<'a> {
                         "array?" => tokens.push(Token::TypePredicate("array".to_string())),
                         "hash?" => tokens.push(Token::TypePredicate("hash".to_string())),
                         "regexp?" => tokens.push(Token::TypePredicate("regexp".to_string())),
-                        "send_type?" => {
-                            tokens.push(Token::TypePredicate("send".to_string()));
-                        }
-                        "block_type?" => {
-                            tokens.push(Token::TypePredicate("block".to_string()));
+                        _ if word.ends_with("_type?") => {
+                            // Generic _type? predicate: strip `_type?` suffix
+                            let stem = &word[..word.len() - 6]; // strip "_type?"
+                            tokens.push(Token::TypePredicate(stem.to_string()));
                         }
                         _ => tokens.push(Token::Ident(word)),
                     }
@@ -350,6 +349,29 @@ mod tests {
         let mut lexer = Lexer::new("::");
         let tokens = lexer.tokenize();
         assert_eq!(tokens, vec![Token::Ident("cbase".to_string())]);
+    }
+
+    #[test]
+    fn test_lexer_generic_type_predicates() {
+        for (input, expected_stem) in [
+            ("send_type?", "send"),
+            ("block_type?", "block"),
+            ("const_type?", "const"),
+            ("lvar_type?", "lvar"),
+            ("any_block_type?", "any_block"),
+            ("range_type?", "range"),
+            ("csend_type?", "csend"),
+            ("def_type?", "def"),
+            ("dstr_type?", "dstr"),
+        ] {
+            let mut lexer = Lexer::new(input);
+            let tokens = lexer.tokenize();
+            assert_eq!(
+                tokens,
+                vec![Token::TypePredicate(expected_stem.to_string())],
+                "Failed for input: {input}"
+            );
+        }
     }
 
     #[test]
