@@ -53,8 +53,8 @@ turbocop supports 915 cops from 6 RuboCop gems:
 
 | Gem | Version | Cops | Coverage | Departments |
 |-----|---------|-----:|---------:|-------------|
-| [rubocop](https://github.com/rubocop/rubocop) | 1.84.2 | 595 | 100% | Layout, Lint, Style, Metrics, Naming, Security, Bundler, Gemspec, Migration |
-| [rubocop-rails](https://github.com/rubocop/rubocop-rails) | 2.34.3 | 136 | 99% | Rails |
+| [rubocop](https://github.com/rubocop/rubocop) | 1.84.2 | 593 | 100% | Layout, Lint, Style, Metrics, Naming, Security, Bundler, Gemspec, Migration |
+| [rubocop-rails](https://github.com/rubocop/rubocop-rails) | 2.34.3 | 138 | 100% | Rails |
 | [rubocop-performance](https://github.com/rubocop/rubocop-performance) | 1.26.1 | 52 | 100% | Performance |
 | [rubocop-rspec](https://github.com/rubocop/rubocop-rspec) | 3.9.0 | 113 | 100% | RSpec |
 | [rubocop-rspec_rails](https://github.com/rubocop/rubocop-rspec_rails) | 2.32.0 | 8 | 100% | RSpecRails |
