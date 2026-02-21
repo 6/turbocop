@@ -1338,15 +1338,21 @@ fn run_autocorrect_validate(repos: &[RepoRef]) -> HashMap<String, AutocorrectVal
         let total_corrected: usize = per_cop.values().map(|s| s.turbocop_corrected).sum();
         eprintln!("  turbocop corrected {} offenses", total_corrected);
 
-        // Step 2: Run rubocop --only <autocorrectable-cops> on corrected files
-        eprintln!("  Running rubocop --only <autocorrectable-cops>...");
+        // Step 2: Run rubocop (respecting project config) on corrected files,
+        // then filter to autocorrectable cops. We intentionally do NOT use --only
+        // because it overrides Enabled: false in the project config, causing false
+        // "detection gaps" for cops the project has disabled.
+        // For standardrb repos (no .rubocop.yml), use `standardrb` instead of `rubocop`
+        // since raw `rubocop` ignores standard's config and enables all cops.
+        let uses_standardrb = !work_dir.join(".rubocop.yml").exists()
+            && work_dir.join(".standard.yml").exists();
+        let linter_name = if uses_standardrb { "standardrb" } else { "rubocop" };
+        eprintln!("  Running {}...", linter_name);
         let start = Instant::now();
         let rb_output = Command::new("bundle")
             .args([
                 "exec",
-                "rubocop",
-                "--only",
-                &cops_csv,
+                linter_name,
                 "--format",
                 "json",
                 "--no-color",
@@ -1355,7 +1361,7 @@ fn run_autocorrect_validate(repos: &[RepoRef]) -> HashMap<String, AutocorrectVal
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .output()
-            .unwrap_or_else(|_| panic!("failed to run rubocop --only"));
+            .unwrap_or_else(|_| panic!("failed to run {}", linter_name));
         eprintln!(
             "  rubocop done in {:.1}s",
             start.elapsed().as_secs_f64()
