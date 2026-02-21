@@ -494,7 +494,7 @@ fn init_lockfiles(repos: &[RepoRef]) {
             .stderr(Stdio::null())
             .output();
 
-        eprintln!("Generating .turbocop.cache for {}...", repo.name);
+        eprintln!("Generating lockfile for {}...", repo.name);
         let start = Instant::now();
         let output = Command::new(turbocop.as_os_str())
             .args(["--init", repo.dir.to_str().unwrap()])
@@ -652,7 +652,7 @@ fn run_quick_bench(args: &Args) {
     }
 
     // Init lockfile for just this repo
-    eprintln!("Generating .turbocop.cache for {}...", repo_name);
+    eprintln!("Generating lockfile for {}...", repo_name);
     let init_out = Command::new(turbocop.as_os_str())
         .args(["--init", repo_dir.to_str().unwrap()])
         .stdout(Stdio::null())
@@ -1329,7 +1329,7 @@ fn run_autocorrect_conform(repos: &[RepoRef]) -> HashMap<String, AutocorrectConf
         copy_repo(&repo.dir, &turbocop_dir);
         // copy_repo() respects .gitignore, so explicitly copy files that may be
         // gitignored but are needed for linting.
-        for name in &[".turbocop.cache", "Gemfile.lock"] {
+        for name in &["Gemfile.lock"] {
             let src = repo.dir.join(name);
             let dst = turbocop_dir.join(name);
             if src.exists() {
@@ -1494,8 +1494,8 @@ fn run_autocorrect_validate(repos: &[RepoRef]) -> HashMap<String, AutocorrectVal
 
         // Copy files that may be gitignored but are needed for linting.
         // copy_repo() respects .gitignore to avoid copying large vendor/ dirs,
-        // but Gemfile.lock and .turbocop.cache are often gitignored and required.
-        for name in &[".turbocop.cache", "Gemfile.lock"] {
+        // but Gemfile.lock is often gitignored and required.
+        for name in &["Gemfile.lock"] {
             let src = repo.dir.join(name);
             let dst = work_dir.join(name);
             if src.exists() {

@@ -316,7 +316,7 @@ fn compute_content_hash(content: &[u8]) -> String {
 /// 1. `$TURBOCOP_CACHE_DIR`
 /// 2. `$XDG_CACHE_HOME/turbocop/`
 /// 3. `~/.cache/turbocop/`
-fn cache_root_dir() -> PathBuf {
+pub(crate) fn cache_root_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("TURBOCOP_CACHE_DIR") {
         return PathBuf::from(dir);
     }

@@ -58,11 +58,11 @@ pub struct Args {
     #[arg(long, value_name = "PATH")]
     pub stdin: Option<PathBuf>,
 
-    /// Generate .turbocop.cache with cached gem paths and exit
+    /// Resolve gem paths and write lockfile to cache directory, then exit
     #[arg(long)]
     pub init: bool,
 
-    /// Skip .turbocop.cache requirement (use bundler directly for gem resolution)
+    /// Skip lockfile requirement (use bundler directly for gem resolution)
     #[arg(long)]
     pub no_cache: bool,
 

@@ -5,6 +5,8 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::cache::cache_root_dir;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TurboCopLock {
     pub version: u32,
@@ -15,9 +17,26 @@ pub struct TurboCopLock {
     pub gems: HashMap<String, PathBuf>,
 }
 
-/// Write `.turbocop.cache` to the given directory.
-pub fn write_lock(gems: &HashMap<String, PathBuf>, dir: &Path) -> Result<()> {
-    let gemfile_lock_sha256 = hash_file(&dir.join("Gemfile.lock"));
+/// Compute the lockfile path for a project directory.
+///
+/// Returns `<cache_root>/lockfiles/<hash>.json` where `<hash>` is the
+/// SHA-256 of the canonical project directory path.
+pub fn lockfile_path(project_dir: &Path) -> PathBuf {
+    let canonical = project_dir
+        .canonicalize()
+        .unwrap_or_else(|_| project_dir.to_path_buf());
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.to_string_lossy().as_bytes());
+    let hash = format!("{:x}", hasher.finalize());
+    cache_root_dir().join("lockfiles").join(format!("{hash}.json"))
+}
+
+/// Write the lockfile for the given project directory.
+///
+/// The lockfile is stored at `~/.cache/turbocop/lockfiles/<hash>.json`,
+/// keyed by the canonical project directory path.
+pub fn write_lock(gems: &HashMap<String, PathBuf>, project_dir: &Path) -> Result<()> {
+    let gemfile_lock_sha256 = hash_file(&project_dir.join("Gemfile.lock"));
 
     let lock = TurboCopLock {
         version: 1,
@@ -27,42 +46,55 @@ pub fn write_lock(gems: &HashMap<String, PathBuf>, dir: &Path) -> Result<()> {
     };
 
     let json = serde_json::to_string_pretty(&lock)?;
-    let cache_path = dir.join(".turbocop.cache");
+    let cache_path = lockfile_path(project_dir);
+    if let Some(parent) = cache_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create lockfile directory {}", parent.display()))?;
+    }
     std::fs::write(&cache_path, json)
         .with_context(|| format!("Failed to write {}", cache_path.display()))?;
     Ok(())
 }
 
-/// Read and parse `.turbocop.cache` from the given directory.
-/// Returns an error if the file is missing.
+/// Read and parse the lockfile for the given project directory.
+///
+/// Checks the XDG cache location first, then falls back to the legacy
+/// `.turbocop.cache` in the project root for backward compatibility.
 pub fn read_lock(dir: &Path) -> Result<TurboCopLock> {
-    let cache_path = dir.join(".turbocop.cache");
-    if !cache_path.exists() {
+    let new_path = lockfile_path(dir);
+    let legacy_path = dir.join(".turbocop.cache");
+
+    let cache_path = if new_path.exists() {
+        new_path
+    } else if legacy_path.exists() {
+        legacy_path
+    } else {
         anyhow::bail!(
-            "No .turbocop.cache found in {}. Run 'turbocop --init' first.",
+            "No lockfile found for {}. Run 'turbocop --init' first.",
             dir.display()
         );
-    }
+    };
+
     let content = std::fs::read_to_string(&cache_path)
         .with_context(|| format!("Failed to read {}", cache_path.display()))?;
     let lock: TurboCopLock = serde_json::from_str(&content)
         .with_context(|| format!("Failed to parse {}", cache_path.display()))?;
     if lock.version != 1 {
         anyhow::bail!(
-            ".turbocop.cache has version {} (expected 1). Run 'turbocop --init' to regenerate.",
+            "Lockfile has version {} (expected 1). Run 'turbocop --init' to regenerate.",
             lock.version
         );
     }
     Ok(lock)
 }
 
-/// Check that the cache is still fresh.
+/// Check that the lockfile is still fresh.
 /// Detects: Gemfile.lock changes, Ruby version switches, gem reinstalls.
 pub fn check_freshness(lock: &TurboCopLock, dir: &Path) -> Result<()> {
     let current_hash = hash_file(&dir.join("Gemfile.lock"));
     if lock.gemfile_lock_sha256 != current_hash {
         anyhow::bail!(
-            "Stale .turbocop.cache (Gemfile.lock changed). Run 'turbocop --init' to refresh."
+            "Stale lockfile (Gemfile.lock changed). Run 'turbocop --init' to refresh."
         );
     }
     // Verify cached gem paths still exist (catches Ruby version switches,
@@ -70,7 +102,7 @@ pub fn check_freshness(lock: &TurboCopLock, dir: &Path) -> Result<()> {
     for (name, path) in &lock.gems {
         if !path.exists() {
             anyhow::bail!(
-                "Stale .turbocop.cache (gem path for '{name}' no longer exists: {}). Run 'turbocop --init' to refresh.",
+                "Stale lockfile (gem path for '{name}' no longer exists: {}). Run 'turbocop --init' to refresh.",
                 path.display()
             );
         }

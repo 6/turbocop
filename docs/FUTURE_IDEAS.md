@@ -26,7 +26,7 @@ external cops with `--show-external`. Helps users understand coverage gaps.
 
 ## Doctor Command
 
-`turbocop doctor` — diagnose common problems: stale `.turbocop.cache`, missing gems,
+`turbocop doctor` — diagnose common problems: stale lockfile, missing gems,
 unsupported config keys, external cops breakdown by source (plugin vs custom require).
 
 ## Hybrid Wrapper

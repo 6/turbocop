@@ -90,7 +90,7 @@ pub fn run(args: Args) -> Result<i32> {
         }
     }
 
-    // --init: resolve gem paths and write .turbocop.cache
+    // --init: resolve gem paths and write lockfile
     if args.init {
         let config_start = std::time::Instant::now();
         let config = load_config(args.config.as_deref(), target_dir, None)?;
@@ -102,10 +102,12 @@ pub fn run(args: Args) -> Result<i32> {
             .unwrap_or_else(|| target_dir.unwrap_or(std::path::Path::new(".")));
         config::lockfile::write_lock(&gem_paths, lock_dir)?;
 
+        let lockfile_location = config::lockfile::lockfile_path(lock_dir);
         eprintln!(
-            "Created .turbocop.cache ({} gems cached in {config_elapsed:.0?})",
+            "Created lockfile ({} gems cached in {config_elapsed:.0?})",
             gem_paths.len()
         );
+        eprintln!("  location: {}", lockfile_location.display());
         for (name, path) in &gem_paths {
             eprintln!("  {name}: {}", path.display());
         }
@@ -133,7 +135,7 @@ pub fn run(args: Args) -> Result<i32> {
                 config::lockfile::check_freshness(&lock, lock_dir)?;
                 if args.debug {
                     eprintln!(
-                        "debug: using .turbocop.cache ({} cached gems)",
+                        "debug: using lockfile ({} cached gems)",
                         lock.gems.len()
                     );
                 }
