@@ -4,6 +4,7 @@ pub mod config;
 pub mod cop;
 pub mod correction;
 pub mod diagnostic;
+pub mod doctor;
 pub mod formatter;
 pub mod fs;
 pub mod linter;
@@ -249,6 +250,12 @@ pub fn run(args: Args) -> Result<i32> {
         } else {
             migrate::print_text(&report, &args);
         }
+        return Ok(0);
+    }
+
+    // --doctor: debug/support output
+    if args.doctor {
+        doctor::run_doctor(&config, &registry, &tier_map, target_dir);
         return Ok(0);
     }
 

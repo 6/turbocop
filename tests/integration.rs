@@ -44,6 +44,7 @@ fn default_args() -> Args {
         list_cops: false,
         list_autocorrectable_cops: false,
         migrate: false,
+        doctor: false,
         stdin: None,
         init: false,
         no_cache: false,
@@ -4555,6 +4556,146 @@ fn migrate_clean_config_no_skips() {
     assert!(
         stdout.contains("All enabled cops are stable"),
         "Clean config should say no migration needed: {stdout}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+// ---------- --doctor CLI tests ----------
+
+#[test]
+fn doctor_shows_baseline_and_registry() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args(["--doctor", "--force-default-config", "."])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "--doctor should exit 0, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("Baseline versions"),
+        "Should show baseline versions: {stdout}"
+    );
+    assert!(
+        stdout.contains("rubocop 1."),
+        "Should show rubocop version: {stdout}"
+    );
+    assert!(
+        stdout.contains("Registry:"),
+        "Should show registry info: {stdout}"
+    );
+    assert!(
+        stdout.contains("cops registered"),
+        "Should show cop count: {stdout}"
+    );
+}
+
+#[test]
+fn doctor_shows_config_root() {
+    let dir = temp_dir("doctor_config_root");
+    fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
+    fs::write(
+        dir.join(".rubocop.yml"),
+        "Layout/TrailingWhitespace:\n  Enabled: true\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--doctor",
+            "--no-cache",
+            "--config",
+            dir.join(".rubocop.yml").to_str().unwrap(),
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    assert!(
+        stdout.contains("Config root:"),
+        "Should show config root: {stdout}"
+    );
+    assert!(
+        stdout.contains(&dir.to_string_lossy().to_string()),
+        "Config root should contain the temp dir path: {stdout}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn doctor_shows_skip_summary() {
+    let dir = temp_dir("doctor_skip_summary");
+    fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
+    fs::write(
+        dir.join(".rubocop.yml"),
+        "Performance/BigDecimalWithNumericArgument:\n  Enabled: true\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--doctor",
+            "--no-cache",
+            "--config",
+            dir.join(".rubocop.yml").to_str().unwrap(),
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    assert!(
+        stdout.contains("Preview-gated:"),
+        "Should show preview-gated cops: {stdout}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn doctor_detects_gem_version_mismatch() {
+    let dir = temp_dir("doctor_gem_mismatch");
+    fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
+    fs::write(
+        dir.join(".rubocop.yml"),
+        "Layout/TrailingWhitespace:\n  Enabled: true\n",
+    )
+    .unwrap();
+    // Gemfile.lock with an older rubocop version
+    fs::write(
+        dir.join("Gemfile.lock"),
+        "GEM\n  remote: https://rubygems.org/\n  specs:\n    rubocop (1.50.0)\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--doctor",
+            "--no-cache",
+            "--config",
+            dir.join(".rubocop.yml").to_str().unwrap(),
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    assert!(
+        stdout.contains("MISMATCH"),
+        "Should detect version mismatch: {stdout}"
+    );
+    assert!(
+        stdout.contains("1.50.0"),
+        "Should show installed version: {stdout}"
     );
 
     fs::remove_dir_all(&dir).ok();

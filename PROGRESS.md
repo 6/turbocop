@@ -34,11 +34,11 @@
 
 ### `doctor` command
 
-- [ ] `turbocop doctor` — debug/support output
-- [ ] Baseline versions (vendored RuboCop + plugin versions)
-- [ ] Config root + inheritance chain
-- [ ] Gem version mismatch warnings
-- [ ] Skip summary (same 4 categories as `check`)
+- [x] `turbocop doctor` — debug/support output (`--doctor` flag)
+- [x] Baseline versions (vendored RuboCop + plugin versions)
+- [x] Config root + inheritance chain
+- [x] Gem version mismatch warnings (checks Gemfile.lock vs baseline)
+- [x] Skip summary (same 4 categories as `check`)
 
 ### `rules` command
 

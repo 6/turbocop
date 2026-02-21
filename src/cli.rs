@@ -68,6 +68,10 @@ pub struct Args {
     #[arg(long)]
     pub migrate: bool,
 
+    /// Print debug/support information (baseline versions, config, gem mismatches), then exit
+    #[arg(long)]
+    pub doctor: bool,
+
     /// Read source from stdin, use PATH for display and config matching
     #[arg(long, value_name = "PATH")]
     pub stdin: Option<PathBuf>,
@@ -187,6 +191,7 @@ mod tests {
             list_cops: false,
             list_autocorrectable_cops: false,
             migrate: false,
+            doctor: false,
             stdin: None,
             init: false,
             no_cache: false,
