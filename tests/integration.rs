@@ -43,6 +43,7 @@ fn default_args() -> Args {
         rubocop_only: false,
         list_cops: false,
         list_autocorrectable_cops: false,
+        migrate: false,
         stdin: None,
         init: false,
         no_cache: false,
@@ -4430,4 +4431,131 @@ fn strict_invalid_value_errors() {
         stderr.contains("invalid --strict value"),
         "Should show helpful error, got: {stderr}"
     );
+}
+
+// ---------- --migrate CLI tests ----------
+
+#[test]
+fn migrate_text_output() {
+    let dir = temp_dir("migrate_text");
+    fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
+    fs::write(
+        dir.join(".rubocop.yml"),
+        "Performance/BigDecimalWithNumericArgument:\n  Enabled: true\nLayout/TrailingWhitespace:\n  Enabled: true\nCustom/FakeCop:\n  Enabled: true\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--migrate",
+            "--no-cache",
+            "--config",
+            dir.join(".rubocop.yml").to_str().unwrap(),
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "--migrate should exit 0, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("Baseline versions:"), "Should show baseline: {stdout}");
+    assert!(stdout.contains("Stable:"), "Should show stable count: {stdout}");
+    assert!(stdout.contains("Preview:"), "Should show preview count: {stdout}");
+    assert!(
+        stdout.contains("Performance/BigDecimalWithNumericArgument"),
+        "Should list preview cop: {stdout}"
+    );
+    assert!(
+        stdout.contains("Custom/FakeCop"),
+        "Should list outside-baseline cop: {stdout}"
+    );
+    assert!(
+        stdout.contains("Suggested CI command:"),
+        "Should show suggested CI command: {stdout}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn migrate_json_output() {
+    let dir = temp_dir("migrate_json");
+    fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
+    fs::write(
+        dir.join(".rubocop.yml"),
+        "Layout/TrailingWhitespace:\n  Enabled: true\nCustom/FakeCop:\n  Enabled: true\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--migrate",
+            "--format",
+            "json",
+            "--no-cache",
+            "--config",
+            dir.join(".rubocop.yml").to_str().unwrap(),
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "--migrate --format json should exit 0, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let parsed: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("Should be valid JSON: {e}\n{stdout}"));
+    assert!(parsed["baseline"]["rubocop"].is_string(), "Should have baseline.rubocop");
+    assert!(parsed["counts"]["stable"].is_number(), "Should have counts.stable");
+    assert!(parsed["cops"].is_array(), "Should have cops array");
+
+    // Check that Custom/FakeCop is classified as outside_baseline
+    let cops = parsed["cops"].as_array().unwrap();
+    let fake = cops.iter().find(|c| c["name"] == "Custom/FakeCop");
+    assert!(fake.is_some(), "Should include Custom/FakeCop in cops list");
+    assert_eq!(
+        fake.unwrap()["status"], "outside_baseline",
+        "Custom/FakeCop should be outside_baseline"
+    );
+
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn migrate_clean_config_no_skips() {
+    let dir = temp_dir("migrate_clean");
+    fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
+    fs::write(
+        dir.join(".rubocop.yml"),
+        "Layout/TrailingWhitespace:\n  Enabled: true\n",
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .args([
+            "--migrate",
+            "--no-cache",
+            "--config",
+            dir.join(".rubocop.yml").to_str().unwrap(),
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute turbocop");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    assert!(
+        stdout.contains("All enabled cops are stable"),
+        "Clean config should say no migration needed: {stdout}"
+    );
+
+    fs::remove_dir_all(&dir).ok();
 }

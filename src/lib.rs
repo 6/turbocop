@@ -7,6 +7,7 @@ pub mod diagnostic;
 pub mod formatter;
 pub mod fs;
 pub mod linter;
+pub mod migrate;
 pub mod parse;
 
 #[cfg(test)]
@@ -237,6 +238,17 @@ pub fn run(args: Args) -> Result<i32> {
             .collect();
         remaining.sort();
         println!("{}", remaining.join(","));
+        return Ok(0);
+    }
+
+    // --migrate: config analysis, no linting
+    if args.migrate {
+        let report = migrate::build_report(&config, &registry, &tier_map);
+        if args.format == "json" {
+            migrate::print_json(&report);
+        } else {
+            migrate::print_text(&report, &args);
+        }
         return Ok(0);
     }
 

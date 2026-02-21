@@ -64,6 +64,10 @@ pub struct Args {
     #[arg(long)]
     pub list_autocorrectable_cops: bool,
 
+    /// Analyze config and report cop coverage (no linting), then exit
+    #[arg(long)]
+    pub migrate: bool,
+
     /// Read source from stdin, use PATH for display and config matching
     #[arg(long, value_name = "PATH")]
     pub stdin: Option<PathBuf>,
@@ -182,6 +186,7 @@ mod tests {
             rubocop_only: false,
             list_cops: false,
             list_autocorrectable_cops: false,
+            migrate: false,
             stdin: None,
             init: false,
             no_cache: false,

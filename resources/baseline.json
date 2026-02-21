@@ -1,0 +1,8 @@
+{
+  "rubocop": "1.84.2",
+  "rubocop-rails": "2.34.3",
+  "rubocop-performance": "1.26.1",
+  "rubocop-rspec": "3.9.0",
+  "rubocop-rspec_rails": "2.32.0",
+  "rubocop-factory_bot": "2.28.0"
+}

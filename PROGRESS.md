@@ -27,10 +27,10 @@
 
 ### `migrate` command
 
-- [ ] `turbocop migrate [PATH]` — config analysis, no linting
-- [ ] Text output: grouped counts + top examples per category
-- [ ] JSON output: baseline versions + per-cop status
-- [ ] Suggested CI command line in output
+- [x] `turbocop migrate [PATH]` — config analysis, no linting (`--migrate` flag)
+- [x] Text output: grouped counts + top examples per category
+- [x] JSON output: baseline versions + per-cop status
+- [x] Suggested CI command line in output
 
 ### `doctor` command
 
