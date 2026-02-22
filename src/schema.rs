@@ -524,7 +524,10 @@ pub fn table_name_from_source(source: &[u8], class_name: &str) -> String {
             }
         }
     }
-    pluralize(&camel_to_snake(class_name))
+    // Handle namespaced classes: `Web::Setting` → `web_settings`
+    // Replace `::` with `_` to match Rails table name convention.
+    let snake = camel_to_snake(class_name).replace("::", "_");
+    pluralize(&snake)
 }
 
 /// Extract a single/double quoted string value.
@@ -575,18 +578,18 @@ impl<'a> Visit<'a> for ClassFinder<'a> {
     }
 }
 
-/// Extract the simple name from a constant node (ConstantReadNode or ConstantPathNode).
+/// Extract the full name from a constant node (ConstantReadNode or ConstantPathNode).
+/// For `Web::Setting`, returns `"Web::Setting"` (not just `"Setting"`).
 fn extract_constant_name(source: &[u8], node: &ruby_prism::Node<'_>) -> Option<String> {
     if let Some(cr) = node.as_constant_read_node() {
         Some(String::from_utf8_lossy(cr.name().as_slice()).to_string())
     } else if let Some(cp) = node.as_constant_path_node() {
-        if let Some(name) = cp.name() {
-            Some(String::from_utf8_lossy(name.as_slice()).to_string())
-        } else {
-            let loc = cp.location();
-            let text = std::str::from_utf8(&source[loc.start_offset()..loc.end_offset()]).ok()?;
-            text.rsplit("::").next().map(|s| s.to_string())
-        }
+        // Extract the full text of the constant path (e.g., "Web::Setting")
+        let loc = cp.location();
+        let text = std::str::from_utf8(&source[loc.start_offset()..loc.end_offset()]).ok()?;
+        // Strip leading :: (top-level constant)
+        let text = text.strip_prefix("::").unwrap_or(text);
+        Some(text.to_string())
     } else {
         None
     }

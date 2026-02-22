@@ -31,3 +31,7 @@ puts code
 # Plain comment mentioning rubocop:enable in prose is not a directive
 # removed. This is done in order to find rubocop:enable directives that
 # have now become useless.
+
+# Inline disable/enable after code with # in a string
+foo('#') # rubocop:disable Style/StringLiterals
+bar('#') # rubocop:enable Style/StringLiterals

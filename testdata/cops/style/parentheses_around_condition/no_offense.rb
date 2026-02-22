@@ -28,3 +28,12 @@ end
 if (result = compute)
   handle(result)
 end
+
+# Setter method call is a safe assignment
+if (self.name = value)
+  use(name)
+end
+
+while (node.parent = next_node)
+  process(node)
+end

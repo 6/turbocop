@@ -372,11 +372,23 @@ impl Cop for IndentationWidth {
         if let Some(while_node) = node.as_while_node() {
             let kw_offset = while_node.keyword_loc().start_offset();
             let (_, kw_col) = source.offset_to_line_col(kw_offset);
+
+            let end_style = config.get_str("EndAlignmentStyle", "keyword");
+            let (base_col, alt_base) = if end_style == "variable" {
+                if let Some(var_col) = assignment_context_base_col(source, kw_offset) {
+                    (var_col, Some(kw_col))
+                } else {
+                    (kw_col, None)
+                }
+            } else {
+                (kw_col, None)
+            };
+
             diagnostics.extend(self.check_statements_indentation(
                 source,
                 kw_offset,
-                kw_col,
-                None,
+                base_col,
+                alt_base,
                 while_node.statements(),
                 width,
             ));
@@ -386,11 +398,23 @@ impl Cop for IndentationWidth {
         if let Some(until_node) = node.as_until_node() {
             let kw_offset = until_node.keyword_loc().start_offset();
             let (_, kw_col) = source.offset_to_line_col(kw_offset);
+
+            let end_style = config.get_str("EndAlignmentStyle", "keyword");
+            let (base_col, alt_base) = if end_style == "variable" {
+                if let Some(var_col) = assignment_context_base_col(source, kw_offset) {
+                    (var_col, Some(kw_col))
+                } else {
+                    (kw_col, None)
+                }
+            } else {
+                (kw_col, None)
+            };
+
             diagnostics.extend(self.check_statements_indentation(
                 source,
                 kw_offset,
-                kw_col,
-                None,
+                base_col,
+                alt_base,
                 until_node.statements(),
                 width,
             ));
@@ -530,5 +554,35 @@ mod tests {
         let source = b"    server = if cond\n               body\n             end\n";
         let diags = run_cop_full_with_config(&IndentationWidth, source, config);
         assert!(diags.is_empty(), "variable style should also accept keyword indent: {:?}", diags);
+    }
+
+    #[test]
+    fn shovel_operator_variable_style_no_offense() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EndAlignmentStyle".into(), serde_yml::Value::String("variable".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // << operator with variable style: body indented from receiver, not if keyword
+        let source = b"html << if error\n  error\nelse\n  default\nend\n";
+        let diags = run_cop_full_with_config(&IndentationWidth, source, config);
+        assert!(diags.is_empty(), "variable style << context should not flag body: {:?}", diags);
+    }
+
+    #[test]
+    fn shovel_operator_indented_variable_style_no_offense() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EndAlignmentStyle".into(), serde_yml::Value::String("variable".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // << operator with variable style at col 8: body indented from @buffer col
+        let source = b"        @buffer << if value.safe?\n          value\n        else\n          escape(value)\n        end\n";
+        let diags = run_cop_full_with_config(&IndentationWidth, source, config);
+        assert!(diags.is_empty(), "variable style << context should not flag body: {:?}", diags);
     }
 }

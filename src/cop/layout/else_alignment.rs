@@ -175,4 +175,36 @@ mod tests {
         let diags = run_cop_full_with_config(&ElseAlignment, source, config);
         assert_eq!(diags.len(), 1, "should flag else not aligned with variable: {:?}", diags);
     }
+
+    #[test]
+    fn shovel_operator_variable_style_no_offense() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EndAlignmentStyle".into(), serde_yml::Value::String("variable".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // << operator context with variable style: else aligns with receiver
+        let source = b"html << if error\n  error\nelse\n  default\nend\n";
+        let diags = run_cop_full_with_config(&ElseAlignment, source, config);
+        assert!(diags.is_empty(), "variable style << context should not flag else aligned with receiver: {:?}", diags);
+    }
+
+    #[test]
+    fn shovel_operator_indented_variable_style_no_offense() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EndAlignmentStyle".into(), serde_yml::Value::String("variable".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // << operator context with variable style: else aligns with receiver at col 8
+        let source = b"        @buffer << if value.safe?\n          value\n        else\n          escape(value)\n        end\n";
+        let diags = run_cop_full_with_config(&ElseAlignment, source, config);
+        assert!(diags.is_empty(), "variable style << context should not flag else aligned with @buffer: {:?}", diags);
+    }
 }

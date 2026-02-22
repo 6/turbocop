@@ -391,6 +391,25 @@ pub fn assignment_context_base_col(source: &SourceFile, keyword_offset: usize) -
         i += 1;
     }
 
+    // Also check for `<<` operator before keyword (e.g., `html << if cond`).
+    // RuboCop treats `<<` as assignment context for alignment purposes.
+    let mut j = 0;
+    while j + 1 < before_keyword.len() {
+        if before_keyword[j] == b'<' && before_keyword[j + 1] == b'<' {
+            // Skip <<= (compound assignment) and <<~ <<- (heredoc markers)
+            let next = before_keyword.get(j + 2).copied().unwrap_or(b' ');
+            if next == b'=' || next == b'~' || next == b'-' {
+                j += 3;
+                continue;
+            }
+            // Found `<<` — return column of first non-whitespace on line
+            return before_keyword
+                .iter()
+                .position(|&b| b != b' ' && b != b'\t');
+        }
+        j += 1;
+    }
+
     None
 }
 

@@ -40,21 +40,18 @@ impl Cop for RedundantCopEnableDirective {
                 }
             };
 
-            // Skip lines inside strings/heredocs
-            if let Some(hash_pos) = line_str.find('#') {
-                if !code_map.is_not_string(byte_offset + hash_pos) {
-                    byte_offset += line.len() + 1;
-                    continue;
-                }
-            }
-
             let directives = parse_all_directives(line_str);
             if directives.is_empty() {
                 byte_offset += line.len() + 1;
                 continue;
             }
 
-            for (action, cops, _col) in directives {
+            for (action, cops, hash_pos) in directives {
+                // Skip directives inside strings/heredocs by checking
+                // the specific `#` that starts this directive
+                if !code_map.is_not_string(byte_offset + hash_pos) {
+                    continue;
+                }
                 match action {
                     "disable" | "todo" => {
                         for cop in &cops {
@@ -202,7 +199,7 @@ fn parse_all_directives(line: &str) -> Vec<(&str, Vec<String>, usize)> {
             }
         };
 
-        results.push((action_str, cops, abs_pos));
+        results.push((action_str, cops, hash_pos));
 
         // Move past this directive
         search_from = abs_pos + "rubocop:".len() + action_end + cops_str.len();

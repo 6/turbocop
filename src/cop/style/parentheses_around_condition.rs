@@ -39,6 +39,26 @@ fn is_assignment_node(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_global_variable_write_node().is_some()
         || node.as_constant_write_node().is_some()
         || node.as_multi_write_node().is_some()
+        || is_setter_call(node)
+}
+
+/// Check if a node is a setter method call (e.g., `obj.attr = value`).
+/// RuboCop treats these as safe assignments in parenthesized conditions.
+fn is_setter_call(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(call) = node.as_call_node() {
+        let name = call.name();
+        let s = name.as_slice();
+        // Setter methods end with `=` but are not ==, !=, <=, >=, <=>
+        s.len() >= 2
+            && s.last() == Some(&b'=')
+            && s != b"=="
+            && s != b"!="
+            && s != b"<="
+            && s != b">="
+            && s != b"<=>"
+    } else {
+        false
+    }
 }
 
 impl Cop for ParenthesesAroundCondition {

@@ -54,9 +54,8 @@ impl Cop for UniqueValidationWithoutIndex {
             "validates" => {
                 self.check_validates(source, &call, parse_result, schema, diagnostics);
             }
-            "validates_uniqueness_of" => {
-                self.check_validates_uniqueness_of(source, &call, parse_result, schema, diagnostics);
-            }
+            // Note: RuboCop only handles `validates`, not `validates_uniqueness_of`.
+            // Skip to match RuboCop's behavior.
             _ => {}
         }
     }
@@ -128,6 +127,11 @@ impl UniqueValidationWithoutIndex {
             columns.extend(scope_cols);
         }
 
+        // Resolve association names to foreign key columns (e.g., :user → user_id)
+        if let Some(table) = schema.table_by(&table_name) {
+            columns = columns.into_iter().map(|c| resolve_column(table, &c)).collect();
+        }
+
         // Check for unique index
         if !schema.has_unique_index(&table_name, &columns) {
             let loc = call.location();
@@ -136,63 +140,20 @@ impl UniqueValidationWithoutIndex {
         }
     }
 
-    fn check_validates_uniqueness_of(
-        &self,
-        source: &SourceFile,
-        call: &ruby_prism::CallNode<'_>,
-        parse_result: &ruby_prism::ParseResult<'_>,
-        schema: &crate::schema::Schema,
-        diagnostics: &mut Vec<Diagnostic>,
-    ) {
-        let args = match call.arguments() {
-            Some(a) => a,
-            None => return,
-        };
-        let arg_list: Vec<_> = args.arguments().iter().collect();
-        if arg_list.is_empty() {
-            return;
-        }
+}
 
-        // First arg is the attribute name
-        let attr_name = match extract_symbol_name(&arg_list[0]) {
-            Some(n) => n,
-            None => return,
-        };
-
-        // Skip if conditional
-        if has_conditional_keys(&arg_list[1..]) {
-            return;
-        }
-
-        // Resolve table name
-        let class_name = match crate::schema::find_enclosing_class_name(
-            source.as_bytes(),
-            call.location().start_offset(),
-            parse_result,
-        ) {
-            Some(n) => n,
-            None => return,
-        };
-        let table_name = crate::schema::table_name_from_source(source.as_bytes(), &class_name);
-
-        if schema.table_by(&table_name).is_none() {
-            return;
-        }
-
-        // Collect columns: validated attribute + scope
-        let mut columns = vec![attr_name];
-        if let Some(scope_val) = find_hash_value(&arg_list[1..], "scope") {
-            if let Some(scope_cols) = extract_scope_from_node(&scope_val) {
-                columns.extend(scope_cols);
-            }
-        }
-
-        if !schema.has_unique_index(&table_name, &columns) {
-            let loc = call.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(source, line, column, MSG.to_string()));
-        }
+/// Resolve a column name: if the table has a `{name}_id` column but not
+/// `{name}`, use `{name}_id`. This handles the standard Rails convention
+/// where `belongs_to :user` creates a `user_id` foreign key column.
+fn resolve_column(table: &crate::schema::Table, name: &str) -> String {
+    if table.has_column(name) {
+        return name.to_string();
     }
+    let id_name = format!("{name}_id");
+    if table.has_column(&id_name) {
+        return id_name;
+    }
+    name.to_string()
 }
 
 /// Extract a symbol name from a symbol node.

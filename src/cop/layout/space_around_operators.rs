@@ -402,6 +402,17 @@ impl BinaryOperatorChecker<'_> {
         let multi_space_after = end + 1 < bytes.len() && bytes[end] == b' ' && bytes[end + 1] == b' ';
 
         if multi_space_before || multi_space_after {
+            // Skip if operator is at start of line (spaces are indentation, not extra spacing)
+            if multi_space_before {
+                let mut ls = start;
+                while ls > 0 && bytes[ls - 1] != b'\n' {
+                    ls -= 1;
+                }
+                if bytes[ls..start].iter().all(|&b| b == b' ' || b == b'\t') {
+                    return;
+                }
+            }
+
             // AllowForAlignment: skip if aligned with same operator on adjacent line
             if self.allow_for_alignment
                 && self.is_aligned_with_adjacent(start, op_loc.as_slice())

@@ -87,3 +87,9 @@ x ||  # fallback
   y
 a &&  # condition check
   b
+
+# Operator at start of line (continuation) — indentation, not extra spacing
+result = foo \
+  + bar
+x = a \
+    || b
