@@ -3,3 +3,8 @@ x == ""
 x = 1
 x != y
 a => "hello"
+x + y
+x - y
+x * y
+x && y
+x || y

@@ -90,7 +90,9 @@ impl Cop for BlockLength {
         };
 
         if count > max {
-            let (line, column) = source.offset_to_line_col(start_offset);
+            // Use call_node location (not block opening) to match RuboCop's
+            // offense position which spans the full expression in Parser AST.
+            let (line, column) = source.offset_to_line_col(call_node.location().start_offset());
             diagnostics.push(self.diagnostic(
                 source,
                 line,

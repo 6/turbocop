@@ -48,3 +48,26 @@ table_name&.!= node.left.relation.name
 
 # Method call with dot before operator
 x.== y
+
+# Binary operators with proper spacing
+x + y
+x - y
+x * y
+x / y
+x % y
+x & y
+x | y
+x ^ y
+x << y
+x >> 1
+x && y
+x || y
+x < y
+x > y
+x <= y
+x >= y
+x <=> y
+
+# Unary operators (not binary — should not be flagged)
+z = -x
+z = +x

@@ -78,6 +78,21 @@ impl Cop for SpaceAroundOperators {
         let default_param_offsets = collector.default_param_offsets;
         let def_name_ranges = collector.def_method_name_ranges;
 
+        // AST-based check for binary operators (+, -, *, /, %, &, |, ^, <<, >>,
+        // <, >, <=, >=, <=>) and logical operators (&&, ||).
+        let mut op_checker = BinaryOperatorChecker {
+            cop: self,
+            source,
+            diagnostics: Vec::new(),
+            corrections: Vec::new(),
+            has_corrections: corrections.is_some(),
+        };
+        op_checker.visit(&parse_result.node());
+        diagnostics.extend(op_checker.diagnostics);
+        if let Some(ref mut corr) = corrections {
+            corr.extend(op_checker.corrections);
+        }
+
         let bytes = source.as_bytes();
         let len = bytes.len();
         let mut i = 0;
@@ -239,6 +254,93 @@ impl Cop for SpaceAroundOperators {
             i += 1;
         }
 
+    }
+}
+
+const BINARY_OPERATORS: &[&[u8]] = &[
+    b"+", b"-", b"*", b"/", b"%", b"**",
+    b"&", b"|", b"^", b"<<", b">>",
+    b"<", b">", b"<=", b">=", b"<=>",
+];
+
+struct BinaryOperatorChecker<'a> {
+    cop: &'a SpaceAroundOperators,
+    source: &'a SourceFile,
+    diagnostics: Vec<Diagnostic>,
+    corrections: Vec<crate::correction::Correction>,
+    has_corrections: bool,
+}
+
+impl BinaryOperatorChecker<'_> {
+    fn check_operator_spacing(&mut self, op_loc: &ruby_prism::Location<'_>) {
+        let start = op_loc.start_offset();
+        let end = op_loc.end_offset();
+        let bytes = self.source.as_bytes();
+        let op_str = std::str::from_utf8(op_loc.as_slice()).unwrap_or("??");
+
+        let space_before = start > 0 && bytes[start - 1] == b' ';
+        let space_after = end < bytes.len() && bytes[end] == b' ';
+        let newline_after = end >= bytes.len() || bytes[end] == b'\n' || bytes[end] == b'\r';
+
+        if !space_before || (!space_after && !newline_after) {
+            let (line, column) = self.source.offset_to_line_col(start);
+            let mut diag = self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                format!("Surrounding space missing for operator `{op_str}`."),
+            );
+            if self.has_corrections {
+                if !space_before {
+                    self.corrections.push(crate::correction::Correction {
+                        start, end: start, replacement: " ".to_string(),
+                        cop_name: self.cop.name(), cop_index: 0,
+                    });
+                }
+                if !space_after && !newline_after {
+                    self.corrections.push(crate::correction::Correction {
+                        start: end, end, replacement: " ".to_string(),
+                        cop_name: self.cop.name(), cop_index: 0,
+                    });
+                }
+                diag.corrected = true;
+            }
+            self.diagnostics.push(diag);
+        }
+    }
+}
+
+impl<'pr> Visit<'pr> for BinaryOperatorChecker<'_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        let name = node.name().as_slice();
+        if BINARY_OPERATORS.iter().any(|&op| op == name)
+            && node.receiver().is_some()
+            && node.arguments().is_some()
+            && node.call_operator_loc().is_none() // skip x.+ y and x&.+ y
+        {
+            if let Some(msg_loc) = node.message_loc() {
+                self.check_operator_spacing(&msg_loc);
+            }
+        }
+        ruby_prism::visit_call_node(self, node);
+    }
+
+    fn visit_and_node(&mut self, node: &ruby_prism::AndNode<'pr>) {
+        let op_loc = node.operator_loc();
+        // Skip keyword form `and`
+        if op_loc.as_slice() != b"and" {
+            self.check_operator_spacing(&op_loc);
+        }
+        ruby_prism::visit_and_node(self, node);
+    }
+
+    fn visit_or_node(&mut self, node: &ruby_prism::OrNode<'pr>) {
+        let op_loc = node.operator_loc();
+        // Skip keyword form `or`
+        if op_loc.as_slice() != b"or" {
+            self.check_operator_spacing(&op_loc);
+        }
+        ruby_prism::visit_or_node(self, node);
     }
 }
 

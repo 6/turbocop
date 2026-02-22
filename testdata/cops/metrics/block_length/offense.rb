@@ -1,5 +1,5 @@
 items.each do |item|
-           ^^ Metrics/BlockLength: Block has too many lines. [26/25]
+^ Metrics/BlockLength: Block has too many lines. [26/25]
   x = 1
   x = 2
   x = 3
@@ -29,7 +29,7 @@ items.each do |item|
 end
 
 things.map do |t|
-           ^^ Metrics/BlockLength: Block has too many lines. [27/25]
+^ Metrics/BlockLength: Block has too many lines. [27/25]
   a = 1
   a = 2
   a = 3
@@ -60,7 +60,7 @@ things.map do |t|
 end
 
 [1, 2, 3].select do |n|
-                 ^^ Metrics/BlockLength: Block has too many lines. [28/25]
+^ Metrics/BlockLength: Block has too many lines. [28/25]
   b = 1
   b = 2
   b = 3

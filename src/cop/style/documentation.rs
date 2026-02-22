@@ -1,7 +1,8 @@
+use ruby_prism::Visit;
+
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CLASS_NODE, CONSTANT_PATH_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_READ_NODE, CONSTANT_WRITE_NODE, MODULE_NODE, STATEMENTS_NODE};
 
 pub struct Documentation;
 
@@ -208,81 +209,109 @@ impl Cop for Documentation {
         "Style/Documentation"
     }
 
-    fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CLASS_NODE, CONSTANT_PATH_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_READ_NODE, CONSTANT_WRITE_NODE, MODULE_NODE, STATEMENTS_NODE]
+    fn default_exclude(&self) -> &'static [&'static str] {
+        &["spec/**/*", "test/**/*"]
     }
 
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed_constants = config.get_string_array("AllowedConstants").unwrap_or_default();
 
-        if let Some(class_node) = node.as_class_node() {
-            let name = extract_short_name(&class_node.constant_path());
-            if allowed_constants.iter().any(|c| c == &name) {
-                return;
-            }
-            let kw_loc = class_node.class_keyword_loc();
-            let start = kw_loc.start_offset();
+        let mut visitor = DocumentationVisitor {
+            cop: self,
+            source,
+            diagnostics: Vec::new(),
+            allowed_constants,
+            nodoc_all_depth: 0,
+        };
+        visitor.visit(&parse_result.node());
+        diagnostics.extend(visitor.diagnostics);
+    }
+}
 
-            // Check :nodoc:
-            let (has_nodoc, _has_nodoc_all) = check_nodoc(source, start);
-            if has_nodoc {
-                return;
-            }
+struct DocumentationVisitor<'a> {
+    cop: &'a Documentation,
+    source: &'a SourceFile,
+    diagnostics: Vec<Diagnostic>,
+    allowed_constants: Vec<String>,
+    /// Depth counter: >0 means we're inside a `:nodoc: all` parent
+    nodoc_all_depth: usize,
+}
 
-            // Check if namespace-only (body has only other classes, modules, constants)
-            if is_namespace_only(&class_node.body(), true) {
-                return;
-            }
+impl<'pr> Visit<'pr> for DocumentationVisitor<'_> {
+    fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
+        let name = extract_short_name(&node.constant_path());
+        let kw_loc = node.class_keyword_loc();
+        let start = kw_loc.start_offset();
+        let (has_nodoc, has_nodoc_all) = check_nodoc(self.source, start);
 
-            // Check if include/extend/prepend only
-            if is_include_only(&class_node.body()) {
-                return;
-            }
-
-            // Check for documentation comment
-            if !has_documentation_comment(source, start) {
-                let (line, column) = source.offset_to_line_col(start);
-                diagnostics.push(self.diagnostic(source, line, column, "Missing top-level documentation comment for `class`.".to_string()));
-            }
-        } else if let Some(module_node) = node.as_module_node() {
-            let name = extract_short_name(&module_node.constant_path());
-            if allowed_constants.iter().any(|c| c == &name) {
-                return;
-            }
-            let kw_loc = module_node.module_keyword_loc();
-            let start = kw_loc.start_offset();
-
-            // Check :nodoc:
-            let (has_nodoc, _has_nodoc_all) = check_nodoc(source, start);
-            if has_nodoc {
-                return;
-            }
-
-            // Check if namespace-only
-            if is_namespace_only(&module_node.body(), false) {
-                return;
-            }
-
-            // Check if include/extend/prepend only
-            if is_include_only(&module_node.body()) {
-                return;
-            }
-
-            // Check for documentation comment
-            if !has_documentation_comment(source, start) {
-                let (line, column) = source.offset_to_line_col(start);
-                diagnostics.push(self.diagnostic(source, line, column, "Missing top-level documentation comment for `module`.".to_string()));
+        // Check documentation requirement (only if not inside a :nodoc: all parent)
+        if self.nodoc_all_depth == 0 {
+            if !self.allowed_constants.iter().any(|c| c == &name)
+                && !has_nodoc
+                && !is_namespace_only(&node.body(), true)
+                && !is_include_only(&node.body())
+                && !has_documentation_comment(self.source, start)
+            {
+                let (line, column) = self.source.offset_to_line_col(start);
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
+                    line,
+                    column,
+                    "Missing top-level documentation comment for `class`.".to_string(),
+                ));
             }
         }
 
+        // Recurse into children, tracking nodoc_all depth
+        if has_nodoc_all {
+            self.nodoc_all_depth += 1;
+        }
+        ruby_prism::visit_class_node(self, node);
+        if has_nodoc_all {
+            self.nodoc_all_depth -= 1;
+        }
+    }
+
+    fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
+        let name = extract_short_name(&node.constant_path());
+        let kw_loc = node.module_keyword_loc();
+        let start = kw_loc.start_offset();
+        let (has_nodoc, has_nodoc_all) = check_nodoc(self.source, start);
+
+        // Check documentation requirement (only if not inside a :nodoc: all parent)
+        if self.nodoc_all_depth == 0 {
+            if !self.allowed_constants.iter().any(|c| c == &name)
+                && !has_nodoc
+                && !is_namespace_only(&node.body(), false)
+                && !is_include_only(&node.body())
+                && !has_documentation_comment(self.source, start)
+            {
+                let (line, column) = self.source.offset_to_line_col(start);
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
+                    line,
+                    column,
+                    "Missing top-level documentation comment for `module`.".to_string(),
+                ));
+            }
+        }
+
+        // Recurse into children, tracking nodoc_all depth
+        if has_nodoc_all {
+            self.nodoc_all_depth += 1;
+        }
+        ruby_prism::visit_module_node(self, node);
+        if has_nodoc_all {
+            self.nodoc_all_depth -= 1;
+        }
     }
 }
 
@@ -358,6 +387,27 @@ mod tests {
         let source = b"class Test # :nodoc:\n  def method\n  end\nend\n";
         let diags = run_cop_full(&Documentation, source);
         assert!(diags.is_empty(), "# :nodoc: should suppress documentation requirement");
+    }
+
+    #[test]
+    fn nodoc_all_suppresses_inner_classes() {
+        let source = b"module Outer #:nodoc: all\n  class Inner\n    def method\n    end\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert!(diags.is_empty(), ":nodoc: all should suppress inner classes");
+    }
+
+    #[test]
+    fn nodoc_all_on_class_suppresses_inner() {
+        let source = b"class Base # :nodoc: all\n  class Helper\n    def method\n    end\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert!(diags.is_empty(), ":nodoc: all on class should suppress inner classes");
+    }
+
+    #[test]
+    fn nodoc_all_deeply_nested() {
+        let source = b"module Top #:nodoc: all\n  module Mid\n    class Deep\n      def method\n      end\n    end\n  end\nend\n";
+        let diags = run_cop_full(&Documentation, source);
+        assert!(diags.is_empty(), ":nodoc: all should propagate to deeply nested classes");
     }
 
     #[test]

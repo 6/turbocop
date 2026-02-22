@@ -67,3 +67,24 @@ module WithPrivate
   end
   private_constant :Internal
 end
+
+# :nodoc: all on outer module suppresses inner classes
+module Outer #:nodoc: all
+  class Inner
+    def method
+    end
+  end
+
+  module Nested
+    def method
+    end
+  end
+end
+
+# :nodoc: all on class suppresses inner classes
+class Base # :nodoc: all
+  class Helper
+    def method
+    end
+  end
+end

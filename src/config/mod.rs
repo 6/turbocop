@@ -166,6 +166,19 @@ impl CopFilterSet {
                 return true;
             }
         }
+        // Strip `./` prefix: file discovery produces `./vendor/foo.rb` but
+        // exclude patterns use `vendor/**/*`.
+        if let Ok(stripped) = path.strip_prefix("./") {
+            if self.global_exclude.is_match(stripped) {
+                return true;
+            }
+            if let Some(ref re) = self.global_exclude_re {
+                let stripped_str = stripped.to_string_lossy();
+                if re.is_match(stripped_str.as_ref()) {
+                    return true;
+                }
+            }
+        }
         // Also try matching against the path relativized to config_dir.
         // This handles running from outside the project root, where file
         // paths include a prefix (e.g., `bench/repos/mastodon/vendor/foo.rb`
@@ -229,11 +242,17 @@ impl CopFilterSet {
             .nearest_config_dir(path)
             .and_then(|cd| path.strip_prefix(cd).ok());
 
+        // Strip `./` prefix for matching: file discovery produces `./test/foo.rb`
+        // but cop Exclude patterns use `test/**/*`. Without stripping, patterns
+        // that don't start with `./` won't match.
+        let stripped = path.strip_prefix("./").ok();
+
         // Include: file must match on at least one path form.
         // This supports both absolute patterns (/tmp/test/db/**) and
         // relative patterns (db/migrate/**).
         let included = filter.is_included(path)
-            || rel_path.is_some_and(|rel| filter.is_included(rel));
+            || rel_path.is_some_and(|rel| filter.is_included(rel))
+            || stripped.is_some_and(|s| filter.is_included(s));
         if !included {
             return false;
         }
@@ -242,7 +261,8 @@ impl CopFilterSet {
         // This catches project-relative Exclude patterns (lib/tasks/*.rake)
         // even when the file path has a prefix (bench/repos/mastodon/...).
         let excluded = filter.is_excluded(path)
-            || rel_path.is_some_and(|rel| filter.is_excluded(rel));
+            || rel_path.is_some_and(|rel| filter.is_excluded(rel))
+            || stripped.is_some_and(|s| filter.is_excluded(s));
         if excluded {
             return false;
         }
@@ -269,9 +289,11 @@ impl CopFilterSet {
             .filter(|root| nearest_dir.is_some_and(|n| n != *root))
             .and_then(|cd| path.strip_prefix(cd).ok());
 
+        let stripped = path.strip_prefix("./").ok();
         filter.is_excluded(path)
             || rel_to_nearest.is_some_and(|rel| filter.is_excluded(rel))
             || rel_to_root.is_some_and(|rel| filter.is_excluded(rel))
+            || stripped.is_some_and(|s| filter.is_excluded(s))
     }
 
     /// Check whether a file path would be matched (not excluded) by a cop's
