@@ -95,8 +95,8 @@ mod tests {
             map.tier_for("Performance/BigDecimalWithNumericArgument"),
             Tier::Preview
         );
-        assert_eq!(map.tier_for("Rails/Pluck"), Tier::Preview);
-        assert_eq!(map.tier_for("Rails/Exit"), Tier::Preview);
+        assert_eq!(map.tier_for("Rails/I18nLocaleAssignment"), Tier::Preview);
+        assert_eq!(map.tier_for("Rails/Pick"), Tier::Preview);
     }
 
     #[test]

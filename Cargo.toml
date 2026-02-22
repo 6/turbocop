@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 default-run = "turbocop"
+description = "Experimental RuboCop rewrite in Rust — 900+ cops, drop-in compatible"
+license = "MIT"
+repository = "https://github.com/6/turbocop"
+readme = "README.md"
+keywords = ["ruby", "linter", "rubocop", "lint"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "turbocop"

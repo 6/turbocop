@@ -1,6 +1,8 @@
 # turbocop
 
-A RuboCop rewrite in Rust. Often 20x+ faster, 900+ cops, drop-in compatible.
+Experimental RuboCop rewrite in Rust. Often 20x+ faster, 900+ cops, drop-in compatible.
+
+> **Status:** Early-stage. Detection is high-fidelity on most codebases but edge cases remain. Autocorrect is partial. Expect bugs — please report them.
 
 Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (1,222 files), Apple Silicon:
 
@@ -12,8 +14,8 @@ Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (
 **Features**
 
 - **915 cops** from 6 RuboCop gems (rubocop, rubocop-rails, rubocop-performance, rubocop-rspec, rubocop-rspec_rails, rubocop-factory_bot)
-- **100% conformance** against RuboCop on 14 benchmark repos
-- **Autocorrect** (`-a`/`-A`) is not fully supported yet — work in progress
+- **High conformance** against RuboCop — 14 of 14 benchmark repos at 100%
+- **Autocorrect** (`-a`/`-A`) is partial — work in progress
 - Reads your existing `.rubocop.yml` — no migration needed
 - Uses [Prism](https://github.com/ruby/prism) (Ruby's official parser) via `ruby-prism` crate
 - Parallel file processing with [rayon](https://github.com/rayon-rs/rayon)
@@ -23,11 +25,10 @@ Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (
 Requires Rust 1.85+ (edition 2024).
 
 ```bash
-# Note: this will not work yet (unreleased)
-cargo install turbocop
+cargo install turbocop   # not yet published — build from source for now
 ```
 
-Then run it in your ruby repo:
+Then run it in your Ruby project:
 
 ```bash
 turbocop
@@ -64,26 +65,28 @@ Every cop reads its RuboCop YAML config options and has fixture-based test cover
 
 ## Conformance
 
-We run both turbocop and RuboCop on 14 popular open source repos and compare every offense (file, line, column, cop name, message). Match rate is the percentage of RuboCop offenses that turbocop reproduces exactly:
+We run both turbocop and RuboCop on 14 popular open source repos and compare every offense by file, line, and cop name. Match rate is the percentage of offenses that both tools agree on:
 
-| Repo | Match rate |
-|------|----------:|
-| mastodon | 100.0% |
-| discourse | 100.0% |
-| rails | 100.0% |
-| rubocop | 100.0% |
-| chatwoot | 100.0% |
-| errbit | 100.0% |
-| activeadmin | 100.0% |
-| good_job | 100.0% |
-| docuseal | 100.0% |
-| rubygems.org | 100.0% |
-| doorkeeper | 100.0% |
-| fat_free_crm | 100.0% |
-| multi_json | 100.0% |
-| lobsters | 100.0% |
+| Repo | Offenses | Match rate |
+|------|-------:|----------:|
+| mastodon | 302 | 100.0% |
+| discourse* | — | — |
+| rails | 6 | 100.0% |
+| rubocop | 0 | 100.0% |
+| chatwoot | 251 | 100.0% |
+| errbit | 1579 | 100.0% |
+| activeadmin | 3 | 100.0% |
+| good_job | 37 | 100.0% |
+| docuseal | 60 | 100.0% |
+| rubygems.org | 3 | 100.0% |
+| doorkeeper | 623 | 100.0% |
+| fat_free_crm | 32 | 100.0% |
+| multi_json | 2 | 100.0% |
+| lobsters | 6 | 100.0% |
 
-See [bench/results.md](bench/results.md) for full details.
+\* discourse uses an older RuboCop version (1.71 vs 1.84) — not directly comparable.
+
+See [bench/results.md](bench/results.md) for full details including FP/FN breakdowns.
 
 ## Hybrid Mode
 

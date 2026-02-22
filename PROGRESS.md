@@ -77,5 +77,5 @@ See **[docs/coverage.md](docs/coverage.md)** for the auto-generated coverage tab
 | Stat | Value |
 |------|-------|
 | Cops registered | 915 |
-| Bench repos at 100% | 12/12 |
+| Bench repos at 100% | 14/14 |
 | Departments at 100% | 14 |

@@ -515,6 +515,11 @@ pub struct ResolvedConfig {
     /// Used by department-level Enabled:false to distinguish user-explicit cops
     /// from rubocop default cops.
     project_mentioned_cops: HashSet<String>,
+    /// Departments that have `Enabled: true` explicitly in the project config.
+    /// Distinguished from departments merely mentioned with other keys (e.g., Exclude).
+    /// Used for DisabledByDefault: cops in these departments get their default
+    /// enabled state restored (matching RuboCop's handle_disabled_by_default).
+    project_enabled_depts: HashSet<String>,
     /// Per-directory cop config overrides from nested `.rubocop.yml` files.
     /// Keyed by directory path (sorted deepest-first for lookup).
     /// Each value contains only the cop-specific options from that directory's config.
@@ -537,6 +542,7 @@ impl ResolvedConfig {
             active_support_extensions_enabled: false,
             rubocop_known_cops: HashSet::new(),
             project_mentioned_cops: HashSet::new(),
+            project_enabled_depts: HashSet::new(),
             dir_overrides: Vec::new(),
         }
     }
@@ -851,6 +857,22 @@ pub fn load_config(
     let project_mentioned_cops = project_layer.user_mentioned_cops.clone();
     let project_mentioned_depts = project_layer.user_mentioned_depts.clone();
 
+    // Collect departments that explicitly have Enabled: true in the project config,
+    // EXCLUDING departments where Enabled: true came from require:/plugins: gem defaults.
+    // This distinguishes "Security: Enabled: true" (user wrote it) from
+    // "Performance: Enabled: true" (came from rubocop-performance gem defaults).
+    // Used for DisabledByDefault: when a department is user-enabled, its
+    // default-enabled cops should be restored (matching RuboCop's handle_disabled_by_default).
+    let project_enabled_depts: HashSet<String> = project_layer
+        .department_configs
+        .iter()
+        .filter(|(name, cfg)| {
+            cfg.enabled == EnabledState::True
+                && !project_layer.require_enabled_depts.contains(name.as_str())
+        })
+        .map(|(name, _)| name.clone())
+        .collect();
+
     // Merge project config on top of rubocop defaults
     merge_layer_into(&mut base, &project_layer, None);
 
@@ -937,6 +959,7 @@ pub fn load_config(
         active_support_extensions_enabled: base.active_support_extensions_enabled.unwrap_or(false),
         rubocop_known_cops,
         project_mentioned_cops,
+        project_enabled_depts,
         dir_overrides,
     })
 }
@@ -1778,8 +1801,18 @@ impl ResolvedConfig {
             cop_enabled_state
         } else if dept_enabled_state == EnabledState::False {
             EnabledState::False
-        } else if !self.disabled_by_default && dept_enabled_state == EnabledState::True {
-            EnabledState::True
+        } else if dept_enabled_state == EnabledState::True {
+            if self.disabled_by_default
+                && self.project_enabled_depts.contains(dept)
+            {
+                // DisabledByDefault + department explicitly enabled by user
+                // → restore to True (matching RuboCop's handle_disabled_by_default)
+                EnabledState::True
+            } else if !self.disabled_by_default {
+                EnabledState::True
+            } else {
+                EnabledState::Unset
+            }
         } else {
             EnabledState::Unset
         };
@@ -2215,10 +2248,23 @@ impl ResolvedConfig {
                     EnabledState::False
                 } else {
                     // No explicit cop setting; department may be True/Unset.
-                    // Under DisabledByDefault, Unset → disabled (handled below).
                     // Without DisabledByDefault, department True promotes cop.
-                    if !self.disabled_by_default && dept_enabled_state == EnabledState::True {
-                        EnabledState::True
+                    // With DisabledByDefault + department explicitly enabled by user
+                    // (i.e., `Security: Enabled: true`, not just `Performance: Exclude:`),
+                    // restore the cop's default Enabled value. This matches RuboCop's
+                    // handle_disabled_by_default which re-enables default-enabled cops
+                    // in explicitly-enabled departments.
+                    if dept_enabled_state == EnabledState::True {
+                        if self.disabled_by_default
+                            && self.project_enabled_depts.contains(dept)
+                            && cop.default_enabled()
+                        {
+                            EnabledState::True
+                        } else if !self.disabled_by_default {
+                            EnabledState::True
+                        } else {
+                            EnabledState::Unset
+                        }
                     } else {
                         EnabledState::Unset
                     }
@@ -4499,6 +4545,206 @@ mod tests {
             !config.is_cop_enabled("Lint/UselessAssignment", Path::new("a.rb"), &[], &[]),
             "Lint/UselessAssignment should be disabled via .standard.yml ignore"
         );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // ---- DisabledByDefault + department-level Enabled tests ----
+    // These tests cover the discourse-style scenario (DisabledByDefault: true
+    // with department-level `Enabled: true`) and the rails-style scenario
+    // (plugin gem sets `Enabled: true` on its department via defaults, which
+    // should NOT count as user-enabled).
+
+    #[test]
+    fn disabled_by_default_with_dept_enabled_restores_cops() {
+        // Discourse scenario: DisabledByDefault: true + Security: Enabled: true
+        // Cops in the Security department that are default-enabled should be
+        // restored to enabled, matching RuboCop's handle_disabled_by_default.
+        let dir = std::env::temp_dir().join("turbocop_test_dbd_dept_enabled");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let path = write_config(
+            &dir,
+            "AllCops:\n  DisabledByDefault: true\n\
+             Security:\n  Enabled: true\n",
+        );
+        let config = load_config(Some(&path), None, None).unwrap();
+
+        // Security/Eval is a default-enabled cop in a user-enabled department
+        // → should be enabled
+        assert!(
+            config.is_cop_enabled("Security/Eval", Path::new("a.rb"), &[], &[]),
+            "Security/Eval should be enabled (dept explicitly enabled by user + default-enabled cop)"
+        );
+        // Security/IoMethods is also default-enabled in Security
+        assert!(
+            config.is_cop_enabled("Security/IoMethods", Path::new("a.rb"), &[], &[]),
+            "Security/IoMethods should be enabled (dept explicitly enabled by user)"
+        );
+        // Style cops should still be disabled (DisabledByDefault, no dept enable)
+        assert!(
+            !config.is_cop_enabled("Style/StringLiterals", Path::new("a.rb"), &[], &[]),
+            "Style/StringLiterals should be disabled (DisabledByDefault, dept not enabled)"
+        );
+        // Lint cops should still be disabled
+        assert!(
+            !config.is_cop_enabled("Lint/Void", Path::new("a.rb"), &[], &[]),
+            "Lint/Void should be disabled (DisabledByDefault, dept not enabled)"
+        );
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn disabled_by_default_dept_mentioned_without_enabled_stays_disabled() {
+        // Rails scenario: DisabledByDefault: true + department mentioned only
+        // via Exclude (e.g., `Performance: Exclude: [...]`). Since the user
+        // didn't write `Enabled: true` on the department, cops should stay
+        // disabled. This prevents false positives.
+        let dir = std::env::temp_dir().join("turbocop_test_dbd_dept_no_enable");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let path = write_config(
+            &dir,
+            "AllCops:\n  DisabledByDefault: true\n\
+             Lint:\n  Exclude:\n    - 'test/**'\n",
+        );
+        let config = load_config(Some(&path), None, None).unwrap();
+
+        // Lint department is mentioned but NOT with Enabled: true
+        // → cops should stay disabled under DisabledByDefault
+        assert!(
+            !config.is_cop_enabled("Lint/Void", Path::new("a.rb"), &[], &[]),
+            "Lint/Void should be disabled (dept mentioned via Exclude only, not Enabled: true)"
+        );
+        // Explicitly enabling a cop should still work
+        let path2 = write_config(
+            &dir,
+            "AllCops:\n  DisabledByDefault: true\n\
+             Lint:\n  Exclude:\n    - 'test/**'\n\
+             Lint/Void:\n  Enabled: true\n",
+        );
+        let config2 = load_config(Some(&path2), None, None).unwrap();
+        assert!(
+            config2.is_cop_enabled("Lint/Void", Path::new("a.rb"), &[], &[]),
+            "Lint/Void should be enabled when explicitly set"
+        );
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn disabled_by_default_require_dept_enabled_not_user_enabled() {
+        // Rails + rubocop-performance scenario: require: rubocop-performance
+        // loads gem defaults that set `Performance: Enabled: true`. But the
+        // USER didn't write that — it came from the gem. Under DisabledByDefault,
+        // Performance cops should stay disabled.
+        let dir = std::env::temp_dir().join("turbocop_test_dbd_require_dept");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        // Fake plugin gem: config/default.yml enables department + cops
+        let plugin_dir = dir.join("rubocop-fakeperf");
+        fs::create_dir_all(plugin_dir.join("config")).unwrap();
+        write_yaml(
+            &plugin_dir.join("config"),
+            "default.yml",
+            "FakePerf:\n  Enabled: true\n\
+             FakePerf/CopA:\n  Enabled: true\n\
+             FakePerf/CopB:\n  Enabled: true\n",
+        );
+
+        // Style gem: DisabledByDefault + require: the plugin
+        let style_dir = dir.join("custom-style");
+        fs::create_dir_all(&style_dir).unwrap();
+        write_yaml(
+            &style_dir,
+            "core.yml",
+            "require:\n  - rubocop-fakeperf\n\
+             AllCops:\n  DisabledByDefault: true\n",
+        );
+
+        let mut gem_cache = HashMap::new();
+        gem_cache.insert("rubocop-fakeperf".to_string(), plugin_dir);
+        gem_cache.insert("custom-style".to_string(), style_dir);
+
+        // Project config inherits from style gem (gets DisabledByDefault + require)
+        let path = write_config(
+            &dir,
+            "inherit_gem:\n  custom-style: core.yml\n",
+        );
+        let config = load_config(Some(&path), None, Some(&gem_cache)).unwrap();
+
+        // FakePerf cops should be DISABLED: Enabled: true came from require:
+        // gem defaults, not from user config
+        assert!(
+            !config.is_cop_enabled("FakePerf/CopA", Path::new("a.rb"), &[], &[]),
+            "FakePerf/CopA should be disabled (dept Enabled: true from require: defaults, not user)"
+        );
+        assert!(
+            !config.is_cop_enabled("FakePerf/CopB", Path::new("a.rb"), &[], &[]),
+            "FakePerf/CopB should be disabled (dept Enabled: true from require: defaults, not user)"
+        );
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn disabled_by_default_user_dept_enabled_overrides_require() {
+        // Combined scenario: require: loads plugin gem defaults with
+        // FakePerf: Enabled: true, AND the user config also writes
+        // FakePerf: Enabled: true. The user-explicit enable should win,
+        // restoring default-enabled cops in that department.
+        let dir = std::env::temp_dir().join("turbocop_test_dbd_user_overrides_require");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        // Fake plugin gem with department + cops
+        let plugin_dir = dir.join("rubocop-fakeperf2");
+        fs::create_dir_all(plugin_dir.join("config")).unwrap();
+        write_yaml(
+            &plugin_dir.join("config"),
+            "default.yml",
+            "FakePerf2:\n  Enabled: true\n\
+             FakePerf2/CopA:\n  Enabled: true\n\
+             FakePerf2/CopB:\n  Enabled: true\n",
+        );
+
+        // Style gem: DisabledByDefault + require: the plugin
+        let style_dir = dir.join("custom-style2");
+        fs::create_dir_all(&style_dir).unwrap();
+        write_yaml(
+            &style_dir,
+            "core.yml",
+            "require:\n  - rubocop-fakeperf2\n\
+             AllCops:\n  DisabledByDefault: true\n",
+        );
+
+        let mut gem_cache = HashMap::new();
+        gem_cache.insert("rubocop-fakeperf2".to_string(), plugin_dir);
+        gem_cache.insert("custom-style2".to_string(), style_dir);
+
+        // Project config inherits from style gem AND explicitly enables
+        // the FakePerf2 department
+        let path = write_config(
+            &dir,
+            "inherit_gem:\n  custom-style2: core.yml\n\
+             FakePerf2:\n  Enabled: true\n",
+        );
+        let config = load_config(Some(&path), None, Some(&gem_cache)).unwrap();
+
+        // FakePerf2 cops should be ENABLED: user explicitly wrote
+        // FakePerf2: Enabled: true in project config
+        assert!(
+            config.is_cop_enabled("FakePerf2/CopA", Path::new("a.rb"), &[], &[]),
+            "FakePerf2/CopA should be enabled (user explicitly enabled dept)"
+        );
+        assert!(
+            config.is_cop_enabled("FakePerf2/CopB", Path::new("a.rb"), &[], &[]),
+            "FakePerf2/CopB should be enabled (user explicitly enabled dept)"
+        );
+
         fs::remove_dir_all(&dir).ok();
     }
 }
