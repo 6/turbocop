@@ -621,14 +621,15 @@ mod tests {
         std::fs::write(&rb_file, b"x = 1\n").unwrap();
         cache.put(&rb_file, b"x = 1\n", &[]);
 
-        // Change both content and mtime
-        std::fs::write(&rb_file, b"x = 2\n").unwrap();
+        // Change content with a different size so stat detects the change even
+        // when both writes land in the same filesystem timestamp granularity
+        std::fs::write(&rb_file, b"x = 22\n").unwrap();
 
-        // Stat miss (mtime changed)
+        // Stat miss (size changed)
         assert!(matches!(cache.get_by_stat(&rb_file), CacheLookup::Miss));
         // Content miss (content changed)
         assert!(matches!(
-            cache.get_by_content(&rb_file, b"x = 2\n"),
+            cache.get_by_content(&rb_file, b"x = 22\n"),
             CacheLookup::Miss
         ));
     }
