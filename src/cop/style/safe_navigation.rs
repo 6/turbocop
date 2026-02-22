@@ -422,6 +422,111 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
 
         ruby_prism::visit_if_node(self, node);
     }
+
+    fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
+        if self.in_unsafe_parent > 0 {
+            ruby_prism::visit_unless_node(self, node);
+            return;
+        }
+
+        // Must be modifier form (no end keyword)
+        if node.end_keyword_loc().is_some() {
+            ruby_prism::visit_unless_node(self, node);
+            return;
+        }
+
+        // Must not have else
+        if node.else_clause().is_some() {
+            ruby_prism::visit_unless_node(self, node);
+            return;
+        }
+
+        let node_loc = node.location();
+        let condition = node.predicate();
+        let body_stmts = match node.statements() {
+            Some(s) => s,
+            None => {
+                ruby_prism::visit_unless_node(self, node);
+                return;
+            }
+        };
+
+        // Must have exactly one body statement
+        let body = match SafeNavigation::single_stmt_from_stmts(&body_stmts) {
+            Some(n) => n,
+            None => {
+                ruby_prism::visit_unless_node(self, node);
+                return;
+            }
+        };
+
+        let bytes = self.source.as_bytes();
+
+        // Extract checked_src: `unless foo.nil?` → check foo
+        let checked_src: Option<&[u8]> = if let Some(call) = condition.as_call_node() {
+            let name = call.name().as_slice();
+            if name == b"nil?" {
+                call.receiver().map(|r| &bytes[r.location().start_offset()..r.location().end_offset()])
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let checked_src = match checked_src {
+            Some(s) => s,
+            None => {
+                ruby_prism::visit_unless_node(self, node);
+                return;
+            }
+        };
+
+        // Body must be a method call chain
+        let body_call = match body.as_call_node() {
+            Some(c) => c,
+            None => {
+                ruby_prism::visit_unless_node(self, node);
+                return;
+            }
+        };
+
+        if body_call.call_operator_loc().is_none() {
+            ruby_prism::visit_unless_node(self, node);
+            return;
+        }
+
+        if !self.cop.find_receiver_by_bytes(&body, checked_src, bytes) {
+            ruby_prism::visit_unless_node(self, node);
+            return;
+        }
+
+        let chain_len = self.cop.chain_length_by_bytes(&body, checked_src, bytes);
+        if chain_len > self.max_chain_length {
+            ruby_prism::visit_unless_node(self, node);
+            return;
+        }
+
+        if SafeNavigation::has_dotless_operator_in_chain(&body) {
+            ruby_prism::visit_unless_node(self, node);
+            return;
+        }
+
+        if SafeNavigation::has_unsafe_method_in_chain(&body, &self.allowed_methods) {
+            ruby_prism::visit_unless_node(self, node);
+            return;
+        }
+
+        let (line, column) = self.source.offset_to_line_col(node_loc.start_offset());
+        self.diagnostics.push(self.cop.diagnostic(
+            self.source,
+            line,
+            column,
+            "Use safe navigation (`&.`) instead of checking if an object exists before calling the method.".to_string(),
+        ));
+
+        ruby_prism::visit_unless_node(self, node);
+    }
 }
 
 impl SafeNavigation {

@@ -11,3 +11,7 @@ flag == true
 bar == :foo
 
 done != false
+
+value == CONST
+count <= MAX_SIZE
+total != Config::LIMIT

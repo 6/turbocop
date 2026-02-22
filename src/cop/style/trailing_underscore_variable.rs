@@ -61,7 +61,10 @@ impl Cop for TrailingUnderscoreVariable {
             return;
         }
 
-        let loc = node.location();
+        // RuboCop points at the first trailing underscore variable, not the whole assignment
+        let first_trailing_idx = lefts.len() - trailing_count;
+        let first_trailing = &lefts[first_trailing_idx];
+        let loc = first_trailing.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,

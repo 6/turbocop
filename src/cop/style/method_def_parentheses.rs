@@ -52,8 +52,9 @@ impl Cop for MethodDefParentheses {
 
         match enforced_style {
             "require_parentheses" | "require_no_parentheses_except_multiline" if !has_parens => {
-                let def_loc = def_node.def_keyword_loc();
-                let (line, column) = source.offset_to_line_col(def_loc.start_offset());
+                // RuboCop points at the arguments (parameters), not the `def` keyword
+                let params_loc = params.location();
+                let (line, column) = source.offset_to_line_col(params_loc.start_offset());
                 diagnostics.push(self.diagnostic(
                     source,
                     line,
@@ -62,8 +63,12 @@ impl Cop for MethodDefParentheses {
                 ));
             }
             "require_no_parentheses" if has_parens => {
-                let def_loc = def_node.def_keyword_loc();
-                let (line, column) = source.offset_to_line_col(def_loc.start_offset());
+                // RuboCop points at the args node including parens — use lparen_loc
+                let start = def_node.lparen_loc().map_or_else(
+                    || params.location().start_offset(),
+                    |lp| lp.start_offset(),
+                );
+                let (line, column) = source.offset_to_line_col(start);
                 diagnostics.push(self.diagnostic(
                     source,
                     line,

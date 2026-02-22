@@ -37,6 +37,84 @@ struct RedundantBeginVisitor<'a> {
 }
 
 impl RedundantBeginVisitor<'_> {
+    /// Check if a body (block, lambda, etc.) contains a redundant `begin` block.
+    /// A `begin..rescue..end` or `begin..ensure..end` inside a block body is
+    /// redundant when it's the only statement, because the block itself supports
+    /// rescue/ensure directly.
+    fn check_body_begin(&mut self, body: Option<ruby_prism::Node<'_>>) {
+        let body = match body {
+            Some(b) => b,
+            None => return,
+        };
+
+        // The body is either a StatementsNode containing a single BeginNode,
+        // or directly a BeginNode
+        let begin_node = if let Some(b) = body.as_begin_node() {
+            b
+        } else if let Some(stmts) = body.as_statements_node() {
+            let body_nodes: Vec<_> = stmts.body().into_iter().collect();
+            if body_nodes.len() != 1 {
+                // Multiple statements — visit children and return
+                for child in body_nodes.iter() {
+                    self.visit(child);
+                }
+                return;
+            }
+            match body_nodes[0].as_begin_node() {
+                Some(b) => b,
+                None => {
+                    self.visit(&body_nodes[0]);
+                    return;
+                }
+            }
+        } else {
+            self.visit(&body);
+            return;
+        };
+
+        // Must have an explicit `begin` keyword
+        let begin_kw_loc = match begin_node.begin_keyword_loc() {
+            Some(loc) => loc,
+            None => {
+                // No explicit begin — visit children
+                if let Some(stmts) = begin_node.statements() {
+                    for child in stmts.body().iter() {
+                        self.visit(&child);
+                    }
+                }
+                if let Some(rescue) = begin_node.rescue_clause() {
+                    self.visit_rescue_node(&rescue);
+                }
+                if let Some(ensure) = begin_node.ensure_clause() {
+                    self.visit_ensure_node(&ensure);
+                }
+                return;
+            }
+        };
+
+        let offset = begin_kw_loc.start_offset();
+        let (line, column) = self.source.offset_to_line_col(offset);
+        self.diagnostics.push(self.cop.diagnostic(
+            self.source,
+            line,
+            column,
+            "Redundant `begin` block detected.".to_string(),
+        ));
+
+        // Visit children for nested checks
+        if let Some(stmts) = begin_node.statements() {
+            for child in stmts.body().iter() {
+                self.visit(&child);
+            }
+        }
+        if let Some(rescue) = begin_node.rescue_clause() {
+            self.visit_rescue_node(&rescue);
+        }
+        if let Some(ensure) = begin_node.ensure_clause() {
+            self.visit_ensure_node(&ensure);
+        }
+    }
+
     /// Check if an assignment value is a redundant `begin` block.
     /// `x = begin...end` or `x ||= begin...end` is redundant when:
     /// - The begin has an explicit `begin` keyword
@@ -187,6 +265,14 @@ impl<'pr> Visit<'pr> for RedundantBeginVisitor<'_> {
         if let Some(ensure) = node.ensure_clause() {
             self.visit_ensure_node(&ensure);
         }
+    }
+
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        self.check_body_begin(node.body());
+    }
+
+    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
+        self.check_body_begin(node.body());
     }
 
     fn visit_instance_variable_or_write_node(

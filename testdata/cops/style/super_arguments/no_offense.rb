@@ -12,17 +12,17 @@ end
 x = 1
 y = 2
 
-# With keyword arguments - not flagged
+# Forwarding only a subset of args
 def with_kwargs(a, b:)
-  super(a, b: b)
+  super(a)
 end
 
-# With rest args - not flagged
+# Different rest args
 def with_rest(a, *args)
-  super(a, *args)
+  super(a)
 end
 
-# With block - not flagged
+# Different block
 def with_block(a, &blk)
-  super(a, &blk)
+  super(a)
 end

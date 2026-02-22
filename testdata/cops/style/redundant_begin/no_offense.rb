@@ -42,3 +42,20 @@ result = begin
   setup
   compute
 end
+
+# begin in block with multiple statements is NOT redundant
+items.each do |item|
+  begin
+    process(item)
+  rescue => e
+    handle(e)
+  end
+  finalize(item)
+end
+
+# Block with rescue directly (no explicit begin) is fine
+items.each do |item|
+  process(item)
+rescue => e
+  handle(e)
+end

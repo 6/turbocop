@@ -28,8 +28,9 @@ impl Cop for RescueModifier {
             None => return,
         };
 
-        let kw_loc = rescue_mod.keyword_loc();
-        let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
+        // RuboCop points at the whole rescue modifier expression, not just the `rescue` keyword
+        let loc = rescue_mod.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(source, line, column, "Avoid rescuing without specifying an error class.".to_string()));
     }
 }

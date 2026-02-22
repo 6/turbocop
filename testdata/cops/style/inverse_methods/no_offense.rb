@@ -13,3 +13,8 @@ foo.reject { |x| x < 0 }
 !(Foo > Bar)
 !(Foo::Bar <= Baz::Qux)
 !(klass >= SomeModule)
+# Block with guard clause (next) — not flagged
+items.select do |x|
+  next if x.zero?
+  x != 1
+end

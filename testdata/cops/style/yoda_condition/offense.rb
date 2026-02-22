@@ -15,3 +15,12 @@ true == flag
 
 false != done
 ^^^^^^^^^^^^^ Style/YodaCondition: Prefer non-Yoda conditions.
+
+CONST == value
+^^^^^^^^^^^^^^ Style/YodaCondition: Prefer non-Yoda conditions.
+
+MAX_SIZE >= count
+^^^^^^^^^^^^^^^^^ Style/YodaCondition: Prefer non-Yoda conditions.
+
+Config::LIMIT != total
+^^^^^^^^^^^^^^^^^^^^^^ Style/YodaCondition: Prefer non-Yoda conditions.

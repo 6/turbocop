@@ -85,6 +85,34 @@ impl Cop for MethodParameterName {
             }
         }
 
+        // Check rest parameter (*args)
+        if let Some(rest) = params.rest() {
+            if let Some(rest_param) = rest.as_rest_parameter_node() {
+                if let Some(name_loc) = rest_param.name_loc() {
+                    let name = rest_param.name().map(|n| n.as_slice()).unwrap_or(b"");
+                    check_param(self, source, name, &name_loc, min_length, &allowed, diagnostics);
+                }
+            }
+        }
+
+        // Check keyword rest parameter (**kwargs)
+        if let Some(kw_rest) = params.keyword_rest() {
+            if let Some(kw_rest_param) = kw_rest.as_keyword_rest_parameter_node() {
+                if let Some(name_loc) = kw_rest_param.name_loc() {
+                    let name = kw_rest_param.name().map(|n| n.as_slice()).unwrap_or(b"");
+                    check_param(self, source, name, &name_loc, min_length, &allowed, diagnostics);
+                }
+            }
+        }
+
+        // Check block parameter (&block)
+        if let Some(block) = params.block() {
+            if let Some(name_loc) = block.name_loc() {
+                let name = block.name().map(|n| n.as_slice()).unwrap_or(b"");
+                check_param(self, source, name, &name_loc, min_length, &allowed, diagnostics);
+            }
+        }
+
     }
 }
 

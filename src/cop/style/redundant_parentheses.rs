@@ -159,6 +159,22 @@ impl RedundantParensVisitor<'_> {
             }
         }
 
+        // Comparison expression — only flagged at top level (parent is nil or begin/program)
+        // RuboCop checks `begin_node.parent.nil?` which in the parser gem means top-level
+        // or inside a begin/statements block. In Prism, this corresponds to the parent being
+        // Other (Program/Statements) or no parent at all.
+        // Must be checked before `check_method_call` since comparisons are also call nodes.
+        if is_comparison(inner) && !is_chained(&self.source.content, node) {
+            let is_top_level = match parent {
+                None => true,
+                Some(p) => matches!(p.kind, ParentKind::Other),
+            };
+            if is_top_level {
+                self.add_offense(node, "a comparison expression");
+                return;
+            }
+        }
+
         // Method call
         if inner.as_call_node().is_some() {
             if let Some(msg) = check_method_call(&self.source.content, node, inner, parent) {
@@ -532,6 +548,18 @@ fn is_assignment(node: &ruby_prism::Node<'_>) -> bool {
         }
     }
     false
+}
+
+fn is_comparison(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(call) = node.as_call_node() {
+        let name = call.name().as_slice();
+        matches!(
+            name,
+            b"==" | b"!=" | b"<" | b">" | b"<=" | b">=" | b"<=>"
+        )
+    } else {
+        false
+    }
 }
 
 fn is_constant(node: &ruby_prism::Node<'_>) -> bool {

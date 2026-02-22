@@ -127,7 +127,7 @@ impl Cop for HashAlignment {
                     source,
                     elem_line,
                     elem_col,
-                    "Align the elements of a hash literal if they span more than one line."
+                    "Align the keys of a hash literal if they span more than one line."
                         .to_string(),
                 ));
             }

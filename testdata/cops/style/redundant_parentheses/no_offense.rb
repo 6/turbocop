@@ -36,3 +36,6 @@ end))
 (results[:load_called] = true) && "load_something"
 x = (y = 1) && z
 (a = foo) || bar
+# Comparison inside another expression — not top-level, not flagged
+x = (a == b) ? 1 : 2
+result = (a > b) && c

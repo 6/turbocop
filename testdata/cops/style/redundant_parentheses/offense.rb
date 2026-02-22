@@ -21,3 +21,12 @@ x = (foo.bar)
 
 x = (foo.bar(1))
     ^^^^^^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a method call.
+
+(x == y)
+^^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a comparison expression.
+
+(a >= b)
+^^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a comparison expression.
+
+(x <=> y)
+^^^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a comparison expression.

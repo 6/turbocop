@@ -48,7 +48,8 @@ impl Cop for FormatString {
                     return;
                 }
 
-                let loc = call.location();
+                // RuboCop points at the % operator (node.loc.selector), not the whole expression
+                let loc = call.message_loc().unwrap_or_else(|| call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 let preferred = if style == "format" { "format" } else { "sprintf" };
                 diagnostics.push(self.diagnostic(
@@ -69,7 +70,8 @@ impl Cop for FormatString {
                     }
                 }
 
-                let loc = call.location();
+                // RuboCop points at the method name (node.loc.selector), not the whole expression
+                let loc = call.message_loc().unwrap_or_else(|| call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 let preferred = if style == "sprintf" { "sprintf" } else { "String#%" };
                 diagnostics.push(self.diagnostic(
@@ -90,7 +92,8 @@ impl Cop for FormatString {
                     }
                 }
 
-                let loc = call.location();
+                // RuboCop points at the method name (node.loc.selector), not the whole expression
+                let loc = call.message_loc().unwrap_or_else(|| call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 let preferred = if style == "format" { "format" } else { "String#%" };
                 diagnostics.push(self.diagnostic(

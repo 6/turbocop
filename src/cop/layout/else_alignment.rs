@@ -41,17 +41,6 @@ impl Cop for ElseAlignment {
         }
 
         let (_, if_col) = source.offset_to_line_col(if_kw_loc.start_offset());
-        // Use `if` keyword column as primary alignment target.
-        // When `end` is at a different column (e.g., variable-style alignment
-        // where `end` aligns with the LHS variable), also accept that as an
-        // alternative base. This avoids false positives when EndAlignment is
-        // disabled and `end` can be at an arbitrary column.
-        let alt_col = if let Some(end_loc) = if_node.end_keyword_loc() {
-            let end_col = source.offset_to_line_col(end_loc.start_offset()).1;
-            if end_col != if_col { Some(end_col) } else { None }
-        } else {
-            None
-        };
 
         let mut current = if_node.subsequent();
 
@@ -60,9 +49,7 @@ impl Cop for ElseAlignment {
                 let else_kw_loc = else_node.else_keyword_loc();
                 let (else_line, else_col) =
                     source.offset_to_line_col(else_kw_loc.start_offset());
-                let matches_primary = else_col == if_col;
-                let matches_alt = alt_col.is_some_and(|ac| else_col == ac);
-                if !matches_primary && !matches_alt {
+                if else_col != if_col {
                     diagnostics.push(self.diagnostic(
                         source,
                         else_line,
@@ -78,9 +65,7 @@ impl Cop for ElseAlignment {
                 };
                 let (elsif_line, elsif_col) =
                     source.offset_to_line_col(elsif_kw_loc.start_offset());
-                let matches_primary = elsif_col == if_col;
-                let matches_alt = alt_col.is_some_and(|ac| elsif_col == ac);
-                if !matches_primary && !matches_alt {
+                if elsif_col != if_col {
                     diagnostics.push(self.diagnostic(
                         source,
                         elsif_line,
@@ -112,31 +97,16 @@ mod tests {
     }
 
     #[test]
-    fn assignment_context_else_aligns_with_lhs() {
-        // `else` at column 0 aligns with `x` (LHS), not `if` (column 4)
+    fn assignment_context_else_misaligned() {
+        // `else` at column 0, `if` at column 4 — should be flagged
         let source = b"x = if foo\n  bar\nelse\n  baz\nend\n";
         let diags = run_cop_full(&ElseAlignment, source);
-        assert!(diags.is_empty(), "assignment context else should align with LHS: {:?}", diags);
-    }
-
-    #[test]
-    fn assignment_context_elsif_aligns_with_lhs() {
-        let source = b"x = if foo\n  bar\nelsif qux\n  baz\nelse\n  quux\nend\n";
-        let diags = run_cop_full(&ElseAlignment, source);
-        assert!(diags.is_empty(), "assignment context elsif should align with LHS: {:?}", diags);
-    }
-
-    #[test]
-    fn assignment_context_else_wrong_alignment() {
-        // Variable style: `if` at col 4, `end` at col 0 (LHS), `else` at col 2 (wrong: neither)
-        let source = b"x = if foo\n  bar\n  else\n  baz\nend\n";
-        let diags = run_cop_full(&ElseAlignment, source);
-        assert_eq!(diags.len(), 1, "should flag else not aligned with if or end");
+        assert_eq!(diags.len(), 1, "else at col 0 should be flagged when if is at col 4");
     }
 
     #[test]
     fn assignment_context_keyword_style_no_offense() {
-        // Keyword style: `end` at col 4 (with `if`), body/else aligned with `if`
+        // Keyword style: `else` at col 4 (with `if`), body/else aligned with `if`
         let source = b"x = if foo\n      bar\n    else\n      baz\n    end\n";
         let diags = run_cop_full(&ElseAlignment, source);
         assert!(diags.is_empty(), "keyword style should not flag else aligned with if: {:?}", diags);

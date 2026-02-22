@@ -1,7 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{IF_NODE, UNTIL_NODE, WHILE_NODE};
+use crate::cop::node_type::{CASE_NODE, IF_NODE, UNTIL_NODE, WHILE_NODE};
 
 pub struct LiteralAsCondition;
 
@@ -28,7 +28,7 @@ impl Cop for LiteralAsCondition {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[IF_NODE, UNTIL_NODE, WHILE_NODE]
+        &[CASE_NODE, IF_NODE, UNTIL_NODE, WHILE_NODE]
     }
 
     fn check_node(
@@ -90,6 +90,24 @@ impl Cop for LiteralAsCondition {
                     column,
                     format!("Literal `{literal_text}` appeared as a condition."),
                 ));
+            }
+        }
+
+        // Try CaseNode
+        if let Some(case_node) = node.as_case_node() {
+            if let Some(predicate) = case_node.predicate() {
+                if is_literal(&predicate) {
+                    let kw_loc = case_node.case_keyword_loc();
+                    let literal_text =
+                        std::str::from_utf8(predicate.location().as_slice()).unwrap_or("literal");
+                    let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        format!("Literal `{literal_text}` appeared as a condition."),
+                    ));
+                }
             }
         }
 

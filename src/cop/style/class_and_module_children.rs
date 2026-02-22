@@ -114,7 +114,7 @@ impl<'a> ChildrenVisitor<'a> {
         body_node.as_class_node().is_some() || body_node.as_module_node().is_some()
     }
 
-    fn check_nested_style(&mut self, is_compact: bool, kw_offset: usize) {
+    fn check_nested_style(&mut self, is_compact: bool, name_offset: usize) {
         // For nested style: flag compact-style definitions (with ::) at top level
         if !is_compact {
             return;
@@ -124,7 +124,7 @@ impl<'a> ChildrenVisitor<'a> {
             return;
         }
         self.add_diagnostic(
-            kw_offset,
+            name_offset,
             "Use nested module/class definitions instead of compact style.".to_string(),
         );
     }
@@ -132,7 +132,7 @@ impl<'a> ChildrenVisitor<'a> {
     fn check_compact_style(
         &mut self,
         body: &Option<ruby_prism::Node<'a>>,
-        kw_offset: usize,
+        name_offset: usize,
     ) {
         // For compact style: flag outer nodes whose body is a single class/module
         // Skip if inside another class/module (RuboCop: return if parent&.type?(:class, :module))
@@ -143,10 +143,33 @@ impl<'a> ChildrenVisitor<'a> {
             return;
         }
         self.add_diagnostic(
-            kw_offset,
+            name_offset,
             "Use compact module/class definition instead of nested style.".to_string(),
         );
     }
+}
+
+/// Check if a constant path starts with `::` (cbase).
+/// In Prism, `::Foo::Bar` is a ConstantPathNode chain where the leftmost
+/// ConstantPathNode has `parent().is_none()` (representing the `::` prefix).
+fn has_cbase(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(cp) = node.as_constant_path_node() {
+        // Walk to the leftmost part of the constant path chain
+        let mut current = cp;
+        loop {
+            match current.parent() {
+                Some(parent) => {
+                    if let Some(parent_cp) = parent.as_constant_path_node() {
+                        current = parent_cp;
+                    } else {
+                        return false;
+                    }
+                }
+                None => return true, // No parent = cbase (::Foo)
+            }
+        }
+    }
+    false
 }
 
 impl<'a> Visit<'a> for ChildrenVisitor<'a> {
@@ -154,7 +177,17 @@ impl<'a> Visit<'a> for ChildrenVisitor<'a> {
         let style = self.style_for_class().to_string();
         let constant_path = node.constant_path();
         let is_compact = constant_path.as_constant_path_node().is_some();
-        let kw_offset = node.class_keyword_loc().start_offset();
+        let name_offset = constant_path.location().start_offset();
+
+        // RuboCop: return if node.identifier.namespace&.cbase_type?
+        // Skip absolute constant paths (e.g., ::Foo::Bar)
+        if has_cbase(&constant_path) {
+            let prev = self.inside_class_or_module;
+            self.inside_class_or_module = true;
+            ruby_prism::visit_class_node(self, node);
+            self.inside_class_or_module = prev;
+            return;
+        }
 
         // RuboCop: return if node.parent_class && style != :nested
         // Skip classes with superclass unless checking nested style
@@ -169,10 +202,10 @@ impl<'a> Visit<'a> for ChildrenVisitor<'a> {
         }
 
         if style == "nested" {
-            self.check_nested_style(is_compact, kw_offset);
+            self.check_nested_style(is_compact, name_offset);
         } else if style == "compact" {
             let body = node.body();
-            self.check_compact_style(&body, kw_offset);
+            self.check_compact_style(&body, name_offset);
         }
 
         // Visit children inside class/module context
@@ -186,13 +219,22 @@ impl<'a> Visit<'a> for ChildrenVisitor<'a> {
         let style = self.style_for_module().to_string();
         let constant_path = node.constant_path();
         let is_compact = constant_path.as_constant_path_node().is_some();
-        let kw_offset = node.module_keyword_loc().start_offset();
+        let name_offset = constant_path.location().start_offset();
+
+        // RuboCop: return if node.identifier.namespace&.cbase_type?
+        if has_cbase(&constant_path) {
+            let prev = self.inside_class_or_module;
+            self.inside_class_or_module = true;
+            ruby_prism::visit_module_node(self, node);
+            self.inside_class_or_module = prev;
+            return;
+        }
 
         if style == "nested" {
-            self.check_nested_style(is_compact, kw_offset);
+            self.check_nested_style(is_compact, name_offset);
         } else if style == "compact" {
             let body = node.body();
-            self.check_compact_style(&body, kw_offset);
+            self.check_compact_style(&body, name_offset);
         }
 
         // Visit children inside class/module context

@@ -76,15 +76,9 @@ impl Cop for InterpolationCheck {
                 }
 
                 if has_closing {
-                    // Validate that the double-quoted version would be valid Ruby syntax.
-                    // This filters out template syntax like Mustache/Liquid `#{{ var }}`
-                    // that looks like interpolation but isn't valid Ruby.
-                    let mut double_quoted = Vec::new();
-                    double_quoted.push(b'"');
-                    double_quoted.extend_from_slice(content_bytes);
-                    double_quoted.push(b'"');
-                    let parse_result_check = ruby_prism::parse(&double_quoted);
-                    if parse_result_check.errors().count() > 0 {
+                    // Filter out Mustache/Liquid template syntax like `#{{ var }}`
+                    // which has double opening braces, not valid Ruby interpolation.
+                    if i + 2 < content_bytes.len() && content_bytes[i + 2] == b'{' {
                         break;
                     }
 
@@ -95,7 +89,7 @@ impl Cop for InterpolationCheck {
                         source,
                         line,
                         column,
-                        "Interpolation in single-quoted string detected. Did you mean to use double quotes?".to_string(),
+                        "Interpolation in single quoted string detected. Use double quoted strings if you need interpolation.".to_string(),
                     ));
                     return;
                 }

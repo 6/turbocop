@@ -5,7 +5,10 @@ use crate::cop::node_type::{CALL_NODE, FALSE_NODE, FLOAT_NODE, INTEGER_NODE, NIL
 
 pub struct YodaCondition;
 
-fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
+/// RuboCop's `constant_portion?` checks `node.literal? || node.const_type?`.
+/// This means constants like `CONST` and `Foo::BAR` are treated as
+/// "constant portions" for Yoda condition detection, just like literals.
+fn is_constant_portion(node: &ruby_prism::Node<'_>) -> bool {
     node.as_integer_node().is_some()
         || node.as_float_node().is_some()
         || node.as_string_node().is_some()
@@ -13,6 +16,8 @@ fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_nil_node().is_some()
         || node.as_true_node().is_some()
         || node.as_false_node().is_some()
+        || node.as_constant_read_node().is_some()
+        || node.as_constant_path_node().is_some()
 }
 
 impl Cop for YodaCondition {
@@ -75,14 +80,14 @@ impl Cop for YodaCondition {
 
         if require_yoda {
             // Require Yoda: flag when literal is on the RIGHT (non-Yoda)
-            if !is_literal(&receiver) && is_literal(&arg_list[0]) {
+            if !is_constant_portion(&receiver) && is_constant_portion(&arg_list[0]) {
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 diagnostics.push(self.diagnostic(source, line, column, "Prefer Yoda conditions.".to_string()));
             }
         } else {
             // Forbid Yoda: flag when literal is on the LEFT (Yoda)
-            if is_literal(&receiver) && !is_literal(&arg_list[0]) {
+            if is_constant_portion(&receiver) && !is_constant_portion(&arg_list[0]) {
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 diagnostics.push(self.diagnostic(source, line, column, "Prefer non-Yoda conditions.".to_string()));

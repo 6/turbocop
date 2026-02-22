@@ -1,3 +1,5 @@
 (x + 1)
 (y)
 (z)
+foo(bar)
+baz(x, y)

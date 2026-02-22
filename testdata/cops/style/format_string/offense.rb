@@ -1,6 +1,6 @@
 sprintf('%s', 'hello')
-^^^^^^^^^^^^^^^^^^^^^^ Style/FormatString: Favor `format` over `sprintf`.
+^^^^^^^ Style/FormatString: Favor `format` over `sprintf`.
 '%s' % 'hello'
-^^^^^^^^^^^^^^ Style/FormatString: Favor `format` over `String#%`.
+     ^ Style/FormatString: Favor `format` over `String#%`.
 "%d items" % count
-^^^^^^^^^^^^^^^^^^ Style/FormatString: Favor `format` over `String#%`.
+           ^ Style/FormatString: Favor `format` over `String#%`.

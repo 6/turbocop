@@ -1,12 +1,12 @@
 x = <<~EOC
-       ^^^ Naming/HeredocDelimiterNaming: Use meaningful heredoc delimiters.
   content
 EOC
+^^^ Naming/HeredocDelimiterNaming: Use meaningful heredoc delimiters.
 y = <<~END
-       ^^^ Naming/HeredocDelimiterNaming: Use meaningful heredoc delimiters.
   content
 END
+^^^ Naming/HeredocDelimiterNaming: Use meaningful heredoc delimiters.
 z = <<~EOS
-       ^^^ Naming/HeredocDelimiterNaming: Use meaningful heredoc delimiters.
   content
 EOS
+^^^ Naming/HeredocDelimiterNaming: Use meaningful heredoc delimiters.

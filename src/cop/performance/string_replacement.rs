@@ -76,7 +76,8 @@ impl Cop for StringReplacement {
             return;
         }
 
-        let loc = call.location();
+        // RuboCop points at the gsub method name (node.loc.selector), not the whole expression
+        let loc = call.message_loc().unwrap_or_else(|| call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(source, line, column, "Use `tr` instead of `gsub` when replacing single characters.".to_string()));
     }

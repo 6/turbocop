@@ -34,3 +34,10 @@ class MyService
     def help; end
   end
 end
+
+# Absolute constant path with :: prefix (cbase) — not flagged
+class ::Foo::Bar
+end
+
+module ::Baz::Qux
+end

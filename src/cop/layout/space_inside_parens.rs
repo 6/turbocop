@@ -1,7 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::PARENTHESES_NODE;
+use crate::cop::node_type::{CALL_NODE, PARENTHESES_NODE};
 
 pub struct SpaceInsideParens;
 
@@ -15,7 +15,7 @@ impl Cop for SpaceInsideParens {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[PARENTHESES_NODE]
+        &[CALL_NODE, PARENTHESES_NODE]
     }
 
     fn check_node(
@@ -28,14 +28,26 @@ impl Cop for SpaceInsideParens {
     mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "no_space");
-        let parens = match node.as_parentheses_node() {
-            Some(p) => p,
-            None => return,
+
+        // Extract open/close offsets from either ParenthesesNode or CallNode
+        let (open_end, close_start) = if let Some(parens) = node.as_parentheses_node() {
+            (parens.opening_loc().end_offset(), parens.closing_loc().start_offset())
+        } else if let Some(call) = node.as_call_node() {
+            // CallNode: opening_loc and closing_loc are for argument parens
+            let open = match call.opening_loc() {
+                Some(loc) if loc.as_slice() == b"(" => loc,
+                _ => return,
+            };
+            let close = match call.closing_loc() {
+                Some(loc) if loc.as_slice() == b")" => loc,
+                _ => return,
+            };
+            (open.end_offset(), close.start_offset())
+        } else {
+            return;
         };
 
         let bytes = source.as_bytes();
-        let open_end = parens.opening_loc().end_offset();
-        let close_start = parens.closing_loc().start_offset();
 
         // Skip empty parens ()
         if close_start == open_end {

@@ -27,8 +27,8 @@ impl Cop for BindCall {
     diagnostics: &mut Vec<Diagnostic>,
     _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Detect: foo.method(:bar).bind(obj).call
-        // 3-level chain: method -> bind -> call
+        // Detect: receiver.bind(obj).call(args...)
+        // Pattern: (send (send _ :bind $arg) :call $...)
         let outer_call = match node.as_call_node() {
             Some(c) => c,
             None => return,
@@ -38,37 +38,58 @@ impl Cop for BindCall {
             return;
         }
 
-        let mid_node = match outer_call.receiver() {
+        let bind_node = match outer_call.receiver() {
             Some(r) => r,
             None => return,
         };
 
-        let mid_call = match mid_node.as_call_node() {
+        let bind_call = match bind_node.as_call_node() {
             Some(c) => c,
             None => return,
         };
 
-        if mid_call.name().as_slice() != b"bind" {
+        if bind_call.name().as_slice() != b"bind" {
             return;
         }
 
-        let inner_node = match mid_call.receiver() {
-            Some(r) => r,
-            None => return,
-        };
-
-        let inner_call = match inner_node.as_call_node() {
-            Some(c) => c,
-            None => return,
-        };
-
-        if inner_call.name().as_slice() != b"method" {
+        // bind must have a receiver (not bare `bind(...)`)
+        if bind_call.receiver().is_none() {
             return;
         }
+
+        // Extract bind argument source
+        let bind_args = match bind_call.arguments() {
+            Some(a) => a,
+            None => return,
+        };
+        let bind_arg_list: Vec<_> = bind_args.arguments().iter().collect();
+        if bind_arg_list.len() != 1 {
+            return;
+        }
+        let bytes = source.as_bytes();
+        let bind_arg_src = std::str::from_utf8(
+            &bytes[bind_arg_list[0].location().start_offset()..bind_arg_list[0].location().end_offset()]
+        ).unwrap_or("obj");
+
+        // Extract call arguments source
+        let call_args_src = if let Some(call_args) = outer_call.arguments() {
+            let args: Vec<_> = call_args.arguments().iter().map(|a| {
+                std::str::from_utf8(&bytes[a.location().start_offset()..a.location().end_offset()])
+                    .unwrap_or("?")
+            }).collect();
+            args.join(", ")
+        } else {
+            String::new()
+        };
+
+        let comma = if call_args_src.is_empty() { "" } else { ", " };
+        let msg = format!(
+            "Use `bind_call({bind_arg_src}{comma}{call_args_src})` instead of `bind({bind_arg_src}).call({call_args_src})`."
+        );
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(source, line, column, "Use `bind_call` instead of `method.bind.call`.".to_string()));
+        diagnostics.push(self.diagnostic(source, line, column, msg));
     }
 }
 
