@@ -26,10 +26,10 @@ impl Cop for ArgumentsForwarding {
     _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_only_rest = config.get_bool("AllowOnlyRestArgument", true);
-        let _use_anonymous = config.get_bool("UseAnonymousForwarding", true);
+        let _use_anonymous = config.get_bool("UseAnonymousForwarding", false);
         let redundant_rest = config.get_string_array("RedundantRestArgumentNames")
             .unwrap_or_else(|| vec!["args".to_string(), "arguments".to_string()]);
-        let _redundant_kw_rest = config.get_string_array("RedundantKeywordRestArgumentNames")
+        let redundant_kw_rest = config.get_string_array("RedundantKeywordRestArgumentNames")
             .unwrap_or_else(|| vec!["kwargs".to_string(), "options".to_string(), "opts".to_string()]);
         let redundant_block = config.get_string_array("RedundantBlockArgumentNames")
             .unwrap_or_else(|| vec!["blk".to_string(), "block".to_string(), "proc".to_string()]);
@@ -133,6 +133,25 @@ impl Cop for ArgumentsForwarding {
             }
         }
 
+        // If there's a keyword_rest parameter (**opts), check that the name is
+        // redundant too. Also collect the name for the reference check.
+        let kwrest_name = if let Some(kw_rest) = params.keyword_rest() {
+            if let Some(kw_rest_param) = kw_rest.as_keyword_rest_parameter_node() {
+                let name = kw_rest_param.name().map(|n| n.as_slice().to_vec()).unwrap_or_default();
+                if allow_only_rest && !name.is_empty() {
+                    let name_str = String::from_utf8_lossy(&name).to_string();
+                    if !redundant_kw_rest.iter().any(|n| n == &name_str) {
+                        return;
+                    }
+                }
+                Some(name)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         // Check that the method body contains at least one call that forwards
         // *rest and &block to the SAME call. Without this, cases like
         // `new(*args).tap(&block)` would be incorrectly flagged.
@@ -140,6 +159,24 @@ impl Cop for ArgumentsForwarding {
             Some(b) => b,
             None => return,
         };
+
+        // Check that args/block are not referenced outside of forwarding context.
+        // If `args` is used as a local variable (e.g., `args.first`), we can't
+        // replace with `...`.
+        let referenced = non_forwarding_references(&body);
+        let rest_name_str = String::from_utf8_lossy(&rest_name).to_string();
+        let block_name_str = String::from_utf8_lossy(&block_name).to_string();
+        if referenced.contains(&rest_name_str) || referenced.contains(&block_name_str) {
+            return;
+        }
+        if let Some(ref kw_name) = kwrest_name {
+            if !kw_name.is_empty() {
+                let kw_name_str = String::from_utf8_lossy(kw_name).to_string();
+                if referenced.contains(&kw_name_str) {
+                    return;
+                }
+            }
+        }
 
         if !has_forwarding_call(&body, &rest_name, &block_name) {
             return;
@@ -154,6 +191,61 @@ impl Cop for ArgumentsForwarding {
             "Use shorthand syntax `...` for arguments forwarding.".to_string(),
         ));
     }
+}
+
+/// Find local variable names that are referenced outside of forwarding contexts
+/// (i.e., not inside splat, kwsplat, or block_pass nodes).
+fn non_forwarding_references(node: &ruby_prism::Node<'_>) -> std::collections::HashSet<String> {
+    let mut finder = NonForwardingRefFinder {
+        in_forwarding_context: false,
+        referenced: std::collections::HashSet::new(),
+    };
+    finder.visit(node);
+    finder.referenced
+}
+
+struct NonForwardingRefFinder {
+    in_forwarding_context: bool,
+    referenced: std::collections::HashSet<String>,
+}
+
+impl<'pr> Visit<'pr> for NonForwardingRefFinder {
+    fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
+        if !self.in_forwarding_context {
+            let name = String::from_utf8_lossy(node.name().as_slice()).to_string();
+            self.referenced.insert(name);
+        }
+    }
+
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
+        let name = String::from_utf8_lossy(node.name().as_slice()).to_string();
+        self.referenced.insert(name);
+        ruby_prism::visit_local_variable_write_node(self, node);
+    }
+
+    fn visit_splat_node(&mut self, node: &ruby_prism::SplatNode<'pr>) {
+        let was = self.in_forwarding_context;
+        self.in_forwarding_context = true;
+        ruby_prism::visit_splat_node(self, node);
+        self.in_forwarding_context = was;
+    }
+
+    fn visit_assoc_splat_node(&mut self, node: &ruby_prism::AssocSplatNode<'pr>) {
+        let was = self.in_forwarding_context;
+        self.in_forwarding_context = true;
+        ruby_prism::visit_assoc_splat_node(self, node);
+        self.in_forwarding_context = was;
+    }
+
+    fn visit_block_argument_node(&mut self, node: &ruby_prism::BlockArgumentNode<'pr>) {
+        let was = self.in_forwarding_context;
+        self.in_forwarding_context = true;
+        ruby_prism::visit_block_argument_node(self, node);
+        self.in_forwarding_context = was;
+    }
+
+    // Don't recurse into nested defs
+    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
 }
 
 /// Check if any call node in the tree forwards both *rest_name and &block_name
@@ -174,12 +266,17 @@ struct ForwardingCallFinder {
     found: bool,
 }
 
-impl<'pr> Visit<'pr> for ForwardingCallFinder {
-    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+impl ForwardingCallFinder {
+    /// Check if the given arguments and block forward *rest_name and &block_name.
+    fn check_args_and_block(
+        &self,
+        arguments: Option<ruby_prism::ArgumentsNode<'_>>,
+        block: Option<ruby_prism::Node<'_>>,
+    ) -> bool {
         let mut has_splat = false;
         let mut has_block = false;
 
-        if let Some(args) = node.arguments() {
+        if let Some(args) = arguments {
             for arg in args.arguments().iter() {
                 if let Some(splat) = arg.as_splat_node() {
                     if let Some(expr) = splat.expression() {
@@ -193,8 +290,8 @@ impl<'pr> Visit<'pr> for ForwardingCallFinder {
             }
         }
 
-        if let Some(block) = node.block() {
-            if let Some(block_arg) = block.as_block_argument_node() {
+        if let Some(block_node) = block {
+            if let Some(block_arg) = block_node.as_block_argument_node() {
                 if let Some(expr) = block_arg.expression() {
                     if let Some(lvar) = expr.as_local_variable_read_node() {
                         if lvar.name().as_slice() == self.block_name.as_slice() {
@@ -205,7 +302,13 @@ impl<'pr> Visit<'pr> for ForwardingCallFinder {
             }
         }
 
-        if has_splat && has_block {
+        has_splat && has_block
+    }
+}
+
+impl<'pr> Visit<'pr> for ForwardingCallFinder {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if self.check_args_and_block(node.arguments(), node.block()) {
             self.found = true;
             return;
         }
@@ -213,10 +316,88 @@ impl<'pr> Visit<'pr> for ForwardingCallFinder {
         // Continue recursing
         ruby_prism::visit_call_node(self, node);
     }
+
+    fn visit_super_node(&mut self, node: &ruby_prism::SuperNode<'pr>) {
+        if self.check_args_and_block(node.arguments(), node.block()) {
+            self.found = true;
+            return;
+        }
+
+        // Continue recursing
+        ruby_prism::visit_super_node(self, node);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(ArgumentsForwarding, "cops/style/arguments_forwarding");
+
+    #[test]
+    fn detects_triple_forwarding() {
+        use crate::testutil::run_cop_full;
+        let source = b"def foo(*args, **opts, &block)\n  bar(*args, **opts, &block)\nend\n";
+        let diags = run_cop_full(&ArgumentsForwarding, source);
+        assert_eq!(diags.len(), 1, "should detect triple forwarding: {:?}", diags);
+    }
+
+    #[test]
+    fn detects_super_forwarding() {
+        use crate::testutil::run_cop_full;
+        let source = b"def foo(*args, &block)\n  super(*args, &block)\nend\n";
+        let diags = run_cop_full(&ArgumentsForwarding, source);
+        assert_eq!(diags.len(), 1, "should detect super forwarding: {:?}", diags);
+    }
+
+    #[test]
+    fn no_false_positive_different_calls() {
+        use crate::testutil::run_cop_full;
+        // *args and &block used in different calls — cannot use ...
+        let source = b"def foo(*args, &block)\n  bar(*args)\n  baz(&block)\nend\n";
+        let diags = run_cop_full(&ArgumentsForwarding, source);
+        assert_eq!(diags.len(), 0, "should not detect when args forwarded to different calls: {:?}", diags);
+    }
+
+    #[test]
+    fn detects_self_class_method_forwarding() {
+        use crate::testutil::run_cop_full;
+        let source = b"def self.foo(*args, &block)\n  bar(*args, &block)\nend\n";
+        let diags = run_cop_full(&ArgumentsForwarding, source);
+        assert_eq!(diags.len(), 1, "should detect singleton method forwarding: {:?}", diags);
+    }
+
+    #[test]
+    fn detects_forwarding_without_kwargs() {
+        use crate::testutil::run_cop_full;
+        // Method has **opts but they're not part of redundant names check
+        let source = b"def foo(*args, **options, &block)\n  bar(*args, **options, &block)\nend\n";
+        let diags = run_cop_full(&ArgumentsForwarding, source);
+        assert_eq!(diags.len(), 1, "should detect forwarding with options: {:?}", diags);
+    }
+
+    #[test]
+    fn no_false_positive_args_referenced_directly() {
+        use crate::testutil::run_cop_full;
+        // args is used as a local variable (args.first), not just in *args
+        let source = b"def foo(*args, &block)\n  bar(*args, &block)\n  args.first\nend\n";
+        let diags = run_cop_full(&ArgumentsForwarding, source);
+        assert_eq!(diags.len(), 0, "should not flag when args is referenced directly: {:?}", diags);
+    }
+
+    #[test]
+    fn no_false_positive_block_referenced_directly() {
+        use crate::testutil::run_cop_full;
+        // block is called directly
+        let source = b"def foo(*args, &block)\n  bar(*args, &block)\n  block.call\nend\n";
+        let diags = run_cop_full(&ArgumentsForwarding, source);
+        assert_eq!(diags.len(), 0, "should not flag when block is referenced directly: {:?}", diags);
+    }
+
+    #[test]
+    fn detects_super_with_triple_forwarding() {
+        use crate::testutil::run_cop_full;
+        let source = b"def foo(*args, **opts, &block)\n  super(*args, **opts, &block)\nend\n";
+        let diags = run_cop_full(&ArgumentsForwarding, source);
+        assert_eq!(diags.len(), 1, "should detect super with triple forwarding: {:?}", diags);
+    }
 }

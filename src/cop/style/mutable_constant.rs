@@ -60,7 +60,6 @@ impl MutableConstant {
         &self,
         source: &SourceFile,
         value: &ruby_prism::Node<'_>,
-        name_offset: usize,
         frozen_strings: bool,
     ) -> Vec<Diagnostic> {
         if !Self::is_mutable_literal(value) || Self::is_frozen_call(value) {
@@ -73,7 +72,8 @@ impl MutableConstant {
             return Vec::new();
         }
 
-        let (line, column) = source.offset_to_line_col(name_offset);
+        // Point at the mutable value (RHS), matching RuboCop behavior
+        let (line, column) = source.offset_to_line_col(value.location().start_offset());
         vec![self.diagnostic(
             source,
             line,
@@ -111,7 +111,6 @@ impl Cop for MutableConstant {
             diagnostics.extend(self.check_value(
                 source,
                 &value,
-                cw.name_loc().start_offset(),
                 frozen_strings,
             ));
             return;
@@ -120,11 +119,9 @@ impl Cop for MutableConstant {
         // Check ConstantPathWriteNode (Module::CONST = value)
         if let Some(cpw) = node.as_constant_path_write_node() {
             let value = cpw.value();
-            let target = cpw.target();
             diagnostics.extend(self.check_value(
                 source,
                 &value,
-                target.location().start_offset(),
                 frozen_strings,
             ));
             return;

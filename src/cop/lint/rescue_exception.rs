@@ -51,7 +51,8 @@ impl Cop for RescueException {
                 };
 
                 if is_exception {
-                    let loc = exception.location();
+                    // Point at the `rescue` keyword, matching RuboCop's resbody node location
+                    let loc = rescue_node.keyword_loc();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
                     diagnostics.push(self.diagnostic(
                         source,

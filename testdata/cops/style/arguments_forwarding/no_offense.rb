@@ -24,3 +24,15 @@ end
 def post(*args, &task)
   @executor&.post(*args, &task)
 end
+
+# args referenced directly (not just in *args splat) — cannot use ...
+def capture(*args, &block)
+  buf.capture(*args, &block)
+  args.first
+end
+
+# block referenced directly (block.call) — cannot use ...
+def wrap(*args, &block)
+  run(*args, &block)
+  block.call
+end

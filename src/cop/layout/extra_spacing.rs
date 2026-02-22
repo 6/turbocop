@@ -111,7 +111,7 @@ impl Cop for ExtraSpacing {
                         let mut diag = self.diagnostic(
                             source,
                             line_num,
-                            space_start + 1, // point to the first extra space
+                            space_start, // point to the start of the extra space run
                             "Unnecessary spacing detected.".to_string(),
                         );
                         if let Some(ref mut corr) = corrections {

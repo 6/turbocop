@@ -24,10 +24,18 @@ impl Cop for HttpPositionalArguments {
         source: &SourceFile,
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
-        _config: &CopConfig,
+        config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
     _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // minimum_target_rails_version 5.0
+        // RuboCop uses `requires_gem('railties', '>= 5.0')` which skips the cop
+        // entirely when railties is not installed (e.g. sinatra, non-Rails projects).
+        // If TargetRailsVersion is not present, the project has no Rails — skip.
+        if !config.options.contains_key("TargetRailsVersion") {
+            return;
+        }
+
         // First, check if the file includes Rack::Test::Methods — if so, skip entirely
         let mut checker = RackTestChecker { found: false };
         checker.visit(&parse_result.node());
@@ -127,8 +135,54 @@ impl<'pr> Visit<'pr> for HttpPosArgsVisitor<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(
-        HttpPositionalArguments,
-        "cops/rails/http_positional_arguments"
-    );
+    use crate::cop::CopConfig;
+    use std::collections::HashMap;
+
+    fn config_with_rails(version: f64) -> CopConfig {
+        let mut options = HashMap::new();
+        options.insert(
+            "TargetRailsVersion".to_string(),
+            serde_yml::Value::Number(serde_yml::value::Number::from(version)),
+        );
+        CopConfig {
+            options,
+            ..CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn offense_fixture() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &HttpPositionalArguments,
+            include_bytes!("../../../testdata/cops/rails/http_positional_arguments/offense.rb"),
+            config_with_rails(5.0),
+        );
+    }
+
+    #[test]
+    fn no_offense_fixture() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &HttpPositionalArguments,
+            include_bytes!("../../../testdata/cops/rails/http_positional_arguments/no_offense.rb"),
+            config_with_rails(5.0),
+        );
+    }
+
+    #[test]
+    fn skipped_when_no_target_rails_version() {
+        // Non-Rails projects (e.g. sinatra) have no TargetRailsVersion.
+        // RuboCop uses `requires_gem('railties', '>= 5.0')` which skips the cop
+        // entirely when railties is not installed. Turbocop should do the same.
+        let source = b"get :index, { user_id: 1 }, { \"ACCEPT\" => \"text/html\" }\n";
+        let diagnostics = crate::testutil::run_cop_full_internal(
+            &HttpPositionalArguments,
+            source,
+            CopConfig::default(), // no TargetRailsVersion
+            "test/some_test.rb",
+        );
+        assert!(
+            diagnostics.is_empty(),
+            "Should not fire when TargetRailsVersion is not set (non-Rails project)"
+        );
+    }
 }

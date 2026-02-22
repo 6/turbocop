@@ -101,7 +101,7 @@ impl Cop for TimeZone {
             }
         }
 
-        let loc = call.location();
+        let loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,

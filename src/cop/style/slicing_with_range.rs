@@ -59,6 +59,9 @@ impl Cop for SlicingWithRange {
 
         let range_node = &arg_list[0];
 
+        // Use opening_loc (the `[`) as the diagnostic position to match RuboCop
+        let bracket_offset = call.opening_loc().map(|l| l.start_offset()).unwrap_or(node.location().start_offset());
+
         // Check for inclusive range (0..-1) or (0..nil)
         if let Some(irange) = range_node.as_range_node() {
             // Check operator is .. (inclusive)
@@ -72,9 +75,8 @@ impl Cop for SlicingWithRange {
                     if is_inclusive {
                         if let Some(right) = irange.right() {
                             if Self::int_value(&right) == Some(-1) {
-                                let loc = node.location();
-                                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                let src = std::str::from_utf8(loc.as_slice()).unwrap_or("");
+                                let (line, column) = source.offset_to_line_col(bracket_offset);
+                                let src = std::str::from_utf8(node.location().as_slice()).unwrap_or("");
                                 diagnostics.push(self.diagnostic(
                                     source,
                                     line,
@@ -85,9 +87,8 @@ impl Cop for SlicingWithRange {
                         }
                         // 0..nil — also redundant
                         if irange.right().is_none() {
-                            let loc = node.location();
-                            let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            let src = std::str::from_utf8(loc.as_slice()).unwrap_or("");
+                            let (line, column) = source.offset_to_line_col(bracket_offset);
+                            let src = std::str::from_utf8(node.location().as_slice()).unwrap_or("");
                             diagnostics.push(self.diagnostic(
                                 source,
                                 line,
@@ -98,9 +99,8 @@ impl Cop for SlicingWithRange {
                     }
                     // 0...nil — also redundant
                     if is_exclusive && irange.right().is_none() {
-                        let loc = node.location();
-                        let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        let src = std::str::from_utf8(loc.as_slice()).unwrap_or("");
+                        let (line, column) = source.offset_to_line_col(bracket_offset);
+                        let src = std::str::from_utf8(node.location().as_slice()).unwrap_or("");
                         diagnostics.push(self.diagnostic(
                             source,
                             line,
@@ -115,13 +115,12 @@ impl Cop for SlicingWithRange {
                     if let Some(right) = irange.right() {
                         if Self::int_value(&right) == Some(-1) && Self::int_value(&left) != Some(0) {
                             let left_src = std::str::from_utf8(left.location().as_slice()).unwrap_or("1");
-                            let loc = node.location();
-                            let (line, column) = source.offset_to_line_col(loc.start_offset());
+                            let (line, column) = source.offset_to_line_col(bracket_offset);
                             diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
-                                format!("Prefer `{}..` over `{}..-1`.", left_src, left_src),
+                                format!("Prefer `[{}..]` over `[{}..-1]`.", left_src, left_src),
                             ));
                         }
                     }
