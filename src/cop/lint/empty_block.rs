@@ -1,7 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, STATEMENTS_NODE};
+use crate::cop::node_type::CALL_NODE;
 
 pub struct EmptyBlock;
 
@@ -37,30 +37,6 @@ fn is_disable_comment_for_cop(comment_bytes: &[u8], cop_name: &[u8]) -> bool {
         })
 }
 
-/// Check if the block starting at `block_start` offset is attached to a `lambda` or `proc` call.
-/// Scans backwards from the block's location to find the preceding identifier.
-fn is_lambda_or_proc_block(bytes: &[u8], block_start: usize) -> bool {
-    // The BlockNode's location starts at `do` or `{`. We need to find what
-    // comes before it. The pattern is: `lambda do` or `lambda {` or `proc do`, etc.
-    // There may be block parameters between the call and the block keyword:
-    // `lambda do |arg|` — but the BlockNode location starts at `do`, not `|`.
-    // Actually, for `lambda do |_processed_source| end`, the block location
-    // covers `do |_processed_source| end`. Before `do` we should find `lambda `.
-    let mut pos = block_start;
-    // Skip backwards over whitespace
-    while pos > 0 && bytes[pos - 1].is_ascii_whitespace() {
-        pos -= 1;
-    }
-    // Now we should be at the end of the preceding identifier (e.g., 'a' of 'lambda')
-    let end = pos;
-    // Scan backwards over word characters
-    while pos > 0 && (bytes[pos - 1].is_ascii_alphanumeric() || bytes[pos - 1] == b'_') {
-        pos -= 1;
-    }
-    let word = &bytes[pos..end];
-    word == b"lambda" || word == b"proc"
-}
-
 impl Cop for EmptyBlock {
     fn name(&self) -> &'static str {
         "Lint/EmptyBlock"
@@ -71,7 +47,7 @@ impl Cop for EmptyBlock {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, STATEMENTS_NODE]
+        &[CALL_NODE]
     }
 
     fn check_node(
@@ -83,8 +59,16 @@ impl Cop for EmptyBlock {
     diagnostics: &mut Vec<Diagnostic>,
     _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let block_node = match node.as_block_node() {
-            Some(n) => n,
+        let call_node = match node.as_call_node() {
+            Some(c) => c,
+            None => return,
+        };
+
+        let block_node = match call_node.block() {
+            Some(b) => match b.as_block_node() {
+                Some(bn) => bn,
+                None => return, // BlockArgumentNode — not a literal block
+            },
             None => return,
         };
 
@@ -106,12 +90,8 @@ impl Cop for EmptyBlock {
         // AllowEmptyLambdas: skip lambda/proc blocks
         let allow_empty_lambdas = config.get_bool("AllowEmptyLambdas", true);
         if allow_empty_lambdas {
-            // Check if this block is attached to a `lambda` or `proc` call.
-            // Since BlockNode doesn't have a parent reference, scan backwards
-            // from the block start to find the preceding call name.
-            let block_start = block_node.location().start_offset();
-            let bytes = source.as_bytes();
-            if is_lambda_or_proc_block(bytes, block_start) {
+            let name = call_node.name().as_slice();
+            if (name == b"lambda" || name == b"proc") && call_node.receiver().is_none() {
                 return;
             }
         }
@@ -140,7 +120,9 @@ impl Cop for EmptyBlock {
             }
         }
 
-        let loc = block_node.location();
+        // Use the call node's location for the diagnostic (matches RuboCop's block node
+        // which in Parser AST spans the entire expression including the receiver).
+        let loc = call_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,

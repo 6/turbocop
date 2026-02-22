@@ -7,7 +7,7 @@ use crate::cop::node_type::{BREAK_NODE, CALL_NODE, IF_NODE, NEXT_NODE, RETURN_NO
 pub struct EmptyLineAfterGuardClause;
 
 /// Guard clause keywords that appear at the start of an expression.
-const GUARD_METHODS: &[&[u8]] = &[b"return", b"raise", b"fail", b"throw", b"next", b"break"];
+const GUARD_METHODS: &[&[u8]] = &[b"return", b"raise", b"fail", b"next", b"break"];
 
 impl Cop for EmptyLineAfterGuardClause {
     fn name(&self) -> &'static str {
@@ -108,7 +108,7 @@ impl Cop for EmptyLineAfterGuardClause {
         let offense_offset = if let Some(ref end_kw) = end_keyword_loc {
             end_kw.start_offset()
         } else {
-            loc.end_offset().saturating_sub(1)
+            loc.start_offset()
         };
         let (if_end_line, end_col) = source.offset_to_line_col(effective_end_offset);
 

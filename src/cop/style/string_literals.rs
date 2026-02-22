@@ -84,7 +84,7 @@ impl<'pr> Visit<'pr> for StringLiteralsVisitor<'_> {
                     // Check if single quotes can be used:
                     // - No single quotes in content
                     // - No escape sequences (no backslash in content)
-                    if !content.contains(&b'\'') && !content.contains(&b'\\') {
+                    if !content.contains(&b'\'') && !needs_double_quotes(content) {
                         let (line, column) = self.source.offset_to_line_col(opening.start_offset());
                         self.diagnostics.push(self.cop.diagnostic(self.source, line, column, "Prefer single-quoted strings when you don't need string interpolation or special symbols.".to_string()));
                     }
@@ -126,6 +126,25 @@ impl<'pr> Visit<'pr> for StringLiteralsVisitor<'_> {
             _ => {}
         }
     }
+}
+
+/// Check if a double-quoted string's raw content contains escape sequences that
+/// require double quotes. Only sequences with special meaning in double quotes
+/// (but not in single quotes) count: \n, \t, \r, \a, \b, \e, \f, \s, \v,
+/// \0-\7 (octal), \x (hex), \u (unicode), \# (interpolation guard).
+fn needs_double_quotes(content: &[u8]) -> bool {
+    let mut i = 0;
+    while i < content.len() {
+        if content[i] == b'\\' && i + 1 < content.len() {
+            match content[i + 1] {
+                b'#' | b'a' | b'b' | b'e' | b'f' | b'n' | b'r' | b's' | b't'
+                | b'u' | b'v' | b'x' | b'0'..=b'7' => return true,
+                _ => { i += 2; continue; }
+            }
+        }
+        i += 1;
+    }
+    false
 }
 
 #[cfg(test)]

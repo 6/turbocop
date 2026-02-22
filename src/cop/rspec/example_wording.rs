@@ -72,12 +72,12 @@ impl Cop for ExampleWording {
 
             // Extract the description text
             let (desc_bytes, desc_loc) = if let Some(s) = arg.as_string_node() {
-                (Some(s.unescaped().to_vec()), Some(s.location()))
+                (Some(s.unescaped().to_vec()), Some(s.content_loc()))
             } else if let Some(interp) = arg.as_interpolated_string_node() {
                 let parts: Vec<_> = interp.parts().iter().collect();
                 if let Some(first) = parts.first() {
                     if let Some(s) = first.as_string_node() {
-                        (Some(s.unescaped().to_vec()), Some(interp.location()))
+                        (Some(s.unescaped().to_vec()), Some(s.content_loc()))
                     } else {
                         (None, None)
                     }
