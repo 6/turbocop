@@ -7,8 +7,6 @@ arr = [1, 2, 3]
 x = (a && b).to_s
 # Splat
 foo(*args)
-# Range
-(1..10)
 # do..end block in argument to unparenthesized method call — parens are required
 # to prevent Ruby from binding the block to the outer method
 scope :advisory_lock, (lambda do |column:|

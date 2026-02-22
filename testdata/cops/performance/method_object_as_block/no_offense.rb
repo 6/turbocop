@@ -3,3 +3,5 @@ array.map(&:foo)
 array.each { |x| process(x) }
 array.map(&block)
 method(:foo)
+super(&method(:convert_value))
+super(&method(:convert_key))

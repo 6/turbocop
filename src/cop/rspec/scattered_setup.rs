@@ -6,6 +6,20 @@ use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
 
 pub struct ScatteredSetup;
 
+/// Extract the scope argument from a before/after hook call.
+/// Returns a key like b"each" (default), b"all", b"context", b"suite".
+fn extract_hook_scope(call: &ruby_prism::CallNode<'_>) -> Vec<u8> {
+    if let Some(args) = call.arguments() {
+        for arg in args.arguments().iter() {
+            if let Some(sym) = arg.as_symbol_node() {
+                return sym.unescaped().to_vec();
+            }
+        }
+    }
+    // No scope arg = :each (default)
+    b"each".to_vec()
+}
+
 impl Cop for ScatteredSetup {
     fn name(&self) -> &'static str {
         "RSpec/ScatteredSetup"
@@ -67,9 +81,10 @@ impl Cop for ScatteredSetup {
             None => return,
         };
 
-        // Collect all direct `before` hooks (same scope type) and flag duplicates
-        let mut before_hooks: Vec<(usize, usize)> = Vec::new(); // (line, col)
-        let mut after_hooks: Vec<(usize, usize)> = Vec::new();
+        // Collect all direct `before` hooks grouped by (hook_type, scope) and flag duplicates.
+        // before :all and before :each (or before with no arg) are different scopes.
+        let mut before_hooks: std::collections::HashMap<Vec<u8>, Vec<(usize, usize)>> = std::collections::HashMap::new();
+        let mut after_hooks: std::collections::HashMap<Vec<u8>, Vec<(usize, usize)>> = std::collections::HashMap::new();
 
         for stmt in stmts.body().iter() {
             let c = match stmt.as_call_node() {
@@ -85,58 +100,64 @@ impl Cop for ScatteredSetup {
             let loc = stmt.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
 
+            let scope = extract_hook_scope(&c);
+
             if name == b"before" || name == b"prepend_before" || name == b"append_before" {
-                before_hooks.push((line, column));
+                before_hooks.entry(scope).or_default().push((line, column));
             } else if name == b"after" || name == b"prepend_after" || name == b"append_after" {
-                after_hooks.push((line, column));
+                after_hooks.entry(scope).or_default().push((line, column));
             }
         }
 
-        // Flag duplicate before hooks
-        if before_hooks.len() > 1 {
-            for &(line, column) in &before_hooks {
-                let other_lines: Vec<String> = before_hooks
-                    .iter()
-                    .filter(|&&(l, _)| l != line)
-                    .map(|&(l, _)| l.to_string())
-                    .collect();
-                let also = if other_lines.len() == 1 {
-                    format!("line {}", other_lines[0])
-                } else {
-                    format!("lines {}", other_lines.join(", "))
-                };
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    format!(
-                        "Do not define multiple `before` hooks in the same example group (also defined on {also})."
-                    ),
-                ));
+        // Flag duplicate before hooks (same scope only)
+        for hooks in before_hooks.values() {
+            if hooks.len() > 1 {
+                for &(line, column) in hooks {
+                    let other_lines: Vec<String> = hooks
+                        .iter()
+                        .filter(|&&(l, _)| l != line)
+                        .map(|&(l, _)| l.to_string())
+                        .collect();
+                    let also = if other_lines.len() == 1 {
+                        format!("line {}", other_lines[0])
+                    } else {
+                        format!("lines {}", other_lines.join(", "))
+                    };
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        format!(
+                            "Do not define multiple `before` hooks in the same example group (also defined on {also})."
+                        ),
+                    ));
+                }
             }
         }
 
-        // Flag duplicate after hooks
-        if after_hooks.len() > 1 {
-            for &(line, column) in &after_hooks {
-                let other_lines: Vec<String> = after_hooks
-                    .iter()
-                    .filter(|&&(l, _)| l != line)
-                    .map(|&(l, _)| l.to_string())
-                    .collect();
-                let also = if other_lines.len() == 1 {
-                    format!("line {}", other_lines[0])
-                } else {
-                    format!("lines {}", other_lines.join(", "))
-                };
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    format!(
-                        "Do not define multiple `after` hooks in the same example group (also defined on {also})."
-                    ),
-                ));
+        // Flag duplicate after hooks (same scope only)
+        for hooks in after_hooks.values() {
+            if hooks.len() > 1 {
+                for &(line, column) in hooks {
+                    let other_lines: Vec<String> = hooks
+                        .iter()
+                        .filter(|&&(l, _)| l != line)
+                        .map(|&(l, _)| l.to_string())
+                        .collect();
+                    let also = if other_lines.len() == 1 {
+                        format!("line {}", other_lines[0])
+                    } else {
+                        format!("lines {}", other_lines.join(", "))
+                    };
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        format!(
+                            "Do not define multiple `after` hooks in the same example group (also defined on {also})."
+                        ),
+                    ));
+                }
             }
         }
 

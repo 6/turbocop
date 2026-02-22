@@ -29,7 +29,28 @@ fn is_magic_comment(line: &[u8]) -> bool {
         after_hash
     };
     let line_str = std::str::from_utf8(after_hash).unwrap_or("");
-    MAGIC_COMMENT_PATTERNS.iter().any(|p| line_str.starts_with(p))
+
+    // Check direct magic comment patterns: `# frozen_string_literal: true`
+    if MAGIC_COMMENT_PATTERNS.iter().any(|p| line_str.starts_with(p)) {
+        return true;
+    }
+
+    // Check Emacs-style magic comments: `# -*- coding: utf-8 -*-`
+    if line_str.starts_with("-*-") {
+        let inner = line_str.trim_start_matches("-*-").trim();
+        if MAGIC_COMMENT_PATTERNS.iter().any(|p| inner.starts_with(p)) {
+            return true;
+        }
+        // Also check for patterns within the -*- ... -*- wrapper
+        if let Some(end) = inner.find("-*-") {
+            let content = inner[..end].trim();
+            if MAGIC_COMMENT_PATTERNS.iter().any(|p| content.starts_with(p)) {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 impl Cop for EmptyLineAfterMagicComment {
@@ -110,6 +131,7 @@ mod tests {
         frozen_string = "frozen_string.rb",
         encoding = "encoding.rb",
         multiple_magic = "multiple_magic.rb",
+        emacs_coding = "emacs_coding.rb",
     );
 
     #[test]

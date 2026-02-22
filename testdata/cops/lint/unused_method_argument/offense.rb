@@ -12,3 +12,8 @@ def calculate(x, y, z)
                     ^ Lint/UnusedMethodArgument: Unused method argument - `z`.
   x + y
 end
+
+def protect(*args)
+             ^^^^ Lint/UnusedMethodArgument: Unused method argument - `args`.
+  do_something
+end

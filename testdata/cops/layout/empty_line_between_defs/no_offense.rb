@@ -68,3 +68,19 @@ class Quux
     3
   end
 end
+
+# Adjacent single-line defs are allowed (AllowAdjacentOneLineDefs: true)
+class Corge
+  def alpha; 1 end
+  def bravo; 2 end
+  def charlie; 3 end
+end
+
+# Single-line def after multi-line def with blank line — no offense
+class Grault
+  def foo
+    1
+  end
+
+  def bar; 2 end
+end

@@ -13,3 +13,10 @@ begin
 rescue
 ^^^^^^ Lint/SuppressedException: Do not suppress exceptions.
 end
+begin
+  do_work
+rescue NotImplementedError
+  fallback
+rescue Errno::ESRCH
+^^^^^^ Lint/SuppressedException: Do not suppress exceptions.
+end

@@ -10,7 +10,34 @@ fn is_blank(line: &[u8]) -> bool {
     line.iter().all(|&b| b == b' ' || b == b'\t' || b == b'\r')
 }
 
+/// Check if a line is a single-line def (def ... end on the same line).
+fn is_single_line_def(line: &[u8]) -> bool {
+    let trimmed: Vec<u8> = line
+        .iter()
+        .copied()
+        .skip_while(|&b| b == b' ' || b == b'\t')
+        .collect();
+    if !trimmed.starts_with(b"def ") && !trimmed.starts_with(b"def(") {
+        return false;
+    }
+    // Check for `end` token at the end of the line (with possible trailing whitespace)
+    let end_trimmed: Vec<u8> = trimmed
+        .iter()
+        .rev()
+        .skip_while(|&&b| b == b' ' || b == b'\t' || b == b'\n' || b == b'\r')
+        .copied()
+        .collect::<Vec<u8>>()
+        .into_iter()
+        .rev()
+        .collect();
+    end_trimmed.ends_with(b"end")
+        && (end_trimmed.len() == 3
+            || end_trimmed[end_trimmed.len() - 4] == b' '
+            || end_trimmed[end_trimmed.len() - 4] == b';')
+}
+
 /// Check if a line is a scope-opening keyword line (class, module, def, do, begin, or `{`).
+/// Single-line defs (`def foo; end`) are NOT considered scope openers — they are complete definitions.
 fn is_opening_line(line: &[u8]) -> bool {
     let trimmed: Vec<u8> = line
         .iter()
@@ -22,6 +49,11 @@ fn is_opening_line(line: &[u8]) -> bool {
         .iter()
         .rposition(|&b| b != b' ' && b != b'\t' && b != b'\n' && b != b'\r')
         .map_or(&[] as &[u8], |i| &trimmed[..=i]);
+
+    // Single-line defs are complete definitions, not scope openers
+    if (trimmed.starts_with(b"def ") || trimmed.starts_with(b"def(")) && is_single_line_def(line) {
+        return false;
+    }
 
     trimmed.starts_with(b"class ")
         || trimmed.starts_with(b"module ")
@@ -277,37 +309,45 @@ impl Cop for EmptyLineBetweenDefs {
             return;
         }
 
-        // Check if this line is `end` (with optional leading whitespace)
-        let trimmed: Vec<u8> = boundary_line
-            .iter()
-            .copied()
-            .skip_while(|&b| b == b' ' || b == b'\t')
-            .collect();
-        if trimmed == b"end" || trimmed.starts_with(b"end ") || trimmed.starts_with(b"end\t") {
-            // Only treat as a previous definition boundary if the `end`
-            // closes a def/class/module (not a block, conditional, etc.)
-            if !is_definition_end(source, check_line) {
-                // Not a definition end — skip and keep scanning
-                return;
-            }
-            // Previous definition ended here — check blank line count
-            // RuboCop requires exactly NumberOfEmptyLines, not at-least
-            if blank_count == number_of_empty_lines {
-                return;
-            }
-        } else if !def_like_macros.is_empty() {
-            // Check if this line is a def-like macro call
-            let trimmed_str = std::str::from_utf8(&trimmed).unwrap_or("");
-            let is_macro_line = def_like_macros.iter().any(|m| {
-                trimmed_str == m.as_str()
-                    || trimmed_str.starts_with(&format!("{m} "))
-                    || trimmed_str.starts_with(&format!("{m}("))
-            });
-            if !is_macro_line || blank_count == number_of_empty_lines {
-                return;
-            }
+        // Determine if the boundary line is a definition boundary
+        let is_def_boundary = if is_single_line_def(boundary_line) {
+            // Single-line def (def ... end on same line) is a definition boundary
+            true
         } else {
-            // Something else (e.g., LONG_DESC, attr_accessor, etc.) — don't flag
+            let trimmed: Vec<u8> = boundary_line
+                .iter()
+                .copied()
+                .skip_while(|&b| b == b' ' || b == b'\t')
+                .collect();
+            if trimmed == b"end" || trimmed.starts_with(b"end ") || trimmed.starts_with(b"end\t") {
+                // Only treat as a previous definition boundary if the `end`
+                // closes a def/class/module (not a block, conditional, etc.)
+                if !is_definition_end(source, check_line) {
+                    return;
+                }
+                true
+            } else if !def_like_macros.is_empty() {
+                let trimmed_str = std::str::from_utf8(&trimmed).unwrap_or("");
+                let is_macro_line = def_like_macros.iter().any(|m| {
+                    trimmed_str == m.as_str()
+                        || trimmed_str.starts_with(&format!("{m} "))
+                        || trimmed_str.starts_with(&format!("{m}("))
+                });
+                if !is_macro_line {
+                    return;
+                }
+                true
+            } else {
+                false
+            }
+        };
+
+        if !is_def_boundary {
+            return;
+        }
+
+        // Previous definition ended here — check blank line count
+        if blank_count == number_of_empty_lines {
             return;
         }
 

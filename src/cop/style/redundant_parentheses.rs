@@ -478,6 +478,8 @@ fn is_operator_method(call: &ruby_prism::CallNode<'_>) -> bool {
             | b"|"
             | b"^"
             | b"~"
+            | b"=~"
+            | b"!~"
             | b"[]"
             | b"[]="
     )
@@ -492,6 +494,8 @@ fn classify_simple(node: &ruby_prism::Node<'_>) -> Option<&'static str> {
         Some("a keyword")
     } else if is_constant(node) {
         Some("a constant")
+    } else if node.as_range_node().is_some() {
+        Some("a range literal")
     } else {
         None
     }

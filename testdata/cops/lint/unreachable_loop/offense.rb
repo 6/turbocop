@@ -51,3 +51,13 @@ while x > 0
     raise MyError
   end
 end
+
+# each_key, each_pair, each_value are also loop methods
+data.each_key { fail }
+^^^^^^^^^^^^^^ Lint/UnreachableLoop: This loop will have at most one iteration.
+
+data.each_pair { fail }
+^^^^^^^^^^^^^^^ Lint/UnreachableLoop: This loop will have at most one iteration.
+
+data.each_value { fail }
+^^^^^^^^^^^^^^^^ Lint/UnreachableLoop: This loop will have at most one iteration.

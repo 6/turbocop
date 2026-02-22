@@ -87,8 +87,12 @@ impl Cop for BindCall {
             "Use `bind_call({bind_arg_src}{comma}{call_args_src})` instead of `bind({bind_arg_src}).call({call_args_src})`."
         );
 
-        let loc = node.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        // Report at the .bind selector position (matching RuboCop's correction_range)
+        let bind_msg_loc = match bind_call.message_loc() {
+            Some(loc) => loc,
+            None => return,
+        };
+        let (line, column) = source.offset_to_line_col(bind_msg_loc.start_offset());
         diagnostics.push(self.diagnostic(source, line, column, msg));
     }
 }

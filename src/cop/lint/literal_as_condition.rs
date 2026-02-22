@@ -44,11 +44,12 @@ impl Cop for LiteralAsCondition {
         if let Some(if_node) = node.as_if_node() {
             let predicate = if_node.predicate();
             if is_literal(&predicate) {
-                // Use if_keyword_loc to get the keyword position; skip ternaries
-                if let Some(kw_loc) = if_node.if_keyword_loc() {
+                // Skip ternaries (no if_keyword_loc)
+                if if_node.if_keyword_loc().is_some() {
+                    let pred_loc = predicate.location();
                     let literal_text =
-                        std::str::from_utf8(predicate.location().as_slice()).unwrap_or("literal");
-                    let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
+                        std::str::from_utf8(pred_loc.as_slice()).unwrap_or("literal");
+                    let (line, column) = source.offset_to_line_col(pred_loc.start_offset());
                     diagnostics.push(self.diagnostic(
                         source,
                         line,
@@ -63,10 +64,14 @@ impl Cop for LiteralAsCondition {
         if let Some(while_node) = node.as_while_node() {
             let predicate = while_node.predicate();
             if is_literal(&predicate) {
-                let kw_loc = while_node.keyword_loc();
+                // RuboCop skips `while true` (common infinite loop idiom)
+                let pred_loc = predicate.location();
                 let literal_text =
-                    std::str::from_utf8(predicate.location().as_slice()).unwrap_or("literal");
-                let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
+                    std::str::from_utf8(pred_loc.as_slice()).unwrap_or("literal");
+                if literal_text == "true" {
+                    return;
+                }
+                let (line, column) = source.offset_to_line_col(pred_loc.start_offset());
                 diagnostics.push(self.diagnostic(
                     source,
                     line,
@@ -80,10 +85,14 @@ impl Cop for LiteralAsCondition {
         if let Some(until_node) = node.as_until_node() {
             let predicate = until_node.predicate();
             if is_literal(&predicate) {
-                let kw_loc = until_node.keyword_loc();
+                // RuboCop skips `until false` (common infinite loop idiom)
+                let pred_loc = predicate.location();
                 let literal_text =
-                    std::str::from_utf8(predicate.location().as_slice()).unwrap_or("literal");
-                let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
+                    std::str::from_utf8(pred_loc.as_slice()).unwrap_or("literal");
+                if literal_text == "false" {
+                    return;
+                }
+                let (line, column) = source.offset_to_line_col(pred_loc.start_offset());
                 diagnostics.push(self.diagnostic(
                     source,
                     line,
@@ -97,10 +106,10 @@ impl Cop for LiteralAsCondition {
         if let Some(case_node) = node.as_case_node() {
             if let Some(predicate) = case_node.predicate() {
                 if is_literal(&predicate) {
-                    let kw_loc = case_node.case_keyword_loc();
+                    let pred_loc = predicate.location();
                     let literal_text =
-                        std::str::from_utf8(predicate.location().as_slice()).unwrap_or("literal");
-                    let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
+                        std::str::from_utf8(pred_loc.as_slice()).unwrap_or("literal");
+                    let (line, column) = source.offset_to_line_col(pred_loc.start_offset());
                     diagnostics.push(self.diagnostic(
                         source,
                         line,

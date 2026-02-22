@@ -1,7 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CLASS_VARIABLE_WRITE_NODE, CONSTANT_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE, MULTI_WRITE_NODE, PARENTHESES_NODE, STATEMENTS_NODE, UNTIL_NODE, WHILE_NODE};
+use crate::cop::node_type::{CLASS_VARIABLE_WRITE_NODE, CONSTANT_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE, MULTI_WRITE_NODE, PARENTHESES_NODE, STATEMENTS_NODE, UNLESS_NODE, UNTIL_NODE, WHILE_NODE};
 
 pub struct ParenthesesAroundCondition;
 
@@ -47,7 +47,7 @@ impl Cop for ParenthesesAroundCondition {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CLASS_VARIABLE_WRITE_NODE, CONSTANT_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE, MULTI_WRITE_NODE, PARENTHESES_NODE, STATEMENTS_NODE, UNTIL_NODE, WHILE_NODE]
+        &[CLASS_VARIABLE_WRITE_NODE, CONSTANT_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE, MULTI_WRITE_NODE, PARENTHESES_NODE, STATEMENTS_NODE, UNLESS_NODE, UNTIL_NODE, WHILE_NODE]
     }
 
     fn check_node(
@@ -86,6 +86,19 @@ impl Cop for ParenthesesAroundCondition {
                 diagnostics.push(self.diagnostic(source, line, column, format!(
                     "Don't use parentheses around the condition of an `{keyword}`."
                 )));
+            }
+        } else if let Some(unless_node) = node.as_unless_node() {
+            if let Some(paren) = unless_node.predicate().as_parentheses_node() {
+                if allow_safe_assignment && is_safe_assignment(&paren) {
+                    return;
+                }
+                if allow_multiline && is_multiline_paren(source, &paren) {
+                    return;
+                }
+                let open_loc = paren.opening_loc();
+                let (line, column) = source.offset_to_line_col(open_loc.start_offset());
+                diagnostics.push(self.diagnostic(source, line, column,
+                    "Don't use parentheses around the condition of an `unless`.".to_string()));
             }
         } else if let Some(while_node) = node.as_while_node() {
             if let Some(paren) = while_node.predicate().as_parentheses_node() {

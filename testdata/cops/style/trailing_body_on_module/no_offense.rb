@@ -11,3 +11,6 @@ module Qux
 end
 
 module Empty; end
+
+module ::TopLevel; def foo; '1'; end; end
+module ::Other; def bar; '2'; end; end

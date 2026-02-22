@@ -83,6 +83,19 @@ impl Cop for UnusedMethodArgument {
             }
         }
 
+        // Rest parameter (*args)
+        if let Some(rest) = params.rest() {
+            if let Some(rp) = rest.as_rest_parameter_node() {
+                if let Some(name_loc) = rp.name_loc() {
+                    param_info.push((
+                        rp.name().map(|n| n.as_slice().to_vec()).unwrap_or_default(),
+                        name_loc.start_offset(),
+                        false,
+                    ));
+                }
+            }
+        }
+
         if !allow_unused_keyword {
             for kw in params.keywords().iter() {
                 if let Some(kp) = kw.as_required_keyword_parameter_node() {

@@ -31,3 +31,12 @@ RSpec.describe RuboCop::Cop::Utils::FormatString do
     RuboCop::Cop::Utils::FormatString.new(string).format_sequences
   end
 end
+
+# context with a class arg does NOT set described_class
+describe SomeApp do
+  context SomeApp::Stream do
+    it 'works' do
+      expect(out).to be_a(SomeApp::Stream)
+    end
+  end
+end

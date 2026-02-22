@@ -82,9 +82,9 @@ impl Cop for InterpolationCheck {
                         break;
                     }
 
-                    // Report at the #{ position
-                    let interp_offset = content_loc.start_offset() + i;
-                    let (line, column) = source.offset_to_line_col(interp_offset);
+                    // Report at the string node's opening quote (matching RuboCop)
+                    let open_offset = opening.start_offset();
+                    let (line, column) = source.offset_to_line_col(open_offset);
                     diagnostics.push(self.diagnostic(
                         source,
                         line,

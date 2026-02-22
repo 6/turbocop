@@ -77,8 +77,11 @@ impl Cop for Sum {
             return;
         }
 
-        let loc = call.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        let msg_loc = match call.message_loc() {
+            Some(loc) => loc,
+            None => return,
+        };
+        let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
 
         let method_str = std::str::from_utf8(method_name).unwrap_or("inject");
         let args_str = if arg_nodes.len() == 2 {

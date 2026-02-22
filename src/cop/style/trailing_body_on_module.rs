@@ -39,6 +39,14 @@ impl Cop for TrailingBodyOnModule {
         let body_loc = body.location();
         let (body_line, body_column) = source.offset_to_line_col(body_loc.start_offset());
 
+        // Only flag multiline modules (RuboCop's `multiline?` check).
+        // Single-line modules like `module Foo; def bar; end; end` are fine.
+        let end_loc = module_node.end_keyword_loc();
+        let (end_line, _) = source.offset_to_line_col(end_loc.start_offset());
+        if end_line == mod_line {
+            return;
+        }
+
         if mod_line == body_line {
             diagnostics.push(self.diagnostic(
                 source,

@@ -46,11 +46,11 @@ impl Cop for IoMethods {
             None => return,
         };
 
+        // RuboCop only flags when the receiver source is exactly `IO`, not `::IO`.
+        // Intentionally do NOT match constant_path_node (::IO) — RuboCop's pattern is
+        // `receiver.source == 'IO'` which doesn't match the `::IO` qualified form.
         let is_io = if let Some(cr) = recv.as_constant_read_node() {
             cr.name().as_slice() == b"IO"
-        } else if let Some(cp) = recv.as_constant_path_node() {
-            cp.name().map(|n| n.as_slice() == b"IO").unwrap_or(false)
-                && cp.parent().is_none()
         } else {
             false
         };

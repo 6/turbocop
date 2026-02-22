@@ -5,6 +5,24 @@ use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 
 pub struct EmptyLiteral;
 
+/// Check if the source file has `# frozen_string_literal: true` in the first few lines.
+fn has_frozen_string_literal(source: &SourceFile) -> bool {
+    for line in source.lines().take(3) {
+        let lower: Vec<u8> = line.to_ascii_lowercase();
+        if lower.windows(22).any(|w| w == b"frozen_string_literal:") {
+            // Check if it's set to `true`
+            if let Some(pos) = lower.windows(22).position(|w| w == b"frozen_string_literal:") {
+                let after = &lower[pos + 22..];
+                let trimmed: Vec<u8> = after.iter().copied().skip_while(|&b| b == b' ').collect();
+                if trimmed.starts_with(b"true") {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 impl Cop for EmptyLiteral {
     fn name(&self) -> &'static str {
         "Style/EmptyLiteral"
@@ -73,6 +91,14 @@ impl Cop for EmptyLiteral {
             return;
         }
 
+        // When frozen_string_literal: true is enabled, String.new is the only way
+        // to create a mutable empty string. Don't flag it.
+        if const_name.as_slice() == b"String" && method_bytes == b"new" {
+            if has_frozen_string_literal(source) {
+                return;
+            }
+        }
+
         let msg = match const_name.as_slice() {
             b"Array" if method_bytes == b"new" || method_bytes == b"[]" => {
                 let src = String::from_utf8_lossy(call_node.location().as_slice());
@@ -97,5 +123,15 @@ impl Cop for EmptyLiteral {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     crate::cop_fixture_tests!(EmptyLiteral, "cops/style/empty_literal");
+
+    #[test]
+    fn no_offense_string_new_with_frozen_string_literal() {
+        let diags = crate::testutil::run_cop_full(
+            &EmptyLiteral,
+            b"# frozen_string_literal: true\n\ns = String.new\n",
+        );
+        assert!(diags.is_empty(), "String.new should not be flagged when frozen_string_literal is true");
+    }
 }

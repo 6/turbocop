@@ -62,3 +62,33 @@ class Garply
     3
   end
 end
+
+# Multi-line def after single-line def without blank line
+class Waldo
+  def initialize(app) @app = app end
+  def call(env)
+  ^^^ Layout/EmptyLineBetweenDefs: Use empty lines between method definitions.
+    @app.call(env)
+  end
+end
+
+# Multi-line def after multiple adjacent single-line defs without blank line
+class Fred
+  def alpha; 1 end
+  def bravo; 2 end
+  def charlie
+  ^^^ Layout/EmptyLineBetweenDefs: Use empty lines between method definitions.
+    3
+  end
+end
+
+# Too many blank lines after single-line def
+class Plugh
+  def short; 1 end
+
+
+  def long
+  ^^^ Layout/EmptyLineBetweenDefs: Expected 1 empty line between method definitions; found 2.
+    2
+  end
+end

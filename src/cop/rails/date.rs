@@ -40,8 +40,11 @@ impl Cop for Date {
 
         // In strict mode, also flag `to_time`
         if method == b"to_time" && !allow_to_time && style == "strict" {
-            let loc = node.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            let msg_loc = match call.message_loc() {
+                Some(loc) => loc,
+                None => return,
+            };
+            let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
             diagnostics.push(self.diagnostic(
                 source,
                 line,
@@ -63,8 +66,11 @@ impl Cop for Date {
             return;
         }
 
-        let loc = node.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        let msg_loc = match call.message_loc() {
+            Some(loc) => loc,
+            None => return,
+        };
+        let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,
             line,

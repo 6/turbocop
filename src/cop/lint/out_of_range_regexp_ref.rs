@@ -144,6 +144,10 @@ impl<'pr> Visit<'pr> for RegexpRefVisitor<'_, '_> {
                 if let Some(arg) = arg_list.first() {
                     if let Some(count) = count_captures_in_node(arg) {
                         self.current_capture_count = Some(count);
+                    } else {
+                        // Non-literal regexp argument (variable, constant, etc.) —
+                        // captures can't be determined statically, mark as unknown
+                        self.current_capture_count = Some(usize::MAX);
                     }
                 }
             }

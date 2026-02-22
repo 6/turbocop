@@ -160,8 +160,9 @@ impl<'pr> Visit<'pr> for DescribedClassVisitor<'_> {
             return;
         }
 
-        // Handle nested describe/context with class arg — change described_class
-        if (name == b"describe" || name == b"context") && self.described_class_name.is_some() {
+        // Handle nested describe with class arg — change described_class.
+        // Only `describe` sets described_class, not `context`.
+        if name == b"describe" && self.described_class_name.is_some() {
             if let Some(args) = node.arguments() {
                 let arg_list: Vec<_> = args.arguments().iter().collect();
                 if !arg_list.is_empty() {

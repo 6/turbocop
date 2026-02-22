@@ -22,6 +22,11 @@ impl Cop for TrailingWhitespace {
         let mut heredoc_terminator: Option<Vec<u8>> = None;
 
         for (i, line) in lines.iter().enumerate() {
+            // Stop checking after __END__ marker (data section)
+            if *line == b"__END__" {
+                break;
+            }
+
             // Check if we're inside a heredoc
             if let Some(ref terminator) = heredoc_terminator {
                 let trimmed: Vec<u8> = line.iter().copied()
@@ -130,6 +135,17 @@ mod tests {
 
     crate::cop_fixture_tests!(TrailingWhitespace, "cops/layout/trailing_whitespace");
     crate::cop_autocorrect_fixture_tests!(TrailingWhitespace, "cops/layout/trailing_whitespace");
+
+    #[test]
+    fn no_offense_after_end_marker() {
+        let source = SourceFile::from_bytes(
+            "test.rb",
+            b"x = 1\n__END__\ndata with trailing spaces   \nmore data   \n".to_vec(),
+        );
+        let mut diags = Vec::new();
+        TrailingWhitespace.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert!(diags.is_empty(), "Should not flag trailing whitespace after __END__");
+    }
 
     #[test]
     fn all_whitespace_line() {

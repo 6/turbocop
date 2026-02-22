@@ -11,3 +11,8 @@ j = proc do |x|
 end
 
 k = ::Object.new
+
+# Proc.new without a block (e.g., as default parameter) is fine
+def define_action(name, handler = Proc.new)
+  @actions[name] = handler
+end

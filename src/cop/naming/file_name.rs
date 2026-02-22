@@ -136,6 +136,12 @@ impl Cop for FileName {
             None => return,
         };
 
+        // Gemspecs are allowed to have dashes (bundler convention for namespaced gems)
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if ext == "gemspec" {
+            return;
+        }
+
         // IgnoreExecutableScripts: skip files with shebang (#!) on first line
         if ignore_executable_scripts {
             let bytes = source.as_bytes();
@@ -288,6 +294,22 @@ mod tests {
         let mut diags = Vec::new();
         FileName.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn no_offense_gemspec() {
+        let source = SourceFile::from_bytes("my-gem.gemspec", b"Gem::Specification.new do |s|\n  s.name = 'my-gem'\nend\n".to_vec());
+        let mut diags = Vec::new();
+        FileName.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert!(diags.is_empty(), "Should not flag .gemspec files (dashes are conventional)");
+    }
+
+    #[test]
+    fn no_offense_gemspec_with_namespace() {
+        let source = SourceFile::from_bytes("rack-protection.gemspec", b"Gem::Specification.new do |s|\n  s.name = 'rack-protection'\nend\n".to_vec());
+        let mut diags = Vec::new();
+        FileName.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert!(diags.is_empty(), "Should not flag namespaced .gemspec files");
     }
 
     #[test]

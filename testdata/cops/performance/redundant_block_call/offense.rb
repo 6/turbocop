@@ -12,3 +12,10 @@ def method3(&block)
   block.call(arg)
   ^^^^^^^^^^^^^^^ Performance/RedundantBlockCall: Use `yield` instead of `block.call`.
 end
+
+def filter!(&block)
+  items.each do |item|
+    block.call(item) if block_given?
+    ^^^^^^^^^^^^^^^^ Performance/RedundantBlockCall: Use `yield` instead of `block.call`.
+  end
+end

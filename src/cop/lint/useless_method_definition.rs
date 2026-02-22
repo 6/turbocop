@@ -38,6 +38,7 @@ impl Cop for UselessMethodDefinition {
         if let Some(params) = def_node.parameters() {
             if !params.optionals().is_empty()
                 || params.rest().is_some()
+                || params.keyword_rest().is_some()
                 || params
                     .keywords()
                     .iter()

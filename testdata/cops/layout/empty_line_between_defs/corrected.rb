@@ -60,3 +60,32 @@ class Garply
     3
   end
 end
+
+# Multi-line def after single-line def without blank line
+class Waldo
+  def initialize(app) @app = app end
+
+  def call(env)
+    @app.call(env)
+  end
+end
+
+# Multi-line def after multiple adjacent single-line defs without blank line
+class Fred
+  def alpha; 1 end
+  def bravo; 2 end
+
+  def charlie
+    3
+  end
+end
+
+# Too many blank lines after single-line def
+class Plugh
+  def short; 1 end
+
+
+  def long
+    2
+  end
+end

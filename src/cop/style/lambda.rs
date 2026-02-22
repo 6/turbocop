@@ -1,7 +1,7 @@
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE};
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, LAMBDA_NODE};
 
 pub struct Lambda;
 
@@ -11,7 +11,7 @@ impl Cop for Lambda {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE]
+        &[BLOCK_NODE, CALL_NODE, LAMBDA_NODE]
     }
 
     fn check_node(
@@ -23,6 +23,14 @@ impl Cop for Lambda {
     diagnostics: &mut Vec<Diagnostic>,
     _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        let style = config.get_str("EnforcedStyle", "line_count_dependent");
+
+        // Check -> (lambda literal) nodes
+        if let Some(lambda_node) = node.as_lambda_node() {
+            self.check_lambda_literal(source, &lambda_node, style, diagnostics);
+            return;
+        }
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return,
@@ -37,8 +45,52 @@ impl Cop for Lambda {
             return;
         }
 
-        let style = config.get_str("EnforcedStyle", "line_count_dependent");
+        self.check_lambda_method(source, &call, style, diagnostics);
+    }
+}
 
+impl Lambda {
+    fn check_lambda_literal(
+        &self,
+        source: &SourceFile,
+        lambda_node: &ruby_prism::LambdaNode<'_>,
+        style: &str,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let loc = lambda_node.operator_loc();
+        let (start_line, _) = source.offset_to_line_col(lambda_node.location().start_offset());
+        let end_off = lambda_node.location().end_offset().saturating_sub(1).max(lambda_node.location().start_offset());
+        let (end_line, _) = source.offset_to_line_col(end_off);
+        let is_multiline = start_line != end_line;
+
+        match style {
+            "lambda" => {
+                // Always flag `->` — use `lambda` instead
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                diagnostics.push(self.diagnostic(source, line, column, "Use the `lambda` method for all lambdas.".to_string()));
+            }
+            "literal" => {
+                // `->` is preferred — no offense
+            }
+            _ => {
+                // "line_count_dependent" (default):
+                // Single-line `-> { }` is correct.
+                // Multi-line `->() do ... end` should use `lambda` instead.
+                if is_multiline {
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    diagnostics.push(self.diagnostic(source, line, column, "Use the `lambda` method for multiline lambdas.".to_string()));
+                }
+            }
+        }
+    }
+
+    fn check_lambda_method(
+        &self,
+        source: &SourceFile,
+        call: &ruby_prism::CallNode<'_>,
+        style: &str,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         match style {
             "literal" => {
                 // Always flag `lambda` — use `->` instead
@@ -48,12 +100,9 @@ impl Cop for Lambda {
             }
             "lambda" => {
                 // Never flag `lambda` — it's preferred
-
             }
             _ => {
                 // "line_count_dependent" (default): only flag single-line `lambda`
-                // Multi-line `lambda do...end` is the preferred style for multi-line.
-                // Single-line `lambda { }` should use `-> { }` instead.
                 let block = match call.block() {
                     Some(b) => b,
                     None => return,
@@ -67,13 +116,9 @@ impl Cop for Lambda {
                 let (end_line, _) = source.offset_to_line_col(block_node.location().end_offset().saturating_sub(1).max(block_node.location().start_offset()));
 
                 if start_line == end_line {
-                    // Single-line lambda — flag it
                     let loc = call.message_loc().unwrap_or_else(|| call.location());
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
                     diagnostics.push(self.diagnostic(source, line, column, "Use the `-> {}` lambda literal syntax for single-line lambdas.".to_string()));
-                } else {
-                    // Multi-line lambda — this is correct for `line_count_dependent`
-
                 }
             }
         }

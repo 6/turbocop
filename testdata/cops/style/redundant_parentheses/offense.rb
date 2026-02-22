@@ -30,3 +30,12 @@ x = (foo.bar(1))
 
 (x <=> y)
 ^^^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a comparison expression.
+
+x =~ (%r{/\.{0,2}$})
+     ^^^^^^^^^^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a literal.
+
+process((start..length), path, file)
+        ^^^^^^^^^^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a range literal.
+
+x = (0..10)
+    ^^^^^^^ Style/RedundantParentheses: Don't use parentheses around a range literal.

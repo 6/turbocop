@@ -109,7 +109,7 @@ impl Present {
         ))
     }
 
-    /// Check for `!foo.nil? && !foo.empty?` pattern.
+    /// Check for `!foo.nil? && !foo.empty?` or `foo && !foo.empty?` pattern.
     fn check_not_nil_and_not_empty(
         &self,
         source: &SourceFile,
@@ -117,20 +117,10 @@ impl Present {
     ) -> Option<Diagnostic> {
         let and_node = node.as_and_node()?;
 
-        // Left: !foo.nil? (call to ! on nil?)
         let left = and_node.left();
-        let left_not = left.as_call_node()?;
-        if left_not.name().as_slice() != b"!" {
-            return None;
-        }
-        let left_inner = left_not.receiver()?;
-        let left_pred = left_inner.as_call_node()?;
-        if left_pred.name().as_slice() != b"nil?" {
-            return None;
-        }
-
-        // Right: !foo.empty? (call to ! on empty?)
         let right = and_node.right();
+
+        // Right must be: !foo.empty? (call to ! on empty?)
         let right_not = right.as_call_node()?;
         if right_not.name().as_slice() != b"!" {
             return None;
@@ -138,6 +128,42 @@ impl Present {
         let right_inner = right_not.receiver()?;
         let right_pred = right_inner.as_call_node()?;
         if right_pred.name().as_slice() != b"empty?" {
+            return None;
+        }
+
+        // Pattern 1: Left is !foo.nil? (explicit nil check)
+        let matches = if let Some(left_not) = left.as_call_node() {
+            if left_not.name().as_slice() == b"!" {
+                if let Some(left_inner) = left_not.receiver() {
+                    if let Some(left_pred) = left_inner.as_call_node() {
+                        left_pred.name().as_slice() == b"nil?"
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        // Pattern 2: Left is foo (implicit nil check: foo && !foo.empty?)
+        // The left side is any expression and right side is !<same_expr>.empty?
+        let matches = matches || {
+            let left_src = &source.as_bytes()[left.location().start_offset()..left.location().end_offset()];
+            let right_recv = right_pred.receiver();
+            if let Some(rr) = right_recv {
+                let right_recv_src = &source.as_bytes()[rr.location().start_offset()..rr.location().end_offset()];
+                left_src == right_recv_src
+            } else {
+                false
+            }
+        };
+
+        if !matches {
             return None;
         }
 

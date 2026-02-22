@@ -227,6 +227,16 @@ impl<'pr> Visit<'pr> for SuperChecker<'_> {
 
 impl<'pr> Visit<'pr> for SuperArgumentsVisitor<'_> {
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        // If the method has an anonymous keyword rest (**), the super call
+        // has different semantics — don't flag it.
+        if let Some(params) = node.parameters() {
+            if let Some(kw_rest) = params.keyword_rest() {
+                if kw_rest.as_keyword_rest_parameter_node().is_some_and(|k| k.name().is_none()) {
+                    return;
+                }
+            }
+        }
+
         let def_params = if let Some(params) = node.parameters() {
             extract_def_params(&params)
         } else {

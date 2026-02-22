@@ -26,3 +26,8 @@ end
 def with_block(a, &blk)
   super(a)
 end
+
+# Anonymous keyword rest — super doesn't forward keyword args
+def initialize(app, **)
+  super app
+end

@@ -84,6 +84,14 @@ fn is_loop_method_name(name: &[u8]) -> bool {
             | b"loop"
             | b"each_with_index"
             | b"each_with_object"
+            | b"each_key"
+            | b"each_value"
+            | b"each_pair"
+            | b"each_line"
+            | b"each_byte"
+            | b"each_char"
+            | b"each_slice"
+            | b"each_cons"
             | b"flat_map"
     )
 }

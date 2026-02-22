@@ -53,4 +53,9 @@ class Foo
   def process
     super { |x| x.validate }
   end
+
+  # Methods with keyword rest args are not useless
+  def initialize(app, **)
+    super app
+  end
 end

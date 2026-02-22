@@ -48,6 +48,12 @@ impl Cop for Proc {
             return;
         }
 
+        // Only flag Proc.new when it has a block (Proc.new { ... } or Proc.new do...end).
+        // Bare Proc.new (e.g., as a default parameter value) is intentional.
+        if call.block().is_none() {
+            return;
+        }
+
         let loc = receiver.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(source, line, column, "Use `proc` instead of `Proc.new`.".to_string()));

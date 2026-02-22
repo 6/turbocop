@@ -127,7 +127,7 @@ impl<'pr> Visit<'pr> for BlockCallFinder<'_, '_, '_> {
         if node.name().as_slice() == b"call" {
             if let Some(recv) = node.receiver() {
                 if let Some(local_var) = recv.as_local_variable_read_node() {
-                    if local_var.name().as_slice() == self.arg_name && local_var.depth() == 0 {
+                    if local_var.name().as_slice() == self.arg_name {
                         // Don't flag if the call itself has a block literal
                         // (e.g., block.call { ... })
                         if node.block().is_none()
