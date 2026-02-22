@@ -70,7 +70,7 @@ We run both turbocop and RuboCop on 14 popular open source repos and compare eve
 | Repo | Offenses | Match rate |
 |------|-------:|----------:|
 | mastodon | 302 | 100.0% |
-| discourse* | — | — |
+| discourse | 0 | 100.0% |
 | rails | 6 | 100.0% |
 | rubocop | 0 | 100.0% |
 | chatwoot | 251 | 100.0% |
@@ -83,8 +83,6 @@ We run both turbocop and RuboCop on 14 popular open source repos and compare eve
 | fat_free_crm | 32 | 100.0% |
 | multi_json | 2 | 100.0% |
 | lobsters | 6 | 100.0% |
-
-\* discourse uses an older RuboCop version (1.71 vs 1.84) — not directly comparable.
 
 See [bench/results.md](bench/results.md) for full details including FP/FN breakdowns.
 
