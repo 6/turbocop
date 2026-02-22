@@ -8,8 +8,8 @@ Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (
 
 | Scenario | turbocop | RuboCop | Speedup |
 |----------|-------:|--------:|--------:|
-| Local dev (50 files changed) | **62ms** | 1.41s | **23x** |
-| CI (no cache) | **198ms** | 17.03s | **86x** |
+| Local dev (50 files changed) | **64ms** | 1.39s | **21.7x** |
+| CI (no cache) | **207ms** | 18.21s | **87.8x** |
 
 **Features**
 
