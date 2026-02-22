@@ -34,3 +34,10 @@ Gemfile.lock
 
 # Internal docs (not for OSS)
 docs/INTERNAL_*
+
+# OS
+.DS_Store
+
+# Environment
+.env
+.env.*
