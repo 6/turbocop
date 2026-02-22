@@ -1,7 +1,6 @@
 # turbocop — Phase 1 Progress
 
-> For pre-Phase-1 history (M0–M20, 915 cops, 12/12 bench repos at 100%), see
-> `docs/archive/PROGRESS_v1.md`. For the full plan, see `docs/PLAN.md`.
+> For the full plan, see `docs/PLAN.md`.
 
 ## Phase 1: Adoption + Safety
 
@@ -66,7 +65,6 @@
 
 ### Doc consolidation
 
-- [x] Archived old docs to `docs/archive/`
 - [x] Created consolidated `docs/PLAN.md`
 - [x] Created fresh `PROGRESS.md` (this file)
 

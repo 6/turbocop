@@ -1,8 +1,6 @@
 # turbocop Plan (Authoritative)
 
-> For plan history and earlier iterations, see `docs/archive/PLAN_HIGH_LEVEL_v1.md`
-> and `docs/archive/PLAN_DETAILED_v1.md`. For pre-Phase-1 progress tracking, see
-> `docs/archive/PROGRESS_v1.md`.
+> Plan history (v1 iterations) has been removed. See git history for earlier versions.
 
 ---
 
