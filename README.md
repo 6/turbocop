@@ -2,7 +2,8 @@
 
 Experimental RuboCop rewrite in Rust. Often 20x+ faster, 900+ cops.
 
-> **Status:** Early-stage. Detection is high-fidelity on most codebases but edge cases remain. Autocorrect is partial. Expect bugs — please report them.
+> [!NOTE]
+> 🚧 Early-stage: Detection is high-fidelity on most codebases but edge cases remain. Autocorrect is not yet complete. Expect bugs.
 
 Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (1,222 files), Apple Silicon:
 
