@@ -84,3 +84,34 @@ class Grault
 
   def bar; 2 end
 end
+
+# Multiple blank line groups (blanks on both sides of comments) — skipped
+class Garply
+  def alpha
+    1
+  end
+
+  ### Section Header
+
+  def bravo
+    2
+  end
+end
+
+# Multiple interleaved blank + comment groups — skipped
+class Waldo
+  def destroy
+    1
+  end
+
+  # POST /auto_complete
+  #-----
+  # Handled by ApplicationController
+
+  # PUT /suspend
+  # PUT /suspend.xml
+  #-----
+  def suspend
+    2
+  end
+end

@@ -23,3 +23,9 @@ RUBY
 # but would be invalid Ruby if double-quoted
 template = 'Created order #{{ response.order_number }} for {{ response.product }}'
 url = 'https://example.com/users/{{ user_id }}/orders'
+
+# String containing double quotes — converting to double-quoted would break syntax
+f.puts 'gem "example", path: "#{File.dirname(__FILE__)}/../"'
+
+# Format directive in interpolation-like pattern — not valid Ruby interpolation
+msg = 'Replace interpolated variable `#{%<variable>s}`.'

@@ -75,3 +75,15 @@ z = +x
 # Exponent operator with no_space style (default) should not be flagged
 x = 2**10
 y = n**(k - 1)
+
+# AllowForAlignment: operators aligned across adjacent lines
+title  = data[:title]  || ''
+url    = data[:url]    || ''
+width  = data[:width]  || 0
+height = data[:height] || 0
+
+# Trailing spaces before comment after operator — not flagged
+x ||  # fallback
+  y
+a &&  # condition check
+  b

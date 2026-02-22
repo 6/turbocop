@@ -1,3 +1,4 @@
+use crate::cop::util::assignment_context_base_col;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -19,7 +20,7 @@ impl Cop for ElseAlignment {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
     diagnostics: &mut Vec<Diagnostic>,
     _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
@@ -42,6 +43,21 @@ impl Cop for ElseAlignment {
 
         let (_, if_col) = source.offset_to_line_col(if_kw_loc.start_offset());
 
+        // Determine expected alignment column for else/elsif.
+        // When `if` is the RHS of an assignment (e.g., `x = if cond`) and
+        // Layout/EndAlignment.EnforcedStyleAlignWith is "variable", else/elsif
+        // align with the assignment variable (start of line), not `if`.
+        let end_style = config.get_str("EndAlignmentStyle", "keyword");
+        let expected_col = if end_style == "variable" {
+            if let Some(var_col) = assignment_context_base_col(source, if_kw_loc.start_offset()) {
+                var_col
+            } else {
+                if_col
+            }
+        } else {
+            if_col
+        };
+
         let mut current = if_node.subsequent();
 
         while let Some(subsequent) = current {
@@ -49,7 +65,7 @@ impl Cop for ElseAlignment {
                 let else_kw_loc = else_node.else_keyword_loc();
                 let (else_line, else_col) =
                     source.offset_to_line_col(else_kw_loc.start_offset());
-                if else_col != if_col {
+                if else_col != expected_col {
                     diagnostics.push(self.diagnostic(
                         source,
                         else_line,
@@ -65,7 +81,7 @@ impl Cop for ElseAlignment {
                 };
                 let (elsif_line, elsif_col) =
                     source.offset_to_line_col(elsif_kw_loc.start_offset());
-                if elsif_col != if_col {
+                if elsif_col != expected_col {
                     diagnostics.push(self.diagnostic(
                         source,
                         elsif_line,
@@ -110,5 +126,53 @@ mod tests {
         let source = b"x = if foo\n      bar\n    else\n      baz\n    end\n";
         let diags = run_cop_full(&ElseAlignment, source);
         assert!(diags.is_empty(), "keyword style should not flag else aligned with if: {:?}", diags);
+    }
+
+    #[test]
+    fn assignment_variable_style_else_aligned_with_variable() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EndAlignmentStyle".into(), serde_yml::Value::String("variable".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Variable style: else at col 4 (aligned with `server`), not col 15 (with `if`)
+        let source = b"    server = if cond\n      body\n    else\n      other\n    end\n";
+        let diags = run_cop_full_with_config(&ElseAlignment, source, config);
+        assert!(diags.is_empty(), "variable style should not flag else aligned with variable: {:?}", diags);
+    }
+
+    #[test]
+    fn assignment_variable_style_elsif_aligned_with_variable() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EndAlignmentStyle".into(), serde_yml::Value::String("variable".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Variable style: elsif at col 0 (aligned with `x`), not col 4 (with `if`)
+        let source = b"x = if foo\n  bar\nelsif baz\n  qux\nelse\n  quux\nend\n";
+        let diags = run_cop_full_with_config(&ElseAlignment, source, config);
+        assert!(diags.is_empty(), "variable style should not flag elsif/else aligned with variable: {:?}", diags);
+    }
+
+    #[test]
+    fn assignment_variable_style_flags_wrong_column() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EndAlignmentStyle".into(), serde_yml::Value::String("variable".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Variable style: else at col 2 doesn't align with variable (col 0) or if (col 4)
+        let source = b"x = if foo\n  bar\n  else\n  baz\nend\n";
+        let diags = run_cop_full_with_config(&ElseAlignment, source, config);
+        assert_eq!(diags.len(), 1, "should flag else not aligned with variable: {:?}", diags);
     }
 }

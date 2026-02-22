@@ -45,9 +45,18 @@ def [](key, default)
   @attrs[key]
 end
 
-# Private methods are ignored
+# Private methods are ignored — including methods after other method `end`s
+# in the same private section
 private
 
 def custom_filter
   object.custom_filter
+end
+
+def logger
+  Rails.logger
+end
+
+def discoverable
+  Account.discoverable
 end

@@ -3,6 +3,25 @@ use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use crate::cop::node_type::CALL_NODE;
 
+/// Map of refute_* method names to their assert_not_* counterparts,
+/// matching the explicit list in RuboCop's Rails/RefuteMethods cop.
+const CORRECTIONS: &[(&str, &str)] = &[
+    ("refute", "assert_not"),
+    ("refute_empty", "assert_not_empty"),
+    ("refute_equal", "assert_not_equal"),
+    ("refute_in_delta", "assert_not_in_delta"),
+    ("refute_in_epsilon", "assert_not_in_epsilon"),
+    ("refute_includes", "assert_not_includes"),
+    ("refute_instance_of", "assert_not_instance_of"),
+    ("refute_kind_of", "assert_not_kind_of"),
+    ("refute_nil", "assert_not_nil"),
+    ("refute_operator", "assert_not_operator"),
+    ("refute_predicate", "assert_not_predicate"),
+    ("refute_respond_to", "assert_not_respond_to"),
+    ("refute_same", "assert_not_same"),
+    ("refute_match", "assert_no_match"),
+];
+
 pub struct RefuteMethods;
 
 impl Cop for RefuteMethods {
@@ -44,22 +63,18 @@ impl Cop for RefuteMethods {
         let (is_bad, message) = match style {
             "refute" => {
                 // Flag assert_not_* methods, suggest refute_*
-                if name_str.starts_with("assert_not_") {
-                    let replacement = name_str.replacen("assert_not_", "refute_", 1);
-                    (true, format!("Prefer `{replacement}` over `{name_str}`."))
-                } else if name_str == "assert_not" {
-                    (true, "Prefer `refute` over `assert_not`.".to_string())
+                // Use the reverse mapping from CORRECTIONS.
+                if let Some((refute_name, _)) = CORRECTIONS.iter().find(|(_, assert_name)| *assert_name == name_str) {
+                    (true, format!("Prefer `{refute_name}` over `{name_str}`."))
                 } else {
                     (false, String::new())
                 }
             }
             _ => {
                 // "assert_not" (default): flag refute_* methods
-                if name_str.starts_with("refute_") {
-                    let replacement = name_str.replacen("refute_", "assert_not_", 1);
-                    (true, format!("Prefer `{replacement}` over `{name_str}`."))
-                } else if name_str == "refute" {
-                    (true, "Prefer `assert_not` over `refute`.".to_string())
+                // Only flag methods in the explicit CORRECTIONS list.
+                if let Some((_, assert_name)) = CORRECTIONS.iter().find(|(refute_name, _)| *refute_name == name_str) {
+                    (true, format!("Prefer `{assert_name}` over `{name_str}`."))
                 } else {
                     (false, String::new())
                 }

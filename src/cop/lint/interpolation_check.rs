@@ -82,6 +82,21 @@ impl Cop for InterpolationCheck {
                         break;
                     }
 
+                    // Skip if the string contains double quotes — converting to
+                    // double-quoted strings would break syntax (unescaped quotes).
+                    // This matches RuboCop's valid_syntax? check.
+                    if content_bytes.contains(&b'"') {
+                        return;
+                    }
+
+                    // Check that the #{...} content looks like valid Ruby.
+                    // Format directives like %<variable>s are NOT valid Ruby
+                    // interpolation — skip them.
+                    let interp_content = &content_bytes[i + 2..j];
+                    if interp_content.contains(&b'%') && interp_content.contains(&b'<') {
+                        return;
+                    }
+
                     // Report at the string node's opening quote (matching RuboCop)
                     let open_offset = opening.start_offset();
                     let (line, column) = source.offset_to_line_col(open_offset);

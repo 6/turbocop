@@ -298,6 +298,33 @@ impl Cop for EmptyLineBetweenDefs {
             break;
         }
 
+        // RuboCop's `multiple_blank_lines_groups?`: skip enforcement when blank
+        // lines are interspersed with non-blank (comment) lines between the two
+        // defs. Check: does any blank line appear AFTER any non-blank line?
+        // (i.e., max blank index > min non-blank index in forward order)
+        {
+            let mut last_blank_idx: Option<usize> = None;
+            let mut first_non_blank_idx: Option<usize> = None;
+            for (i, line_num) in (check_line + 1..def_line).enumerate() {
+                let line = match line_at(source, line_num) {
+                    Some(l) => l,
+                    None => continue,
+                };
+                if is_blank(line) {
+                    last_blank_idx = Some(i);
+                } else if first_non_blank_idx.is_none() {
+                    first_non_blank_idx = Some(i);
+                }
+            }
+            if let (Some(last_blank), Some(first_non_blank)) =
+                (last_blank_idx, first_non_blank_idx)
+            {
+                if last_blank > first_non_blank {
+                    return;
+                }
+            }
+        }
+
         // Phase 3: Evaluate the boundary line.
         let boundary_line = match line_at(source, check_line) {
             Some(l) => l,

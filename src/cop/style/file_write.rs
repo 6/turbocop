@@ -19,7 +19,8 @@ impl FileWrite {
     }
 
     fn is_write_mode(mode: &[u8]) -> bool {
-        matches!(mode, b"w" | b"wt" | b"wb" | b"w+" | b"w+t" | b"w+b" | b"wb+" | b"wt+")
+        // Must match RuboCop's TRUNCATING_WRITE_MODES exactly: %w[w wt wb w+ w+t w+b]
+        matches!(mode, b"w" | b"wt" | b"wb" | b"w+" | b"w+t" | b"w+b")
     }
 
     fn write_method(mode: &[u8]) -> &'static str {
@@ -40,7 +41,14 @@ impl FileWrite {
 
         let open_args = open_call.arguments()?;
         let open_arg_list: Vec<_> = open_args.arguments().iter().collect();
-        if open_arg_list.len() < 2 {
+        // Must have exactly 2 positional args: filename and mode string.
+        // Additional keyword args (encoding:, etc.) mean File.write can't
+        // be a drop-in replacement, matching RuboCop's pattern.
+        if open_arg_list.len() != 2 {
+            return None;
+        }
+        // Neither argument should be a keyword hash (splat, hash with labels, etc.)
+        if open_arg_list[1].as_keyword_hash_node().is_some() {
             return None;
         }
 

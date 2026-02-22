@@ -1,4 +1,4 @@
-use crate::cop::util::expected_indent_for_body;
+use crate::cop::util::{assignment_context_base_col, expected_indent_for_body};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -242,11 +242,27 @@ impl Cop for IndentationWidth {
             if let Some(kw_loc) = if_node.if_keyword_loc() {
                 let kw_offset = kw_loc.start_offset();
                 let (_, kw_col) = source.offset_to_line_col(kw_offset);
+
+                // When `if` is the RHS of an assignment (e.g., `x = if cond`) and
+                // Layout/EndAlignment.EnforcedStyleAlignWith is "variable", body
+                // indentation is relative to the assignment variable, not `if`.
+                let end_style = config.get_str("EndAlignmentStyle", "keyword");
+                let (base_col, alt_base) = if end_style == "variable" {
+                    if let Some(var_col) = assignment_context_base_col(source, kw_offset) {
+                        // Variable style: indent from variable, also accept indent from keyword
+                        (var_col, Some(kw_col))
+                    } else {
+                        (kw_col, None)
+                    }
+                } else {
+                    (kw_col, None)
+                };
+
                 diagnostics.extend(self.check_statements_indentation(
                     source,
                     kw_offset,
-                    kw_col,
-                    None,
+                    base_col,
+                    alt_base,
                     if_node.statements(),
                     width,
                 ));
@@ -478,5 +494,41 @@ mod tests {
         let source = b"    @links = if enabled?\n               body\n             end\n";
         let diags = run_cop_full(&IndentationWidth, source);
         assert!(diags.is_empty(), "keyword style assignment should not flag: {:?}", diags);
+    }
+
+    #[test]
+    fn assignment_variable_style_body_from_variable() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EndAlignmentStyle".into(), serde_yml::Value::String("variable".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Variable style: body at col 6 (server=4, 4+2=6), if at col 15
+        // server = if cond
+        //   body
+        // end
+        let source = b"    server = if cond\n      body\n    end\n";
+        let diags = run_cop_full_with_config(&IndentationWidth, source, config);
+        assert!(diags.is_empty(), "variable style should accept body indented from variable: {:?}", diags);
+    }
+
+    #[test]
+    fn assignment_variable_style_also_accepts_keyword_indent() {
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([
+                ("EndAlignmentStyle".into(), serde_yml::Value::String("variable".into())),
+            ]),
+            ..CopConfig::default()
+        };
+        // Variable style: body at col 15 (if=13, 13+2=15) — keyword indent also accepted
+        //     server = if cond       (if at col 13)
+        //                body        (body at col 15 = 13+2)
+        //             end
+        let source = b"    server = if cond\n               body\n             end\n";
+        let diags = run_cop_full_with_config(&IndentationWidth, source, config);
+        assert!(diags.is_empty(), "variable style should also accept keyword indent: {:?}", diags);
     }
 }

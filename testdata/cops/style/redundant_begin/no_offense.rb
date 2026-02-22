@@ -59,3 +59,29 @@ items.each do |item|
 rescue => e
   handle(e)
 end
+
+# Brace blocks don't support implicit begin/rescue — begin is NOT redundant
+new_thread {
+  begin
+    pool.checkout
+  rescue => e
+    errors << e
+  end
+}
+
+items.map { |item|
+  begin
+    process(item)
+  rescue => e
+    handle(e)
+  end
+}
+
+# Stabby lambdas don't support implicit begin in do-end blocks
+-> do
+  begin
+    something
+  rescue => e
+    handle(e)
+  end
+end

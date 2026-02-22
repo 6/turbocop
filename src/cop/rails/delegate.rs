@@ -247,11 +247,16 @@ fn is_private_or_protected(source: &SourceFile, def_offset: usize) -> bool {
         let indent = line.iter().take_while(|&&b| b == b' ' || b == b'\t').count();
         let trimmed: Vec<u8> = line[indent..].to_vec();
 
-        // Scope boundary: class/module/end at same or lower indent resets private state
+        // Scope boundary: class/module at same or lower indent resets private state.
+        // `end` only resets at STRICTLY lower indent — method `end` keywords share
+        // the same indent as `private`/`def` and must not reset the state.
         if indent <= def_col {
             if trimmed.starts_with(b"class ") || trimmed.starts_with(b"module ") {
                 in_private = false;
-            } else if trimmed == b"end" || trimmed.starts_with(b"end ") || trimmed.starts_with(b"end\n") || trimmed.starts_with(b"end\r") {
+            }
+        }
+        if indent < def_col {
+            if trimmed == b"end" || trimmed.starts_with(b"end ") || trimmed.starts_with(b"end\n") || trimmed.starts_with(b"end\r") {
                 in_private = false;
             }
         }

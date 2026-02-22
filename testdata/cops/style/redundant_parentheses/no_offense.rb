@@ -37,3 +37,16 @@ x = (y = 1) && z
 # Comparison inside another expression — not top-level, not flagged
 x = (a == b) ? 1 : 2
 result = (a > b) && c
+# Comparison inside method body (return value) — has parent, not flagged
+def edited?
+  (last_edited_at - created_at > 1.minute)
+end
+# Comparison as hash value — has parent, not flagged
+config = { enable_starttls: (ENV["VAR"] == "true") }
+# Range literals — parens around ranges are almost never redundant
+arr = [(1..5)]
+ranges + [(line..line)]
+(minimum..maximum).cover?(count)
+foo((1..10))
+x = (0..10)
+process((start..length), path, file)

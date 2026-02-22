@@ -29,3 +29,19 @@ this_is_a_very_long_method_name_that_makes_the_line_quite_long(argument_one, arg
 
 MSG = 'This is a long error message string that definitely ' \
       'exceeds one hundred and twenty characters when concatenated together'
+
+# String concatenation with backslash — RuboCop handles these at the AST
+# level and checks the full expression context, not just the continuation.
+# The text-based approach should skip string literal concatenation.
+msg = 'short string that ' \
+      'fits on one line'
+
+error = "Node type must be any of #{types}, " \
+        "passed #{node_type}"
+
+label = "#{name}::" \
+        "#{child_name}"
+
+expect(output)
+  .to eq('[modify] A configuration is added into ' \
+         "#{path}.\n")

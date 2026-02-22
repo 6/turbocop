@@ -128,19 +128,24 @@ impl<'pr> Visit<'pr> for StringLiteralsVisitor<'_> {
     }
 }
 
-/// Check if a double-quoted string's raw content contains escape sequences that
-/// require double quotes. Only sequences with special meaning in double quotes
-/// (but not in single quotes) count: \n, \t, \r, \a, \b, \e, \f, \s, \v,
-/// \0-\7 (octal), \x (hex), \u (unicode), \# (interpolation guard).
+/// Check if a double-quoted string's raw source content contains escape
+/// sequences that require double quotes, matching RuboCop's
+/// `double_quotes_required?` logic. A backslash followed by any character
+/// that is NOT `\` or `"` is considered to require double quotes — this is
+/// conservative but prevents visual changes to escape-like sequences such
+/// as `\g`, `\p`, etc.
 fn needs_double_quotes(content: &[u8]) -> bool {
     let mut i = 0;
     while i < content.len() {
         if content[i] == b'\\' && i + 1 < content.len() {
-            match content[i + 1] {
-                b'#' | b'a' | b'b' | b'e' | b'f' | b'n' | b'r' | b's' | b't'
-                | b'u' | b'v' | b'x' | b'0'..=b'7' => return true,
-                _ => { i += 2; continue; }
+            let next = content[i + 1];
+            // \\ and \" are safe to convert (they become literal chars in single quotes too)
+            if next == b'\\' || next == b'"' {
+                i += 2;
+                continue;
             }
+            // Any other \X pattern requires double quotes
+            return true;
         }
         i += 1;
     }

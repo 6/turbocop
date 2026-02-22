@@ -87,6 +87,7 @@ impl Cop for SpaceAroundOperators {
             corrections: Vec::new(),
             has_corrections: corrections.is_some(),
             exponent_no_space: enforced_style_exponent == "no_space",
+            allow_for_alignment,
         };
         op_checker.visit(&parse_result.node());
         diagnostics.extend(op_checker.diagnostics);
@@ -97,9 +98,6 @@ impl Cop for SpaceAroundOperators {
         let bytes = source.as_bytes();
         let len = bytes.len();
         let mut i = 0;
-
-        // Suppress unused variable warning when alignment is not used
-        let _ = allow_for_alignment;
 
         // Helper closure: check if offset `pos` falls within any operator method name range
         let in_def_name = |pos: usize| -> bool {
@@ -271,9 +269,119 @@ struct BinaryOperatorChecker<'a> {
     corrections: Vec<crate::correction::Correction>,
     has_corrections: bool,
     exponent_no_space: bool,
+    allow_for_alignment: bool,
 }
 
 impl BinaryOperatorChecker<'_> {
+    /// Check if the same operator text appears at the same byte column on an
+    /// adjacent non-empty, non-comment line. Uses a two-pass approach matching
+    /// RuboCop's `PrecedingFollowingAlignment`:
+    /// - Pass 1: check the closest non-blank, non-comment line in each direction
+    /// - Pass 2: search for a line with the same indentation as the operator line
+    fn is_aligned_with_adjacent(&self, start: usize, op_bytes: &[u8]) -> bool {
+        let bytes = self.source.as_bytes();
+
+        // Compute byte column (distance from start of line)
+        let mut ls = start;
+        while ls > 0 && bytes[ls - 1] != b'\n' {
+            ls -= 1;
+        }
+        let byte_col = start - ls;
+
+        let lines: Vec<&[u8]> = self.source.lines().collect();
+        let (line, _) = self.source.offset_to_line_col(start);
+        let line_idx = line - 1; // 0-indexed
+
+        // Pass 1: closest non-blank, non-comment line (no indentation filter)
+        if self.check_alignment_any_direction(&lines, line_idx, byte_col, op_bytes, None) {
+            return true;
+        }
+
+        // Pass 2: search for same-indentation lines further out
+        let my_indent = lines[line_idx]
+            .iter()
+            .position(|&b| b != b' ' && b != b'\t')
+            .unwrap_or(0);
+        self.check_alignment_any_direction(&lines, line_idx, byte_col, op_bytes, Some(my_indent))
+    }
+
+    /// Check both directions for alignment, optionally filtering by indentation.
+    fn check_alignment_any_direction(
+        &self,
+        lines: &[&[u8]],
+        line_idx: usize,
+        byte_col: usize,
+        op_bytes: &[u8],
+        indent_filter: Option<usize>,
+    ) -> bool {
+        for up in [true, false] {
+            let mut check_idx = if up {
+                if line_idx == 0 {
+                    continue;
+                }
+                line_idx - 1
+            } else {
+                line_idx + 1
+            };
+
+            loop {
+                if check_idx >= lines.len() {
+                    break;
+                }
+
+                let line_bytes = lines[check_idx];
+                let first_non_ws =
+                    line_bytes.iter().position(|&b| b != b' ' && b != b'\t');
+
+                match first_non_ws {
+                    None => {
+                        // Empty line — skip
+                    }
+                    Some(fs) if line_bytes[fs] == b'#' => {
+                        // Comment line — skip
+                    }
+                    Some(indent) => {
+                        if let Some(required) = indent_filter {
+                            if indent != required {
+                                // Different indentation — skip in pass 2
+                                // (RuboCop skips non-matching indent lines)
+                                if up {
+                                    if check_idx == 0 {
+                                        break;
+                                    }
+                                    check_idx -= 1;
+                                } else {
+                                    check_idx += 1;
+                                }
+                                continue;
+                            }
+                        }
+                        // Check if same operator at same byte column
+                        if byte_col + op_bytes.len() <= line_bytes.len()
+                            && &line_bytes[byte_col..byte_col + op_bytes.len()] == op_bytes
+                        {
+                            return true;
+                        }
+                        // In pass 1 (no indent filter), stop at first non-blank line
+                        // In pass 2 (with indent filter), stop at first matching-indent line
+                        break;
+                    }
+                }
+
+                if up {
+                    if check_idx == 0 {
+                        break;
+                    }
+                    check_idx -= 1;
+                } else {
+                    check_idx += 1;
+                }
+            }
+        }
+
+        false
+    }
+
     fn check_operator_spacing(&mut self, op_loc: &ruby_prism::Location<'_>) {
         let start = op_loc.start_offset();
         let end = op_loc.end_offset();
@@ -294,6 +402,25 @@ impl BinaryOperatorChecker<'_> {
         let multi_space_after = end + 1 < bytes.len() && bytes[end] == b' ' && bytes[end + 1] == b' ';
 
         if multi_space_before || multi_space_after {
+            // AllowForAlignment: skip if aligned with same operator on adjacent line
+            if self.allow_for_alignment
+                && self.is_aligned_with_adjacent(start, op_loc.as_slice())
+            {
+                return;
+            }
+
+            // Skip if trailing space extends to a comment on the same line
+            // (RuboCop: `return if comment && with_space.last_column == comment.loc.column`)
+            if multi_space_after {
+                let mut p = end;
+                while p < bytes.len() && bytes[p] == b' ' {
+                    p += 1;
+                }
+                if p < bytes.len() && bytes[p] == b'#' {
+                    return;
+                }
+            }
+
             // Find the extent of extra spaces before the operator
             let ws_start_before = if multi_space_before {
                 let mut s = start - 1;

@@ -146,6 +146,15 @@ impl RedundantParensVisitor<'_> {
             return;
         }
 
+        // Range literals — RuboCop only flags (range) as redundant when it's a
+        // standalone statement in a begin/statements block (parent.begin_type? &&
+        // parent.children.one?). This is essentially never true in practice, and
+        // detecting it precisely requires parent type info we don't track. Skip
+        // range literals entirely to avoid false positives.
+        if inner.as_range_node().is_some() {
+            return;
+        }
+
         if let Some(msg) = classify_simple(inner) {
             self.add_offense(node, msg);
             return;
@@ -159,17 +168,15 @@ impl RedundantParensVisitor<'_> {
             }
         }
 
-        // Comparison expression — only flagged at top level (parent is nil or begin/program)
-        // RuboCop checks `begin_node.parent.nil?` which in the parser gem means top-level
-        // or inside a begin/statements block. In Prism, this corresponds to the parent being
-        // Other (Program/Statements) or no parent at all.
+        // Comparison expression — only flagged at program top-level.
+        // RuboCop checks `begin_node.parent.nil?`, which means the parenthesized
+        // expression is a direct child of the program/top-level statements.
+        // Inside method bodies, hash values, or any other nested context the
+        // parens are not flagged. We detect top-level by checking the parent
+        // stack depth: at top level it's exactly 3 (Program, Statements, Parens).
         // Must be checked before `check_method_call` since comparisons are also call nodes.
         if is_comparison(inner) && !is_chained(&self.source.content, node) {
-            let is_top_level = match parent {
-                None => true,
-                Some(p) => matches!(p.kind, ParentKind::Other),
-            };
-            if is_top_level {
+            if self.parent_stack.len() <= 3 {
                 self.add_offense(node, "a comparison expression");
                 return;
             }
@@ -494,8 +501,6 @@ fn classify_simple(node: &ruby_prism::Node<'_>) -> Option<&'static str> {
         Some("a keyword")
     } else if is_constant(node) {
         Some("a constant")
-    } else if node.as_range_node().is_some() {
-        Some("a range literal")
     } else {
         None
     }

@@ -268,11 +268,25 @@ impl<'pr> Visit<'pr> for RedundantBeginVisitor<'_> {
     }
 
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        // Skip brace blocks ({ }) — only do..end blocks support implicit
+        // begin/rescue. Ruby syntax doesn't allow bare rescue in { } blocks.
+        if node.opening_loc().as_slice() == b"{" {
+            // Still need to visit children for nested checks
+            if let Some(body) = node.body() {
+                self.visit(&body);
+            }
+            return;
+        }
         self.check_body_begin(node.body());
     }
 
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
-        self.check_body_begin(node.body());
+        // RuboCop skips stabby lambdas entirely — they don't support implicit
+        // begin/rescue in their body (even with do..end form).
+        // Still visit children for nested checks.
+        if let Some(body) = node.body() {
+            self.visit(&body);
+        }
     }
 
     fn visit_instance_variable_or_write_node(

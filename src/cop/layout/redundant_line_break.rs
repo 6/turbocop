@@ -128,6 +128,16 @@ impl Cop for RedundantLineBreak {
                 continue;
             }
 
+            // Skip string literal concatenation via backslash. RuboCop handles
+            // these at the AST level (checking the full surrounding expression
+            // for fitness on one line), which our text-based scan cannot replicate.
+            // Detect by checking if the content before `\` ends with a quote and
+            // the next line's content starts with a quote.
+            if is_string_concat_continuation(&lines, group_start, group_end) {
+                i = final_line_idx + 1;
+                continue;
+            }
+
             diagnostics.push(self.diagnostic(
                 source,
                 group_start + 1,
@@ -155,6 +165,57 @@ fn trim_leading_whitespace(line: &[u8]) -> &[u8] {
         start += 1;
     }
     &line[start..]
+}
+
+/// Check if a backslash continuation group is string literal concatenation.
+/// Returns true if every backslash line ends with `quote \` and the following
+/// line starts with a quote character (' or "), indicating adjacent string
+/// literals being concatenated.
+///
+/// Note: in the group convention, lines `group_start` through `group_end - 1`
+/// carry a trailing backslash; `group_end` is the tail line without `\`.
+fn is_string_concat_continuation(lines: &[&[u8]], group_start: usize, group_end: usize) -> bool {
+    // Iterate only over lines that actually have a trailing backslash.
+    for j in group_start..group_end {
+        let t = trim_trailing_whitespace(lines[j]);
+        if t.is_empty() || t[t.len() - 1] != b'\\' {
+            return false;
+        }
+        // Remove the trailing backslash
+        let before_bs = trim_trailing_whitespace(&t[..t.len() - 1]);
+        if before_bs.is_empty() {
+            return false;
+        }
+        let last_char = before_bs[before_bs.len() - 1];
+        if last_char != b'\'' && last_char != b'"' {
+            return false;
+        }
+
+        // Next line must start with a quote
+        if j + 1 < lines.len() {
+            let next_content = trim_leading_whitespace(lines[j + 1]);
+            if next_content.is_empty() {
+                return false;
+            }
+            let first_char = next_content[0];
+            if first_char != b'\'' && first_char != b'"' {
+                return false;
+            }
+        }
+    }
+    // Also check that the tail line (group_end) starts with a quote,
+    // since it's the final string piece in the concatenation.
+    if group_end < lines.len() {
+        let tail_content = trim_leading_whitespace(lines[group_end]);
+        if tail_content.is_empty() {
+            return false;
+        }
+        let first_char = tail_content[0];
+        if first_char != b'\'' && first_char != b'"' {
+            return false;
+        }
+    }
+    true
 }
 
 fn leading_whitespace_len(line: &[u8]) -> usize {
