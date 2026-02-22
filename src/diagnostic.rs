@@ -41,7 +41,7 @@ impl fmt::Display for Severity {
 pub struct Location {
     /// 1-indexed line number
     pub line: usize,
-    /// 0-indexed column (byte offset within the line)
+    /// 0-indexed column (character offset within the line)
     pub column: usize,
 }
 

@@ -77,3 +77,17 @@ def many_ifs_method(x)
     8
   end
 end
+
+def iterating_and_index_or(values)
+^^^ Metrics/PerceivedComplexity: Perceived complexity for iterating_and_index_or is too high. [10/8]
+  values[:a] ||= 1
+  values[:b] ||= 2
+  values[:c] ||= 3
+  values[:d] ||= 4
+  values[:e] ||= 5
+  values[:f] ||= 6
+  values.delete_if { |v| v.nil? }
+  values.reject! { |_k, v| v == false }
+  values.map! { |v| v.to_s }
+  values
+end

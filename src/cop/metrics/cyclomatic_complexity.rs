@@ -25,14 +25,18 @@ const KNOWN_ITERATING_METHODS: &[&[u8]] = &[
     b"each_key", b"each_value", b"each_slice", b"each_cons",
     b"each_line", b"each_byte", b"each_char", b"each_codepoint",
     b"map", b"flat_map", b"collect", b"collect_concat",
+    b"map!", b"collect!", b"flat_map!",
     b"select", b"filter", b"find_all", b"reject", b"filter_map",
+    b"select!", b"filter!", b"reject!", b"filter_map!",
     b"detect", b"find", b"find_index", b"rindex",
     b"reduce", b"inject", b"any?", b"all?", b"none?", b"one?",
     b"count", b"sum", b"min", b"max", b"min_by", b"max_by",
     b"minmax", b"minmax_by", b"sort_by", b"group_by",
+    b"sort_by!", b"uniq!",
     b"partition", b"zip", b"take_while", b"drop_while",
     b"chunk", b"chunk_while", b"slice_before", b"slice_after", b"slice_when",
     b"each_index", b"reverse_each",
+    b"keep_if", b"delete_if",
 ];
 
 impl CyclomaticCounter {

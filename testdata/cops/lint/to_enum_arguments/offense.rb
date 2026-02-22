@@ -12,3 +12,9 @@ def baz(x, y)
   return enum_for(:baz, x)
          ^^^^^^^^^^^^^^^^^^ Lint/ToEnumArguments: Ensure you correctly provided all the arguments.
 end
+
+def select(*args, &block)
+  return to_enum(:select) unless block_given?
+         ^^^^^^^^^^^^^^^^^^^^ Lint/ToEnumArguments: Ensure you correctly provided all the arguments.
+  args
+end

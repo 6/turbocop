@@ -8,19 +8,30 @@ use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, CASE_MATCH_NODE, CASE_NODE, D
 pub struct PerceivedComplexity;
 
 /// Known iterating method names that make blocks count toward complexity.
+/// Sourced from RuboCop's Metrics::Utils::IteratingBlock::KNOWN_ITERATING_METHODS.
 const KNOWN_ITERATING_METHODS: &[&[u8]] = &[
-    b"each", b"each_with_index", b"each_with_object", b"each_pair",
-    b"each_key", b"each_value", b"each_slice", b"each_cons",
-    b"each_line", b"each_byte", b"each_char", b"each_codepoint",
-    b"map", b"flat_map", b"collect", b"collect_concat",
-    b"select", b"filter", b"find_all", b"reject", b"filter_map",
-    b"detect", b"find", b"find_index", b"rindex",
-    b"reduce", b"inject", b"any?", b"all?", b"none?", b"one?",
-    b"count", b"sum", b"min", b"max", b"min_by", b"max_by",
-    b"minmax", b"minmax_by", b"sort_by", b"group_by",
-    b"partition", b"zip", b"take_while", b"drop_while",
-    b"chunk", b"chunk_while", b"slice_before", b"slice_after", b"slice_when",
-    b"each_index", b"reverse_each",
+    // Enumerable
+    b"all?", b"any?", b"chain", b"chunk", b"chunk_while", b"collect", b"collect_concat",
+    b"count", b"cycle", b"detect", b"drop", b"drop_while", b"each", b"each_cons",
+    b"each_entry", b"each_slice", b"each_with_index", b"each_with_object", b"entries",
+    b"filter", b"filter_map", b"find", b"find_all", b"find_index", b"flat_map",
+    b"grep", b"grep_v", b"group_by", b"inject", b"lazy", b"map", b"max", b"max_by",
+    b"min", b"min_by", b"minmax", b"minmax_by", b"none?", b"one?", b"partition",
+    b"reduce", b"reject", b"reverse_each", b"select", b"slice_after", b"slice_before",
+    b"slice_when", b"sort", b"sort_by", b"sum", b"take", b"take_while", b"tally",
+    b"to_h", b"uniq", b"zip",
+    // Enumerator
+    b"with_index", b"with_object",
+    // Array
+    b"bsearch", b"bsearch_index", b"collect!", b"combination", b"d_permutation",
+    b"delete_if", b"each_index", b"keep_if", b"map!", b"permutation", b"product",
+    b"reject!", b"repeat", b"repeated_combination", b"select!", b"sort!", b"sort_by!",
+    // Hash
+    b"each_key", b"each_pair", b"each_value", b"fetch", b"fetch_values", b"has_key?",
+    b"merge", b"merge!", b"transform_keys", b"transform_keys!", b"transform_values",
+    b"transform_values!",
+    // Extra common methods not in RuboCop's list but often seen
+    b"each_line", b"each_byte", b"each_char", b"each_codepoint", b"rindex",
 ];
 
 struct PerceivedCounter {
@@ -122,12 +133,16 @@ impl PerceivedCounter {
             | ruby_prism::Node::GlobalVariableOrWriteNode { .. }
             | ruby_prism::Node::ConstantOrWriteNode { .. }
             | ruby_prism::Node::ConstantPathOrWriteNode { .. }
+            | ruby_prism::Node::IndexOrWriteNode { .. }
+            | ruby_prism::Node::CallOrWriteNode { .. }
             | ruby_prism::Node::LocalVariableAndWriteNode { .. }
             | ruby_prism::Node::InstanceVariableAndWriteNode { .. }
             | ruby_prism::Node::ClassVariableAndWriteNode { .. }
             | ruby_prism::Node::GlobalVariableAndWriteNode { .. }
             | ruby_prism::Node::ConstantAndWriteNode { .. }
-            | ruby_prism::Node::ConstantPathAndWriteNode { .. } => {
+            | ruby_prism::Node::ConstantPathAndWriteNode { .. }
+            | ruby_prism::Node::IndexAndWriteNode { .. }
+            | ruby_prism::Node::CallAndWriteNode { .. } => {
                 self.complexity += 1;
             }
 

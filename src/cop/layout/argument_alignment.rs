@@ -41,14 +41,29 @@ impl Cop for ArgumentAlignment {
         };
 
         let arg_list = arguments.arguments();
-        if arg_list.len() < 2 {
+        if arg_list.is_empty() {
             return;
         }
 
-        let first_arg = match arg_list.iter().next() {
-            Some(a) => a,
-            None => return,
+        // Collect effective arguments: if the only argument is a KeywordHashNode,
+        // use its elements as individual alignment targets (RuboCop checks each
+        // key-value pair in a keyword hash for alignment).
+        let effective_args: Vec<ruby_prism::Node<'_>> = if arg_list.len() == 1 {
+            let first = arg_list.iter().next().unwrap();
+            if let Some(kw_hash) = first.as_keyword_hash_node() {
+                kw_hash.elements().iter().collect()
+            } else {
+                arg_list.iter().collect()
+            }
+        } else {
+            arg_list.iter().collect()
         };
+
+        if effective_args.len() < 2 {
+            return;
+        }
+
+        let first_arg = &effective_args[0];
         let (first_line, first_col) = source.offset_to_line_col(first_arg.location().start_offset());
 
         let mut checked_lines = std::collections::HashSet::new();
@@ -76,7 +91,7 @@ impl Cop for ArgumentAlignment {
             _ => first_col, // "with_first_argument" (default)
         };
 
-        for arg in arg_list.iter().skip(1) {
+        for arg in effective_args.iter().skip(1) {
             let (arg_line, arg_col) = source.offset_to_line_col(arg.location().start_offset());
             // Only check the FIRST argument on each new line
             if !checked_lines.contains(&arg_line) {

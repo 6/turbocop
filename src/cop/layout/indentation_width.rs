@@ -122,29 +122,6 @@ impl IndentationWidth {
     }
 }
 
-/// Determine the alternative base column for if/while/until body indentation.
-///
-/// The primary base is always the keyword column (`if`/`while`/`until`).
-/// When `end` is at a different column (e.g., variable-style alignment where
-/// `end` aligns with the LHS variable), returns that as an alternative base.
-/// Body indentation is accepted if correct relative to either base.
-fn alt_base_from_end(
-    source: &SourceFile,
-    kw_col: usize,
-    end_offset: Option<usize>,
-) -> Option<usize> {
-    if let Some(end_off) = end_offset {
-        let end_col = source.offset_to_line_col(end_off).1;
-        if end_col != kw_col {
-            Some(end_col)
-        } else {
-            None
-        }
-    } else {
-        None
-    }
-}
-
 impl Cop for IndentationWidth {
     fn name(&self) -> &'static str {
         "Layout/IndentationWidth"
@@ -265,15 +242,11 @@ impl Cop for IndentationWidth {
             if let Some(kw_loc) = if_node.if_keyword_loc() {
                 let kw_offset = kw_loc.start_offset();
                 let (_, kw_col) = source.offset_to_line_col(kw_offset);
-                let alt_base = alt_base_from_end(
-                    source, kw_col,
-                    if_node.end_keyword_loc().map(|l| l.start_offset()),
-                );
                 diagnostics.extend(self.check_statements_indentation(
                     source,
                     kw_offset,
                     kw_col,
-                    alt_base,
+                    None,
                     if_node.statements(),
                     width,
                 ));
@@ -383,15 +356,11 @@ impl Cop for IndentationWidth {
         if let Some(while_node) = node.as_while_node() {
             let kw_offset = while_node.keyword_loc().start_offset();
             let (_, kw_col) = source.offset_to_line_col(kw_offset);
-            let alt_base = alt_base_from_end(
-                source, kw_col,
-                while_node.closing_loc().map(|l| l.start_offset()),
-            );
             diagnostics.extend(self.check_statements_indentation(
                 source,
                 kw_offset,
                 kw_col,
-                alt_base,
+                None,
                 while_node.statements(),
                 width,
             ));
@@ -401,15 +370,11 @@ impl Cop for IndentationWidth {
         if let Some(until_node) = node.as_until_node() {
             let kw_offset = until_node.keyword_loc().start_offset();
             let (_, kw_col) = source.offset_to_line_col(kw_offset);
-            let alt_base = alt_base_from_end(
-                source, kw_col,
-                until_node.closing_loc().map(|l| l.start_offset()),
-            );
             diagnostics.extend(self.check_statements_indentation(
                 source,
                 kw_offset,
                 kw_col,
-                alt_base,
+                None,
                 until_node.statements(),
                 width,
             ));
@@ -477,29 +442,28 @@ mod tests {
     }
 
     #[test]
-    fn assignment_context_if() {
+    fn assignment_context_if_body_from_keyword() {
         use crate::testutil::run_cop_full;
-        // Body indented from LHS (column 0), not from `if` (column 4)
-        let source = b"x = if foo\n  bar\nend\n";
+        // Body indented 2 from `if` keyword (col 4), body at col 6 — correct
+        let source = b"x = if foo\n      bar\n    end\n";
         let diags = run_cop_full(&IndentationWidth, source);
-        assert!(diags.is_empty(), "assignment context if should not flag: {:?}", diags);
+        assert!(diags.is_empty(), "body at if+2 should not flag: {:?}", diags);
     }
 
     #[test]
     fn assignment_context_if_wrong_indent() {
         use crate::testutil::run_cop_full;
-        // Body at column 4 — should be column 2 (end 0 + 2) or column 6 (if 4 + 2)
-        // Column 4 matches neither base, so should be flagged.
-        let source = b"x = if foo\n    bar\nend\n";
+        // Body at column 2 — should be column 6 (if=4, 4+2=6). Flagged.
+        let source = b"x = if foo\n  bar\nend\n";
         let diags = run_cop_full(&IndentationWidth, source);
-        assert_eq!(diags.len(), 1, "should flag wrong indentation in assignment context");
+        assert_eq!(diags.len(), 1, "should flag wrong indentation in assignment context: {:?}", diags);
     }
 
     #[test]
     fn assignment_context_compound_operator() {
         use crate::testutil::run_cop_full;
-        // x ||= if foo ... body indented from column 0, end at col 0 (variable style)
-        let source = b"x ||= if foo\n  bar\nend\n";
+        // x ||= if foo ... body indented from `if` keyword (col 6), body at col 8 — correct
+        let source = b"x ||= if foo\n        bar\n      end\n";
         let diags = run_cop_full(&IndentationWidth, source);
         assert!(diags.is_empty(), "compound assignment context should work: {:?}", diags);
     }

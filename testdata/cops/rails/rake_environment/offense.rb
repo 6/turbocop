@@ -12,3 +12,11 @@ task :cleanup do
 ^^^^^^^^^^^^^^^^ Rails/RakeEnvironment: Add `:environment` dependency to the rake task.
   OldRecord.delete_all
 end
+
+task 'generate_report' do
+^^^^^^^^^^^^^^^^^^^^^^ Rails/RakeEnvironment: Add `:environment` dependency to the rake task.
+  Report.generate
+end
+
+task('update_cache') { Cache.refresh }
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Rails/RakeEnvironment: Add `:environment` dependency to the rake task.

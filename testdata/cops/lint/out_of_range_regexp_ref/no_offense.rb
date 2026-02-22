@@ -23,3 +23,9 @@ str.sub(pattern) { $1 }
 str.scan(/^##.*/) do |line|
   line.gsub(pattern) { $1 }
 end
+
+# Chained gsub: inner literal regexp should not override outer variable regexp capture count
+title = Regexp.new('(?<=\* )(.*)')
+str.scan(/^##.*/) do |line|
+  line.gsub(/#(?=#)/, '    ').gsub('#', '*').gsub(title) { "[#{$1}](##{$1})" }
+end

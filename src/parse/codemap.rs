@@ -140,36 +140,95 @@ impl NonCodeCollector<'_> {
             }
             ruby_prism::Node::InterpolatedStringNode { .. } => {
                 let isn = node.as_interpolated_string_node().unwrap();
-                let loc = node.location();
-                self.ranges.push((loc.start_offset(), loc.end_offset()));
-                // For heredocs, also cover the content parts and closing terminator.
-                if let Some(open) = isn.opening_loc() {
-                    if open.as_slice().starts_with(b"<<") {
-                        let parts = isn.parts();
-                        if !parts.is_empty() {
-                            let first_start = parts.iter().next().unwrap().location().start_offset();
-                            if let Some(close) = isn.closing_loc() {
-                                let range = (first_start, close.end_offset());
-                                self.ranges.push(range);
-                                self.heredoc_ranges.push(range);
-                            } else {
-                                let last = parts.iter().last().unwrap();
-                                let range = (first_start, last.location().end_offset());
-                                self.ranges.push(range);
-                                self.heredoc_ranges.push(range);
-                            }
+                let is_heredoc = isn.opening_loc().is_some_and(|o| o.as_slice().starts_with(b"<<"));
+
+                if is_heredoc {
+                    // For heredocs, mark the entire content as non-code (interpolation
+                    // in heredocs is different — it's part of the text body).
+                    let loc = node.location();
+                    self.ranges.push((loc.start_offset(), loc.end_offset()));
+                    let parts = isn.parts();
+                    if !parts.is_empty() {
+                        let first_start = parts.iter().next().unwrap().location().start_offset();
+                        if let Some(close) = isn.closing_loc() {
+                            let range = (first_start, close.end_offset());
+                            self.ranges.push(range);
+                            self.heredoc_ranges.push(range);
+                        } else {
+                            let last = parts.iter().last().unwrap();
+                            let range = (first_start, last.location().end_offset());
+                            self.ranges.push(range);
+                            self.heredoc_ranges.push(range);
                         }
+                    }
+                } else {
+                    // For regular interpolated strings ("...#{...}..."), mark only
+                    // the non-interpolated parts as non-code. The opening delimiter,
+                    // string literal parts, and closing delimiter are non-code, but
+                    // the content inside #{...} (EmbeddedStatementsNode) is code.
+                    if let Some(open) = isn.opening_loc() {
+                        self.ranges.push((open.start_offset(), open.end_offset()));
+                    }
+                    for part in isn.parts().iter() {
+                        if part.as_embedded_statements_node().is_none() {
+                            // StringNode part — literal text, not code
+                            let ploc = part.location();
+                            self.ranges.push((ploc.start_offset(), ploc.end_offset()));
+                        }
+                        // EmbeddedStatementsNode parts are left unmarked (= code)
+                    }
+                    if let Some(close) = isn.closing_loc() {
+                        self.ranges.push((close.start_offset(), close.end_offset()));
                     }
                 }
             }
             ruby_prism::Node::RegularExpressionNode { .. }
-            | ruby_prism::Node::InterpolatedRegularExpressionNode { .. }
             | ruby_prism::Node::XStringNode { .. }
-            | ruby_prism::Node::InterpolatedXStringNode { .. }
-            | ruby_prism::Node::SymbolNode { .. }
-            | ruby_prism::Node::InterpolatedSymbolNode { .. } => {
+            | ruby_prism::Node::SymbolNode { .. } => {
                 let loc = node.location();
                 self.ranges.push((loc.start_offset(), loc.end_offset()));
+            }
+            // For interpolated regex/xstring/symbol, mark only non-interpolated parts
+            ruby_prism::Node::InterpolatedRegularExpressionNode { .. } => {
+                let irn = node.as_interpolated_regular_expression_node().unwrap();
+                let open = irn.opening_loc();
+                self.ranges.push((open.start_offset(), open.end_offset()));
+                for part in irn.parts().iter() {
+                    if part.as_embedded_statements_node().is_none() {
+                        let ploc = part.location();
+                        self.ranges.push((ploc.start_offset(), ploc.end_offset()));
+                    }
+                }
+                let close = irn.closing_loc();
+                self.ranges.push((close.start_offset(), close.end_offset()));
+            }
+            ruby_prism::Node::InterpolatedXStringNode { .. } => {
+                let ixn = node.as_interpolated_x_string_node().unwrap();
+                let open = ixn.opening_loc();
+                self.ranges.push((open.start_offset(), open.end_offset()));
+                for part in ixn.parts().iter() {
+                    if part.as_embedded_statements_node().is_none() {
+                        let ploc = part.location();
+                        self.ranges.push((ploc.start_offset(), ploc.end_offset()));
+                    }
+                }
+                let close = ixn.closing_loc();
+                self.ranges.push((close.start_offset(), close.end_offset()));
+            }
+            ruby_prism::Node::InterpolatedSymbolNode { .. } => {
+                let isn = node.as_interpolated_symbol_node().unwrap();
+                if let Some(open) = isn.opening_loc() {
+                    self.ranges.push((open.start_offset(), open.end_offset()));
+                }
+                for part in isn.parts().iter() {
+                    if part.as_embedded_statements_node().is_none() {
+                        let ploc = part.location();
+                        self.ranges.push((ploc.start_offset(), ploc.end_offset()));
+                    }
+                }
+                if let Some(close) = isn.closing_loc() {
+                    self.ranges.push((close.start_offset(), close.end_offset()));
+                }
             }
             _ => {}
         }

@@ -34,12 +34,17 @@ impl SourceFile {
     }
 
     /// Convert a byte offset into a (1-indexed line, 0-indexed column) pair.
+    /// Column is a character offset (UTF-8 codepoint count) within the line.
     pub fn offset_to_line_col(&self, byte_offset: usize) -> (usize, usize) {
         let line_idx = match self.line_starts.binary_search(&byte_offset) {
             Ok(idx) => idx,
             Err(idx) => idx.saturating_sub(1),
         };
-        let col = byte_offset - self.line_starts[line_idx];
+        let line_bytes = &self.content[self.line_starts[line_idx]..byte_offset];
+        // Count bytes that are NOT UTF-8 continuation bytes (0x80..0xBF).
+        // This equals the number of UTF-8 character starts, and works correctly
+        // even for partial or invalid UTF-8.
+        let col = line_bytes.iter().filter(|&&b| (b & 0xC0) != 0x80).count();
         (line_idx + 1, col)
     }
 
@@ -50,12 +55,37 @@ impl SourceFile {
     }
 
     /// Convert a (1-indexed line, 0-indexed column) pair to a byte offset.
+    /// Column is a character offset (UTF-8 codepoint count) within the line.
     /// Returns `None` if line is out of range.
     pub fn line_col_to_offset(&self, line: usize, col: usize) -> Option<usize> {
         if line == 0 || line > self.line_starts.len() {
             return None;
         }
-        Some(self.line_starts[line - 1] + col)
+        let start = self.line_starts[line - 1];
+        if col == 0 {
+            return Some(start);
+        }
+        let end = if line < self.line_starts.len() {
+            self.line_starts[line]
+        } else {
+            self.content.len()
+        };
+        let mut chars_seen = 0;
+        for (i, &b) in self.content[start..end].iter().enumerate() {
+            // Only check at character boundaries (non-continuation bytes)
+            if (b & 0xC0) != 0x80 {
+                if chars_seen == col {
+                    return Some(start + i);
+                }
+                chars_seen += 1;
+            }
+        }
+        if chars_seen == col {
+            Some(end)
+        } else {
+            // col exceeds line length; fall back to clamped position
+            Some(start + col.min(end - start))
+        }
     }
 
     pub fn path_str(&self) -> &str {
@@ -245,14 +275,18 @@ mod tests {
             }
 
             #[test]
-            fn offset_to_line_col_roundtrip(content in prop::collection::vec(any::<u8>(), 1..500)) {
-                let sf = SourceFile::from_bytes("test.rb", content.clone());
-                // Test every valid byte offset
-                for offset in 0..content.len() {
+            fn offset_to_line_col_roundtrip(content in "[\\x00-\\x7f\\u{80}-\\u{10FFFF}]{1,200}") {
+                let bytes = content.as_bytes().to_vec();
+                let sf = SourceFile::from_bytes("test.rb", bytes.clone());
+                // Test every valid byte offset that falls on a UTF-8 character boundary
+                for offset in 0..bytes.len() {
+                    if !content.is_char_boundary(offset) {
+                        continue; // skip offsets in the middle of multi-byte chars
+                    }
                     let (line, col) = sf.offset_to_line_col(offset);
-                    let reconstructed = sf.line_starts[line - 1] + col;
-                    prop_assert_eq!(offset, reconstructed,
-                        "round-trip failed: offset {} -> ({}, {}) -> {}",
+                    let reconstructed = sf.line_col_to_offset(line, col);
+                    prop_assert_eq!(Some(offset), reconstructed,
+                        "round-trip failed: offset {} -> ({}, {}) -> {:?}",
                         offset, line, col, reconstructed);
                 }
             }
@@ -270,9 +304,13 @@ mod tests {
             }
 
             #[test]
-            fn line_col_to_offset_roundtrip(content in prop::collection::vec(any::<u8>(), 1..500)) {
-                let sf = SourceFile::from_bytes("test.rb", content.clone());
-                for offset in 0..content.len() {
+            fn line_col_to_offset_roundtrip(content in "[\\x00-\\x7f\\u{80}-\\u{10FFFF}]{1,200}") {
+                let bytes = content.as_bytes().to_vec();
+                let sf = SourceFile::from_bytes("test.rb", bytes.clone());
+                for offset in 0..bytes.len() {
+                    if !content.is_char_boundary(offset) {
+                        continue; // skip offsets in the middle of multi-byte chars
+                    }
                     let (line, col) = sf.offset_to_line_col(offset);
                     let back = sf.line_col_to_offset(line, col);
                     prop_assert_eq!(back, Some(offset),

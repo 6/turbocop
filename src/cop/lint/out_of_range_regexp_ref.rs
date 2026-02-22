@@ -139,6 +139,16 @@ impl<'pr> Visit<'pr> for RegexpRefVisitor<'_, '_> {
         );
 
         if sets_backref {
+            // Visit the receiver chain first, so inner regexp calls don't
+            // clobber the capture count set by THIS call's argument.
+            if let Some(recv) = node.receiver() {
+                self.visit(&recv);
+            }
+            // Visit arguments (which recurses into arg nodes)
+            if let Some(args) = node.arguments() {
+                self.visit(&args.as_node());
+            }
+            // Now set the capture count from this call's regexp argument.
             if let Some(args) = node.arguments() {
                 let arg_list: Vec<ruby_prism::Node<'pr>> = args.arguments().iter().collect();
                 if let Some(arg) = arg_list.first() {
@@ -151,6 +161,11 @@ impl<'pr> Visit<'pr> for RegexpRefVisitor<'_, '_> {
                     }
                 }
             }
+            // Now visit the block (if any) with the correct capture count.
+            if let Some(block) = node.block() {
+                self.visit(&block);
+            }
+            return;
         }
 
         ruby_prism::visit_call_node(self, node);

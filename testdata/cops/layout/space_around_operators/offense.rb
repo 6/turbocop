@@ -18,3 +18,5 @@ x &&y
   ^^ Layout/SpaceAroundOperators: Surrounding space missing for operator `&&`.
 x ||y
   ^^ Layout/SpaceAroundOperators: Surrounding space missing for operator `||`.
+x  && y
+   ^^ Layout/SpaceAroundOperators: Operator `&&` should be surrounded by a single space.

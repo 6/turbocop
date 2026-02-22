@@ -67,3 +67,18 @@ begin
 rescue StandardError
   handle
 end
+
+# Assignment context: body should be indented from `if` keyword, not `end`
+result = if condition
+  value_one
+  ^^^ Layout/IndentationWidth: Use 2 (not -7) spaces for indentation.
+else
+  value_two
+end
+
+      stream = if scheduler
+        Stream.new(scheduler)
+        ^^^ Layout/IndentationWidth: Use 2 (not -7) spaces for indentation.
+      else
+        nil
+      end

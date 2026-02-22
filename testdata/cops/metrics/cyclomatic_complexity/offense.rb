@@ -67,3 +67,20 @@ def logical_method(a, b, c)
     3
   end
 end
+
+def iterating_bang_method(values)
+^^^ Metrics/CyclomaticComplexity: Cyclomatic complexity for iterating_bang_method is too high. [9/7]
+  if values.last.is_a?(Hash)
+    hash = values.pop
+    hash.reject! { |_k, v| v == false }
+    hash.reject! { |k, v| values << k if v == true }
+  else
+    hash = {}
+  end
+  values.map! { |value| value.to_s }
+  hash.each do |key, value|
+    value = value.to_i if key == "max"
+    values << "#{key}=#{value}"
+  end
+  result = values.join(', ') if values.any?
+end

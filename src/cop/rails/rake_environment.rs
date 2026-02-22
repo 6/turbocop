@@ -57,9 +57,10 @@ impl Cop for RakeEnvironment {
             return;
         }
 
-        // Check if first arg is a symbol (simple task definition)
-        let has_symbol_arg = arg_list[0].as_symbol_node().is_some();
-        if !has_symbol_arg {
+        // Check if first arg is a symbol or string (simple task definition)
+        let has_task_name = arg_list[0].as_symbol_node().is_some()
+            || arg_list[0].as_string_node().is_some();
+        if !has_task_name {
             return;
         }
 

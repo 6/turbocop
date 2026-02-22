@@ -12,3 +12,7 @@ settings = {}
 settings.merge!(Port: port, Host: bind)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/RedundantMerge: Use `[]=` instead of `merge!` with 2 key-value pairs.
 start_server
+jar = cookies('foo=bar')
+jar.merge! :bar => 'baz'
+^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/RedundantMerge: Use `[]=` instead of `merge!` with a single key-value pair.
+expect(jar).to include('bar')

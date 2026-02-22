@@ -178,7 +178,8 @@ impl Cop for ArgumentsForwarding {
             }
         }
 
-        if !has_forwarding_call(&body, &rest_name, &block_name) {
+        let forwarding_calls = find_forwarding_calls(&body, &rest_name, &block_name, kwrest_name.as_deref());
+        if forwarding_calls.is_empty() {
             return;
         }
 
@@ -190,6 +191,17 @@ impl Cop for ArgumentsForwarding {
             column,
             "Use shorthand syntax `...` for arguments forwarding.".to_string(),
         ));
+
+        // Also report on each forwarding call site (RuboCop reports both)
+        for (start, _end_off) in &forwarding_calls {
+            let (call_line, call_col) = source.offset_to_line_col(*start);
+            diagnostics.push(self.diagnostic(
+                source,
+                call_line,
+                call_col,
+                "Use shorthand syntax `...` for arguments forwarding.".to_string(),
+            ));
+        }
     }
 }
 
@@ -248,41 +260,49 @@ impl<'pr> Visit<'pr> for NonForwardingRefFinder {
     fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
 }
 
-/// Check if any call node in the tree forwards both *rest_name and &block_name
-/// in the same argument list.
-fn has_forwarding_call(node: &ruby_prism::Node<'_>, rest_name: &[u8], block_name: &[u8]) -> bool {
+/// Find all call nodes in the tree that forward both *rest_name and &block_name
+/// in the same argument list. Returns (start_offset, end_offset) of the forwarded args range.
+fn find_forwarding_calls(node: &ruby_prism::Node<'_>, rest_name: &[u8], block_name: &[u8], kwrest_name: Option<&[u8]>) -> Vec<(usize, usize)> {
     let mut finder = ForwardingCallFinder {
         rest_name: rest_name.to_vec(),
         block_name: block_name.to_vec(),
-        found: false,
+        kwrest_name: kwrest_name.map(|n| n.to_vec()),
+        locations: Vec::new(),
     };
     finder.visit(node);
-    finder.found
+    finder.locations
 }
 
 struct ForwardingCallFinder {
     rest_name: Vec<u8>,
     block_name: Vec<u8>,
-    found: bool,
+    kwrest_name: Option<Vec<u8>>,
+    locations: Vec<(usize, usize)>,
 }
 
 impl ForwardingCallFinder {
     /// Check if the given arguments and block forward *rest_name and &block_name.
+    /// Returns the (start_offset, end_offset) of the forwarded args range if found.
     fn check_args_and_block(
         &self,
         arguments: Option<ruby_prism::ArgumentsNode<'_>>,
         block: Option<ruby_prism::Node<'_>>,
-    ) -> bool {
-        let mut has_splat = false;
-        let mut has_block = false;
+    ) -> Option<(usize, usize)> {
+        let mut splat_start: Option<usize> = None;
+        let mut splat_end: Option<usize> = None;
+        let mut block_end: Option<usize> = None;
 
-        if let Some(args) = arguments {
+        if let Some(args) = &arguments {
             for arg in args.arguments().iter() {
                 if let Some(splat) = arg.as_splat_node() {
                     if let Some(expr) = splat.expression() {
                         if let Some(lvar) = expr.as_local_variable_read_node() {
                             if lvar.name().as_slice() == self.rest_name.as_slice() {
-                                has_splat = true;
+                                let loc = splat.location();
+                                if splat_start.is_none() || loc.start_offset() < splat_start.unwrap() {
+                                    splat_start = Some(loc.start_offset());
+                                }
+                                splat_end = Some(loc.end_offset());
                             }
                         }
                     }
@@ -295,32 +315,36 @@ impl ForwardingCallFinder {
                 if let Some(expr) = block_arg.expression() {
                     if let Some(lvar) = expr.as_local_variable_read_node() {
                         if lvar.name().as_slice() == self.block_name.as_slice() {
-                            has_block = true;
+                            block_end = Some(block_arg.location().end_offset());
                         }
                     }
                 }
             }
         }
 
-        has_splat && has_block
+        if splat_start.is_some() && block_end.is_some() {
+            let start = splat_start.unwrap();
+            let end = block_end.unwrap();
+            Some((start, end))
+        } else {
+            None
+        }
     }
 }
 
 impl<'pr> Visit<'pr> for ForwardingCallFinder {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        if self.check_args_and_block(node.arguments(), node.block()) {
-            self.found = true;
-            return;
+        if let Some(range) = self.check_args_and_block(node.arguments(), node.block()) {
+            self.locations.push(range);
         }
 
-        // Continue recursing
+        // Continue recursing to find all forwarding calls
         ruby_prism::visit_call_node(self, node);
     }
 
     fn visit_super_node(&mut self, node: &ruby_prism::SuperNode<'pr>) {
-        if self.check_args_and_block(node.arguments(), node.block()) {
-            self.found = true;
-            return;
+        if let Some(range) = self.check_args_and_block(node.arguments(), node.block()) {
+            self.locations.push(range);
         }
 
         // Continue recursing
@@ -338,7 +362,7 @@ mod tests {
         use crate::testutil::run_cop_full;
         let source = b"def foo(*args, **opts, &block)\n  bar(*args, **opts, &block)\nend\n";
         let diags = run_cop_full(&ArgumentsForwarding, source);
-        assert_eq!(diags.len(), 1, "should detect triple forwarding: {:?}", diags);
+        assert_eq!(diags.len(), 2, "should detect triple forwarding (def + call): {:?}", diags);
     }
 
     #[test]
@@ -346,7 +370,7 @@ mod tests {
         use crate::testutil::run_cop_full;
         let source = b"def foo(*args, &block)\n  super(*args, &block)\nend\n";
         let diags = run_cop_full(&ArgumentsForwarding, source);
-        assert_eq!(diags.len(), 1, "should detect super forwarding: {:?}", diags);
+        assert_eq!(diags.len(), 2, "should detect super forwarding (def + call): {:?}", diags);
     }
 
     #[test]
@@ -363,7 +387,7 @@ mod tests {
         use crate::testutil::run_cop_full;
         let source = b"def self.foo(*args, &block)\n  bar(*args, &block)\nend\n";
         let diags = run_cop_full(&ArgumentsForwarding, source);
-        assert_eq!(diags.len(), 1, "should detect singleton method forwarding: {:?}", diags);
+        assert_eq!(diags.len(), 2, "should detect singleton method forwarding (def + call): {:?}", diags);
     }
 
     #[test]
@@ -372,7 +396,7 @@ mod tests {
         // Method has **opts but they're not part of redundant names check
         let source = b"def foo(*args, **options, &block)\n  bar(*args, **options, &block)\nend\n";
         let diags = run_cop_full(&ArgumentsForwarding, source);
-        assert_eq!(diags.len(), 1, "should detect forwarding with options: {:?}", diags);
+        assert_eq!(diags.len(), 2, "should detect forwarding with options (def + call): {:?}", diags);
     }
 
     #[test]
@@ -398,6 +422,6 @@ mod tests {
         use crate::testutil::run_cop_full;
         let source = b"def foo(*args, **opts, &block)\n  super(*args, **opts, &block)\nend\n";
         let diags = run_cop_full(&ArgumentsForwarding, source);
-        assert_eq!(diags.len(), 1, "should detect super with triple forwarding: {:?}", diags);
+        assert_eq!(diags.len(), 2, "should detect super with triple forwarding (def + call): {:?}", diags);
     }
 }

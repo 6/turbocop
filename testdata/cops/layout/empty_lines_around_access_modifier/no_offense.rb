@@ -86,3 +86,11 @@ class Conversation
   def clear_waiting
   end
 end
+
+# Access modifiers inside a block body (not a class/module) should not be flagged
+app = Sinatra.new do
+  private
+  def priv; end
+  public
+  def pub; end
+end

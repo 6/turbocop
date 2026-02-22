@@ -68,22 +68,22 @@ items.each do |item|
   process(item)
 end
 
-# Assignment context (variable style): body indented from LHS, end at LHS
+# Assignment context: body indented from `if` keyword column
 x = if foo
-  bar
-end
+      bar
+    end
 
 result = if condition
-  value_a
-end
+           value_a
+         end
 
 y = while queue.any?
-  queue.pop
-end
+      queue.pop
+    end
 
 z = until done
-  process_next
-end
+      process_next
+    end
 
 # Assignment context (keyword style): body indented from keyword, end at keyword
 links = if enabled?

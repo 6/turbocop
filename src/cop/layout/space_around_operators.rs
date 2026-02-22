@@ -64,7 +64,7 @@ impl Cop for SpaceAroundOperators {
     mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_for_alignment = config.get_bool("AllowForAlignment", true);
-        let _enforced_style_exponent =
+        let enforced_style_exponent =
             config.get_str("EnforcedStyleForExponentOperator", "no_space");
         let _enforced_style_rational =
             config.get_str("EnforcedStyleForRationalLiterals", "no_space");
@@ -86,6 +86,7 @@ impl Cop for SpaceAroundOperators {
             diagnostics: Vec::new(),
             corrections: Vec::new(),
             has_corrections: corrections.is_some(),
+            exponent_no_space: enforced_style_exponent == "no_space",
         };
         op_checker.visit(&parse_result.node());
         diagnostics.extend(op_checker.diagnostics);
@@ -269,6 +270,7 @@ struct BinaryOperatorChecker<'a> {
     diagnostics: Vec<Diagnostic>,
     corrections: Vec<crate::correction::Correction>,
     has_corrections: bool,
+    exponent_no_space: bool,
 }
 
 impl BinaryOperatorChecker<'_> {
@@ -278,11 +280,66 @@ impl BinaryOperatorChecker<'_> {
         let bytes = self.source.as_bytes();
         let op_str = std::str::from_utf8(op_loc.as_slice()).unwrap_or("??");
 
+        // Skip ** when exponent style is no_space
+        if op_str == "**" && self.exponent_no_space {
+            return;
+        }
+
         let space_before = start > 0 && bytes[start - 1] == b' ';
         let space_after = end < bytes.len() && bytes[end] == b' ';
         let newline_after = end >= bytes.len() || bytes[end] == b'\n' || bytes[end] == b'\r';
 
-        if !space_before || (!space_after && !newline_after) {
+        // Check for multiple spaces (extra whitespace before or after operator)
+        let multi_space_before = start >= 2 && bytes[start - 1] == b' ' && bytes[start - 2] == b' ';
+        let multi_space_after = end + 1 < bytes.len() && bytes[end] == b' ' && bytes[end + 1] == b' ';
+
+        if multi_space_before || multi_space_after {
+            // Find the extent of extra spaces before the operator
+            let ws_start_before = if multi_space_before {
+                let mut s = start - 1;
+                while s > 0 && bytes[s - 1] == b' ' {
+                    s -= 1;
+                }
+                s
+            } else {
+                start
+            };
+            // Find the extent of extra spaces after the operator
+            let ws_end_after = if multi_space_after {
+                let mut e = end;
+                while e < bytes.len() && bytes[e] == b' ' {
+                    e += 1;
+                }
+                e
+            } else {
+                end
+            };
+            let (line, column) = self.source.offset_to_line_col(start);
+            let mut diag = self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                format!("Operator `{op_str}` should be surrounded by a single space."),
+            );
+            if self.has_corrections {
+                // Replace multi-space before with single space
+                if multi_space_before {
+                    self.corrections.push(crate::correction::Correction {
+                        start: ws_start_before, end: start, replacement: " ".to_string(),
+                        cop_name: self.cop.name(), cop_index: 0,
+                    });
+                }
+                // Replace multi-space after with single space
+                if multi_space_after {
+                    self.corrections.push(crate::correction::Correction {
+                        start: end, end: ws_end_after, replacement: " ".to_string(),
+                        cop_name: self.cop.name(), cop_index: 0,
+                    });
+                }
+                diag.corrected = true;
+            }
+            self.diagnostics.push(diag);
+        } else if !space_before || (!space_after && !newline_after) {
             let (line, column) = self.source.offset_to_line_col(start);
             let mut diag = self.cop.diagnostic(
                 self.source,

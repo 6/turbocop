@@ -1,5 +1,7 @@
+use ruby_prism::Visit;
+
 use crate::cop::util::{
-    self, is_blank_line, is_rspec_example_group, is_rspec_hook, line_at, node_on_single_line,
+    self, is_blank_line, is_rspec_hook, line_at, node_on_single_line,
     RSPEC_DEFAULT_INCLUDE,
 };
 use crate::cop::{Cop, CopConfig};
@@ -35,29 +37,11 @@ impl Cop for EmptyLineAfterHook {
     diagnostics: &mut Vec<Diagnostic>,
     _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let call = match node.as_call_node() {
-            Some(c) => c,
-            None => return,
-        };
-
-        let method_name = call.name().as_slice();
-
-        // Check for example group calls (including ::RSpec.describe)
-        let is_example_group = if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).map_or(false, |n| n == b"RSpec") && method_name == b"describe"
-        } else {
-            is_rspec_example_group(method_name)
-        };
-
-        if !is_example_group {
-            return;
-        }
-
-        let block = match call.block() {
-            Some(b) => match b.as_block_node() {
-                Some(bn) => bn,
-                None => return,
-            },
+        // We look for any block node whose body contains statements.
+        // Among those statements, we find hook calls and check if there's
+        // a blank line after them.
+        let block = match node.as_block_node() {
+            Some(bn) => bn,
             None => return,
         };
 
@@ -75,28 +59,32 @@ impl Cop for EmptyLineAfterHook {
         let nodes: Vec<_> = stmts.body().iter().collect();
 
         for (i, stmt) in nodes.iter().enumerate() {
-            let c = match stmt.as_call_node() {
-                Some(c) => c,
-                None => continue,
-            };
-
-            let name = c.name().as_slice();
-            if c.receiver().is_some() || !is_rspec_hook(name) {
+            // A hook can be a bare call (before { ... }) which Prism parses as
+            // a CallNode with a block child, or it can be a call_node without block
+            // but that's unusual for hooks. Check if this statement is a hook call.
+            let (name, loc) = if let Some(c) = stmt.as_call_node() {
+                let n = c.name().as_slice();
+                if c.receiver().is_some() || !is_rspec_hook(n) {
+                    continue;
+                }
+                // Must have a block to be a hook invocation
+                if c.block().is_none() {
+                    continue;
+                }
+                (n, stmt.location())
+            } else {
                 continue;
-            }
+            };
 
             // Check if there's a next statement
             if i + 1 >= nodes.len() {
                 continue; // last statement, no need for blank line
             }
 
-            let loc = stmt.location();
             let end_offset = loc.end_offset().saturating_sub(1).max(loc.start_offset());
             let (end_line, _) = source.offset_to_line_col(end_offset);
 
-            // Check if next non-comment line is blank (or if there's a blank
-            // line between the hook end and the next code line).
-            // Skip rubocop directive comments and regular comments.
+            // Check if next non-comment line is blank
             let mut check_line = end_line + 1;
             let mut found_blank = false;
             loop {
@@ -115,11 +103,9 @@ impl Cop for EmptyLineAfterHook {
                             .map(|start| &line[start..])
                             .unwrap_or(&[]);
                         if trimmed.starts_with(b"#") {
-                            // Comment line — skip it and check the next line
                             check_line += 1;
                             continue;
                         }
-                        // Non-blank, non-comment line without a preceding blank
                         break;
                     }
                 }
@@ -135,7 +121,7 @@ impl Cop for EmptyLineAfterHook {
                 let next_stmt = &nodes[i + 1];
                 if let Some(next_c) = next_stmt.as_call_node() {
                     let next_name = next_c.name().as_slice();
-                    if next_c.receiver().is_none() && is_rspec_hook(next_name) {
+                    if next_c.receiver().is_none() && is_rspec_hook(next_name) && next_c.block().is_some() {
                         let next_loc = next_stmt.location();
                         if node_on_single_line(source, &next_loc) {
                             continue; // consecutive one-liner hooks allowed

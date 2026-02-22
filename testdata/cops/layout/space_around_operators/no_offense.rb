@@ -71,3 +71,7 @@ x <=> y
 # Unary operators (not binary — should not be flagged)
 z = -x
 z = +x
+
+# Exponent operator with no_space style (default) should not be flagged
+x = 2**10
+y = n**(k - 1)
