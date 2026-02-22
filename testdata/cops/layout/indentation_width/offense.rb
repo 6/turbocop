@@ -47,3 +47,23 @@ source
       process(batch)
       ^^^ Layout/IndentationWidth: Use 2 (not 4) spaces for indentation.
 end
+
+# begin...end block with wrong indentation
+begin
+x = 1
+^^^ Layout/IndentationWidth: Use 2 (not 0) spaces for indentation.
+rescue => e
+  puts e
+end
+
+begin
+      require 'builder'
+      ^^^ Layout/IndentationWidth: Use 2 (not 6) spaces for indentation.
+end
+
+begin
+    do_something
+    ^^^ Layout/IndentationWidth: Use 2 (not 4) spaces for indentation.
+rescue StandardError
+  handle
+end

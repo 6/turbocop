@@ -2,7 +2,7 @@ use crate::cop::util::expected_indent_for_body;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, IF_NODE, MODULE_NODE, STATEMENTS_NODE, UNTIL_NODE, WHEN_NODE, WHILE_NODE};
+use crate::cop::node_type::{BEGIN_NODE, BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, IF_NODE, MODULE_NODE, STATEMENTS_NODE, UNTIL_NODE, WHEN_NODE, WHILE_NODE};
 
 pub struct IndentationWidth;
 
@@ -151,7 +151,7 @@ impl Cop for IndentationWidth {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, IF_NODE, MODULE_NODE, STATEMENTS_NODE, UNTIL_NODE, WHEN_NODE, WHILE_NODE]
+        &[BEGIN_NODE, BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, IF_NODE, MODULE_NODE, STATEMENTS_NODE, UNTIL_NODE, WHEN_NODE, WHILE_NODE]
     }
 
     fn check_node(
@@ -180,6 +180,34 @@ impl Cop for IndentationWidth {
                         }
                     }
                 }
+            }
+        }
+
+        // begin...end blocks (Prism's BeginNode for explicit `begin` keyword).
+        // RuboCop checks body indentation relative to the `end` keyword, not
+        // the `begin` keyword. This handles assignment context correctly:
+        //   x = begin
+        //     body       # indented from `end`, not from `begin`
+        //   end
+        if let Some(begin_node) = node.as_begin_node() {
+            if let Some(begin_kw_loc) = begin_node.begin_keyword_loc() {
+                let kw_offset = begin_kw_loc.start_offset();
+                let (_, kw_col) = source.offset_to_line_col(kw_offset);
+                let base_col = if let Some(end_loc) = begin_node.end_keyword_loc() {
+                    source.offset_to_line_col(end_loc.start_offset()).1
+                } else {
+                    kw_col
+                };
+                let alt_base = if base_col != kw_col { Some(kw_col) } else { None };
+                diagnostics.extend(self.check_statements_indentation(
+                    source,
+                    kw_offset,
+                    base_col,
+                    alt_base,
+                    begin_node.statements(),
+                    width,
+                ));
+                return;
             }
         }
 

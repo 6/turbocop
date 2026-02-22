@@ -124,3 +124,26 @@ y = while queue.any?
 z = until done
       process_next
     end
+
+# begin...end block with correct indentation
+begin
+  require 'builder'
+rescue LoadError
+  # skip
+end
+
+begin
+  x = 1
+  y = 2
+end
+
+# begin...end in assignment context — body indented from `end`, not `begin`
+result = begin
+  compute_value
+rescue StandardError
+  nil
+end
+
+@cache ||= begin
+  load_cache
+end

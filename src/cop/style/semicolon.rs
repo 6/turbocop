@@ -75,8 +75,8 @@ fn trim_bytes(b: &[u8]) -> &[u8] {
 }
 
 /// Check if a trimmed line is a single-line body that RuboCop doesn't flag.
-/// Patterns: `def foo; end`, `def foo; something; end`,
-/// `class Foo < Bar; end`, `module Foo; end`
+/// RuboCop defers single-line `def`/`class`/`module` bodies to Style/SingleLineMethods
+/// and similar cops. Any `def foo; body end` pattern should not be flagged here.
 fn is_single_line_body(trimmed: &[u8]) -> bool {
     let starts_keyword = trimmed.starts_with(b"def ")
         || trimmed.starts_with(b"class ")
@@ -84,7 +84,22 @@ fn is_single_line_body(trimmed: &[u8]) -> bool {
         || trimmed.starts_with(b"while ")
         || trimmed.starts_with(b"until ")
         || trimmed.starts_with(b"begin");
-    starts_keyword && trimmed.ends_with(b"; end")
+    starts_keyword && ends_with_word_end(trimmed)
+}
+
+/// Check if a byte slice ends with the word `end` (as a whole word, not part of `send` etc.)
+fn ends_with_word_end(s: &[u8]) -> bool {
+    if s.len() < 3 {
+        return false;
+    }
+    if !s.ends_with(b"end") {
+        return false;
+    }
+    if s.len() == 3 {
+        return true;
+    }
+    let before = s[s.len() - 4];
+    !before.is_ascii_alphanumeric() && before != b'_'
 }
 
 /// Check if a semicolon at a given column is part of a `def/class/module ... ; end`
@@ -104,25 +119,9 @@ fn is_embedded_single_line_body(line_bytes: &[u8], semicolon_col: usize) -> bool
         return false;
     }
 
-    // Check if after the semicolon there's `end` or `...; end` pattern
-    let trimmed_after = trim_bytes_start(after);
-    if trimmed_after.starts_with(b"end")
-        && (trimmed_after.len() == 3
-            || !trimmed_after[3].is_ascii_alphanumeric() && trimmed_after[3] != b'_')
-    {
-        return true;
-    }
-    // Also check for `something; end` after
-    if let Some(next_semi) = after.iter().position(|&b| b == b';') {
-        let after_next = trim_bytes_start(&after[next_semi + 1..]);
-        if after_next.starts_with(b"end")
-            && (after_next.len() == 3
-                || !after_next[3].is_ascii_alphanumeric() && after_next[3] != b'_')
-        {
-            return true;
-        }
-    }
-    false
+    // Check if `end` appears as a word anywhere after the semicolon
+    // This handles `def foo; end`, `def foo; body end`, `def foo; body; end`, etc.
+    has_word_in(after, b"end")
 }
 
 fn find_keyword_before(before: &[u8], keyword: &[u8]) -> bool {
@@ -143,6 +142,26 @@ fn find_keyword_before(before: &[u8], keyword: &[u8]) -> bool {
 fn trim_bytes_start(b: &[u8]) -> &[u8] {
     let start = b.iter().position(|&c| c != b' ' && c != b'\t').unwrap_or(b.len());
     &b[start..]
+}
+
+/// Check if a word appears as a standalone word in bytes (surrounded by word boundaries).
+fn has_word_in(bytes: &[u8], word: &[u8]) -> bool {
+    if bytes.len() < word.len() {
+        return false;
+    }
+    for i in 0..=bytes.len() - word.len() {
+        if &bytes[i..i + word.len()] == word {
+            let before_ok =
+                i == 0 || (!bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_');
+            let end_pos = i + word.len();
+            let after_ok = end_pos >= bytes.len()
+                || (!bytes[end_pos].is_ascii_alphanumeric() && bytes[end_pos] != b'_');
+            if before_ok && after_ok {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[cfg(test)]
