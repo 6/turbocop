@@ -1,6 +1,6 @@
 # turbocop
 
-Experimental RuboCop rewrite in Rust. Often 20x+ faster, 900+ cops.
+Experimental RuboCop rewrite in Rust. Often 10x+ faster, 900+ cops.
 
 > [!NOTE]
 > 🚧 Early-stage: Detection is high-fidelity on most codebases but edge cases remain. Autocorrect is not yet complete. Expect bugs.
@@ -68,24 +68,24 @@ Every cop reads its RuboCop YAML config options and has fixture-based test cover
 
 We run both turbocop and RuboCop on 14 popular open source repos and compare every offense by file, line, and cop name. Match rate is the percentage of offenses that both tools agree on:
 
-| Repo | Offenses | Match rate |
-|------|-------:|----------:|
-| mastodon | 302 | 100.0% |
-| discourse | 0 | 100.0% |
-| rails | 6 | 100.0% |
-| rubocop | 0 | 100.0% |
-| chatwoot | 251 | 100.0% |
-| errbit | 1579 | 100.0% |
-| activeadmin | 3 | 100.0% |
-| good_job | 37 | 100.0% |
-| docuseal | 60 | 100.0% |
-| rubygems.org | 3 | 100.0% |
-| doorkeeper | 623 | 100.0% |
-| fat_free_crm | 32 | 100.0% |
-| multi_json | 2 | 100.0% |
-| lobsters | 6 | 100.0% |
+| Repo | .rb files | Offenses | Match | turbocop | RuboCop |
+|------|----------:|-------:|------:|---------:|--------:|
+| [mastodon](https://github.com/mastodon/mastodon) | 2,526 | 302 | 100% | **152ms** | 2,390ms |
+| [discourse](https://github.com/discourse/discourse) | 5,831 | 0 | 100% | **499ms** | 3,500ms |
+| [rails](https://github.com/rails/rails) | 3,332 | 6 | 100% | **157ms** | 6,040ms |
+| [rubocop](https://github.com/rubocop/rubocop) | 1,665 | 0 | 100% | **316ms** | 1,190ms |
+| [chatwoot](https://github.com/chatwoot/chatwoot) | 1,900 | 251 | 100% | **218ms** | 2,550ms |
+| [errbit](https://github.com/errbit/errbit) | 207 | 1,579 | 100% | **51ms** | 1,190ms |
+| [activeadmin](https://github.com/activeadmin/activeadmin) | 354 | 3 | 100% | **35ms** | 1,090ms |
+| [good_job](https://github.com/bensheldon/good_job) | 242 | 37 | 100% | **51ms** | 1,170ms |
+| [docuseal](https://github.com/docusealco/docuseal) | 406 | 60 | 100% | **50ms** | 1,190ms |
+| [rubygems.org](https://github.com/rubygems/rubygems.org) | 1,222 | 3 | 100% | **56ms** | 1,390ms |
+| [doorkeeper](https://github.com/doorkeeper-gem/doorkeeper) | 246 | 623 | 100% | **48ms** | 1,090ms |
+| [fat_free_crm](https://github.com/fatfreecrm/fat_free_crm) | 464 | 32 | 100% | **55ms** | 1,220ms |
+| [multi_json](https://github.com/sferik/multi_json) | 116 | 2 | 100% | **21ms** | 867ms |
+| [lobsters](https://github.com/lobsters/lobsters) | 450 | 6 | 100% | **36ms** | 1,150ms |
 
-See [bench/results.md](bench/results.md) for full details including FP/FN breakdowns.
+Times are with warm cache, 10% of files invalidated (capped at 50), Apple Silicon. See [bench/results.md](bench/results.md) for full details.
 
 ## Hybrid Mode
 
