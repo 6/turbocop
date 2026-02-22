@@ -22,6 +22,7 @@ bench/private_autocorrect_validate.json
 bench/private_autocorrect_validate.md
 
 # Corpus oracle
+corpus/.bundle/
 corpus/vendor/
 corpus/repos/
 corpus-results.json
