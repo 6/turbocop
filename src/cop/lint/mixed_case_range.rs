@@ -1,7 +1,7 @@
+use crate::cop::node_type::{RANGE_NODE, STRING_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{RANGE_NODE, STRING_NODE};
 
 /// Checks for mixed-case character ranges that include unintended characters.
 /// For example, `('A'..'z')` includes `[`, `\`, `]`, `^`, `_`, `` ` ``.
@@ -28,14 +28,13 @@ impl Cop for MixedCaseRange {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check inclusive range (..)
         if let Some(range) = node.as_range_node() {
             diagnostics.extend(self.check_range(source, range));
         }
-
     }
 }
 

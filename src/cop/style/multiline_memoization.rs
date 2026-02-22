@@ -1,7 +1,11 @@
+use crate::cop::node_type::{
+    BEGIN_NODE, CLASS_VARIABLE_OR_WRITE_NODE, CONSTANT_OR_WRITE_NODE,
+    GLOBAL_VARIABLE_OR_WRITE_NODE, INSTANCE_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_OR_WRITE_NODE,
+    PARENTHESES_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BEGIN_NODE, CLASS_VARIABLE_OR_WRITE_NODE, CONSTANT_OR_WRITE_NODE, GLOBAL_VARIABLE_OR_WRITE_NODE, INSTANCE_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_OR_WRITE_NODE, PARENTHESES_NODE};
 
 pub struct MultilineMemoization;
 
@@ -11,7 +15,15 @@ impl Cop for MultilineMemoization {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BEGIN_NODE, CLASS_VARIABLE_OR_WRITE_NODE, CONSTANT_OR_WRITE_NODE, GLOBAL_VARIABLE_OR_WRITE_NODE, INSTANCE_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_OR_WRITE_NODE, PARENTHESES_NODE]
+        &[
+            BEGIN_NODE,
+            CLASS_VARIABLE_OR_WRITE_NODE,
+            CONSTANT_OR_WRITE_NODE,
+            GLOBAL_VARIABLE_OR_WRITE_NODE,
+            INSTANCE_VARIABLE_OR_WRITE_NODE,
+            LOCAL_VARIABLE_OR_WRITE_NODE,
+            PARENTHESES_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +32,8 @@ impl Cop for MultilineMemoization {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "keyword");
 
@@ -43,7 +55,9 @@ impl Cop for MultilineMemoization {
         // Check if the value spans multiple lines
         let assign_line = source.offset_to_line_col(assign_loc.start_offset()).0;
         let value_end_offset = value.location().start_offset() + value.location().as_slice().len();
-        let value_end_line = source.offset_to_line_col(value_end_offset.saturating_sub(1)).0;
+        let value_end_line = source
+            .offset_to_line_col(value_end_offset.saturating_sub(1))
+            .0;
 
         if assign_line == value_end_line {
             // Single line - not a multiline memoization
@@ -74,7 +88,6 @@ impl Cop for MultilineMemoization {
                 ));
             }
         }
-
     }
 }
 

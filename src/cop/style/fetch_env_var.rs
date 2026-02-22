@@ -10,7 +10,8 @@ pub struct FetchEnvVar;
 impl FetchEnvVar {
     fn is_env_receiver(node: &ruby_prism::Node<'_>) -> bool {
         // Simple constant: ENV
-        if node.as_constant_read_node()
+        if node
+            .as_constant_read_node()
             .map_or(false, |c| c.name().as_slice() == b"ENV")
         {
             return true;
@@ -60,9 +61,7 @@ impl FetchEnvVar {
 
     /// Extract the byte ranges of ENV key arguments from ENV['X'] calls in a subtree.
     /// Returns a set of (start_offset, end_offset) tuples for the key arguments.
-    fn collect_env_key_ranges(
-        node: &ruby_prism::Node<'_>,
-    ) -> HashSet<(usize, usize)> {
+    fn collect_env_key_ranges(node: &ruby_prism::Node<'_>) -> HashSet<(usize, usize)> {
         struct KeyCollector {
             key_ranges: HashSet<(usize, usize)>,
         }
@@ -94,10 +93,7 @@ impl FetchEnvVar {
 
     /// Check if a method name is a comparison method (==, !=, <, >, <=, >=, <=>).
     fn is_comparison_method(name: &[u8]) -> bool {
-        matches!(
-            name,
-            b"==" | b"!=" | b"<" | b">" | b"<=" | b">=" | b"<=>"
-        )
+        matches!(name, b"==" | b"!=" | b"<" | b">" | b"<=" | b">=" | b"<=>")
     }
 }
 
@@ -112,8 +108,8 @@ impl Cop for FetchEnvVar {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed_vars = config.get_string_array("AllowedVars");
         let default_to_nil = config.get_bool("DefaultToNil", true);
@@ -232,7 +228,10 @@ impl<'pr> Visit<'pr> for FetchEnvVarVisitor<'_> {
             }
 
             // Check if this ENV['X'] is suppressed (used as flag or LHS of ||)
-            if self.suppressed_offsets.contains(&node.location().start_offset()) {
+            if self
+                .suppressed_offsets
+                .contains(&node.location().start_offset())
+            {
                 return;
             }
 

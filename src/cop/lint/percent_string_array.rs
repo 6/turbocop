@@ -1,7 +1,7 @@
+use crate::cop::node_type::ARRAY_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::ARRAY_NODE;
 
 pub struct PercentStringArray;
 
@@ -24,8 +24,8 @@ impl Cop for PercentStringArray {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let array_node = match node.as_array_node() {
             Some(a) => a,
@@ -72,7 +72,6 @@ impl Cop for PercentStringArray {
                 return;
             }
         }
-
     }
 }
 

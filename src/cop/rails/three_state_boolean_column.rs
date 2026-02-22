@@ -25,8 +25,8 @@ impl Cop for ThreeStateBooleanColumn {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = ThreeStateBooleanVisitor {
             cop: self,
@@ -93,8 +93,8 @@ impl<'pr> Visit<'pr> for ThreeStateBooleanVisitor<'_, 'pr> {
 
         if let Some(info) = boolean_info {
             // Check if required options (default: non-nil AND null: false) are present
-            let has_default = keyword_arg_value(node, b"default")
-                .is_some_and(|v| v.as_nil_node().is_none());
+            let has_default =
+                keyword_arg_value(node, b"default").is_some_and(|v| v.as_nil_node().is_none());
             let has_null_false =
                 keyword_arg_value(node, b"null").is_some_and(|v| v.as_false_node().is_some());
 
@@ -180,10 +180,10 @@ impl<'pr> Visit<'pr> for ChangeColumnNullFinder<'_> {
                 let arg_list: Vec<_> = args.arguments().iter().collect();
                 // change_column_null :table, :column, false
                 if arg_list.len() >= 3 {
-                    let table_matches = extract_name_value(&arg_list[0])
-                        .is_some_and(|v| v == self.table_name);
-                    let column_matches = extract_name_value(&arg_list[1])
-                        .is_some_and(|v| v == self.column_name);
+                    let table_matches =
+                        extract_name_value(&arg_list[0]).is_some_and(|v| v == self.table_name);
+                    let column_matches =
+                        extract_name_value(&arg_list[1]).is_some_and(|v| v == self.column_name);
                     let is_false = arg_list[2].as_false_node().is_some();
                     if table_matches && column_matches && is_false {
                         self.found = true;
@@ -278,5 +278,8 @@ fn check_boolean_method(
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ThreeStateBooleanColumn, "cops/rails/three_state_boolean_column");
+    crate::cop_fixture_tests!(
+        ThreeStateBooleanColumn,
+        "cops/rails/three_state_boolean_column"
+    );
 }

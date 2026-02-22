@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, SYMBOL_NODE};
 use crate::cop::{Cop, CopConfig, EnabledState};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, SYMBOL_NODE};
 
 pub struct PluckId;
 
@@ -24,8 +24,8 @@ impl Cop for PluckId {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // This cop is disabled by default in RuboCop (Enabled: false in vendor config).
         // Only fire when explicitly enabled in the project config.
@@ -68,7 +68,6 @@ impl Cop for PluckId {
                 ));
             }
         }
-
     }
 }
 

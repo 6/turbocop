@@ -1,8 +1,10 @@
+use crate::cop::node_type::{
+    CALL_NODE, CLASS_NODE, CONSTANT_WRITE_NODE, MODULE_NODE, STATEMENTS_NODE, SYMBOL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use std::collections::HashSet;
-use crate::cop::node_type::{CALL_NODE, CLASS_NODE, CONSTANT_WRITE_NODE, MODULE_NODE, STATEMENTS_NODE, SYMBOL_NODE};
 
 pub struct ConstantVisibility;
 
@@ -12,7 +14,14 @@ impl Cop for ConstantVisibility {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CLASS_NODE, CONSTANT_WRITE_NODE, MODULE_NODE, STATEMENTS_NODE, SYMBOL_NODE]
+        &[
+            CALL_NODE,
+            CLASS_NODE,
+            CONSTANT_WRITE_NODE,
+            MODULE_NODE,
+            STATEMENTS_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -21,8 +30,8 @@ impl Cop for ConstantVisibility {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _ignore_pattern = config.get_str("IgnoreModuleContaining", "");
         let ignore_modules = config.get_bool("IgnoreModules", false);
@@ -59,8 +68,7 @@ impl Cop for ConstantVisibility {
                     if let Some(args) = call.arguments() {
                         for arg in args.arguments().iter() {
                             if let Some(sym) = arg.as_symbol_node() {
-                                let sym_name = std::str::from_utf8(sym.unescaped())
-                                    .unwrap_or("");
+                                let sym_name = std::str::from_utf8(sym.unescaped()).unwrap_or("");
                                 visible_constants.insert(sym_name.to_string());
                             }
                         }
@@ -72,8 +80,7 @@ impl Cop for ConstantVisibility {
         // Check for constant assignments without visibility
         for stmt in stmts.body().iter() {
             if let Some(const_write) = stmt.as_constant_write_node() {
-                let const_name = std::str::from_utf8(const_write.name().as_slice())
-                    .unwrap_or("");
+                let const_name = std::str::from_utf8(const_write.name().as_slice()).unwrap_or("");
                 if !visible_constants.contains(const_name) {
                     let loc = stmt.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -89,7 +96,6 @@ impl Cop for ConstantVisibility {
                 }
             }
         }
-
     }
 }
 

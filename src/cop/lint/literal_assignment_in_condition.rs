@@ -1,7 +1,12 @@
+use crate::cop::node_type::{
+    AND_NODE, CLASS_VARIABLE_WRITE_NODE, CONSTANT_WRITE_NODE, FALSE_NODE, FLOAT_NODE,
+    GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, INTEGER_NODE,
+    LOCAL_VARIABLE_WRITE_NODE, NIL_NODE, OR_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE,
+    SYMBOL_NODE, TRUE_NODE, UNLESS_NODE, UNTIL_NODE, WHILE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{AND_NODE, CLASS_VARIABLE_WRITE_NODE, CONSTANT_WRITE_NODE, FALSE_NODE, FLOAT_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, INTEGER_NODE, LOCAL_VARIABLE_WRITE_NODE, NIL_NODE, OR_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE, UNLESS_NODE, UNTIL_NODE, WHILE_NODE};
 
 pub struct LiteralAssignmentInCondition;
 
@@ -15,7 +20,27 @@ impl Cop for LiteralAssignmentInCondition {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[AND_NODE, CLASS_VARIABLE_WRITE_NODE, CONSTANT_WRITE_NODE, FALSE_NODE, FLOAT_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, INTEGER_NODE, LOCAL_VARIABLE_WRITE_NODE, NIL_NODE, OR_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE, UNLESS_NODE, UNTIL_NODE, WHILE_NODE]
+        &[
+            AND_NODE,
+            CLASS_VARIABLE_WRITE_NODE,
+            CONSTANT_WRITE_NODE,
+            FALSE_NODE,
+            FLOAT_NODE,
+            GLOBAL_VARIABLE_WRITE_NODE,
+            IF_NODE,
+            INSTANCE_VARIABLE_WRITE_NODE,
+            INTEGER_NODE,
+            LOCAL_VARIABLE_WRITE_NODE,
+            NIL_NODE,
+            OR_NODE,
+            REGULAR_EXPRESSION_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+            TRUE_NODE,
+            UNLESS_NODE,
+            UNTIL_NODE,
+            WHILE_NODE,
+        ]
     }
 
     fn check_node(
@@ -24,8 +49,8 @@ impl Cop for LiteralAssignmentInCondition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Get the condition from if/while/until
         let predicate = if let Some(if_node) = node.as_if_node() {
@@ -118,5 +143,8 @@ fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(LiteralAssignmentInCondition, "cops/lint/literal_assignment_in_condition");
+    crate::cop_fixture_tests!(
+        LiteralAssignmentInCondition,
+        "cops/lint/literal_assignment_in_condition"
+    );
 }

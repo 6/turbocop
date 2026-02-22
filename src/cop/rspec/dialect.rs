@@ -1,8 +1,8 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct Dialect;
 
@@ -29,8 +29,8 @@ impl Cop for Dialect {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -56,14 +56,14 @@ impl Cop for Dialect {
         };
 
         // Check if this method is a non-preferred alias
-        let preferred_name =
-            match preferred.get(&serde_yml::Value::String(method_str.to_string())) {
-                Some(v) => match v.as_str() {
-                    Some(s) => s.trim_start_matches(':'),
-                    None => return,
-                },
+        let preferred_name = match preferred.get(&serde_yml::Value::String(method_str.to_string()))
+        {
+            Some(v) => match v.as_str() {
+                Some(s) => s.trim_start_matches(':'),
                 None => return,
-            };
+            },
+            None => return,
+        };
 
         // Must be receiverless or RSpec.method / ::RSpec.method
         let is_rspec_call = if call.receiver().is_none() {

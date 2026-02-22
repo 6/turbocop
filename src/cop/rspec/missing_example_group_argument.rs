@@ -1,14 +1,12 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct MissingExampleGroupArgument;
 
-const EXAMPLE_GROUP_METHODS: &[&[u8]] = &[
-    b"describe", b"context", b"feature", b"example_group",
-];
+const EXAMPLE_GROUP_METHODS: &[&[u8]] = &[b"describe", b"context", b"feature", b"example_group"];
 
 impl Cop for MissingExampleGroupArgument {
     fn name(&self) -> &'static str {
@@ -33,8 +31,8 @@ impl Cop for MissingExampleGroupArgument {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -87,5 +85,8 @@ impl Cop for MissingExampleGroupArgument {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(MissingExampleGroupArgument, "cops/rspec/missing_example_group_argument");
+    crate::cop_fixture_tests!(
+        MissingExampleGroupArgument,
+        "cops/rspec/missing_example_group_argument"
+    );
 }

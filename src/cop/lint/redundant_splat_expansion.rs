@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    ARRAY_NODE, FLOAT_NODE, INTEGER_NODE, INTERPOLATED_STRING_NODE, SPLAT_NODE, STRING_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ARRAY_NODE, FLOAT_NODE, INTEGER_NODE, INTERPOLATED_STRING_NODE, SPLAT_NODE, STRING_NODE};
 
 pub struct RedundantSplatExpansion;
 
@@ -15,7 +17,14 @@ impl Cop for RedundantSplatExpansion {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ARRAY_NODE, FLOAT_NODE, INTEGER_NODE, INTERPOLATED_STRING_NODE, SPLAT_NODE, STRING_NODE]
+        &[
+            ARRAY_NODE,
+            FLOAT_NODE,
+            INTEGER_NODE,
+            INTERPOLATED_STRING_NODE,
+            SPLAT_NODE,
+            STRING_NODE,
+        ]
     }
 
     fn check_node(
@@ -24,8 +33,8 @@ impl Cop for RedundantSplatExpansion {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_percent = config.get_bool("AllowPercentLiteralArrayArgument", true);
 
@@ -57,8 +66,10 @@ impl Cop for RedundantSplatExpansion {
                 // Check if it's a percent literal (%w, %W, %i, %I)
                 if let Some(open_loc) = array_node.opening_loc() {
                     let open = open_loc.as_slice();
-                    if open.starts_with(b"%w") || open.starts_with(b"%W")
-                        || open.starts_with(b"%i") || open.starts_with(b"%I")
+                    if open.starts_with(b"%w")
+                        || open.starts_with(b"%W")
+                        || open.starts_with(b"%i")
+                        || open.starts_with(b"%I")
                     {
                         // This is a percent literal array — skip it.
                         // RuboCop only skips when it's a method argument or part of
@@ -84,5 +95,8 @@ impl Cop for RedundantSplatExpansion {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(RedundantSplatExpansion, "cops/lint/redundant_splat_expansion");
+    crate::cop_fixture_tests!(
+        RedundantSplatExpansion,
+        "cops/lint/redundant_splat_expansion"
+    );
 }

@@ -17,8 +17,8 @@ impl Cop for BlockDelimiters {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "line_count_based");
         let _procedural_methods = config.get_string_array("ProceduralMethods");
@@ -33,13 +33,8 @@ impl Cop for BlockDelimiters {
             return;
         }
 
-        let allowed = allowed_methods.unwrap_or_else(|| {
-            vec![
-                "lambda".to_string(),
-                "proc".to_string(),
-                "it".to_string(),
-            ]
-        });
+        let allowed = allowed_methods
+            .unwrap_or_else(|| vec!["lambda".to_string(), "proc".to_string(), "it".to_string()]);
         let patterns = allowed_patterns.unwrap_or_default();
         let braces_required = braces_required_methods.unwrap_or_default();
 
@@ -94,11 +89,7 @@ impl<'a> BlockDelimitersVisitor<'a> {
         let is_single_line = open_line == close_line;
 
         // BracesRequiredMethods: must use braces
-        if self
-            .braces_required_methods
-            .iter()
-            .any(|m| m == method_str)
-        {
+        if self.braces_required_methods.iter().any(|m| m == method_str) {
             if opening == b"do" {
                 let (line, column) = self.source.offset_to_line_col(opening_loc.start_offset());
                 self.diagnostics.push(self.cop.diagnostic(

@@ -1,8 +1,8 @@
-use crate::cop::util::{is_camel_case, is_snake_case, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{CALL_NODE, KEYWORD_HASH_NODE, STRING_NODE, SYMBOL_NODE};
+use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_camel_case, is_snake_case};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, KEYWORD_HASH_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct VariableName;
 
@@ -29,8 +29,8 @@ impl Cop for VariableName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: EnforcedStyle — "snake_case" (default) or "camelCase"
         let enforced_style = config.get_str("EnforcedStyle", "snake_case");
@@ -67,7 +67,11 @@ impl Cop for VariableName {
             }
         };
 
-        let style_name = if enforced_style == "camelCase" { "camelCase" } else { "snake_case" };
+        let style_name = if enforced_style == "camelCase" {
+            "camelCase"
+        } else {
+            "snake_case"
+        };
 
         for arg in args.arguments().iter() {
             if arg.as_keyword_hash_node().is_some() {
@@ -113,7 +117,6 @@ impl Cop for VariableName {
             }
             break;
         }
-
     }
 }
 
@@ -148,14 +151,15 @@ mod tests {
         let config = CopConfig {
             options: HashMap::from([(
                 "AllowedPatterns".into(),
-                serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("^myVar".into()),
-                ]),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("^myVar".into())]),
             )]),
             ..CopConfig::default()
         };
         let source = b"let(:myVar) { 'x' }\n";
         let diags = crate::testutil::run_cop_full_with_config(&VariableName, source, config);
-        assert!(diags.is_empty(), "AllowedPatterns should skip matching variable names");
+        assert!(
+            diags.is_empty(),
+            "AllowedPatterns should skip matching variable names"
+        );
     }
 }

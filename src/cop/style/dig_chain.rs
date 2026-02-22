@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 
 pub struct DigChain;
 
@@ -20,8 +20,8 @@ impl Cop for DigChain {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -84,7 +84,8 @@ impl Cop for DigChain {
                 // avoiding duplicate reports for triple+ chains like dig.dig.dig.
                 if let Some(inner_recv) = recv_call.receiver() {
                     if let Some(inner_recv_call) = inner_recv.as_call_node() {
-                        let inner_recv_method = std::str::from_utf8(inner_recv_call.name().as_slice()).unwrap_or("");
+                        let inner_recv_method =
+                            std::str::from_utf8(inner_recv_call.name().as_slice()).unwrap_or("");
                         if inner_recv_method == "dig" {
                             return; // Let the innermost pair report
                         }
@@ -101,7 +102,6 @@ impl Cop for DigChain {
                 ));
             }
         }
-
     }
 }
 

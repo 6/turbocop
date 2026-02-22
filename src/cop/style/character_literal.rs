@@ -1,7 +1,7 @@
+use crate::cop::node_type::STRING_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::STRING_NODE;
 
 pub struct CharacterLiteral;
 
@@ -24,8 +24,8 @@ impl Cop for CharacterLiteral {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let string_node = match node.as_string_node() {
             Some(s) => s,
@@ -52,13 +52,19 @@ impl Cop for CharacterLiteral {
         let loc = string_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         let mut diag = self.diagnostic(
-            source, line, column,
+            source,
+            line,
+            column,
             "Do not use the character literal - use string literal instead.".to_string(),
         );
         if let Some(ref mut corr) = corrections {
             // Replace ?x with "x" (or ?\n with "\n" etc.)
             let content = string_node.unescaped();
-            let replacement = if content.len() == 1 && content[0].is_ascii_graphic() && content[0] != b'\\' && content[0] != b'"' {
+            let replacement = if content.len() == 1
+                && content[0].is_ascii_graphic()
+                && content[0] != b'\\'
+                && content[0] != b'"'
+            {
                 format!("\"{}\"", content[0] as char)
             } else {
                 // For escape sequences like ?\n, use the source text after ?
@@ -66,9 +72,11 @@ impl Cop for CharacterLiteral {
                 format!("\"{}\"", std::str::from_utf8(src).unwrap_or("?"))
             };
             corr.push(crate::correction::Correction {
-                start: loc.start_offset(), end: loc.end_offset(),
+                start: loc.start_offset(),
+                end: loc.end_offset(),
                 replacement,
-                cop_name: self.name(), cop_index: 0,
+                cop_name: self.name(),
+                cop_index: 0,
             });
             diag.corrected = true;
         }

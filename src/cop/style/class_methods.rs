@@ -18,8 +18,8 @@ impl Cop for ClassMethods {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = ClassMethodsVisitor {
             cop: self,
@@ -76,14 +76,17 @@ impl<'pr> Visit<'pr> for ClassMethodsVisitor<'_, '_> {
         let recv_bytes = receiver.location().as_slice();
         if recv_bytes == current_class.as_slice() {
             let method_name = node.name();
-            let (line, column) = self.source.offset_to_line_col(receiver.location().start_offset());
+            let (line, column) = self
+                .source
+                .offset_to_line_col(receiver.location().start_offset());
             let msg = format!(
                 "Use `self.{}` instead of `{}.{}`.",
                 String::from_utf8_lossy(method_name.as_slice()),
                 String::from_utf8_lossy(current_class),
                 String::from_utf8_lossy(method_name.as_slice()),
             );
-            self.diagnostics.push(self.cop.diagnostic(self.source, line, column, msg));
+            self.diagnostics
+                .push(self.cop.diagnostic(self.source, line, column, msg));
         }
     }
 }

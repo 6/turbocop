@@ -9,8 +9,13 @@ impl Cop for AmbiguousEndlessMethodDefinition {
         "Style/AmbiguousEndlessMethodDefinition"
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
-
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        _config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         let low_precedence_ops = [" and ", " or ", " if ", " unless ", " while ", " until "];
 
         for (i, line) in source.lines().enumerate() {
@@ -59,17 +64,13 @@ impl Cop for AmbiguousEndlessMethodDefinition {
                             source,
                             i + 1,
                             col,
-                            format!(
-                                "Avoid using `{}` statements with endless methods.",
-                                op_name
-                            ),
+                            format!("Avoid using `{}` statements with endless methods.", op_name),
                         ));
                         break;
                     }
                 }
             }
         }
-
     }
 }
 

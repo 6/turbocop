@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, STRING_NODE, SYMBOL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct SymbolConversion;
 
@@ -11,7 +11,9 @@ fn can_be_bare_symbol(value: &[u8]) -> bool {
     if value.is_empty() {
         return false;
     }
-    value.iter().all(|&b| b.is_ascii_alphanumeric() || b == b'_')
+    value
+        .iter()
+        .all(|&b| b.is_ascii_alphanumeric() || b == b'_')
         && !value[0].is_ascii_digit()
 }
 
@@ -34,8 +36,8 @@ impl Cop for SymbolConversion {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _style = config.get_str("EnforcedStyle", "strict");
 

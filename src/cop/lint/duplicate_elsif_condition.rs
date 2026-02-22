@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
+use crate::cop::node_type::IF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::IF_NODE;
 
 pub struct DuplicateElsifCondition;
 
@@ -26,8 +26,8 @@ impl Cop for DuplicateElsifCondition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let if_node = match node.as_if_node() {
             Some(n) => n,
@@ -72,12 +72,14 @@ impl Cop for DuplicateElsifCondition {
                 break;
             }
         }
-
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(DuplicateElsifCondition, "cops/lint/duplicate_elsif_condition");
+    crate::cop_fixture_tests!(
+        DuplicateElsifCondition,
+        "cops/lint/duplicate_elsif_condition"
+    );
 }

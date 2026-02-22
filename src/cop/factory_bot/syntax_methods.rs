@@ -1,4 +1,6 @@
-use crate::cop::factory_bot::{is_factory_bot_receiver, FACTORY_BOT_METHODS, FACTORY_BOT_SPEC_INCLUDE};
+use crate::cop::factory_bot::{
+    FACTORY_BOT_METHODS, FACTORY_BOT_SPEC_INCLUDE, is_factory_bot_receiver,
+};
 use crate::cop::util::is_rspec_example_group;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -27,8 +29,8 @@ impl Cop for SyntaxMethods {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = SyntaxMethodsVisitor {
             cop: self,
@@ -63,8 +65,7 @@ fn is_spec_group_call(call: &ruby_prism::CallNode<'_>) -> bool {
             if let Some(cr) = recv.as_constant_read_node() {
                 cr.name().as_slice() == b"RSpec"
             } else if let Some(cp) = recv.as_constant_path_node() {
-                cp.parent().is_none()
-                    && cp.name().map_or(false, |n| n.as_slice() == b"RSpec")
+                cp.parent().is_none() && cp.name().map_or(false, |n| n.as_slice() == b"RSpec")
             } else {
                 false
             }
@@ -88,10 +89,7 @@ impl<'pr> Visit<'pr> for SyntaxMethodsVisitor<'_> {
                             self.source,
                             line,
                             column,
-                            format!(
-                                "Use `{}` from `FactoryBot::Syntax::Methods`.",
-                                method_str
-                            ),
+                            format!("Use `{}` from `FactoryBot::Syntax::Methods`.", method_str),
                         ));
                     }
                 }

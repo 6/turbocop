@@ -1,10 +1,12 @@
 use ruby_prism::Visit;
 
-use crate::cop::util::{self, is_rspec_example, is_rspec_example_group, is_rspec_hook, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE};
+use crate::cop::util::{
+    self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_hook,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE};
 
 pub struct EmptyExampleGroup;
 
@@ -31,8 +33,8 @@ impl Cop for EmptyExampleGroup {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -45,7 +47,8 @@ impl Cop for EmptyExampleGroup {
         // Exclude shared groups (shared_examples, shared_context) — they define
         // reusable code and are not checked for emptiness.
         let is_example_group = if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).map_or(false, |n| n == b"RSpec") && method_name == b"describe"
+            util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
+                && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name)
                 && method_name != b"shared_examples"
@@ -83,7 +86,6 @@ impl Cop for EmptyExampleGroup {
                 column,
                 "Empty example group detected.".to_string(),
             ));
-
         }
     }
 }
@@ -145,7 +147,8 @@ impl<'pr> Visit<'pr> for ExampleFinder {
 mod tests {
     use super::*;
     crate::cop_scenario_fixture_tests!(
-        EmptyExampleGroup, "cops/rspec/empty_example_group",
+        EmptyExampleGroup,
+        "cops/rspec/empty_example_group",
         scenario_empty_context = "empty_context.rb",
         scenario_empty_describe = "empty_describe.rb",
         scenario_hooks_only = "hooks_only.rb",

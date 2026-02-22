@@ -98,7 +98,13 @@ impl Cop for DuplicatedGroup {
         &["**/*.gemfile", "**/Gemfile", "**/gems.rb"]
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        _config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         // Maps group key -> first occurrence line (1-indexed)
         let mut seen: HashMap<String, usize> = HashMap::new();
 
@@ -131,11 +137,7 @@ impl Cop for DuplicatedGroup {
 /// For `group :development, :test do` returns `:development, :test`.
 fn format_group_display(line: &str) -> String {
     let trimmed = line.trim();
-    let start = if trimmed.starts_with("group(") {
-        6
-    } else {
-        6
-    };
+    let start = if trimmed.starts_with("group(") { 6 } else { 6 };
     let end = trimmed.rfind(" do").unwrap_or(trimmed.len());
     let args = &trimmed[start..end];
     // Strip keyword args for display

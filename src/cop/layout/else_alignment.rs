@@ -1,8 +1,8 @@
+use crate::cop::node_type::{ELSE_NODE, IF_NODE};
 use crate::cop::util::assignment_context_base_col;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ELSE_NODE, IF_NODE};
 
 pub struct ElseAlignment;
 
@@ -21,8 +21,8 @@ impl Cop for ElseAlignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let if_node = match node.as_if_node() {
             Some(n) => n,
@@ -63,8 +63,7 @@ impl Cop for ElseAlignment {
         while let Some(subsequent) = current {
             if let Some(else_node) = subsequent.as_else_node() {
                 let else_kw_loc = else_node.else_keyword_loc();
-                let (else_line, else_col) =
-                    source.offset_to_line_col(else_kw_loc.start_offset());
+                let (else_line, else_col) = source.offset_to_line_col(else_kw_loc.start_offset());
                 if else_col != expected_col {
                     diagnostics.push(self.diagnostic(
                         source,
@@ -94,7 +93,6 @@ impl Cop for ElseAlignment {
                 break;
             }
         }
-
     }
 }
 
@@ -117,7 +115,11 @@ mod tests {
         // `else` at column 0, `if` at column 4 — should be flagged
         let source = b"x = if foo\n  bar\nelse\n  baz\nend\n";
         let diags = run_cop_full(&ElseAlignment, source);
-        assert_eq!(diags.len(), 1, "else at col 0 should be flagged when if is at col 4");
+        assert_eq!(
+            diags.len(),
+            1,
+            "else at col 0 should be flagged when if is at col 4"
+        );
     }
 
     #[test]
@@ -125,7 +127,11 @@ mod tests {
         // Keyword style: `else` at col 4 (with `if`), body/else aligned with `if`
         let source = b"x = if foo\n      bar\n    else\n      baz\n    end\n";
         let diags = run_cop_full(&ElseAlignment, source);
-        assert!(diags.is_empty(), "keyword style should not flag else aligned with if: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "keyword style should not flag else aligned with if: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -133,15 +139,20 @@ mod tests {
         use crate::testutil::run_cop_full_with_config;
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("EndAlignmentStyle".into(), serde_yml::Value::String("variable".into())),
-            ]),
+            options: HashMap::from([(
+                "EndAlignmentStyle".into(),
+                serde_yml::Value::String("variable".into()),
+            )]),
             ..CopConfig::default()
         };
         // Variable style: else at col 4 (aligned with `server`), not col 15 (with `if`)
         let source = b"    server = if cond\n      body\n    else\n      other\n    end\n";
         let diags = run_cop_full_with_config(&ElseAlignment, source, config);
-        assert!(diags.is_empty(), "variable style should not flag else aligned with variable: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "variable style should not flag else aligned with variable: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -149,15 +160,20 @@ mod tests {
         use crate::testutil::run_cop_full_with_config;
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("EndAlignmentStyle".into(), serde_yml::Value::String("variable".into())),
-            ]),
+            options: HashMap::from([(
+                "EndAlignmentStyle".into(),
+                serde_yml::Value::String("variable".into()),
+            )]),
             ..CopConfig::default()
         };
         // Variable style: elsif at col 0 (aligned with `x`), not col 4 (with `if`)
         let source = b"x = if foo\n  bar\nelsif baz\n  qux\nelse\n  quux\nend\n";
         let diags = run_cop_full_with_config(&ElseAlignment, source, config);
-        assert!(diags.is_empty(), "variable style should not flag elsif/else aligned with variable: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "variable style should not flag elsif/else aligned with variable: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -165,15 +181,21 @@ mod tests {
         use crate::testutil::run_cop_full_with_config;
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("EndAlignmentStyle".into(), serde_yml::Value::String("variable".into())),
-            ]),
+            options: HashMap::from([(
+                "EndAlignmentStyle".into(),
+                serde_yml::Value::String("variable".into()),
+            )]),
             ..CopConfig::default()
         };
         // Variable style: else at col 2 doesn't align with variable (col 0) or if (col 4)
         let source = b"x = if foo\n  bar\n  else\n  baz\nend\n";
         let diags = run_cop_full_with_config(&ElseAlignment, source, config);
-        assert_eq!(diags.len(), 1, "should flag else not aligned with variable: {:?}", diags);
+        assert_eq!(
+            diags.len(),
+            1,
+            "should flag else not aligned with variable: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -181,15 +203,20 @@ mod tests {
         use crate::testutil::run_cop_full_with_config;
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("EndAlignmentStyle".into(), serde_yml::Value::String("variable".into())),
-            ]),
+            options: HashMap::from([(
+                "EndAlignmentStyle".into(),
+                serde_yml::Value::String("variable".into()),
+            )]),
             ..CopConfig::default()
         };
         // << operator context with variable style: else aligns with receiver
         let source = b"html << if error\n  error\nelse\n  default\nend\n";
         let diags = run_cop_full_with_config(&ElseAlignment, source, config);
-        assert!(diags.is_empty(), "variable style << context should not flag else aligned with receiver: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "variable style << context should not flag else aligned with receiver: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -197,14 +224,19 @@ mod tests {
         use crate::testutil::run_cop_full_with_config;
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("EndAlignmentStyle".into(), serde_yml::Value::String("variable".into())),
-            ]),
+            options: HashMap::from([(
+                "EndAlignmentStyle".into(),
+                serde_yml::Value::String("variable".into()),
+            )]),
             ..CopConfig::default()
         };
         // << operator context with variable style: else aligns with receiver at col 8
         let source = b"        @buffer << if value.safe?\n          value\n        else\n          escape(value)\n        end\n";
         let diags = run_cop_full_with_config(&ElseAlignment, source, config);
-        assert!(diags.is_empty(), "variable style << context should not flag else aligned with @buffer: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "variable style << context should not flag else aligned with @buffer: {:?}",
+            diags
+        );
     }
 }

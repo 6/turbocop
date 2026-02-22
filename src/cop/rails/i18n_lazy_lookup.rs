@@ -21,8 +21,8 @@ impl Cop for I18nLazyLookup {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let path = source.path_str();
         if !is_controller_file(path) {
@@ -238,9 +238,6 @@ mod tests {
             controller_prefix_from_path("app/controllers/books_controller.rb"),
             Some("books".to_string())
         );
-        assert_eq!(
-            controller_prefix_from_path("app/models/user.rb"),
-            None
-        );
+        assert_eq!(controller_prefix_from_path("app/models/user.rb"), None);
     }
 }

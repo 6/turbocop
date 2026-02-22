@@ -1,9 +1,9 @@
 // Handles both as_constant_read_node and as_constant_path_node (qualified constants like ::OpenStruct)
+use crate::cop::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 
 pub struct OpenStruct;
 
@@ -26,8 +26,8 @@ impl Cop for OpenStruct {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let name = match constant_name(node) {
             Some(n) => n,
@@ -40,7 +40,12 @@ impl Cop for OpenStruct {
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(source, line, column, "Use `Struct` instead of `OpenStruct`.".to_string()));
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            "Use `Struct` instead of `OpenStruct`.".to_string(),
+        ));
     }
 }
 

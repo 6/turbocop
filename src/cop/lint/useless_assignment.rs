@@ -22,8 +22,8 @@ impl Cop for UselessAssignment {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = UselessAssignVisitor {
             cop: self,
@@ -78,10 +78,7 @@ impl WriteReadCollector {
 }
 
 impl<'pr> Visit<'pr> for WriteReadCollector {
-    fn visit_local_variable_write_node(
-        &mut self,
-        node: &ruby_prism::LocalVariableWriteNode<'pr>,
-    ) {
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
         let name = std::str::from_utf8(node.name().as_slice())
             .unwrap_or("")
             .to_string();
@@ -93,10 +90,7 @@ impl<'pr> Visit<'pr> for WriteReadCollector {
         self.visit(&node.value());
     }
 
-    fn visit_local_variable_read_node(
-        &mut self,
-        node: &ruby_prism::LocalVariableReadNode<'pr>,
-    ) {
+    fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
         self.add_read(node.name().as_slice());
     }
 
@@ -145,10 +139,7 @@ impl<'pr> Visit<'pr> for WriteReadCollector {
 
     // Bare `super` (no args, no parens) implicitly forwards all method parameters,
     // so any assignment to a parameter variable is "used".
-    fn visit_forwarding_super_node(
-        &mut self,
-        _node: &ruby_prism::ForwardingSuperNode<'pr>,
-    ) {
+    fn visit_forwarding_super_node(&mut self, _node: &ruby_prism::ForwardingSuperNode<'pr>) {
         self.has_forwarding_super = true;
     }
 
@@ -275,10 +266,7 @@ impl ScopedCollector {
 }
 
 impl<'pr> Visit<'pr> for ScopedCollector {
-    fn visit_local_variable_write_node(
-        &mut self,
-        node: &ruby_prism::LocalVariableWriteNode<'pr>,
-    ) {
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
         let name = std::str::from_utf8(node.name().as_slice())
             .unwrap_or("")
             .to_string();
@@ -286,10 +274,7 @@ impl<'pr> Visit<'pr> for ScopedCollector {
         self.visit(&node.value());
     }
 
-    fn visit_local_variable_read_node(
-        &mut self,
-        node: &ruby_prism::LocalVariableReadNode<'pr>,
-    ) {
+    fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
         self.add_read(node.name().as_slice());
     }
 
@@ -543,7 +528,10 @@ impl<'pr> Visit<'pr> for UselessAssignVisitor<'_, '_> {
                     if let Some(params) = params.as_block_parameters_node() {
                         if let Some(inner) = params.parameters() {
                             let root = collector.current_scope();
-                            collect_parameters_node_names(&inner, &mut collector.scopes[root].reads);
+                            collect_parameters_node_names(
+                                &inner,
+                                &mut collector.scopes[root].reads,
+                            );
                         }
                     }
                 }
@@ -576,7 +564,10 @@ fn collect_block_param_names(params: &ruby_prism::Node<'_>, reads: &mut HashSet<
 }
 
 /// Collect parameter names from a ParametersNode into a reads set.
-fn collect_parameters_node_names(params: &ruby_prism::ParametersNode<'_>, reads: &mut HashSet<String>) {
+fn collect_parameters_node_names(
+    params: &ruby_prism::ParametersNode<'_>,
+    reads: &mut HashSet<String>,
+) {
     for p in params.requireds().iter() {
         if let Some(req) = p.as_required_parameter_node() {
             if let Ok(s) = std::str::from_utf8(req.name().as_slice()) {

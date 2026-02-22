@@ -1,8 +1,8 @@
+use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE};
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE};
 
 pub struct FindById;
 
@@ -54,8 +54,8 @@ impl Cop for FindById {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -105,7 +105,10 @@ impl Cop for FindById {
             }
             // Check that `where` has `id:` as the sole keyword arg
             if has_sole_id_keyword_arg(&chain.inner_call) {
-                let loc = chain.inner_call.message_loc().unwrap_or(chain.inner_call.location());
+                let loc = chain
+                    .inner_call
+                    .message_loc()
+                    .unwrap_or(chain.inner_call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 diagnostics.push(self.diagnostic(
                     source,
@@ -115,7 +118,6 @@ impl Cop for FindById {
                 ));
             }
         }
-
     }
 }
 

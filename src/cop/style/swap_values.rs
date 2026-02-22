@@ -17,8 +17,8 @@ impl Cop for SwapValues {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = SwapVisitor {
             cop: self,
@@ -67,7 +67,8 @@ impl<'pr> Visit<'pr> for SwapVisitor<'_> {
                     //   c_name == b_val (third writes to the source variable)
                     //   c_val == tmp_name (third reads from temp)
                     //   b_val != tmp_name (second doesn't read temp)
-                    if b_name == a_val && c_name == b_val && c_val == tmp_name && b_val != tmp_name {
+                    if b_name == a_val && c_name == b_val && c_val == tmp_name && b_val != tmp_name
+                    {
                         let loc = window[0].location();
                         let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                         self.diagnostics.push(self.cop.diagnostic(

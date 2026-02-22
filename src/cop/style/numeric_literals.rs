@@ -1,7 +1,7 @@
+use crate::cop::node_type::INTEGER_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::INTEGER_NODE;
 
 pub struct NumericLiterals;
 
@@ -41,8 +41,8 @@ impl Cop for NumericLiterals {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let int_node = match node.as_integer_node() {
             Some(i) => i,
@@ -54,8 +54,12 @@ impl Cop for NumericLiterals {
 
         let min_digits = config.get_usize("MinDigits", 5);
         let strict = config.get_bool("Strict", false);
-        let allowed_numbers = config.get_string_array("AllowedNumbers").unwrap_or_default();
-        let allowed_patterns = config.get_string_array("AllowedPatterns").unwrap_or_default();
+        let allowed_numbers = config
+            .get_string_array("AllowedNumbers")
+            .unwrap_or_default();
+        let allowed_patterns = config
+            .get_string_array("AllowedPatterns")
+            .unwrap_or_default();
 
         let text = std::str::from_utf8(source_text).unwrap_or("");
 
@@ -106,15 +110,24 @@ impl Cop for NumericLiterals {
 
         if !has_underscores {
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(source, line, column, "Use underscores(_) as thousands separator.".to_string()));
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                "Use underscores(_) as thousands separator.".to_string(),
+            ));
         }
 
         // Strict mode: check that underscores are at correct every-3-digit positions
         if strict && !is_correctly_grouped(digits_part) {
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(source, line, column, "Use underscores(_) as thousands separator.".to_string()));
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                "Use underscores(_) as thousands separator.".to_string(),
+            ));
         }
-
     }
 }
 
@@ -126,8 +139,8 @@ mod tests {
 
     #[test]
     fn config_min_digits_3() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([("MinDigits".into(), serde_yml::Value::Number(3.into()))]),
@@ -136,18 +149,24 @@ mod tests {
         // 3-digit number without underscores should trigger with MinDigits:3
         let source = b"x = 100\n";
         let diags = run_cop_full_with_config(&NumericLiterals, source, config.clone());
-        assert!(!diags.is_empty(), "Should fire with MinDigits:3 on 3-digit number");
+        assert!(
+            !diags.is_empty(),
+            "Should fire with MinDigits:3 on 3-digit number"
+        );
 
         // 2-digit number should NOT trigger
         let source2 = b"x = 99\n";
         let diags2 = run_cop_full_with_config(&NumericLiterals, source2, config);
-        assert!(diags2.is_empty(), "Should not fire on 2-digit number with MinDigits:3");
+        assert!(
+            diags2.is_empty(),
+            "Should not fire on 2-digit number with MinDigits:3"
+        );
     }
 
     #[test]
     fn strict_mode_flags_bad_grouping() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([("Strict".into(), serde_yml::Value::Bool(true))]),
@@ -161,20 +180,22 @@ mod tests {
         // 1_000_000 is correctly grouped
         let source2 = b"x = 1_000_000\n";
         let diags2 = run_cop_full_with_config(&NumericLiterals, source2, config);
-        assert!(diags2.is_empty(), "Correctly grouped number should pass strict mode");
+        assert!(
+            diags2.is_empty(),
+            "Correctly grouped number should pass strict mode"
+        );
     }
 
     #[test]
     fn allowed_numbers_exempts() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("AllowedNumbers".into(), serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("10000".into()),
-                ])),
-            ]),
+            options: HashMap::from([(
+                "AllowedNumbers".into(),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("10000".into())]),
+            )]),
             ..CopConfig::default()
         };
         let source = b"x = 10000\n";

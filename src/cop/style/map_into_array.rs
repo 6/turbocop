@@ -16,8 +16,8 @@ impl Cop for MapIntoArray {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = MapIntoArrayVisitor {
             cop: self,
@@ -207,12 +207,18 @@ fn references_variable(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
         found: bool,
     }
     impl<'pr> ruby_prism::Visit<'pr> for VarRefFinder<'_> {
-        fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
+        fn visit_local_variable_read_node(
+            &mut self,
+            node: &ruby_prism::LocalVariableReadNode<'pr>,
+        ) {
             if node.name().as_slice() == self.var_name {
                 self.found = true;
             }
         }
-        fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
+        fn visit_local_variable_write_node(
+            &mut self,
+            node: &ruby_prism::LocalVariableWriteNode<'pr>,
+        ) {
             if node.name().as_slice() == self.var_name {
                 self.found = true;
             }
@@ -225,7 +231,10 @@ fn references_variable(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
             ruby_prism::visit_call_node(self, node);
         }
     }
-    let mut finder = VarRefFinder { var_name, found: false };
+    let mut finder = VarRefFinder {
+        var_name,
+        found: false,
+    };
     ruby_prism::Visit::visit(&mut finder, node);
     finder.found
 }

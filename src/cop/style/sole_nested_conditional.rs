@@ -1,7 +1,7 @@
+use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
 
 pub struct SoleNestedConditional;
 
@@ -20,27 +20,30 @@ impl Cop for SoleNestedConditional {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_modifier = config.get_bool("AllowModifier", false);
 
         // Check if this is an if/unless without else
-        let (kw_loc, statements, has_else) =
-            if let Some(if_node) = node.as_if_node() {
-                let kw = match if_node.if_keyword_loc() {
-                    Some(loc) => loc,
-                    None => return, // ternary
-                };
-                if kw.as_slice() == b"elsif" {
-                    return;
-                }
-                (kw, if_node.statements(), if_node.subsequent().is_some())
-            } else if let Some(unless_node) = node.as_unless_node() {
-                (unless_node.keyword_loc(), unless_node.statements(), unless_node.else_clause().is_some())
-            } else {
-                return;
+        let (kw_loc, statements, has_else) = if let Some(if_node) = node.as_if_node() {
+            let kw = match if_node.if_keyword_loc() {
+                Some(loc) => loc,
+                None => return, // ternary
             };
+            if kw.as_slice() == b"elsif" {
+                return;
+            }
+            (kw, if_node.statements(), if_node.subsequent().is_some())
+        } else if let Some(unless_node) = node.as_unless_node() {
+            (
+                unless_node.keyword_loc(),
+                unless_node.statements(),
+                unless_node.else_clause().is_some(),
+            )
+        } else {
+            return;
+        };
 
         if has_else {
             return;

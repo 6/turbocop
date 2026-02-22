@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, PARENTHESES_NODE, RANGE_NODE, STATEMENTS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, PARENTHESES_NODE, RANGE_NODE, STATEMENTS_NODE};
 
 pub struct ParenthesesAsGroupedExpression;
 
@@ -24,8 +24,8 @@ impl Cop for ParenthesesAsGroupedExpression {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for method calls where there's a space before the opening parenthesis.
         // `a.func (x)` should be `a.func(x)`.
@@ -142,8 +142,7 @@ impl Cop for ParenthesesAsGroupedExpression {
                         let is_compound = |n: &ruby_prism::Node<'_>| -> bool {
                             n.as_call_node().is_some() || n.as_parentheses_node().is_some()
                         };
-                        let left_compound =
-                            range.left().map(|l| is_compound(&l)).unwrap_or(false);
+                        let left_compound = range.left().map(|l| is_compound(&l)).unwrap_or(false);
                         let right_compound =
                             range.right().map(|r| is_compound(&r)).unwrap_or(false);
                         if left_compound || right_compound {
@@ -171,10 +170,29 @@ impl Cop for ParenthesesAsGroupedExpression {
 fn is_operator(name: &[u8]) -> bool {
     matches!(
         name,
-        b"==" | b"!=" | b"<" | b">" | b"<=" | b">=" | b"<=>"
-            | b"+" | b"-" | b"*" | b"/" | b"%" | b"**"
-            | b"&" | b"|" | b"^" | b"~" | b"<<" | b">>"
-            | b"[]" | b"[]=" | b"=~" | b"!~"
+        b"=="
+            | b"!="
+            | b"<"
+            | b">"
+            | b"<="
+            | b">="
+            | b"<=>"
+            | b"+"
+            | b"-"
+            | b"*"
+            | b"/"
+            | b"%"
+            | b"**"
+            | b"&"
+            | b"|"
+            | b"^"
+            | b"~"
+            | b"<<"
+            | b">>"
+            | b"[]"
+            | b"[]="
+            | b"=~"
+            | b"!~"
     )
 }
 

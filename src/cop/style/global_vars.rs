@@ -1,25 +1,87 @@
+use crate::cop::node_type::{
+    GLOBAL_VARIABLE_AND_WRITE_NODE, GLOBAL_VARIABLE_OPERATOR_WRITE_NODE,
+    GLOBAL_VARIABLE_OR_WRITE_NODE, GLOBAL_VARIABLE_READ_NODE, GLOBAL_VARIABLE_WRITE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{GLOBAL_VARIABLE_AND_WRITE_NODE, GLOBAL_VARIABLE_OPERATOR_WRITE_NODE, GLOBAL_VARIABLE_OR_WRITE_NODE, GLOBAL_VARIABLE_READ_NODE, GLOBAL_VARIABLE_WRITE_NODE};
 
 pub struct GlobalVars;
 
 const BUILTIN_GLOBALS: &[&[u8]] = &[
-    b"$!", b"$@", b"$;", b"$,", b"$/", b"$\\", b"$.", b"$_", b"$~",
-    b"$=", b"$*", b"$$", b"$?", b"$:", b"$\"", b"$<", b"$>", b"$0",
-    b"$&", b"$`", b"$'", b"$+",
-    b"$1", b"$2", b"$3", b"$4", b"$5", b"$6", b"$7", b"$8", b"$9",
-    b"$PROGRAM_NAME", b"$VERBOSE", b"$DEBUG", b"$LOAD_PATH",
-    b"$LOADED_FEATURES", b"$stdin", b"$stdout", b"$stderr",
-    b"$FILENAME", b"$SAFE", b"$-a", b"$-d", b"$-i", b"$-l", b"$-p",
-    b"$-v", b"$-w", b"$-0", b"$-F", b"$-I", b"$-K", b"$-W",
-    b"$CHILD_STATUS", b"$ERROR_INFO", b"$ERROR_POSITION",
-    b"$FIELD_SEPARATOR", b"$FS", b"$INPUT_LINE_NUMBER",
-    b"$INPUT_RECORD_SEPARATOR", b"$LAST_MATCH_INFO", b"$LAST_PAREN_MATCH",
-    b"$LAST_READ_LINE", b"$MATCH", b"$NR", b"$OFS", b"$ORS",
-    b"$OUTPUT_FIELD_SEPARATOR", b"$OUTPUT_RECORD_SEPARATOR",
-    b"$PID", b"$POSTMATCH", b"$PREMATCH", b"$PROCESS_ID",
+    b"$!",
+    b"$@",
+    b"$;",
+    b"$,",
+    b"$/",
+    b"$\\",
+    b"$.",
+    b"$_",
+    b"$~",
+    b"$=",
+    b"$*",
+    b"$$",
+    b"$?",
+    b"$:",
+    b"$\"",
+    b"$<",
+    b"$>",
+    b"$0",
+    b"$&",
+    b"$`",
+    b"$'",
+    b"$+",
+    b"$1",
+    b"$2",
+    b"$3",
+    b"$4",
+    b"$5",
+    b"$6",
+    b"$7",
+    b"$8",
+    b"$9",
+    b"$PROGRAM_NAME",
+    b"$VERBOSE",
+    b"$DEBUG",
+    b"$LOAD_PATH",
+    b"$LOADED_FEATURES",
+    b"$stdin",
+    b"$stdout",
+    b"$stderr",
+    b"$FILENAME",
+    b"$SAFE",
+    b"$-a",
+    b"$-d",
+    b"$-i",
+    b"$-l",
+    b"$-p",
+    b"$-v",
+    b"$-w",
+    b"$-0",
+    b"$-F",
+    b"$-I",
+    b"$-K",
+    b"$-W",
+    b"$CHILD_STATUS",
+    b"$ERROR_INFO",
+    b"$ERROR_POSITION",
+    b"$FIELD_SEPARATOR",
+    b"$FS",
+    b"$INPUT_LINE_NUMBER",
+    b"$INPUT_RECORD_SEPARATOR",
+    b"$LAST_MATCH_INFO",
+    b"$LAST_PAREN_MATCH",
+    b"$LAST_READ_LINE",
+    b"$MATCH",
+    b"$NR",
+    b"$OFS",
+    b"$ORS",
+    b"$OUTPUT_FIELD_SEPARATOR",
+    b"$OUTPUT_RECORD_SEPARATOR",
+    b"$PID",
+    b"$POSTMATCH",
+    b"$PREMATCH",
+    b"$PROCESS_ID",
     b"$RS",
 ];
 
@@ -29,7 +91,13 @@ impl Cop for GlobalVars {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[GLOBAL_VARIABLE_AND_WRITE_NODE, GLOBAL_VARIABLE_OPERATOR_WRITE_NODE, GLOBAL_VARIABLE_OR_WRITE_NODE, GLOBAL_VARIABLE_READ_NODE, GLOBAL_VARIABLE_WRITE_NODE]
+        &[
+            GLOBAL_VARIABLE_AND_WRITE_NODE,
+            GLOBAL_VARIABLE_OPERATOR_WRITE_NODE,
+            GLOBAL_VARIABLE_OR_WRITE_NODE,
+            GLOBAL_VARIABLE_READ_NODE,
+            GLOBAL_VARIABLE_WRITE_NODE,
+        ]
     }
 
     fn check_node(
@@ -38,8 +106,8 @@ impl Cop for GlobalVars {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed = config.get_string_array("AllowedVariables");
 

@@ -1,7 +1,7 @@
+use crate::cop::node_type::{ARRAY_NODE, STRING_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ARRAY_NODE, STRING_NODE};
 
 pub struct WordArray;
 
@@ -20,8 +20,8 @@ impl Cop for WordArray {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let array_node = match node.as_array_node() {
             Some(a) => a,
@@ -97,7 +97,12 @@ impl Cop for WordArray {
         }
 
         let (line, column) = source.offset_to_line_col(opening.start_offset());
-        diagnostics.push(self.diagnostic(source, line, column, "Use `%w` or `%W` for an array of words.".to_string()));
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            "Use `%w` or `%W` for an array of words.".to_string(),
+        ));
     }
 }
 
@@ -109,8 +114,8 @@ mod tests {
 
     #[test]
     fn config_min_size_5() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([("MinSize".into(), serde_yml::Value::Number(5.into()))]),
@@ -119,27 +124,37 @@ mod tests {
         // 5 elements should trigger with MinSize:5
         let source = b"x = ['a', 'b', 'c', 'd', 'e']\n";
         let diags = run_cop_full_with_config(&WordArray, source, config.clone());
-        assert!(!diags.is_empty(), "Should fire with MinSize:5 on 5-element word array");
+        assert!(
+            !diags.is_empty(),
+            "Should fire with MinSize:5 on 5-element word array"
+        );
 
         // 4 elements should NOT trigger
         let source2 = b"x = ['a', 'b', 'c', 'd']\n";
         let diags2 = run_cop_full_with_config(&WordArray, source2, config);
-        assert!(diags2.is_empty(), "Should not fire on 4-element word array with MinSize:5");
+        assert!(
+            diags2.is_empty(),
+            "Should not fire on 4-element word array with MinSize:5"
+        );
     }
 
     #[test]
     fn brackets_style_allows_bracket_arrays() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("brackets".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("brackets".into()),
+            )]),
             ..CopConfig::default()
         };
         let source = b"x = ['a', 'b', 'c']\n";
         let diags = run_cop_full_with_config(&WordArray, source, config);
-        assert!(diags.is_empty(), "Should not flag brackets with brackets style");
+        assert!(
+            diags.is_empty(),
+            "Should not flag brackets with brackets style"
+        );
     }
 }

@@ -1,7 +1,7 @@
+use crate::cop::node_type::DEF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::DEF_NODE;
 
 pub struct MethodDefParentheses;
 
@@ -20,8 +20,8 @@ impl Cop for MethodDefParentheses {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "require_parentheses");
 
@@ -64,10 +64,9 @@ impl Cop for MethodDefParentheses {
             }
             "require_no_parentheses" if has_parens => {
                 // RuboCop points at the args node including parens — use lparen_loc
-                let start = def_node.lparen_loc().map_or_else(
-                    || params.location().start_offset(),
-                    |lp| lp.start_offset(),
-                );
+                let start = def_node
+                    .lparen_loc()
+                    .map_or_else(|| params.location().start_offset(), |lp| lp.start_offset());
                 let (line, column) = source.offset_to_line_col(start);
                 diagnostics.push(self.diagnostic(
                     source,

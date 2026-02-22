@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    CALL_NODE, DEF_NODE, LOCAL_VARIABLE_READ_NODE, OPTIONAL_PARAMETER_NODE,
+    REQUIRED_PARAMETER_NODE, STATEMENTS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, DEF_NODE, LOCAL_VARIABLE_READ_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE};
 
 pub struct UselessSetterCall;
 
@@ -15,7 +18,14 @@ impl Cop for UselessSetterCall {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, DEF_NODE, LOCAL_VARIABLE_READ_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE]
+        &[
+            CALL_NODE,
+            DEF_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            OPTIONAL_PARAMETER_NODE,
+            REQUIRED_PARAMETER_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -24,8 +34,8 @@ impl Cop for UselessSetterCall {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,

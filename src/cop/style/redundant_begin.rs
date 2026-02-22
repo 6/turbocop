@@ -317,17 +317,11 @@ impl<'pr> Visit<'pr> for RedundantBeginVisitor<'_> {
         self.check_assignment_begin(&node.value());
     }
 
-    fn visit_constant_or_write_node(
-        &mut self,
-        node: &ruby_prism::ConstantOrWriteNode<'pr>,
-    ) {
+    fn visit_constant_or_write_node(&mut self, node: &ruby_prism::ConstantOrWriteNode<'pr>) {
         self.check_assignment_begin(&node.value());
     }
 
-    fn visit_local_variable_write_node(
-        &mut self,
-        node: &ruby_prism::LocalVariableWriteNode<'pr>,
-    ) {
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
         self.check_assignment_begin(&node.value());
     }
 
@@ -338,10 +332,7 @@ impl<'pr> Visit<'pr> for RedundantBeginVisitor<'_> {
         self.check_assignment_begin(&node.value());
     }
 
-    fn visit_class_variable_write_node(
-        &mut self,
-        node: &ruby_prism::ClassVariableWriteNode<'pr>,
-    ) {
+    fn visit_class_variable_write_node(&mut self, node: &ruby_prism::ClassVariableWriteNode<'pr>) {
         self.check_assignment_begin(&node.value());
     }
 
@@ -352,10 +343,7 @@ impl<'pr> Visit<'pr> for RedundantBeginVisitor<'_> {
         self.check_assignment_begin(&node.value());
     }
 
-    fn visit_constant_write_node(
-        &mut self,
-        node: &ruby_prism::ConstantWriteNode<'pr>,
-    ) {
+    fn visit_constant_write_node(&mut self, node: &ruby_prism::ConstantWriteNode<'pr>) {
         self.check_assignment_begin(&node.value());
     }
 }

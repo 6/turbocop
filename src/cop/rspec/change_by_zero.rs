@@ -1,8 +1,8 @@
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, INTEGER_NODE, STATEMENTS_NODE};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, INTEGER_NODE, STATEMENTS_NODE};
 
 pub struct ChangeByZero;
 
@@ -30,8 +30,8 @@ impl Cop for ChangeByZero {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: NegatedMatcher — name of a custom negated matcher (e.g. "not_change")
         let negated_matcher = config.get_str("NegatedMatcher", "");
@@ -57,15 +57,12 @@ impl Cop for ChangeByZero {
                                 && inner.receiver().is_none()
                             {
                                 let loc = inner.location();
-                                let (line, column) =
-                                    source.offset_to_line_col(loc.start_offset());
+                                let (line, column) = source.offset_to_line_col(loc.start_offset());
                                 diagnostics.push(self.diagnostic(
                                     source,
                                     line,
                                     column,
-                                    format!(
-                                        "Prefer `{negated_matcher}` over `not_to change`."
-                                    ),
+                                    format!("Prefer `{negated_matcher}` over `not_to change`."),
                                 ));
                             }
                         }
@@ -133,15 +130,13 @@ impl Cop for ChangeByZero {
                 let body_ok = if let Some(body) = bn.body() {
                     // Check if body is a simple send with no arguments
                     if let Some(body_call) = body.as_call_node() {
-                        body_call.receiver().is_some()
-                            && body_call.arguments().is_none()
+                        body_call.receiver().is_some() && body_call.arguments().is_none()
                     } else if let Some(stmts) = body.as_statements_node() {
                         // StatementsNode with a single statement that is a simple send
                         let stmts_list: Vec<_> = stmts.body().iter().collect();
                         if stmts_list.len() == 1 {
                             if let Some(body_call) = stmts_list[0].as_call_node() {
-                                body_call.receiver().is_some()
-                                    && body_call.arguments().is_none()
+                                body_call.receiver().is_some() && body_call.arguments().is_none()
                             } else {
                                 false
                             }

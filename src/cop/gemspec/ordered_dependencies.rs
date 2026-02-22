@@ -25,9 +25,14 @@ impl Cop for OrderedDependencies {
         &["**/*.gemspec"]
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
-        let treat_comments_as_separators =
-            config.get_bool("TreatCommentsAsGroupSeparators", true);
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
+        let treat_comments_as_separators = config.get_bool("TreatCommentsAsGroupSeparators", true);
         let consider_punctuation = config.get_bool("ConsiderPunctuation", false);
 
         let mut current_method: Option<String> = None;
@@ -48,13 +53,7 @@ impl Cop for OrderedDependencies {
             // Check if this is a comment line
             if trimmed.starts_with('#') {
                 if treat_comments_as_separators {
-                    flush_group(
-                        &mut group,
-                        diagnostics,
-                        source,
-                        self,
-                        consider_punctuation,
-                    );
+                    flush_group(&mut group, diagnostics, source, self, consider_punctuation);
                     current_method = None;
                 }
                 continue;
@@ -97,7 +96,6 @@ impl Cop for OrderedDependencies {
 
         // Flush remaining group
         flush_group(&mut group, diagnostics, source, self, consider_punctuation);
-
     }
 }
 

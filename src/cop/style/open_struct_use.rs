@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 
 pub struct OpenStructUse;
 
@@ -20,8 +20,8 @@ impl Cop for OpenStructUse {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check ConstantReadNode (OpenStruct)
         if let Some(cr) = node.as_constant_read_node() {
@@ -54,7 +54,6 @@ impl Cop for OpenStructUse {
                 }
             }
         }
-
     }
 }
 

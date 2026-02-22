@@ -1,8 +1,8 @@
+use crate::cop::node_type::MODULE_NODE;
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::MODULE_NODE;
 
 pub struct EmptyLinesAroundModuleBody;
 
@@ -25,8 +25,8 @@ impl Cop for EmptyLinesAroundModuleBody {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "no_empty_lines");
         let module_node = match node.as_module_node() {
@@ -39,14 +39,26 @@ impl Cop for EmptyLinesAroundModuleBody {
 
         match style {
             "empty_lines" => {
-                diagnostics.extend(util::check_missing_empty_lines_around_body_with_corrections(
-                    self.name(), source, kw_offset, end_offset, "module", corrections,
-                ));
+                diagnostics.extend(
+                    util::check_missing_empty_lines_around_body_with_corrections(
+                        self.name(),
+                        source,
+                        kw_offset,
+                        end_offset,
+                        "module",
+                        corrections,
+                    ),
+                );
             }
             _ => {
                 // "no_empty_lines" (default)
                 diagnostics.extend(util::check_empty_lines_around_body_with_corrections(
-                    self.name(), source, kw_offset, end_offset, "module", corrections,
+                    self.name(),
+                    source,
+                    kw_offset,
+                    end_offset,
+                    "module",
+                    corrections,
                 ));
             }
         }
@@ -78,22 +90,31 @@ mod tests {
     fn blank_line_at_both_ends() {
         let src = b"module Foo\n\n  def bar; end\n\nend\n";
         let diags = run_cop_full(&EmptyLinesAroundModuleBody, src);
-        assert_eq!(diags.len(), 2, "Should flag both beginning and end blank lines");
+        assert_eq!(
+            diags.len(),
+            2,
+            "Should flag both beginning and end blank lines"
+        );
     }
 
     #[test]
     fn empty_lines_style_requires_blank_lines() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("empty_lines".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("empty_lines".into()),
+            )]),
             ..CopConfig::default()
         };
         let src = b"module Foo\n  def bar; end\nend\n";
         let diags = run_cop_full_with_config(&EmptyLinesAroundModuleBody, src, config);
-        assert_eq!(diags.len(), 2, "empty_lines style should require blank lines at both ends");
+        assert_eq!(
+            diags.len(),
+            2,
+            "empty_lines style should require blank lines at both ends"
+        );
     }
 }

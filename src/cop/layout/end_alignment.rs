@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CASE_NODE, CLASS_NODE, IF_NODE, MODULE_NODE, UNTIL_NODE, WHILE_NODE};
 use crate::cop::util::assignment_context_base_col;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CASE_NODE, CLASS_NODE, IF_NODE, MODULE_NODE, UNTIL_NODE, WHILE_NODE};
 
 pub struct EndAlignment;
 
@@ -39,7 +39,14 @@ impl Cop for EndAlignment {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CASE_NODE, CLASS_NODE, IF_NODE, MODULE_NODE, UNTIL_NODE, WHILE_NODE]
+        &[
+            CASE_NODE,
+            CLASS_NODE,
+            IF_NODE,
+            MODULE_NODE,
+            UNTIL_NODE,
+            WHILE_NODE,
+        ]
     }
 
     fn check_node(
@@ -48,8 +55,8 @@ impl Cop for EndAlignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyleAlignWith", "keyword");
         if let Some(class_node) = node.as_class_node() {
@@ -142,7 +149,6 @@ impl Cop for EndAlignment {
 
         // NOTE: `begin` blocks are not checked here — that's handled by
         // Layout/BeginEndAlignment which supports variable-aligned `end`.
-
     }
 }
 
@@ -222,86 +228,110 @@ mod tests {
 
     #[test]
     fn variable_style_aligns_with_assignment() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyleAlignWith".into(), serde_yml::Value::String("variable".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyleAlignWith".into(),
+                serde_yml::Value::String("variable".into()),
+            )]),
             ..CopConfig::default()
         };
         // `x = if ...` with `end` at column 0 (start of line)
         let src = b"x = if true\n  1\nend\n";
         let diags = run_cop_full_with_config(&EndAlignment, src, config);
-        assert!(diags.is_empty(), "variable style should accept end at start of line");
+        assert!(
+            diags.is_empty(),
+            "variable style should accept end at start of line"
+        );
     }
 
     #[test]
     fn variable_style_no_assignment_falls_back_to_keyword() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyleAlignWith".into(), serde_yml::Value::String("variable".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyleAlignWith".into(),
+                serde_yml::Value::String("variable".into()),
+            )]),
             ..CopConfig::default()
         };
         // `super || if ...` — not an assignment, `end` should align with `if` (col 13)
         let src = b"  def foo\n    super || if true\n                 1\n             end\n  end\n";
         let diags = run_cop_full_with_config(&EndAlignment, src, config);
-        assert!(diags.is_empty(), "variable style without assignment should align end with keyword: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "variable style without assignment should align end with keyword: {:?}",
+            diags
+        );
     }
 
     #[test]
     fn variable_style_shovel_operator_aligns_with_line_start() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyleAlignWith".into(), serde_yml::Value::String("variable".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyleAlignWith".into(),
+                serde_yml::Value::String("variable".into()),
+            )]),
             ..CopConfig::default()
         };
         // `buf << if ...` — end aligns with line start (buf), not with `if`
         let src = b"        buf << if foo\n          bar\n        end\n";
         let diags = run_cop_full_with_config(&EndAlignment, src, config);
-        assert!(diags.is_empty(), "variable style should accept end at line start for << operator: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "variable style should accept end at line start for << operator: {:?}",
+            diags
+        );
     }
 
     #[test]
     fn variable_style_shovel_case_aligns_with_line_start() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyleAlignWith".into(), serde_yml::Value::String("variable".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyleAlignWith".into(),
+                serde_yml::Value::String("variable".into()),
+            )]),
             ..CopConfig::default()
         };
         // `memo << case key` — end aligns with line indent (col 4)
         let src = b"    memo << case key\n              when :a\n                1\n    end\n";
         let diags = run_cop_full_with_config(&EndAlignment, src, config);
-        assert!(diags.is_empty(), "variable style should accept end at line start for << case: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "variable style should accept end at line start for << case: {:?}",
+            diags
+        );
     }
 
     #[test]
     fn variable_style_no_assignment_flags_misaligned() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyleAlignWith".into(), serde_yml::Value::String("variable".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyleAlignWith".into(),
+                serde_yml::Value::String("variable".into()),
+            )]),
             ..CopConfig::default()
         };
         // `super || if ...` — end NOT aligned with if (should flag)
         let src = b"  def foo\n    super || if true\n                   1\n  end\n  end\n";
         let diags = run_cop_full_with_config(&EndAlignment, src, config);
-        assert_eq!(diags.len(), 1, "variable style should flag end not aligned with keyword when no assignment");
+        assert_eq!(
+            diags.len(),
+            1,
+            "variable style should flag end not aligned with keyword when no assignment"
+        );
     }
 }

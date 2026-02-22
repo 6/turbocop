@@ -1,8 +1,8 @@
+use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 
 pub struct WhereNotWithMultipleConditions;
 
@@ -61,8 +61,8 @@ impl Cop for WhereNotWithMultipleConditions {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let chain = match util::as_method_chain(node) {
             Some(c) => c,
@@ -104,5 +104,8 @@ impl Cop for WhereNotWithMultipleConditions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(WhereNotWithMultipleConditions, "cops/rails/where_not_with_multiple_conditions");
+    crate::cop_fixture_tests!(
+        WhereNotWithMultipleConditions,
+        "cops/rails/where_not_with_multiple_conditions"
+    );
 }

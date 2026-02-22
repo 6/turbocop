@@ -1,23 +1,15 @@
+use crate::cop::node_type::{CALL_NODE, STRING_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, STRING_NODE};
 
 pub struct SaveBang;
 
 /// Methods that should use the bang (!) version if the return value is not checked.
-const PERSIST_METHODS: &[&[u8]] = &[
-    b"save",
-    b"create",
-    b"update",
-    b"destroy",
-];
+const PERSIST_METHODS: &[&[u8]] = &[b"save", b"create", b"update", b"destroy"];
 
 /// Methods that should use the bang version (create_or_find_by, etc.)
-const FIND_OR_CREATE_METHODS: &[&[u8]] = &[
-    b"first_or_create",
-    b"find_or_create_by",
-];
+const FIND_OR_CREATE_METHODS: &[&[u8]] = &[b"first_or_create", b"find_or_create_by"];
 
 impl Cop for SaveBang {
     fn name(&self) -> &'static str {
@@ -38,8 +30,8 @@ impl Cop for SaveBang {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _allow_implicit_return = config.get_bool("AllowImplicitReturn", true);
         let _allowed_receivers = config.get_string_array("AllowedReceivers");

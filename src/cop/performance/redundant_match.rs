@@ -19,8 +19,8 @@ impl Cop for RedundantMatch {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         use ruby_prism::Visit;
         let mut visitor = RedundantMatchVisitor {
@@ -155,7 +155,11 @@ impl<'pr> ruby_prism::Visit<'pr> for RedundantMatchVisitor<'_> {
         for (i, stmt) in stmts.iter().enumerate() {
             // In a statement list, only the last statement's value might be used
             // (e.g., as block return value). Earlier statements are not used.
-            self.value_used = if i == stmts.len() - 1 { old_used } else { false };
+            self.value_used = if i == stmts.len() - 1 {
+                old_used
+            } else {
+                false
+            };
             self.visit(stmt);
         }
         self.value_used = old_used;
@@ -193,10 +197,7 @@ impl<'pr> ruby_prism::Visit<'pr> for RedundantMatchVisitor<'_> {
         self.parent_is_condition = old_condition;
     }
 
-    fn visit_local_variable_write_node(
-        &mut self,
-        node: &ruby_prism::LocalVariableWriteNode<'pr>,
-    ) {
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
         // The RHS of an assignment: value IS used
         let old = self.value_used;
         let old_condition = self.parent_is_condition;
@@ -220,10 +221,7 @@ impl<'pr> ruby_prism::Visit<'pr> for RedundantMatchVisitor<'_> {
         self.parent_is_condition = old_condition;
     }
 
-    fn visit_class_variable_write_node(
-        &mut self,
-        node: &ruby_prism::ClassVariableWriteNode<'pr>,
-    ) {
+    fn visit_class_variable_write_node(&mut self, node: &ruby_prism::ClassVariableWriteNode<'pr>) {
         let old = self.value_used;
         let old_condition = self.parent_is_condition;
         self.value_used = true;
@@ -246,10 +244,7 @@ impl<'pr> ruby_prism::Visit<'pr> for RedundantMatchVisitor<'_> {
         self.parent_is_condition = old_condition;
     }
 
-    fn visit_constant_write_node(
-        &mut self,
-        node: &ruby_prism::ConstantWriteNode<'pr>,
-    ) {
+    fn visit_constant_write_node(&mut self, node: &ruby_prism::ConstantWriteNode<'pr>) {
         let old = self.value_used;
         let old_condition = self.parent_is_condition;
         self.value_used = true;
@@ -376,8 +371,8 @@ impl<'a> RedundantMatchVisitor<'a> {
             None => return,
         };
 
-        let recv_is_literal = receiver.as_string_node().is_some()
-            || receiver.as_regular_expression_node().is_some();
+        let recv_is_literal =
+            receiver.as_string_node().is_some() || receiver.as_regular_expression_node().is_some();
         let arg_is_literal = first_arg.as_string_node().is_some()
             || first_arg.as_regular_expression_node().is_some();
 

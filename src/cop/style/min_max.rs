@@ -1,7 +1,7 @@
+use crate::cop::node_type::{ARRAY_NODE, CALL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ARRAY_NODE, CALL_NODE};
 
 pub struct MinMax;
 
@@ -20,8 +20,8 @@ impl Cop for MinMax {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let array_node = match node.as_array_node() {
             Some(a) => a,
@@ -76,9 +76,10 @@ fn get_receiver_of_method<'a>(
     }
     let recv = call.receiver()?;
     let recv_loc = recv.location();
-    let recv_src = std::str::from_utf8(&source.content[recv_loc.start_offset()..recv_loc.end_offset()])
-        .unwrap_or("")
-        .to_string();
+    let recv_src =
+        std::str::from_utf8(&source.content[recv_loc.start_offset()..recv_loc.end_offset()])
+            .unwrap_or("")
+            .to_string();
     Some(recv_src)
 }
 

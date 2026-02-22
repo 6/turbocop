@@ -1,16 +1,14 @@
+use crate::cop::node_type::{CALL_NODE, INTERPOLATED_STRING_NODE, KEYWORD_HASH_NODE, STRING_NODE};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, INTERPOLATED_STRING_NODE, KEYWORD_HASH_NODE, STRING_NODE};
 
 pub struct ExampleWording;
 
 /// Example methods that take a description string.
 /// RuboCop's ExampleWording only matches `it` blocks (and focused/pending variants).
-const EXAMPLE_METHODS: &[&[u8]] = &[
-    b"it", b"fit", b"xit",
-];
+const EXAMPLE_METHODS: &[&[u8]] = &[b"it", b"fit", b"xit"];
 
 impl Cop for ExampleWording {
     fn name(&self) -> &'static str {
@@ -26,7 +24,12 @@ impl Cop for ExampleWording {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, INTERPOLATED_STRING_NODE, KEYWORD_HASH_NODE, STRING_NODE]
+        &[
+            CALL_NODE,
+            INTERPOLATED_STRING_NODE,
+            KEYWORD_HASH_NODE,
+            STRING_NODE,
+        ]
     }
 
     fn check_node(
@@ -35,11 +38,13 @@ impl Cop for ExampleWording {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: CustomTransform — hash of word replacements (unused: requires hash config)
-        let custom_transform = config.get_string_hash("CustomTransform").unwrap_or_default();
+        let custom_transform = config
+            .get_string_hash("CustomTransform")
+            .unwrap_or_default();
         // Config: IgnoredWords — words to ignore in description checking
         let ignored_words = config.get_string_array("IgnoredWords");
         // Config: DisallowedExamples — example descriptions to disallow entirely
@@ -123,11 +128,18 @@ impl Cop for ExampleWording {
                         let after_should = desc_str.get(prefix_len..).unwrap_or("").trim_start();
                         let next_word = after_should.split_whitespace().next().unwrap_or("");
                         if let Some(replacement) = custom_transform.get(next_word) {
-                            let rest = after_should.get(next_word.len()..).unwrap_or("").trim_start();
+                            let rest = after_should
+                                .get(next_word.len()..)
+                                .unwrap_or("")
+                                .trim_start();
                             if replacement.is_empty() {
-                                format!("Do not use should when describing your tests. Use `{rest}` instead.")
+                                format!(
+                                    "Do not use should when describing your tests. Use `{rest}` instead."
+                                )
                             } else {
-                                format!("Do not use should when describing your tests. Use `{replacement} {rest}` instead.")
+                                format!(
+                                    "Do not use should when describing your tests. Use `{replacement} {rest}` instead."
+                                )
                             }
                         } else {
                             "Do not use should when describing your tests.".to_string()
@@ -135,12 +147,7 @@ impl Cop for ExampleWording {
                     } else {
                         "Do not use should when describing your tests.".to_string()
                     };
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        msg,
-                    ));
+                    diagnostics.push(self.diagnostic(source, line, column, msg));
                 }
 
                 // Check for "will"/"won't" prefix
@@ -167,7 +174,6 @@ impl Cop for ExampleWording {
             }
             break;
         }
-
     }
 }
 
@@ -238,9 +244,7 @@ mod tests {
         let config = CopConfig {
             options: HashMap::from([(
                 "DisallowedExamples".into(),
-                serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("works".into()),
-                ]),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("works".into())]),
             )]),
             ..CopConfig::default()
         };
@@ -270,7 +274,11 @@ mod tests {
         let source = b"it 'should be valid' do\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&ExampleWording, source, config);
         assert_eq!(diags.len(), 1);
-        assert!(diags[0].message.contains("is valid"), "CustomTransform should suggest 'is valid' replacement, got: {}", diags[0].message);
+        assert!(
+            diags[0].message.contains("is valid"),
+            "CustomTransform should suggest 'is valid' replacement, got: {}",
+            diags[0].message
+        );
     }
 
     #[test]
@@ -281,9 +289,7 @@ mod tests {
         let config = CopConfig {
             options: HashMap::from([(
                 "IgnoredWords".into(),
-                serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("should".into()),
-                ]),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("should".into())]),
             )]),
             ..CopConfig::default()
         };

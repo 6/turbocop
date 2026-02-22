@@ -17,11 +17,15 @@ impl Cop for ReturnNilInPredicateMethodDefinition {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let allowed_methods = config.get_string_array("AllowedMethods").unwrap_or_default();
-        let allowed_patterns = config.get_string_array("AllowedPatterns").unwrap_or_default();
+        let allowed_methods = config
+            .get_string_array("AllowedMethods")
+            .unwrap_or_default();
+        let allowed_patterns = config
+            .get_string_array("AllowedPatterns")
+            .unwrap_or_default();
 
         let mut visitor = PredicateReturnVisitor {
             cop: self,
@@ -103,7 +107,8 @@ impl<'pr> Visit<'pr> for ReturnFinder {
         };
 
         if is_bare || is_nil {
-            self.returns.push((node.location().start_offset(), node.location().end_offset()));
+            self.returns
+                .push((node.location().start_offset(), node.location().end_offset()));
         }
     }
 
@@ -114,5 +119,8 @@ impl<'pr> Visit<'pr> for ReturnFinder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ReturnNilInPredicateMethodDefinition, "cops/style/return_nil_in_predicate_method_definition");
+    crate::cop_fixture_tests!(
+        ReturnNilInPredicateMethodDefinition,
+        "cops/style/return_nil_in_predicate_method_definition"
+    );
 }

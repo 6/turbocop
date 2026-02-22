@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE};
 
 pub struct StringChars;
 
@@ -20,8 +20,8 @@ impl Cop for StringChars {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -51,14 +51,14 @@ impl Cop for StringChars {
         let arg = &arg_list[0];
 
         // Check for split('') or split("")
-        let is_empty_string = arg.as_string_node().is_some_and(|s| {
-            s.unescaped().is_empty()
-        });
+        let is_empty_string = arg
+            .as_string_node()
+            .is_some_and(|s| s.unescaped().is_empty());
 
         // Check for split(//)
-        let is_empty_regexp = arg.as_regular_expression_node().is_some_and(|r| {
-            r.unescaped().is_empty()
-        });
+        let is_empty_regexp = arg
+            .as_regular_expression_node()
+            .is_some_and(|r| r.unescaped().is_empty());
 
         if !is_empty_string && !is_empty_regexp {
             return;

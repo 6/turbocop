@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, RATIONAL_NODE};
 use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, RATIONAL_NODE};
 
 /// Warns about unsafe number conversion using `to_i`, `to_f`, `to_c`, `to_r`.
 /// Prefers strict `Integer()`, `Float()`, etc. Disabled by default.
@@ -25,7 +25,13 @@ impl Cop for NumberConversion {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, RATIONAL_NODE]
+        &[
+            CALL_NODE,
+            FLOAT_NODE,
+            IMAGINARY_NODE,
+            INTEGER_NODE,
+            RATIONAL_NODE,
+        ]
     }
 
     fn check_node(
@@ -34,8 +40,8 @@ impl Cop for NumberConversion {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -75,8 +81,12 @@ impl Cop for NumberConversion {
                 return;
             }
             // Skip allowed methods from config
-            let allowed = config.get_string_array("AllowedMethods").unwrap_or_default();
-            let allowed_patterns = config.get_string_array("AllowedPatterns").unwrap_or_default();
+            let allowed = config
+                .get_string_array("AllowedMethods")
+                .unwrap_or_default();
+            let allowed_patterns = config
+                .get_string_array("AllowedPatterns")
+                .unwrap_or_default();
             if let Ok(name) = std::str::from_utf8(recv_method) {
                 if allowed.iter().any(|a| a == name) {
                     return;
@@ -93,9 +103,9 @@ impl Cop for NumberConversion {
         }
 
         // Skip ignored classes - check the receiver and walk one level deeper
-        let ignored_classes = config.get_string_array("IgnoredClasses").unwrap_or_else(|| {
-            vec!["Time".to_string(), "DateTime".to_string()]
-        });
+        let ignored_classes = config
+            .get_string_array("IgnoredClasses")
+            .unwrap_or_else(|| vec!["Time".to_string(), "DateTime".to_string()]);
         if is_ignored_class(&receiver, &ignored_classes) {
             return;
         }

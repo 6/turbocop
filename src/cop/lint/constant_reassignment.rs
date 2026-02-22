@@ -22,8 +22,8 @@ impl Cop for ConstantReassignment {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = ConstantReassignmentVisitor {
             cop: self,
@@ -76,14 +76,18 @@ impl<'pr> Visit<'pr> for ConstantReassignmentVisitor<'_, '_> {
     }
 
     fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
-        let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("").to_string();
+        let name = std::str::from_utf8(node.name().as_slice())
+            .unwrap_or("")
+            .to_string();
         self.namespace_stack.push(name);
         ruby_prism::visit_class_node(self, node);
         self.namespace_stack.pop();
     }
 
     fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
-        let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("").to_string();
+        let name = std::str::from_utf8(node.name().as_slice())
+            .unwrap_or("")
+            .to_string();
         self.namespace_stack.push(name);
         ruby_prism::visit_module_node(self, node);
         self.namespace_stack.pop();

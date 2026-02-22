@@ -1,8 +1,8 @@
+use crate::cop::node_type::{BREAK_NODE, CALL_NODE, IF_NODE, NEXT_NODE, RETURN_NODE, UNLESS_NODE};
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BREAK_NODE, CALL_NODE, IF_NODE, NEXT_NODE, RETURN_NODE, UNLESS_NODE};
 
 pub struct EmptyLineAfterGuardClause;
 
@@ -19,7 +19,14 @@ impl Cop for EmptyLineAfterGuardClause {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BREAK_NODE, CALL_NODE, IF_NODE, NEXT_NODE, RETURN_NODE, UNLESS_NODE]
+        &[
+            BREAK_NODE,
+            CALL_NODE,
+            IF_NODE,
+            NEXT_NODE,
+            RETURN_NODE,
+            UNLESS_NODE,
+        ]
     }
 
     fn check_node(
@@ -28,8 +35,8 @@ impl Cop for EmptyLineAfterGuardClause {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Extract body statements, the overall location, and whether it's block form.
         // We handle both modifier and block-form if/unless.
@@ -86,8 +93,12 @@ impl Cop for EmptyLineAfterGuardClause {
         // A multi-line `next foo && bar && ...` inside a block-form if is not
         // considered a guard clause.
         if !is_modifier {
-            let stmt_start_line = source.offset_to_line_col(first_stmt.location().start_offset()).0;
-            let stmt_end_line = source.offset_to_line_col(first_stmt.location().end_offset().saturating_sub(1)).0;
+            let stmt_start_line = source
+                .offset_to_line_col(first_stmt.location().start_offset())
+                .0;
+            let stmt_end_line = source
+                .offset_to_line_col(first_stmt.location().end_offset().saturating_sub(1))
+                .0;
             if stmt_start_line != stmt_end_line {
                 return;
             }

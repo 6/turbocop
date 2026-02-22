@@ -1,8 +1,8 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::util::{has_keyword_arg, is_dsl_call};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct DelegateAllowBlank;
 
@@ -25,8 +25,8 @@ impl Cop for DelegateAllowBlank {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -43,12 +43,15 @@ impl Cop for DelegateAllowBlank {
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(
-            source,
-            line,
-            column,
-            "`allow_blank` is not a valid option for `delegate`. Did you mean `allow_nil`?".to_string(),
-        ));
+        diagnostics.push(
+            self.diagnostic(
+                source,
+                line,
+                column,
+                "`allow_blank` is not a valid option for `delegate`. Did you mean `allow_nil`?"
+                    .to_string(),
+            ),
+        );
     }
 }
 

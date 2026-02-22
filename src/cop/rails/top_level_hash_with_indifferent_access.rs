@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 
 pub struct TopLevelHashWithIndifferentAccess;
 
@@ -24,8 +24,8 @@ impl Cop for TopLevelHashWithIndifferentAccess {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check for ConstantReadNode: `HashWithIndifferentAccess`
         if let Some(cr) = node.as_constant_read_node() {
@@ -58,12 +58,14 @@ impl Cop for TopLevelHashWithIndifferentAccess {
                 }
             }
         }
-
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(TopLevelHashWithIndifferentAccess, "cops/rails/top_level_hash_with_indifferent_access");
+    crate::cop_fixture_tests!(
+        TopLevelHashWithIndifferentAccess,
+        "cops/rails/top_level_hash_with_indifferent_access"
+    );
 }

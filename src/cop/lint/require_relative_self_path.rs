@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, STRING_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use std::path::Path;
-use crate::cop::node_type::{CALL_NODE, STRING_NODE};
 
 pub struct RequireRelativeSelfPath;
 
@@ -25,8 +25,8 @@ impl Cop for RequireRelativeSelfPath {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for `require_relative 'self_filename'`
         let call = match node.as_call_node() {
@@ -108,12 +108,14 @@ impl Cop for RequireRelativeSelfPath {
                 "Remove the `require_relative` that requires itself.".to_string(),
             ));
         }
-
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(RequireRelativeSelfPath, "cops/lint/require_relative_self_path");
+    crate::cop_fixture_tests!(
+        RequireRelativeSelfPath,
+        "cops/lint/require_relative_self_path"
+    );
 }

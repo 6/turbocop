@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, STRING_NODE, SYMBOL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct SendWithMixinArgument;
 
@@ -18,7 +20,13 @@ impl Cop for SendWithMixinArgument {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, STRING_NODE, SYMBOL_NODE]
+        &[
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -27,8 +35,8 @@ impl Cop for SendWithMixinArgument {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -87,8 +95,7 @@ impl Cop for SendWithMixinArgument {
         }
 
         let mixin_str = std::str::from_utf8(&mixin_name).unwrap_or("include");
-        let module_name =
-            std::str::from_utf8(second_arg.location().as_slice()).unwrap_or("Module");
+        let module_name = std::str::from_utf8(second_arg.location().as_slice()).unwrap_or("Module");
 
         // Build the "bad method" string for the message
         // Only include the method name and arguments, not the receiver
@@ -105,9 +112,7 @@ impl Cop for SendWithMixinArgument {
             source,
             line,
             column,
-            format!(
-                "Use `{mixin_str} {module_name}` instead of `{method_str}({args_src})`."
-            ),
+            format!("Use `{mixin_str} {module_name}` instead of `{method_str}({args_src})`."),
         ));
     }
 }

@@ -41,10 +41,11 @@ impl Cop for MagicCommentFormat {
         &self,
         source: &SourceFile,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let lines: Vec<&str> = source.lines()
+        let lines: Vec<&str> = source
+            .lines()
             .filter_map(|l| std::str::from_utf8(l).ok())
             .collect();
         let style = config.get_str("EnforcedStyle", "snake_case");
@@ -71,13 +72,24 @@ impl Cop for MagicCommentFormat {
 
             if is_emacs {
                 // Parse emacs-style directives
-                let inner = content.trim_start_matches("-*-").trim_end_matches("-*-").trim();
+                let inner = content
+                    .trim_start_matches("-*-")
+                    .trim_end_matches("-*-")
+                    .trim();
                 for part in inner.split(';') {
                     let part = part.trim();
                     if let Some(colon_pos) = part.find(':') {
                         let directive = part[..colon_pos].trim();
                         if Self::is_magic_comment_directive(directive) {
-                            Self::check_directive_style(diagnostics, source, i, line, directive, style, self);
+                            Self::check_directive_style(
+                                diagnostics,
+                                source,
+                                i,
+                                line,
+                                directive,
+                                style,
+                                self,
+                            );
                         }
                     }
                 }
@@ -86,12 +98,19 @@ impl Cop for MagicCommentFormat {
                 if let Some(colon_pos) = content.find(':') {
                     let directive = content[..colon_pos].trim();
                     if Self::is_magic_comment_directive(directive) {
-                        Self::check_directive_style(diagnostics, source, i, line, directive, style, self);
+                        Self::check_directive_style(
+                            diagnostics,
+                            source,
+                            i,
+                            line,
+                            directive,
+                            style,
+                            self,
+                        );
                     }
                 }
             }
         }
-
     }
 }
 
@@ -128,12 +147,7 @@ impl MagicCommentFormat {
                     "kebab_case" => "Prefer kebab case for magic comments.".to_string(),
                     _ => return,
                 };
-                diagnostics.push(cop.diagnostic(
-                    source,
-                    line_num,
-                    pos,
-                    msg,
-                ));
+                diagnostics.push(cop.diagnostic(source, line_num, pos, msg));
             }
         }
     }

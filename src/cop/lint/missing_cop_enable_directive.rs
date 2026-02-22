@@ -22,8 +22,8 @@ impl Cop for MissingCopEnableDirective {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let max_range = get_max_range_size(config);
         // Track open disables: cop_name -> (line_number, column)
@@ -102,12 +102,7 @@ impl Cop for MissingCopEnableDirective {
                     ));
                 }
             } else {
-                diagnostics.push(self.diagnostic(
-                    source,
-                    *line,
-                    0,
-                    format_message(cop, None),
-                ));
+                diagnostics.push(self.diagnostic(source, *line, 0, format_message(cop, None)));
             }
         }
 
@@ -118,7 +113,11 @@ impl Cop for MissingCopEnableDirective {
 
 fn format_message(cop: &str, max_range: Option<usize>) -> String {
     // Determine if it's a department (no `/`) or a specific cop
-    let kind = if cop.contains('/') { "cop" } else { "department" };
+    let kind = if cop.contains('/') {
+        "cop"
+    } else {
+        "department"
+    };
     match max_range {
         Some(n) => format!(
             "Re-enable {} {} within {} lines after disabling it.",

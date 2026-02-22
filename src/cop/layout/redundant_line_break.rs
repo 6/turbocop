@@ -16,8 +16,8 @@ impl Cop for RedundantLineBreak {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _inspect_blocks = config.get_bool("InspectBlocks", false);
         let max_line_length = config.get_usize("MaxLineLength", 120);
@@ -147,7 +147,6 @@ impl Cop for RedundantLineBreak {
 
             i = final_line_idx + 1;
         }
-
     }
 }
 
@@ -234,8 +233,5 @@ fn leading_whitespace_len(line: &[u8]) -> usize {
 mod tests {
     use super::*;
 
-    crate::cop_fixture_tests!(
-        RedundantLineBreak,
-        "cops/layout/redundant_line_break"
-    );
+    crate::cop_fixture_tests!(RedundantLineBreak, "cops/layout/redundant_line_break");
 }

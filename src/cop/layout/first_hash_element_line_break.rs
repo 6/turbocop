@@ -1,7 +1,7 @@
+use crate::cop::node_type::{HASH_NODE, KEYWORD_HASH_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{HASH_NODE, KEYWORD_HASH_NODE};
 
 pub struct FirstHashElementLineBreak;
 
@@ -20,8 +20,8 @@ impl Cop for FirstHashElementLineBreak {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _allow_multiline_final = config.get_bool("AllowMultilineFinalElement", false);
 
@@ -66,7 +66,6 @@ impl Cop for FirstHashElementLineBreak {
                 "Add a line break before the first element of a multi-line hash.".to_string(),
             ));
         }
-
     }
 }
 

@@ -22,7 +22,8 @@ impl FormatStringToken {
                     // Must have at least one word character followed by closing >
                     let mut j = i + 2;
                     let mut has_word_char = false;
-                    while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
+                    while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_')
+                    {
                         has_word_char = true;
                         j += 1;
                     }
@@ -51,7 +52,8 @@ impl FormatStringToken {
                     // Must have at least one word character followed by closing }
                     let mut j = i + 2;
                     let mut has_word_char = false;
-                    while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
+                    while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_')
+                    {
                         has_word_char = true;
                         j += 1;
                     }
@@ -84,10 +86,40 @@ impl FormatStringToken {
                     }
                     // Skip flags and width
                     let mut j = i + 1;
-                    while j < bytes.len() && (bytes[j] == b'-' || bytes[j] == b'+' || bytes[j] == b' ' || bytes[j] == b'0' || bytes[j] == b'#' || bytes[j].is_ascii_digit() || bytes[j] == b'.' || bytes[j] == b'*') {
+                    while j < bytes.len()
+                        && (bytes[j] == b'-'
+                            || bytes[j] == b'+'
+                            || bytes[j] == b' '
+                            || bytes[j] == b'0'
+                            || bytes[j] == b'#'
+                            || bytes[j].is_ascii_digit()
+                            || bytes[j] == b'.'
+                            || bytes[j] == b'*')
+                    {
                         j += 1;
                     }
-                    if j < bytes.len() && matches!(bytes[j], b's' | b'd' | b'f' | b'g' | b'e' | b'x' | b'X' | b'o' | b'b' | b'B' | b'i' | b'u' | b'c' | b'p' | b'a' | b'A' | b'E' | b'G') {
+                    if j < bytes.len()
+                        && matches!(
+                            bytes[j],
+                            b's' | b'd'
+                                | b'f'
+                                | b'g'
+                                | b'e'
+                                | b'x'
+                                | b'X'
+                                | b'o'
+                                | b'b'
+                                | b'B'
+                                | b'i'
+                                | b'u'
+                                | b'c'
+                                | b'p'
+                                | b'a'
+                                | b'A'
+                                | b'E'
+                                | b'G'
+                        )
+                    {
                         count += 1;
                     }
                 }
@@ -99,7 +131,9 @@ impl FormatStringToken {
 
     /// Check whether the string has ONLY unannotated tokens (no template or annotated)
     fn only_unannotated_tokens(s: &str) -> bool {
-        !Self::has_annotated_token(s) && !Self::has_template_token(s) && Self::count_unannotated_tokens(s) > 0
+        !Self::has_annotated_token(s)
+            && !Self::has_template_token(s)
+            && Self::count_unannotated_tokens(s) > 0
     }
 }
 
@@ -114,8 +148,8 @@ impl Cop for FormatStringToken {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "annotated");
         let max_unannotated = config.get_usize("MaxUnannotatedPlaceholdersAllowed", 1);
@@ -193,7 +227,10 @@ impl FormatContextCollector<'_> {
                 self.offsets.insert(node.location().start_offset());
                 ruby_prism::visit_string_node(self, node);
             }
-            fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
+            fn visit_interpolated_string_node(
+                &mut self,
+                node: &ruby_prism::InterpolatedStringNode<'pr>,
+            ) {
                 self.offsets.insert(node.location().start_offset());
                 ruby_prism::visit_interpolated_string_node(self, node);
             }
@@ -285,7 +322,11 @@ impl<'pr> Visit<'pr> for FormatStringTokenVisitor<'_> {
         // They are only flagged when the string is in a format context.
         // In conservative mode, ALL token types are only flagged in format context.
         let check_unannotated = in_format_context;
-        let check_named = if self.conservative { in_format_context } else { true };
+        let check_named = if self.conservative {
+            in_format_context
+        } else {
+            true
+        };
 
         let loc = node.location();
         let (line, column) = self.source.offset_to_line_col(loc.start_offset());

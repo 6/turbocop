@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, STRING_NODE};
 use crate::cop::util::keyword_arg_value;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, STRING_NODE};
 
 pub struct RenderPlainText;
 
@@ -25,8 +25,8 @@ impl Cop for RenderPlainText {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let content_type_compat = config.get_bool("ContentTypeCompatibility", true);
 
@@ -107,6 +107,9 @@ mod tests {
         };
         let source = b"render text: 'hello'\n";
         let diags = run_cop_full_with_config(&RenderPlainText, source, config);
-        assert!(!diags.is_empty(), "ContentTypeCompatibility:false should flag render text: without content_type");
+        assert!(
+            !diags.is_empty(),
+            "ContentTypeCompatibility:false should flag render text: without content_type"
+        );
     }
 }

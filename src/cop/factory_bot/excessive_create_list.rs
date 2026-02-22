@@ -1,8 +1,8 @@
-use crate::cop::factory_bot::{is_factory_call, FACTORY_BOT_SPEC_INCLUDE};
+use crate::cop::factory_bot::{FACTORY_BOT_SPEC_INCLUDE, is_factory_call};
+use crate::cop::node_type::{CALL_NODE, INTEGER_NODE, STRING_NODE, SYMBOL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, INTEGER_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct ExcessiveCreateList;
 
@@ -29,8 +29,8 @@ impl Cop for ExcessiveCreateList {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -64,9 +64,12 @@ impl Cop for ExcessiveCreateList {
         // Second arg must be an integer
         let count = match arg_list[1].as_integer_node() {
             Some(int) => {
-                let src = &source.as_bytes()
-                    [int.location().start_offset()..int.location().end_offset()];
-                match std::str::from_utf8(src).ok().and_then(|s| s.parse::<i64>().ok()) {
+                let src =
+                    &source.as_bytes()[int.location().start_offset()..int.location().end_offset()];
+                match std::str::from_utf8(src)
+                    .ok()
+                    .and_then(|s| s.parse::<i64>().ok())
+                {
                     Some(v) => v,
                     None => return,
                 }
@@ -97,8 +100,5 @@ impl Cop for ExcessiveCreateList {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(
-        ExcessiveCreateList,
-        "cops/factorybot/excessive_create_list"
-    );
+    crate::cop_fixture_tests!(ExcessiveCreateList, "cops/factorybot/excessive_create_list");
 }

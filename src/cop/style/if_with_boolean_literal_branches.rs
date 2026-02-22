@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    AND_NODE, CALL_NODE, ELSE_NODE, FALSE_NODE, IF_NODE, OR_NODE, PARENTHESES_NODE, TRUE_NODE,
+    UNLESS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{AND_NODE, CALL_NODE, ELSE_NODE, FALSE_NODE, IF_NODE, OR_NODE, PARENTHESES_NODE, TRUE_NODE, UNLESS_NODE};
 
 pub struct IfWithBooleanLiteralBranches;
 
@@ -11,7 +14,17 @@ impl Cop for IfWithBooleanLiteralBranches {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[AND_NODE, CALL_NODE, ELSE_NODE, FALSE_NODE, IF_NODE, OR_NODE, PARENTHESES_NODE, TRUE_NODE, UNLESS_NODE]
+        &[
+            AND_NODE,
+            CALL_NODE,
+            ELSE_NODE,
+            FALSE_NODE,
+            IF_NODE,
+            OR_NODE,
+            PARENTHESES_NODE,
+            TRUE_NODE,
+            UNLESS_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +33,8 @@ impl Cop for IfWithBooleanLiteralBranches {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed_methods = config.get_string_array("AllowedMethods");
 
@@ -78,12 +91,15 @@ impl Cop for IfWithBooleanLiteralBranches {
                             q_offset += 1;
                         }
                         let (line, column) = source.offset_to_line_col(q_offset);
-                        diagnostics.push(self.diagnostic(
-                            source,
-                            line,
-                            column,
-                            "Remove redundant ternary operator with boolean literal branches.".to_string(),
-                        ));
+                        diagnostics.push(
+                            self.diagnostic(
+                                source,
+                                line,
+                                column,
+                                "Remove redundant ternary operator with boolean literal branches."
+                                    .to_string(),
+                            ),
+                        );
                         return;
                     }
 
@@ -136,7 +152,6 @@ impl Cop for IfWithBooleanLiteralBranches {
                 }
             }
         }
-
     }
 }
 
@@ -163,7 +178,10 @@ fn single_boolean_value_from_else(else_node: &ruby_prism::ElseNode<'_>) -> Optio
 
 /// Check if a condition expression is known to return a boolean value.
 /// This includes comparison operators and predicate methods (ending with `?`).
-fn condition_returns_boolean(node: &ruby_prism::Node<'_>, allowed_methods: &Option<Vec<String>>) -> bool {
+fn condition_returns_boolean(
+    node: &ruby_prism::Node<'_>,
+    allowed_methods: &Option<Vec<String>>,
+) -> bool {
     // Check for call node (comparison or predicate)
     if let Some(call) = node.as_call_node() {
         let method_name = call.name();
@@ -230,5 +248,8 @@ fn condition_returns_boolean(node: &ruby_prism::Node<'_>, allowed_methods: &Opti
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(IfWithBooleanLiteralBranches, "cops/style/if_with_boolean_literal_branches");
+    crate::cop_fixture_tests!(
+        IfWithBooleanLiteralBranches,
+        "cops/style/if_with_boolean_literal_branches"
+    );
 }

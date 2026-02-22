@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTERPOLATED_STRING_NODE, STRING_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTERPOLATED_STRING_NODE, STRING_NODE};
 
 pub struct OutputSafety;
 
@@ -14,7 +16,10 @@ fn is_non_interpolated_string(receiver: &ruby_prism::Node<'_>) -> bool {
     }
     // Interpolated string where all parts are string literals (adjacent string concatenation)
     if let Some(dstr) = receiver.as_interpolated_string_node() {
-        return dstr.parts().iter().all(|part| part.as_string_node().is_some());
+        return dstr
+            .parts()
+            .iter()
+            .all(|part| part.as_string_node().is_some());
     }
     false
 }
@@ -30,15 +35,15 @@ fn contains_i18n_call(node: &ruby_prism::Node<'_>) -> bool {
                 return true;
             }
             if let Some(recv) = call.receiver() {
-                if recv.as_constant_read_node().is_some_and(|c| c.name().as_slice() == b"I18n") {
+                if recv
+                    .as_constant_read_node()
+                    .is_some_and(|c| c.name().as_slice() == b"I18n")
+                {
                     return true;
                 }
                 if recv
                     .as_constant_path_node()
-                    .is_some_and(|cp| {
-                        cp.name()
-                            .is_some_and(|n| n.as_slice() == b"I18n")
-                    })
+                    .is_some_and(|cp| cp.name().is_some_and(|n| n.as_slice() == b"I18n"))
                 {
                     return true;
                 }
@@ -64,7 +69,13 @@ impl Cop for OutputSafety {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTERPOLATED_STRING_NODE, STRING_NODE]
+        &[
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            INTERPOLATED_STRING_NODE,
+            STRING_NODE,
+        ]
     }
 
     fn check_node(
@@ -73,8 +84,8 @@ impl Cop for OutputSafety {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,

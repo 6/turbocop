@@ -1,8 +1,8 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct ImplicitBlockExpectation;
 
@@ -29,8 +29,8 @@ impl Cop for ImplicitBlockExpectation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Flag `is_expected` when sibling `subject` contains a lambda/proc
         // This is a simplified check: we flag `is_expected` inside example blocks
@@ -94,7 +94,6 @@ impl Cop for ImplicitBlockExpectation {
             }
             break;
         }
-
     }
 }
 
@@ -125,5 +124,8 @@ fn has_block_matcher(node: &ruby_prism::Node<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ImplicitBlockExpectation, "cops/rspec/implicit_block_expectation");
+    crate::cop_fixture_tests!(
+        ImplicitBlockExpectation,
+        "cops/rspec/implicit_block_expectation"
+    );
 }

@@ -1,7 +1,7 @@
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, IF_NODE, STATEMENTS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, IF_NODE, STATEMENTS_NODE};
 
 pub struct MapCompactWithConditionalBlock;
 
@@ -20,8 +20,8 @@ impl Cop for MapCompactWithConditionalBlock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -115,7 +115,6 @@ impl Cop for MapCompactWithConditionalBlock {
                 "Use `filter_map` instead of `map { ... }.compact`.".to_string(),
             ));
         }
-
     }
 }
 
@@ -159,5 +158,8 @@ fn truthy_branch_returns_param(
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(MapCompactWithConditionalBlock, "cops/style/map_compact_with_conditional_block");
+    crate::cop_fixture_tests!(
+        MapCompactWithConditionalBlock,
+        "cops/style/map_compact_with_conditional_block"
+    );
 }

@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    ARRAY_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE,
+    REQUIRED_PARAMETER_NODE, STATEMENTS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ARRAY_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE};
 
 pub struct ZipWithoutBlock;
 
@@ -15,7 +18,15 @@ impl Cop for ZipWithoutBlock {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ARRAY_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE]
+        &[
+            ARRAY_NODE,
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            CALL_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            REQUIRED_PARAMETER_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -24,8 +35,8 @@ impl Cop for ZipWithoutBlock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for CallNode .map or .collect with a block
         let call = match node.as_call_node() {

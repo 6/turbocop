@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct DynamicFindBy;
 
@@ -24,8 +24,8 @@ impl Cop for DynamicFindBy {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // AllowedMethods (Whitelist is deprecated alias)
         let allowed = config.get_string_array("AllowedMethods");
@@ -94,14 +94,17 @@ mod tests {
         let config = CopConfig {
             options: HashMap::from([(
                 "Whitelist".to_string(),
-                serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("find_by_name".to_string()),
-                ]),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String(
+                    "find_by_name".to_string(),
+                )]),
             )]),
             ..CopConfig::default()
         };
         let source = b"User.find_by_name('foo')\n";
         let diags = run_cop_full_with_config(&DynamicFindBy, source, config);
-        assert!(diags.is_empty(), "Whitelist should suppress offense for find_by_name");
+        assert!(
+            diags.is_empty(),
+            "Whitelist should suppress offense for find_by_name"
+        );
     }
 }

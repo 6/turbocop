@@ -1,8 +1,8 @@
+use crate::cop::node_type::DEF_NODE;
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::DEF_NODE;
 
 pub struct ParameterAlignment;
 
@@ -21,8 +21,8 @@ impl Cop for ParameterAlignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "with_first_parameter");
         let _indent_width = config.get_usize("IndentationWidth", 2);
@@ -38,7 +38,11 @@ impl Cop for ParameterAlignment {
         };
 
         let requireds: Vec<_> = params.requireds().iter().collect();
-        let optionals: Vec<_> = params.optionals().iter().map(ruby_prism::Node::from).collect();
+        let optionals: Vec<_> = params
+            .optionals()
+            .iter()
+            .map(ruby_prism::Node::from)
+            .collect();
         let mut all_params: Vec<ruby_prism::Node<'_>> = Vec::new();
         all_params.extend(requireds);
         all_params.extend(optionals);
@@ -54,8 +58,8 @@ impl Cop for ParameterAlignment {
         }
 
         let first_param = &all_params[0];
-        let (first_line, first_col) = source.offset_to_line_col(first_param.location().start_offset());
-
+        let (first_line, first_col) =
+            source.offset_to_line_col(first_param.location().start_offset());
 
         let base_col = match style {
             "with_fixed_indentation" => {
@@ -71,7 +75,8 @@ impl Cop for ParameterAlignment {
         // on the same continuation line should not be checked individually.
         let mut last_checked_line = first_line;
         for param in all_params.iter().skip(1) {
-            let (param_line, param_col) = source.offset_to_line_col(param.location().start_offset());
+            let (param_line, param_col) =
+                source.offset_to_line_col(param.location().start_offset());
             if param_line == last_checked_line {
                 continue; // Same line as a previously checked param, skip
             }
@@ -82,15 +87,9 @@ impl Cop for ParameterAlignment {
                 } else {
                     "Align the parameters of a method definition if they span more than one line."
                 };
-                diagnostics.push(self.diagnostic(
-                    source,
-                    param_line,
-                    param_col,
-                    msg.to_string(),
-                ));
+                diagnostics.push(self.diagnostic(source, param_line, param_col, msg.to_string()));
             }
         }
-
     }
 }
 

@@ -1,9 +1,9 @@
 use ruby_prism::Visit;
 
+use crate::cop::node_type::{CALL_NODE, CONSTANT_READ_NODE, MODULE_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_READ_NODE, MODULE_NODE};
 
 pub struct RaiseException;
 
@@ -65,8 +65,8 @@ impl Cop for RaiseException {
         node: &ruby_prism::Node<'_>,
         parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed_namespaces = config.get_string_array("AllowedImplicitNamespaces");
         let call = match node.as_call_node() {
@@ -112,7 +112,11 @@ impl Cop for RaiseException {
                         module_names: Vec::new(),
                     };
                     finder.visit(&parse_result.node());
-                    if finder.module_names.iter().any(|name| allowed.iter().any(|a| a == name)) {
+                    if finder
+                        .module_names
+                        .iter()
+                        .any(|name| allowed.iter().any(|a| a == name))
+                    {
                         return;
                     }
                 }
@@ -137,41 +141,44 @@ mod tests {
 
     #[test]
     fn config_allowed_implicit_namespaces() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([(
                 "AllowedImplicitNamespaces".into(),
-                serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("Gem".into()),
-                ]),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("Gem".into())]),
             )]),
             ..CopConfig::default()
         };
         // raise Exception inside module Gem should be allowed
         let source = b"module Gem\n  def foo\n    raise Exception\n  end\nend\n";
         let diags = run_cop_full_with_config(&RaiseException, source, config);
-        assert!(diags.is_empty(), "Should not flag raise Exception inside allowed namespace Gem");
+        assert!(
+            diags.is_empty(),
+            "Should not flag raise Exception inside allowed namespace Gem"
+        );
     }
 
     #[test]
     fn config_allowed_implicit_namespaces_not_matched() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([(
                 "AllowedImplicitNamespaces".into(),
-                serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("Gem".into()),
-                ]),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("Gem".into())]),
             )]),
             ..CopConfig::default()
         };
         // raise Exception inside module Foo should still be flagged
         let source = b"module Foo\n  def bar\n    raise Exception\n  end\nend\n";
         let diags = run_cop_full_with_config(&RaiseException, source, config);
-        assert_eq!(diags.len(), 1, "Should flag raise Exception in non-allowed namespace");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag raise Exception in non-allowed namespace"
+        );
     }
 }

@@ -22,21 +22,29 @@ fn is_comment_line(line: &[u8]) -> bool {
 /// Check if a line is a class/module opening or block opening that serves as
 /// a boundary before an access modifier (no blank line required).
 fn is_body_opening(line: &[u8]) -> bool {
-    let trimmed: Vec<u8> = line.iter().copied()
+    let trimmed: Vec<u8> = line
+        .iter()
+        .copied()
         .skip_while(|&b| b == b' ' || b == b'\t')
         .collect();
     if trimmed.is_empty() {
         return false;
     }
     // class/module definition
-    if trimmed.starts_with(b"class ") || trimmed.starts_with(b"class\n") || trimmed == b"class"
-        || trimmed.starts_with(b"module ") || trimmed.starts_with(b"module\n") || trimmed == b"module"
+    if trimmed.starts_with(b"class ")
+        || trimmed.starts_with(b"class\n")
+        || trimmed == b"class"
+        || trimmed.starts_with(b"module ")
+        || trimmed.starts_with(b"module\n")
+        || trimmed == b"module"
     {
         return true;
     }
     // Block opening: line ends with `do`, `do |...|`, or `{`
     // Strip trailing whitespace and carriage return
-    let end_trimmed: Vec<u8> = trimmed.iter().copied()
+    let end_trimmed: Vec<u8> = trimmed
+        .iter()
+        .copied()
         .rev()
         .skip_while(|&b| b == b' ' || b == b'\t' || b == b'\r')
         .collect::<Vec<u8>>()
@@ -46,7 +54,10 @@ fn is_body_opening(line: &[u8]) -> bool {
     if end_trimmed.ends_with(b"do") {
         // Make sure "do" is a keyword, not part of a word like "undo"
         let before_do = end_trimmed.len() - 2;
-        if before_do == 0 || !end_trimmed[before_do - 1].is_ascii_alphanumeric() && end_trimmed[before_do - 1] != b'_' {
+        if before_do == 0
+            || !end_trimmed[before_do - 1].is_ascii_alphanumeric()
+                && end_trimmed[before_do - 1] != b'_'
+        {
             return true;
         }
     }
@@ -66,14 +77,18 @@ fn is_body_opening(line: &[u8]) -> bool {
 /// Check if a line is just `end` (possibly with trailing whitespace/comment).
 /// Used to detect body-end boundary after access modifier.
 fn is_end_line(line: &[u8]) -> bool {
-    let trimmed: Vec<u8> = line.iter().copied()
+    let trimmed: Vec<u8> = line
+        .iter()
+        .copied()
         .skip_while(|&b| b == b' ' || b == b'\t')
         .collect();
     if trimmed.is_empty() {
         return false;
     }
-    trimmed == b"end" || trimmed.starts_with(b"end ")
-        || trimmed.starts_with(b"end\n") || trimmed.starts_with(b"end\r")
+    trimmed == b"end"
+        || trimmed.starts_with(b"end ")
+        || trimmed.starts_with(b"end\n")
+        || trimmed.starts_with(b"end\r")
         || trimmed.starts_with(b"end#")
 }
 
@@ -165,8 +180,8 @@ impl Cop for EmptyLinesAroundAccessModifier {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "around");
 
@@ -282,7 +297,9 @@ impl Cop for EmptyLinesAroundAccessModifier {
                 "only_before" => {
                     if !has_blank_before {
                         let mut diag = self.diagnostic(
-                            source, line, col,
+                            source,
+                            line,
+                            col,
                             format!("Keep a blank line before `{modifier_str}`."),
                         );
                         if let Some(ref mut corr) = corrections {
@@ -300,7 +317,7 @@ impl Cop for EmptyLinesAroundAccessModifier {
                         diagnostics.push(diag);
                     }
                 }
-                _ => {},
+                _ => {}
             }
         }
     }

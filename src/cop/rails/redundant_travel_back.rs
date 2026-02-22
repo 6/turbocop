@@ -24,8 +24,8 @@ impl Cop for RedundantTravelBack {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::cop::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = TravelBackVisitor {
             cop: self,
@@ -53,24 +53,22 @@ impl<'a, 'pr> Visit<'pr> for TravelBackVisitor<'a> {
         // RuboCop only matches `after do...end` blocks (not `teardown do...end`).
         // For teardown, only `def teardown` is matched (handled in visit_def_node).
         // Shoulda-context `teardown do...end` blocks are NOT flagged by RuboCop.
-        let enters_teardown = node.block().is_some()
-            && node.receiver().is_none()
-            && method_name == b"after";
+        let enters_teardown =
+            node.block().is_some() && node.receiver().is_none() && method_name == b"after";
 
         // Check if this is a `travel_back` call inside teardown/after
-        if self.in_teardown_or_after
-            && method_name == b"travel_back"
-            && node.receiver().is_none()
-        {
+        if self.in_teardown_or_after && method_name == b"travel_back" && node.receiver().is_none() {
             let loc = node.location();
             let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-            self.diagnostics.push(self.cop.diagnostic(
-                self.source,
-                line,
-                column,
-                "Redundant `travel_back` detected. It is automatically called after each test."
-                    .to_string(),
-            ));
+            self.diagnostics.push(
+                self.cop.diagnostic(
+                    self.source,
+                    line,
+                    column,
+                    "Redundant `travel_back` detected. It is automatically called after each test."
+                        .to_string(),
+                ),
+            );
         }
 
         let was = self.in_teardown_or_after;

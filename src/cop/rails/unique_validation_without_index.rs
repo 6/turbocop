@@ -129,7 +129,10 @@ impl UniqueValidationWithoutIndex {
 
         // Resolve association names to foreign key columns (e.g., :user → user_id)
         if let Some(table) = schema.table_by(&table_name) {
-            columns = columns.into_iter().map(|c| resolve_column(table, &c)).collect();
+            columns = columns
+                .into_iter()
+                .map(|c| resolve_column(table, &c))
+                .collect();
         }
 
         // Check for unique index
@@ -139,7 +142,6 @@ impl UniqueValidationWithoutIndex {
             diagnostics.push(self.diagnostic(source, line, column, MSG.to_string()));
         }
     }
-
 }
 
 /// Resolve a column name: if the table has a `{name}_id` column but not
@@ -166,10 +168,7 @@ fn extract_symbol_name(node: &ruby_prism::Node<'_>) -> Option<String> {
 }
 
 /// Find a specific key's value in keyword hash arguments.
-fn find_hash_value<'a>(
-    args: &[ruby_prism::Node<'a>],
-    key: &str,
-) -> Option<ruby_prism::Node<'a>> {
+fn find_hash_value<'a>(args: &[ruby_prism::Node<'a>], key: &str) -> Option<ruby_prism::Node<'a>> {
     for arg in args {
         let elements = if let Some(kh) = arg.as_keyword_hash_node() {
             kh.elements().iter().collect::<Vec<_>>()
@@ -307,7 +306,9 @@ mod tests {
     use crate::schema::Schema;
 
     fn setup_schema() {
-        let schema_bytes = include_bytes!("../../../testdata/cops/rails/unique_validation_without_index/schema.rb");
+        let schema_bytes = include_bytes!(
+            "../../../testdata/cops/rails/unique_validation_without_index/schema.rb"
+        );
         let schema = Schema::parse(schema_bytes).unwrap();
         crate::schema::set_test_schema(Some(schema));
     }
@@ -317,7 +318,9 @@ mod tests {
         setup_schema();
         crate::testutil::assert_cop_offenses_full(
             &UniqueValidationWithoutIndex,
-            include_bytes!("../../../testdata/cops/rails/unique_validation_without_index/offense.rb"),
+            include_bytes!(
+                "../../../testdata/cops/rails/unique_validation_without_index/offense.rb"
+            ),
         );
         crate::schema::set_test_schema(None);
     }
@@ -327,7 +330,9 @@ mod tests {
         setup_schema();
         crate::testutil::assert_cop_no_offenses_full(
             &UniqueValidationWithoutIndex,
-            include_bytes!("../../../testdata/cops/rails/unique_validation_without_index/no_offense.rb"),
+            include_bytes!(
+                "../../../testdata/cops/rails/unique_validation_without_index/no_offense.rb"
+            ),
         );
         crate::schema::set_test_schema(None);
     }

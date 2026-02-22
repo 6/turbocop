@@ -49,7 +49,9 @@ fn is_rescue_else(lines: &[&[u8]], else_idx: usize, else_indent: usize) -> bool 
 }
 
 fn starts_with_kw(content: &[u8], kw: &[u8]) -> bool {
-    content.starts_with(kw) && (content.len() == kw.len() || !content[kw.len()].is_ascii_alphanumeric() && content[kw.len()] != b'_')
+    content.starts_with(kw)
+        && (content.len() == kw.len()
+            || !content[kw.len()].is_ascii_alphanumeric() && content[kw.len()] != b'_')
 }
 
 impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
@@ -67,8 +69,8 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let lines: Vec<&[u8]> = source.lines().collect();
         let mut byte_offset: usize = 0;
@@ -90,7 +92,12 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
                 if content.starts_with(kw) {
                     let after = content.get(kw.len()..);
                     match after {
-                        Some(rest) => rest.is_empty() || rest[0] == b' ' || rest[0] == b'\n' || rest[0] == b'\r',
+                        Some(rest) => {
+                            rest.is_empty()
+                                || rest[0] == b' '
+                                || rest[0] == b'\n'
+                                || rest[0] == b'\r'
+                        }
                         None => true,
                     }
                 } else {
@@ -180,7 +187,6 @@ impl Cop for EmptyLinesAroundExceptionHandlingKeywords {
 
             byte_offset += line_len;
         }
-
     }
 }
 
@@ -200,15 +206,23 @@ mod tests {
 
     #[test]
     fn skip_keywords_in_heredoc() {
-        let source = b"x = <<~RUBY\n  begin\n    something\n\n  rescue\n\n    handle\n  end\nRUBY\n";
+        let source =
+            b"x = <<~RUBY\n  begin\n    something\n\n  rescue\n\n    handle\n  end\nRUBY\n";
         let diags = run_cop_full(&EmptyLinesAroundExceptionHandlingKeywords, source);
-        assert!(diags.is_empty(), "Should not fire on rescue inside heredoc, got: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "Should not fire on rescue inside heredoc, got: {:?}",
+            diags
+        );
     }
 
     #[test]
     fn skip_keywords_in_string() {
         let source = b"x = \"rescue\"\ny = 'ensure'\n";
         let diags = run_cop_full(&EmptyLinesAroundExceptionHandlingKeywords, source);
-        assert!(diags.is_empty(), "Should not fire on keywords inside strings");
+        assert!(
+            diags.is_empty(),
+            "Should not fire on keywords inside strings"
+        );
     }
 }

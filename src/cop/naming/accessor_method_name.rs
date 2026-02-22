@@ -1,7 +1,7 @@
+use crate::cop::node_type::DEF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::DEF_NODE;
 
 pub struct AccessorMethodName;
 
@@ -20,8 +20,8 @@ impl Cop for AccessorMethodName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -42,7 +42,11 @@ impl Cop for AccessorMethodName {
                 + params.posts().len()
                 + params.keywords().len()
                 + if params.rest().is_some() { 1 } else { 0 }
-                + if params.keyword_rest().is_some() { 1 } else { 0 }
+                + if params.keyword_rest().is_some() {
+                    1
+                } else {
+                    0
+                }
                 + if params.block().is_some() { 1 } else { 0 }
         });
         // For set_, also ensure the single argument is a regular arg (not block, rest, etc.)

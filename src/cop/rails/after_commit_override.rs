@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CLASS_NODE, SYMBOL_NODE};
 use crate::cop::util::class_body_calls;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CLASS_NODE, SYMBOL_NODE};
 
 pub struct AfterCommitOverride;
 
@@ -33,8 +33,8 @@ impl Cop for AfterCommitOverride {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let class_node = match node.as_class_node() {
             Some(c) => c,
@@ -46,8 +46,7 @@ impl Cop for AfterCommitOverride {
         let after_commit_calls: Vec<_> = calls
             .iter()
             .filter(|c| {
-                c.receiver().is_none()
-                    && AFTER_COMMIT_METHODS.contains(&c.name().as_slice())
+                c.receiver().is_none() && AFTER_COMMIT_METHODS.contains(&c.name().as_slice())
             })
             .filter(|c| {
                 // Only consider calls with a symbol first argument (named callbacks)
@@ -87,7 +86,6 @@ impl Cop for AfterCommitOverride {
                 seen.insert(name, true);
             }
         }
-
     }
 }
 

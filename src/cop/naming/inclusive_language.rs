@@ -24,6 +24,11 @@ fn get_or_build_terms(config: &CopConfig) -> Arc<Vec<FlaggedTerm>> {
     terms
 }
 
+#[cfg(test)]
+fn clear_terms_cache() {
+    TERMS_CACHE.lock().unwrap().clear();
+}
+
 /// A compiled flagged term ready for matching.
 struct FlaggedTerm {
     name: String,
@@ -42,7 +47,13 @@ impl Cop for InclusiveLanguage {
         "Naming/InclusiveLanguage"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         let check_identifiers = config.get_bool("CheckIdentifiers", true);
         let check_constants = config.get_bool("CheckConstants", true);
         let check_variables = config.get_bool("CheckVariables", true);
@@ -57,7 +68,6 @@ impl Cop for InclusiveLanguage {
             return;
         }
 
-
         // Check filepath
         if check_filepaths {
             let path = source.path_str();
@@ -71,8 +81,11 @@ impl Cop for InclusiveLanguage {
         }
 
         // Check each line
-        let should_check_code = check_identifiers || check_constants || check_variables
-            || check_strings || check_symbols;
+        let should_check_code = check_identifiers
+            || check_constants
+            || check_variables
+            || check_strings
+            || check_symbols;
 
         for (line_idx, line) in source.lines().enumerate() {
             let line_num = line_idx + 1;
@@ -117,7 +130,10 @@ impl Cop for InclusiveLanguage {
                             should_check_code
                         };
 
-                        if should_flag && (!term.whole_word || is_whole_word(&line_lower, abs_pos, term.pattern.len())) {
+                        if should_flag
+                            && (!term.whole_word
+                                || is_whole_word(&line_lower, abs_pos, term.pattern.len()))
+                        {
                             // Skip hash label syntax (e.g., `auto_correct:`).
                             // RuboCop's token-based detection uses tLABEL for these,
                             // which is not in its check_token mapping.
@@ -134,7 +150,6 @@ impl Cop for InclusiveLanguage {
                 }
             }
         }
-
     }
 }
 
@@ -156,7 +171,9 @@ fn build_flagged_terms(config: &CopConfig) -> Vec<FlaggedTerm> {
 
                 if let Some(term_map) = value.as_mapping() {
                     // Check for Regex key — compile as actual regex for matching
-                    if let Some(regex_val) = term_map.get(&serde_yml::Value::String("Regex".to_string())) {
+                    if let Some(regex_val) =
+                        term_map.get(&serde_yml::Value::String("Regex".to_string()))
+                    {
                         let regex_str = regex_val.as_str().unwrap_or("");
                         if let Some(compiled) = compile_ruby_regex(regex_str) {
                             regex = Some(compiled);
@@ -164,11 +181,15 @@ fn build_flagged_terms(config: &CopConfig) -> Vec<FlaggedTerm> {
                         // Keep the name-based pattern as fallback for filepath checks
                     }
 
-                    if let Some(ww) = term_map.get(&serde_yml::Value::String("WholeWord".to_string())) {
+                    if let Some(ww) =
+                        term_map.get(&serde_yml::Value::String("WholeWord".to_string()))
+                    {
                         whole_word = ww.as_bool().unwrap_or(false);
                     }
 
-                    if let Some(sugg) = term_map.get(&serde_yml::Value::String("Suggestions".to_string())) {
+                    if let Some(sugg) =
+                        term_map.get(&serde_yml::Value::String("Suggestions".to_string()))
+                    {
                         if let Some(seq) = sugg.as_sequence() {
                             for item in seq {
                                 if let Some(s) = item.as_str() {
@@ -253,7 +274,10 @@ fn compile_ruby_regex(ruby_str: &str) -> Option<fancy_regex::Regex> {
     // Convert Ruby regex anchors to Rust equivalents
     // \A → ^ (start of string → start of line, since we match per-line)
     // \z / \Z → $ (end of string → end of line)
-    pattern = pattern.replace("\\A", "^").replace("\\z", "$").replace("\\Z", "$");
+    pattern = pattern
+        .replace("\\A", "^")
+        .replace("\\z", "$")
+        .replace("\\Z", "$");
 
     // Make the regex case-insensitive to match turbocop's lowercase line matching
     let case_insensitive = format!("(?i){pattern}");
@@ -291,7 +315,12 @@ fn is_whole_word(line: &str, pos: usize, len: usize) -> bool {
 fn is_hash_label(line: &[u8], pos: usize, _len: usize) -> bool {
     // Expand forward from pos to find the end of the identifier
     let mut end = pos;
-    while end < line.len() && (line[end].is_ascii_alphanumeric() || line[end] == b'_' || line[end] == b'?' || line[end] == b'!') {
+    while end < line.len()
+        && (line[end].is_ascii_alphanumeric()
+            || line[end] == b'_'
+            || line[end] == b'?'
+            || line[end] == b'!')
+    {
         end += 1;
     }
     // Check if the identifier is followed by `:` (label syntax)
@@ -347,6 +376,7 @@ mod tests {
 
     #[test]
     fn regex_term_only_matches_at_start_of_line() {
+        clear_terms_cache();
         let mut flagged = serde_yml::Mapping::new();
         let mut accept_map = serde_yml::Mapping::new();
         accept_map.insert(
@@ -382,11 +412,15 @@ mod tests {
         let source2 = SourceFile::from_bytes("test.rb", b"we accept the terms\n".to_vec());
         let mut diags2 = Vec::new();
         InclusiveLanguage.check_lines(&source2, &config, &mut diags2, None);
-        assert!(diags2.is_empty(), "Should NOT flag 'accept' in middle of line with \\A regex");
+        assert!(
+            diags2.is_empty(),
+            "Should NOT flag 'accept' in middle of line with \\A regex"
+        );
     }
 
     #[test]
     fn regex_with_negative_lookahead() {
+        clear_terms_cache();
         let mut flagged = serde_yml::Mapping::new();
         let mut term_map = serde_yml::Mapping::new();
         term_map.insert(
@@ -413,15 +447,24 @@ mod tests {
         };
 
         // "registers offense" without ( or s — should match
-        let source = SourceFile::from_bytes("test.rb", b"it registers offense when called\n".to_vec());
+        let source =
+            SourceFile::from_bytes("test.rb", b"it registers offense when called\n".to_vec());
         let mut diags = Vec::new();
         InclusiveLanguage.check_lines(&source, &config, &mut diags, None);
-        assert_eq!(diags.len(), 1, "Should flag 'registers offense' without exclusion suffix");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag 'registers offense' without exclusion suffix"
+        );
 
         // "registers offenses" — should NOT match (negative lookahead excludes 's')
-        let source2 = SourceFile::from_bytes("test.rb", b"it registers offenses when called\n".to_vec());
+        let source2 =
+            SourceFile::from_bytes("test.rb", b"it registers offenses when called\n".to_vec());
         let mut diags2 = Vec::new();
         InclusiveLanguage.check_lines(&source2, &config, &mut diags2, None);
-        assert!(diags2.is_empty(), "Should NOT flag 'registers offenses' (excluded by lookahead)");
+        assert!(
+            diags2.is_empty(),
+            "Should NOT flag 'registers offenses' (excluded by lookahead)"
+        );
     }
 }

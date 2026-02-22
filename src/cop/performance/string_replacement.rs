@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, STRING_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, STRING_NODE};
 
 pub struct StringReplacement;
 
@@ -24,8 +24,8 @@ impl Cop for StringReplacement {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -79,7 +79,12 @@ impl Cop for StringReplacement {
         // RuboCop points at the gsub method name (node.loc.selector), not the whole expression
         let loc = call.message_loc().unwrap_or_else(|| call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(source, line, column, "Use `tr` instead of `gsub` when replacing single characters.".to_string()));
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            "Use `tr` instead of `gsub` when replacing single characters.".to_string(),
+        ));
     }
 }
 

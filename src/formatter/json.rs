@@ -13,9 +13,7 @@ pub struct JsonFormatter {
 
 impl JsonFormatter {
     pub fn new() -> Self {
-        Self {
-            skip_summary: None,
-        }
+        Self { skip_summary: None }
     }
 }
 

@@ -1,8 +1,8 @@
+use crate::cop::node_type::DEF_NODE;
 use crate::cop::util::is_snake_case;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::DEF_NODE;
 
 pub struct MethodName;
 
@@ -26,8 +26,8 @@ impl Cop for MethodName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -71,7 +71,9 @@ impl Cop for MethodName {
                             source,
                             line,
                             column,
-                            format!("`{method_name_str}` is forbidden, use another method name instead."),
+                            format!(
+                                "`{method_name_str}` is forbidden, use another method name instead."
+                            ),
                         ));
                     }
                 }
@@ -80,7 +82,10 @@ impl Cop for MethodName {
 
         // AllowedPatterns: skip if method name matches any pattern
         if let Some(patterns) = &allowed_patterns {
-            if patterns.iter().any(|p| method_name_str.contains(p.as_str())) {
+            if patterns
+                .iter()
+                .any(|p| method_name_str.contains(p.as_str()))
+            {
                 return;
             }
         }
@@ -119,7 +124,11 @@ fn is_lower_camel_case(name: &[u8]) -> bool {
         return false;
     }
     // No underscores allowed (except leading)
-    let name_without_leading = name.iter().skip_while(|&&b| b == b'_').copied().collect::<Vec<_>>();
+    let name_without_leading = name
+        .iter()
+        .skip_while(|&&b| b == b'_')
+        .copied()
+        .collect::<Vec<_>>();
     for &b in &name_without_leading {
         if b == b'_' {
             return false;
@@ -138,48 +147,55 @@ mod tests {
 
     #[test]
     fn config_enforced_style_camel_case() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("camelCase".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("camelCase".into()),
+            )]),
             ..CopConfig::default()
         };
         // camelCase method should pass
         let source = b"def myMethod\nend\n";
         let diags = run_cop_full_with_config(&MethodName, source, config);
-        assert!(diags.is_empty(), "camelCase method should not be flagged in camelCase mode");
+        assert!(
+            diags.is_empty(),
+            "camelCase method should not be flagged in camelCase mode"
+        );
     }
 
     #[test]
     fn config_enforced_style_camel_case_flags_snake() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("camelCase".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("camelCase".into()),
+            )]),
             ..CopConfig::default()
         };
         let source = b"def my_method\nend\n";
         let diags = run_cop_full_with_config(&MethodName, source, config);
-        assert!(!diags.is_empty(), "snake_case method should be flagged in camelCase mode");
+        assert!(
+            !diags.is_empty(),
+            "snake_case method should be flagged in camelCase mode"
+        );
     }
 
     #[test]
     fn config_forbidden_identifiers() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("ForbiddenIdentifiers".into(), serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("destroy".into()),
-                ])),
-            ]),
+            options: HashMap::from([(
+                "ForbiddenIdentifiers".into(),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("destroy".into())]),
+            )]),
             ..CopConfig::default()
         };
         let source = b"def destroy\nend\n";
@@ -190,15 +206,14 @@ mod tests {
 
     #[test]
     fn config_forbidden_patterns() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("ForbiddenPatterns".into(), serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("_v1\\z".into()),
-                ])),
-            ]),
+            options: HashMap::from([(
+                "ForbiddenPatterns".into(),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("_v1\\z".into())]),
+            )]),
             ..CopConfig::default()
         };
         let source = b"def release_v1\nend\n";

@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CLASS_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, MODULE_NODE};
 use crate::cop::util::is_camel_case;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CLASS_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, MODULE_NODE};
 
 pub struct ClassAndModuleCamelCase;
 
@@ -12,7 +12,12 @@ impl Cop for ClassAndModuleCamelCase {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CLASS_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, MODULE_NODE]
+        &[
+            CLASS_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            MODULE_NODE,
+        ]
     }
 
     fn check_node(
@@ -21,8 +26,8 @@ impl Cop for ClassAndModuleCamelCase {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed_names = config.get_string_array("AllowedNames");
 
@@ -59,7 +64,6 @@ impl Cop for ClassAndModuleCamelCase {
             diagnostics.extend(diags);
             return;
         }
-
     }
 }
 
@@ -114,5 +118,8 @@ impl ClassAndModuleCamelCase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ClassAndModuleCamelCase, "cops/naming/class_and_module_camel_case");
+    crate::cop_fixture_tests!(
+        ClassAndModuleCamelCase,
+        "cops/naming/class_and_module_camel_case"
+    );
 }

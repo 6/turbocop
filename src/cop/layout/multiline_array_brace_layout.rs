@@ -1,7 +1,7 @@
+use crate::cop::node_type::ARRAY_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::ARRAY_NODE;
 
 pub struct MultilineArrayBraceLayout;
 
@@ -20,8 +20,8 @@ impl Cop for MultilineArrayBraceLayout {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "symmetrical");
 
@@ -56,9 +56,8 @@ impl Cop for MultilineArrayBraceLayout {
         let first_elem = elements.iter().next().unwrap();
         let last_elem = elements.iter().last().unwrap();
         let (first_elem_line, _) = source.offset_to_line_col(first_elem.location().start_offset());
-        let (last_elem_line, _) = source.offset_to_line_col(
-            last_elem.location().end_offset().saturating_sub(1),
-        );
+        let (last_elem_line, _) =
+            source.offset_to_line_col(last_elem.location().end_offset().saturating_sub(1));
 
         // Only check multiline arrays
         if open_line == close_line {
@@ -112,7 +111,6 @@ impl Cop for MultilineArrayBraceLayout {
             }
             _ => {}
         }
-
     }
 }
 

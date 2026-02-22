@@ -1,8 +1,11 @@
-use crate::cop::util::{self, is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{
+    BLOCK_NODE, CALL_NODE, CLASS_NODE, CONSTANT_READ_NODE, CONSTANT_WRITE_NODE, MODULE_NODE,
+    STATEMENTS_NODE,
+};
+use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, CLASS_NODE, CONSTANT_READ_NODE, CONSTANT_WRITE_NODE, MODULE_NODE, STATEMENTS_NODE};
 
 pub struct LeakyConstantDeclaration;
 
@@ -22,7 +25,15 @@ impl Cop for LeakyConstantDeclaration {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE, CLASS_NODE, CONSTANT_READ_NODE, CONSTANT_WRITE_NODE, MODULE_NODE, STATEMENTS_NODE]
+        &[
+            BLOCK_NODE,
+            CALL_NODE,
+            CLASS_NODE,
+            CONSTANT_READ_NODE,
+            CONSTANT_WRITE_NODE,
+            MODULE_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -31,8 +42,8 @@ impl Cop for LeakyConstantDeclaration {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for describe/context/shared_examples blocks and check their body
         let call = match node.as_call_node() {
@@ -43,7 +54,8 @@ impl Cop for LeakyConstantDeclaration {
         let method_name = call.name().as_slice();
 
         let is_example_group = if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).map_or(false, |n| n == b"RSpec") && is_rspec_example_group(method_name)
+            util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
+                && is_rspec_example_group(method_name)
         } else {
             is_rspec_example_group(method_name)
         };

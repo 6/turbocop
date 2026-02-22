@@ -13,7 +13,13 @@ impl Cop for Encoding {
         true
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, mut corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        _config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         let total_len = source.as_bytes().len();
         let mut byte_offset: usize = 0;
 
@@ -74,7 +80,6 @@ impl Cop for Encoding {
 
             byte_offset += line_len;
         }
-
     }
 }
 
@@ -148,7 +153,8 @@ fn contains_utf8(s: &str) -> bool {
 mod tests {
     use super::*;
     crate::cop_scenario_fixture_tests!(
-        Encoding, "cops/style/encoding",
+        Encoding,
+        "cops/style/encoding",
         standard = "standard.rb",
         mixed_case = "mixed_case.rb",
         after_shebang = "after_shebang.rb",

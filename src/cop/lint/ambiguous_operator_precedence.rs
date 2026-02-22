@@ -1,7 +1,7 @@
+use crate::cop::node_type::{AND_NODE, CALL_NODE, OR_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{AND_NODE, CALL_NODE, OR_NODE};
 
 pub struct AmbiguousOperatorPrecedence;
 
@@ -43,8 +43,8 @@ impl Cop for AmbiguousOperatorPrecedence {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Handle `a || b && c` pattern
         if let Some(or_node) = node.as_or_node() {
@@ -62,7 +62,6 @@ impl Cop for AmbiguousOperatorPrecedence {
             None => return,
         };
 
-
         // Check arguments for higher-precedence operators
         // e.g., `a + b * c`: outer is `+` (prec 2), arg `b * c` is `*` (prec 1)
         if let Some(args) = call.arguments() {
@@ -73,8 +72,7 @@ impl Cop for AmbiguousOperatorPrecedence {
                         if arg_prec < outer_prec {
                             // arg has higher precedence than outer
                             let loc = arg_call.location();
-                            let (line, column) =
-                                source.offset_to_line_col(loc.start_offset());
+                            let (line, column) = source.offset_to_line_col(loc.start_offset());
                             diagnostics.push(self.diagnostic(
                                 source,
                                 line,
@@ -96,8 +94,7 @@ impl Cop for AmbiguousOperatorPrecedence {
                     if recv_prec < outer_prec {
                         // recv has higher precedence than outer
                         let loc = recv_call.location();
-                        let (line, column) =
-                            source.offset_to_line_col(loc.start_offset());
+                        let (line, column) = source.offset_to_line_col(loc.start_offset());
                         diagnostics.push(self.diagnostic(
                             source,
                             line,
@@ -108,7 +105,6 @@ impl Cop for AmbiguousOperatorPrecedence {
                 }
             }
         }
-
     }
 }
 
@@ -123,25 +119,29 @@ impl AmbiguousOperatorPrecedence {
         if or_node.left().as_and_node().is_some() {
             let loc = or_node.left().location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                "Wrap expressions with varying precedence with parentheses to avoid ambiguity."
-                    .to_string(),
-            ));
+            diagnostics.push(
+                self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Wrap expressions with varying precedence with parentheses to avoid ambiguity."
+                        .to_string(),
+                ),
+            );
         }
 
         if or_node.right().as_and_node().is_some() {
             let loc = or_node.right().location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                "Wrap expressions with varying precedence with parentheses to avoid ambiguity."
-                    .to_string(),
-            ));
+            diagnostics.push(
+                self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Wrap expressions with varying precedence with parentheses to avoid ambiguity."
+                        .to_string(),
+                ),
+            );
         }
 
         diagnostics

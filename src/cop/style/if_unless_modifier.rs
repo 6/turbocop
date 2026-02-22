@@ -1,8 +1,8 @@
+use crate::cop::node_type::{IF_NODE, PARENTHESES_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
-use crate::cop::node_type::{IF_NODE, PARENTHESES_NODE, UNLESS_NODE};
 
 pub struct IfUnlessModifier;
 
@@ -121,8 +121,8 @@ impl Cop for IfUnlessModifier {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Extract keyword location, predicate, statements, has_else, and keyword name
         // from either IfNode or UnlessNode
@@ -210,7 +210,11 @@ impl Cop for IfUnlessModifier {
 
         // Body must be on a single line to be eligible for modifier form
         let (body_start_line, _) = source.offset_to_line_col(body_node.location().start_offset());
-        let body_end_off = body_node.location().end_offset().saturating_sub(1).max(body_node.location().start_offset());
+        let body_end_off = body_node
+            .location()
+            .end_offset()
+            .saturating_sub(1)
+            .max(body_node.location().start_offset());
         let (body_end_line, _) = source.offset_to_line_col(body_end_off);
         if body_start_line != body_end_line {
             return;
@@ -240,7 +244,11 @@ impl Cop for IfUnlessModifier {
                 // Check if there's a comment after the body on the same line
                 if body_end_col < body_line.len() {
                     let after_body = &body_line[body_end_col..];
-                    let trimmed = after_body.iter().skip_while(|&&b| b == b' ' || b == b'\t').copied().collect::<Vec<_>>();
+                    let trimmed = after_body
+                        .iter()
+                        .skip_while(|&&b| b == b' ' || b == b'\t')
+                        .copied()
+                        .collect::<Vec<_>>();
                     if trimmed.starts_with(b"#") {
                         return;
                     }
@@ -265,7 +273,11 @@ impl Cop for IfUnlessModifier {
                     for line_num in (body_start_line + 1)..end_line {
                         if line_num > 0 && line_num <= lines.len() {
                             let line = lines[line_num - 1];
-                            let trimmed: Vec<u8> = line.iter().skip_while(|&&b| b == b' ' || b == b'\t').copied().collect();
+                            let trimmed: Vec<u8> = line
+                                .iter()
+                                .skip_while(|&&b| b == b' ' || b == b'\t')
+                                .copied()
+                                .collect();
                             if trimmed.starts_with(b"#") {
                                 return;
                             }
@@ -303,7 +315,9 @@ impl Cop for IfUnlessModifier {
             // if not, it might contain assignment context. But the real case is when
             // the assignment is on the PREVIOUS line (multi-line assignment).
             // We check the previous non-blank line for a trailing `=`.
-            let before_kw_trimmed = before_kw.iter().copied()
+            let before_kw_trimmed = before_kw
+                .iter()
+                .copied()
                 .filter(|&b| b != b' ' && b != b'\t')
                 .count();
             if before_kw_trimmed == 0 && kw_line_start > 0 {
@@ -312,7 +326,9 @@ impl Cop for IfUnlessModifier {
                 let (kw_line_num, _) = source.offset_to_line_col(kw_loc.start_offset());
                 if kw_line_num >= 2 {
                     let prev_line = lines[kw_line_num - 2];
-                    let trimmed = prev_line.iter().copied()
+                    let trimmed = prev_line
+                        .iter()
+                        .copied()
                         .rev()
                         .skip_while(|&b| b == b' ' || b == b'\t')
                         .collect::<Vec<_>>();
@@ -329,15 +345,18 @@ impl Cop for IfUnlessModifier {
             }
         };
 
-        let modifier_len = kw_col + parens_overhead + body_text.len() + 1 + keyword.len() + 1 + cond_text.len();
+        let modifier_len =
+            kw_col + parens_overhead + body_text.len() + 1 + keyword.len() + 1 + cond_text.len();
 
         if !line_length_enabled || modifier_len <= max_line_length {
             let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-            diagnostics.push(self.diagnostic(source, line, column, format!(
-                "Favor modifier `{keyword}` usage when having a single-line body."
-            )));
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                format!("Favor modifier `{keyword}` usage when having a single-line body."),
+            ));
         }
-
     }
 }
 
@@ -349,8 +368,8 @@ mod tests {
 
     #[test]
     fn config_max_line_length() {
+        use crate::testutil::{assert_cop_no_offenses_full_with_config, run_cop_full_with_config};
         use std::collections::HashMap;
-        use crate::testutil::{run_cop_full_with_config, assert_cop_no_offenses_full_with_config};
 
         let config = CopConfig {
             options: HashMap::from([("MaxLineLength".into(), serde_yml::Value::Number(40.into()))]),
@@ -359,17 +378,21 @@ mod tests {
         // Short body + condition fits in 40 chars as modifier => should suggest modifier
         let source = b"if x\n  y\nend\n";
         let diags = run_cop_full_with_config(&IfUnlessModifier, source, config.clone());
-        assert!(!diags.is_empty(), "Should fire with MaxLineLength:40 on short if");
+        assert!(
+            !diags.is_empty(),
+            "Should fire with MaxLineLength:40 on short if"
+        );
 
         // Longer body that would exceed 40 chars as modifier => should NOT suggest
-        let source2 = b"if some_very_long_condition_variable_name\n  do_something_important_here\nend\n";
+        let source2 =
+            b"if some_very_long_condition_variable_name\n  do_something_important_here\nend\n";
         assert_cop_no_offenses_full_with_config(&IfUnlessModifier, source2, config);
     }
 
     #[test]
     fn config_line_length_disabled() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         // When LineLengthEnabled is false (Layout/LineLength disabled),
         // modifier form should always be suggested regardless of line length.
@@ -384,8 +407,12 @@ mod tests {
         };
         // This body + condition would exceed 40 chars, but since line length is
         // disabled, it should still suggest modifier form.
-        let source = b"if some_very_long_condition_variable_name\n  do_something_important_here\nend\n";
+        let source =
+            b"if some_very_long_condition_variable_name\n  do_something_important_here\nend\n";
         let diags = run_cop_full_with_config(&IfUnlessModifier, source, config);
-        assert!(!diags.is_empty(), "Should fire when LineLengthEnabled is false regardless of line length");
+        assert!(
+            !diags.is_empty(),
+            "Should fire when LineLengthEnabled is false regardless of line length"
+        );
     }
 }

@@ -16,8 +16,8 @@ impl Cop for NonNilCheck {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let include_semantic_changes = config.get_bool("IncludeSemanticChanges", false);
         let mut visitor = NonNilCheckVisitor {
@@ -82,7 +82,8 @@ impl<'pr> Visit<'pr> for NonNilCheckVisitor<'_, '_> {
                     if node.receiver().is_some() {
                         // RuboCop skips the last expression of predicate methods (def foo?)
                         let is_predicate_return = self.in_predicate_method
-                            && self.predicate_last_stmt_offset == Some(node.location().start_offset());
+                            && self.predicate_last_stmt_offset
+                                == Some(node.location().start_offset());
                         if !is_predicate_return {
                             let loc = node.location();
                             let (line, column) = self.source.offset_to_line_col(loc.start_offset());
@@ -94,13 +95,19 @@ impl<'pr> Visit<'pr> for NonNilCheckVisitor<'_, '_> {
                                     "Explicit non-nil checks are usually redundant.".to_string(),
                                 ));
                             } else {
-                                let receiver_src = std::str::from_utf8(node.receiver().unwrap().location().as_slice()).unwrap_or("x");
+                                let receiver_src = std::str::from_utf8(
+                                    node.receiver().unwrap().location().as_slice(),
+                                )
+                                .unwrap_or("x");
                                 let current_src = std::str::from_utf8(loc.as_slice()).unwrap_or("");
                                 self.diagnostics.push(self.cop.diagnostic(
                                     self.source,
                                     line,
                                     column,
-                                    format!("Prefer `!{}.nil?` over `{}`.", receiver_src, current_src),
+                                    format!(
+                                        "Prefer `!{}.nil?` over `{}`.",
+                                        receiver_src, current_src
+                                    ),
                                 ));
                             }
                         }
@@ -118,7 +125,8 @@ impl<'pr> Visit<'pr> for NonNilCheckVisitor<'_, '_> {
                         && inner_call.receiver().is_some()
                     {
                         let is_predicate_return = self.in_predicate_method
-                            && self.predicate_last_stmt_offset == Some(node.location().start_offset());
+                            && self.predicate_last_stmt_offset
+                                == Some(node.location().start_offset());
                         if !is_predicate_return {
                             let loc = node.location();
                             let (line, column) = self.source.offset_to_line_col(loc.start_offset());

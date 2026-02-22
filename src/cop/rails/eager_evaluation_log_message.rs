@@ -1,8 +1,10 @@
+use crate::cop::node_type::{
+    CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTERPOLATED_STRING_NODE,
+};
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTERPOLATED_STRING_NODE};
 
 pub struct EagerEvaluationLogMessage;
 
@@ -16,7 +18,12 @@ impl Cop for EagerEvaluationLogMessage {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTERPOLATED_STRING_NODE]
+        &[
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            INTERPOLATED_STRING_NODE,
+        ]
     }
 
     fn check_node(
@@ -25,8 +32,8 @@ impl Cop for EagerEvaluationLogMessage {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -62,8 +69,7 @@ impl Cop for EagerEvaluationLogMessage {
             cr.name().as_slice() == b"Rails"
         } else if let Some(cp) = inner_recv.as_constant_path_node() {
             // ::Rails
-            cp.parent().is_none()
-                && cp.name().map_or(false, |n| n.as_slice() == b"Rails")
+            cp.parent().is_none() && cp.name().map_or(false, |n| n.as_slice() == b"Rails")
         } else {
             false
         };
@@ -101,5 +107,8 @@ impl Cop for EagerEvaluationLogMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(EagerEvaluationLogMessage, "cops/rails/eager_evaluation_log_message");
+    crate::cop_fixture_tests!(
+        EagerEvaluationLogMessage,
+        "cops/rails/eager_evaluation_log_message"
+    );
 }

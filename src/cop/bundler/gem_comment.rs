@@ -15,13 +15,15 @@ impl Cop for GemComment {
         &["**/*.gemfile", "**/Gemfile", "**/gems.rb"]
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
-        let ignored_gems = config
-            .get_string_array("IgnoredGems")
-            .unwrap_or_default();
-        let only_for = config
-            .get_string_array("OnlyFor")
-            .unwrap_or_default();
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
+        let ignored_gems = config.get_string_array("IgnoredGems").unwrap_or_default();
+        let only_for = config.get_string_array("OnlyFor").unwrap_or_default();
         let check_version_specifiers = only_for.iter().any(|s| s == "version_specifiers");
 
         let lines: Vec<&[u8]> = source.lines().collect();

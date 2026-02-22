@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, SYMBOL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, SYMBOL_NODE};
 
 pub struct SafeNavigation;
 
@@ -24,8 +24,8 @@ impl Cop for SafeNavigation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let convert_try = config.get_bool("ConvertTry", false);
 
@@ -96,10 +96,7 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([(
-                "ConvertTry".to_string(),
-                serde_yml::Value::Bool(true),
-            )]),
+            options: HashMap::from([("ConvertTry".to_string(), serde_yml::Value::Bool(true))]),
             ..CopConfig::default()
         };
         let source = b"foo.try(:bar)\n";

@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, LAMBDA_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, LAMBDA_NODE};
 
 pub struct AmbiguousBlockAssociation;
 
@@ -15,7 +17,13 @@ impl Cop for AmbiguousBlockAssociation {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, LAMBDA_NODE]
+        &[
+            BLOCK_NODE,
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            LAMBDA_NODE,
+        ]
     }
 
     fn check_node(
@@ -24,8 +32,8 @@ impl Cop for AmbiguousBlockAssociation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // We look for CallNode where:
         // 1. The outer call has no parentheses (opening_loc is None)
@@ -189,15 +197,37 @@ fn is_lambda_or_proc(node: &ruby_prism::Node<'_>) -> bool {
 fn is_operator(name: &[u8]) -> bool {
     matches!(
         name,
-        b"==" | b"!=" | b"<" | b">" | b"<=" | b">=" | b"<=>"
-            | b"+" | b"-" | b"*" | b"/" | b"%" | b"**"
-            | b"&" | b"|" | b"^" | b"~" | b"<<" | b">>"
-            | b"[]" | b"[]=" | b"=~" | b"!~"
+        b"=="
+            | b"!="
+            | b"<"
+            | b">"
+            | b"<="
+            | b">="
+            | b"<=>"
+            | b"+"
+            | b"-"
+            | b"*"
+            | b"/"
+            | b"%"
+            | b"**"
+            | b"&"
+            | b"|"
+            | b"^"
+            | b"~"
+            | b"<<"
+            | b">>"
+            | b"[]"
+            | b"[]="
+            | b"=~"
+            | b"!~"
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(AmbiguousBlockAssociation, "cops/lint/ambiguous_block_association");
+    crate::cop_fixture_tests!(
+        AmbiguousBlockAssociation,
+        "cops/lint/ambiguous_block_association"
+    );
 }

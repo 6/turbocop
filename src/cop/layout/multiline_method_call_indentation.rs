@@ -18,8 +18,8 @@ impl Cop for MultilineMethodCallIndentation {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "aligned");
         let width = config.get_usize("IndentationWidth", 2);
@@ -91,11 +91,7 @@ impl ChainVisitor<'_> {
                 // non-continuation-dot line. This matches RuboCop's `left_hand_side`
                 // which walks up through parent nodes to find the topmost chain.
                 let base_line = find_non_continuation_ancestor_line(self.source, chain_start_line);
-                let base_line_bytes = self
-                    .source
-                    .lines()
-                    .nth(base_line - 1)
-                    .unwrap_or(b"");
+                let base_line_bytes = self.source.lines().nth(base_line - 1).unwrap_or(b"");
                 let base_indent = indentation_of(base_line_bytes);
                 // RuboCop adds an extra IndentationWidth when the chain is inside
                 // a keyword expression like `return`, `if`, `while`, `until`, `for`.
@@ -143,21 +139,15 @@ impl ChainVisitor<'_> {
                     // Build message matching RuboCop format
                     let selector = call_node.name().as_slice();
                     let selector_str = std::str::from_utf8(selector).unwrap_or("?");
-                    let (base_name, base_line) = find_alignment_base_description(
-                        self.source, &receiver,
-                    );
-                    format!(
-                        "Align `.{selector_str}` with `{base_name}` on line {base_line}."
-                    )
+                    let (base_name, base_line) =
+                        find_alignment_base_description(self.source, &receiver);
+                    format!("Align `.{selector_str}` with `{base_name}` on line {base_line}.")
                 }
                 _ => {
                     let chain_start_line = find_chain_start_line(self.source, &receiver);
-                    let base_line = find_non_continuation_ancestor_line(self.source, chain_start_line);
-                    let chain_line_bytes = self
-                        .source
-                        .lines()
-                        .nth(base_line - 1)
-                        .unwrap_or(b"");
+                    let base_line =
+                        find_non_continuation_ancestor_line(self.source, chain_start_line);
+                    let chain_line_bytes = self.source.lines().nth(base_line - 1).unwrap_or(b"");
                     let chain_indent = indentation_of(chain_line_bytes);
                     format!(
                         "Use {} (not {}) spaces for indentation of a chained method call.",
@@ -304,7 +294,12 @@ fn find_last_dot_on_line(source: &SourceFile, line: usize) -> Option<usize> {
     for (i, &b) in line_bytes.iter().enumerate() {
         if b == b'.' && i > 0 {
             let prev = line_bytes[i - 1];
-            if prev.is_ascii_alphanumeric() || prev == b'_' || prev == b')' || prev == b'}' || prev == b']' {
+            if prev.is_ascii_alphanumeric()
+                || prev == b'_'
+                || prev == b')'
+                || prev == b'}'
+                || prev == b']'
+            {
                 // Check it's not `..` (range)
                 if i + 1 < line_bytes.len() && line_bytes[i + 1] == b'.' {
                     continue;
@@ -337,9 +332,7 @@ fn find_alignment_dot_col(
                 if is_continuation_dot(source, dot_loc.start_offset()) {
                     // Check if there's an even earlier continuation dot
                     if let Some(recv) = call.receiver() {
-                        if let Some(earlier) =
-                            find_alignment_dot_col(source, &recv, dot_line)
-                        {
+                        if let Some(earlier) = find_alignment_dot_col(source, &recv, dot_line) {
                             return Some(earlier);
                         }
                     }
@@ -469,15 +462,16 @@ fn keyword_extra_indent(
         None => return 0,
     };
     let chain_start_line = find_chain_start_line(source, &receiver);
-    let chain_line_bytes = source
-        .lines()
-        .nth(chain_start_line - 1)
-        .unwrap_or(b"");
+    let chain_line_bytes = source.lines().nth(chain_start_line - 1).unwrap_or(b"");
     // Get the text after indentation
-    let trimmed = chain_line_bytes.iter().skip_while(|&&b| b == b' ' || b == b'\t');
+    let trimmed = chain_line_bytes
+        .iter()
+        .skip_while(|&&b| b == b' ' || b == b'\t');
     let text: Vec<u8> = trimmed.copied().collect();
     // Check for keyword prefixes: return, if, while, until, for, unless
-    let keywords: &[&[u8]] = &[b"return ", b"return(", b"if ", b"while ", b"until ", b"for ", b"unless "];
+    let keywords: &[&[u8]] = &[
+        b"return ", b"return(", b"if ", b"while ", b"until ", b"for ", b"unless ",
+    ];
     for kw in keywords {
         if text.starts_with(kw) {
             // RuboCop adds IndentationWidth for the keyword, but the configured
@@ -587,10 +581,7 @@ fn find_alignment_base_description(
 }
 
 /// Walk down the receiver chain to find the root and its description.
-fn find_chain_root_info(
-    source: &SourceFile,
-    node: &ruby_prism::Node<'_>,
-) -> (String, usize) {
+fn find_chain_root_info(source: &SourceFile, node: &ruby_prism::Node<'_>) -> (String, usize) {
     if let Some(call) = node.as_call_node() {
         if let Some(recv) = call.receiver() {
             return find_chain_root_info(source, &recv);
@@ -620,10 +611,7 @@ fn find_chain_root_info(
 }
 
 /// Extract a concise source representation of a call for messages.
-fn extract_call_source(
-    _source: &SourceFile,
-    call: ruby_prism::CallNode<'_>,
-) -> Option<String> {
+fn extract_call_source(_source: &SourceFile, call: ruby_prism::CallNode<'_>) -> Option<String> {
     let name = std::str::from_utf8(call.name().as_slice()).ok()?;
     if let Some(args) = call.arguments() {
         let first_arg = args.arguments().iter().next()?;
@@ -651,5 +639,4 @@ mod tests {
         let diags = run_cop_full(&MultilineMethodCallIndentation, source);
         assert!(diags.is_empty());
     }
-
 }

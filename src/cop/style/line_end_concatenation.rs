@@ -15,10 +15,11 @@ impl Cop for LineEndConcatenation {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let lines: Vec<&str> = source.lines()
+        let lines: Vec<&str> = source
+            .lines()
             .filter_map(|l| std::str::from_utf8(l).ok())
             .collect();
 
@@ -70,8 +71,7 @@ impl Cop for LineEndConcatenation {
             // a string (not a string followed by a method call like `" " * 3`
             // or `'gniht'.reverse`).
             let next_line = lines[i + 1].trim_start();
-            let next_starts_with_string = next_line.starts_with('"')
-                || next_line.starts_with('\'');
+            let next_starts_with_string = next_line.starts_with('"') || next_line.starts_with('\'');
 
             if !next_starts_with_string {
                 continue;
@@ -86,7 +86,8 @@ impl Cop for LineEndConcatenation {
                     && !rest.starts_with('+')
                     && !rest.starts_with("<<")
                     && !rest.starts_with('\\')
-                    && !rest.starts_with('#') // inline comment
+                    && !rest.starts_with('#')
+                // inline comment
                 {
                     continue;
                 }
@@ -118,10 +119,12 @@ impl Cop for LineEndConcatenation {
                 source,
                 line_num,
                 col,
-                format!("Use `\\` instead of `{}` to concatenate multiline strings.", op),
+                format!(
+                    "Use `\\` instead of `{}` to concatenate multiline strings.",
+                    op
+                ),
             ));
         }
-
     }
 }
 

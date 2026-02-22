@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct MethodCallWithoutArgsParentheses;
 
@@ -20,8 +20,8 @@ impl Cop for MethodCallWithoutArgsParentheses {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed_methods = config.get_string_array("AllowedMethods");
         let _allowed_patterns = config.get_string_array("AllowedPatterns");
@@ -115,5 +115,8 @@ impl Cop for MethodCallWithoutArgsParentheses {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(MethodCallWithoutArgsParentheses, "cops/style/method_call_without_args_parentheses");
+    crate::cop_fixture_tests!(
+        MethodCallWithoutArgsParentheses,
+        "cops/style/method_call_without_args_parentheses"
+    );
 }

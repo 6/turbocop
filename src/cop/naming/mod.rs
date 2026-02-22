@@ -36,18 +36,12 @@ pub fn register_all(registry: &mut CopRegistry) {
     ));
     registry.register(Box::new(block_forwarding::BlockForwarding));
     registry.register(Box::new(block_parameter_name::BlockParameterName));
-    registry.register(Box::new(
-        heredoc_delimiter_case::HeredocDelimiterCase,
-    ));
-    registry.register(Box::new(
-        heredoc_delimiter_naming::HeredocDelimiterNaming,
-    ));
+    registry.register(Box::new(heredoc_delimiter_case::HeredocDelimiterCase));
+    registry.register(Box::new(heredoc_delimiter_naming::HeredocDelimiterNaming));
     registry.register(Box::new(
         memoized_instance_variable_name::MemoizedInstanceVariableName,
     ));
-    registry.register(Box::new(
-        method_parameter_name::MethodParameterName,
-    ));
+    registry.register(Box::new(method_parameter_name::MethodParameterName));
     registry.register(Box::new(
         rescued_exceptions_variable_name::RescuedExceptionsVariableName,
     ));

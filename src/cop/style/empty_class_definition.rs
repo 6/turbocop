@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    CALL_NODE, CLASS_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, CONSTANT_WRITE_NODE, SELF_NODE,
+    STATEMENTS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CLASS_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, CONSTANT_WRITE_NODE, SELF_NODE, STATEMENTS_NODE};
 
 pub struct EmptyClassDefinition;
 
@@ -11,7 +14,15 @@ impl Cop for EmptyClassDefinition {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CLASS_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, CONSTANT_WRITE_NODE, SELF_NODE, STATEMENTS_NODE]
+        &[
+            CALL_NODE,
+            CLASS_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            CONSTANT_WRITE_NODE,
+            SELF_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,13 +31,15 @@ impl Cop for EmptyClassDefinition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "class_definition");
 
         match enforced_style {
-            "class_definition" => diagnostics.extend(check_class_definition_style(self, source, node)),
+            "class_definition" => {
+                diagnostics.extend(check_class_definition_style(self, source, node))
+            }
             "class_new" => diagnostics.extend(check_class_new_style(self, source, node)),
             _ => {}
         }

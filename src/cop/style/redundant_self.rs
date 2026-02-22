@@ -10,9 +10,24 @@ pub struct RedundantSelf;
 
 /// Methods where self. is always required (keywords, operators, etc.)
 const ALLOWED_METHODS: &[&[u8]] = &[
-    b"class", b"module", b"def", b"end", b"begin", b"rescue", b"ensure",
-    b"if", b"unless", b"while", b"until", b"for", b"do", b"return",
-    b"yield", b"super", b"raise", b"defined?",
+    b"class",
+    b"module",
+    b"def",
+    b"end",
+    b"begin",
+    b"rescue",
+    b"ensure",
+    b"if",
+    b"unless",
+    b"while",
+    b"until",
+    b"for",
+    b"do",
+    b"return",
+    b"yield",
+    b"super",
+    b"raise",
+    b"defined?",
 ];
 
 impl Cop for RedundantSelf {
@@ -26,8 +41,8 @@ impl Cop for RedundantSelf {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = RedundantSelfVisitor {
             cop: self,
@@ -146,9 +161,12 @@ impl SelfAssignmentScanner {
                 let name = node.name();
                 let name_bytes = name.as_slice();
                 // self.foo= setter → allow self.foo
-                if name_bytes.ends_with(b"=") && name_bytes.len() > 1
-                    && name_bytes != b"==" && name_bytes != b"!="
-                    && name_bytes != b"<=" && name_bytes != b">="
+                if name_bytes.ends_with(b"=")
+                    && name_bytes.len() > 1
+                    && name_bytes != b"=="
+                    && name_bytes != b"!="
+                    && name_bytes != b"<="
+                    && name_bytes != b">="
                     && name_bytes != b"==="
                 {
                     // Strip trailing "=" to get the reader name
@@ -222,16 +240,25 @@ impl<'pr> Visit<'pr> for LocalScanner {
         self.visit(&node.value());
     }
 
-    fn visit_local_variable_target_node(&mut self, node: &ruby_prism::LocalVariableTargetNode<'pr>) {
+    fn visit_local_variable_target_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableTargetNode<'pr>,
+    ) {
         self.names.push(node.name().as_slice().to_vec());
     }
 
-    fn visit_local_variable_or_write_node(&mut self, node: &ruby_prism::LocalVariableOrWriteNode<'pr>) {
+    fn visit_local_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+    ) {
         self.names.push(node.name().as_slice().to_vec());
         self.visit(&node.value());
     }
 
-    fn visit_local_variable_and_write_node(&mut self, node: &ruby_prism::LocalVariableAndWriteNode<'pr>) {
+    fn visit_local_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
+    ) {
         self.names.push(node.name().as_slice().to_vec());
         self.visit(&node.value());
     }
@@ -286,7 +313,8 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
                             && !self.allowed_self_methods.contains(name_bytes)
                         {
                             let self_loc = receiver.location();
-                            let (line, column) = self.source.offset_to_line_col(self_loc.start_offset());
+                            let (line, column) =
+                                self.source.offset_to_line_col(self_loc.start_offset());
                             self.diagnostics.push(self.cop.diagnostic(
                                 self.source,
                                 line,

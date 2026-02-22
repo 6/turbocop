@@ -1,7 +1,7 @@
+use crate::cop::node_type::STRING_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::STRING_NODE;
 
 pub struct InterpolationCheck;
 
@@ -41,8 +41,7 @@ impl Cop for InterpolationCheck {
 
         let open_slice = opening.as_slice();
         // Single-quoted: starts with ' or %q
-        let is_single_quoted = open_slice == b"'"
-            || open_slice.starts_with(b"%q");
+        let is_single_quoted = open_slice == b"'" || open_slice.starts_with(b"%q");
 
         if !is_single_quoted {
             return;
@@ -50,7 +49,8 @@ impl Cop for InterpolationCheck {
 
         // Check the raw source content between quotes for #{...}
         let content_loc = string_node.content_loc();
-        let content_bytes = &source.as_bytes()[content_loc.start_offset()..content_loc.end_offset()];
+        let content_bytes =
+            &source.as_bytes()[content_loc.start_offset()..content_loc.end_offset()];
 
         // Look for #{ in the content
         let mut i = 0;
@@ -112,7 +112,6 @@ impl Cop for InterpolationCheck {
             }
             i += 1;
         }
-
     }
 }
 

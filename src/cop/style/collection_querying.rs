@@ -1,7 +1,7 @@
+use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, CALL_NODE, INTEGER_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, CALL_NODE, INTEGER_NODE};
 
 pub struct CollectionQuerying;
 
@@ -20,8 +20,8 @@ impl Cop for CollectionQuerying {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -53,10 +53,8 @@ impl Cop for CollectionQuerying {
                                 "none?"
                             };
 
-                            let loc =
-                                recv_call.message_loc().unwrap_or(recv_call.location());
-                            let (line, column) =
-                                source.offset_to_line_col(loc.start_offset());
+                            let loc = recv_call.message_loc().unwrap_or(recv_call.location());
+                            let (line, column) = source.offset_to_line_col(loc.start_offset());
                             diagnostics.push(self.diagnostic(
                                 source,
                                 line,
@@ -87,34 +85,27 @@ impl Cop for CollectionQuerying {
                             let arg_list: Vec<_> = args.arguments().iter().collect();
                             if arg_list.len() == 1 {
                                 if let Some(int_node) = arg_list[0].as_integer_node() {
-                                    let src = std::str::from_utf8(
-                                        int_node.location().as_slice(),
-                                    )
-                                    .unwrap_or("");
+                                    let src = std::str::from_utf8(int_node.location().as_slice())
+                                        .unwrap_or("");
                                     if let Ok(v) = src.parse::<i64>() {
                                         let suggestion = match (method_name, v) {
                                             (">" | "!=", 0) => Some("any?"),
                                             ("==", 0) => Some("none?"),
                                             ("==", 1) => Some("one?"),
-                                            (">", 1) if active_support => {
-                                                Some("many?")
-                                            }
+                                            (">", 1) if active_support => Some("many?"),
                                             _ => None,
                                         };
                                         if let Some(suggestion) = suggestion {
                                             let loc = recv_call
                                                 .message_loc()
                                                 .unwrap_or(recv_call.location());
-                                            let (line, column) = source
-                                                .offset_to_line_col(loc.start_offset());
+                                            let (line, column) =
+                                                source.offset_to_line_col(loc.start_offset());
                                             diagnostics.push(self.diagnostic(
                                                 source,
                                                 line,
                                                 column,
-                                                format!(
-                                                    "Use `{}` instead.",
-                                                    suggestion
-                                                ),
+                                                format!("Use `{}` instead.", suggestion),
                                             ));
                                         }
                                     }
@@ -125,7 +116,6 @@ impl Cop for CollectionQuerying {
                 }
             }
         }
-
     }
 }
 

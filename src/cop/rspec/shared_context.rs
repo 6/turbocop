@@ -1,8 +1,8 @@
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
 
 /// RSpec/SharedContext: Detect shared_context/shared_examples misuse.
 ///
@@ -33,8 +33,8 @@ impl Cop for SharedContext {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -109,7 +109,6 @@ impl Cop for SharedContext {
                 "Use `shared_context` when you don't define examples.".to_string(),
             ));
         }
-
     }
 }
 

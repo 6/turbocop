@@ -20,8 +20,8 @@ impl Cop for FindBy {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let ignore_where_first = config.get_bool("IgnoreWhereFirst", true);
 
@@ -72,7 +72,10 @@ mod tests {
         let config = CopConfig::default();
         let source = b"User.where(name: 'foo').first\n";
         let diags = run_cop_full_with_config(&FindBy, source, config);
-        assert!(diags.is_empty(), "IgnoreWhereFirst:true should skip where.first");
+        assert!(
+            diags.is_empty(),
+            "IgnoreWhereFirst:true should skip where.first"
+        );
     }
 
     #[test]
@@ -84,7 +87,10 @@ mod tests {
         let config = CopConfig::default();
         let source = b"User.where(name: 'foo').take\n";
         let diags = run_cop_full_with_config(&FindBy, source, config);
-        assert!(!diags.is_empty(), "IgnoreWhereFirst:true should still flag where.take");
+        assert!(
+            !diags.is_empty(),
+            "IgnoreWhereFirst:true should still flag where.take"
+        );
     }
 
     #[test]
@@ -102,6 +108,9 @@ mod tests {
         };
         let source = b"User.where(name: 'foo').first\n";
         let diags = run_cop_full_with_config(&FindBy, source, config);
-        assert!(!diags.is_empty(), "IgnoreWhereFirst:false should flag where.first");
+        assert!(
+            !diags.is_empty(),
+            "IgnoreWhereFirst:false should flag where.first"
+        );
     }
 }

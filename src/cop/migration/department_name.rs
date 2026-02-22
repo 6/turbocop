@@ -12,14 +12,12 @@ pub struct DepartmentName;
 /// Regex matching rubocop directive comments.
 /// Captures: (1) = prefix up to and including directive keyword + trailing space,
 ///           (2) = the directive keyword itself, (3) = the remainder (cop list).
-static DIRECTIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"#\s*rubocop\s*:\s*((?:dis|en)able|todo)\s+(.+)").unwrap()
-});
+static DIRECTIVE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"#\s*rubocop\s*:\s*((?:dis|en)able|todo)\s+(.+)").unwrap());
 
 /// A valid cop/department token: either `Department/CopName` or `all`.
-static VALID_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^[A-Za-z]+/[A-Za-z]+$").unwrap()
-});
+static VALID_TOKEN_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[A-Za-z]+/[A-Za-z]+$").unwrap());
 
 /// Known departments that can be used without a slash.
 const KNOWN_DEPARTMENTS: &[&str] = &[
@@ -59,8 +57,8 @@ impl Cop for DepartmentName {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut byte_offset: usize = 0;
 
@@ -144,7 +142,6 @@ impl Cop for DepartmentName {
 
             byte_offset += line_len;
         }
-
     }
 }
 
@@ -165,19 +162,13 @@ mod tests {
 
     #[test]
     fn accepts_qualified_cop_name() {
-        let diags = run_cop_full(
-            &DepartmentName,
-            b"x = 1 # rubocop:disable Style/Alias\n",
-        );
+        let diags = run_cop_full(&DepartmentName, b"x = 1 # rubocop:disable Style/Alias\n");
         assert!(diags.is_empty());
     }
 
     #[test]
     fn accepts_all_keyword() {
-        let diags = run_cop_full(
-            &DepartmentName,
-            b"x = 1 # rubocop:disable all\n",
-        );
+        let diags = run_cop_full(&DepartmentName, b"x = 1 # rubocop:disable all\n");
         assert!(diags.is_empty());
     }
 
@@ -219,7 +210,10 @@ mod tests {
             &DepartmentName,
             b"x = <<~RUBY\n  # rubocop:disable Alias\nRUBY\n",
         );
-        assert!(diags.is_empty(), "Should not fire on directives inside heredoc");
+        assert!(
+            diags.is_empty(),
+            "Should not fire on directives inside heredoc"
+        );
     }
 
     #[test]
@@ -228,6 +222,9 @@ mod tests {
             &DepartmentName,
             b"let(:text) { '#rubocop:enable Foo, Baz' }\n",
         );
-        assert!(diags.is_empty(), "Should not fire on directives inside string literal");
+        assert!(
+            diags.is_empty(),
+            "Should not fire on directives inside string literal"
+        );
     }
 }

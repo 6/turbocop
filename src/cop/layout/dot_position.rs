@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct DotPosition;
 
@@ -20,8 +20,8 @@ impl Cop for DotPosition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "leading");
 
@@ -49,7 +49,8 @@ impl Cop for DotPosition {
         };
 
         let (dot_line, dot_col) = source.offset_to_line_col(dot_loc.start_offset());
-        let (recv_line, _) = source.offset_to_line_col(receiver.location().end_offset().saturating_sub(1));
+        let (recv_line, _) =
+            source.offset_to_line_col(receiver.location().end_offset().saturating_sub(1));
         let (msg_line, _) = source.offset_to_line_col(msg_loc.start_offset());
 
         // Single line call — no issue
@@ -58,7 +59,9 @@ impl Cop for DotPosition {
         }
 
         // If there's a blank line between dot and selector, skip (could be reformatted oddly)
-        if (msg_line as i64 - dot_line as i64).abs() > 1 || (dot_line as i64 - recv_line as i64).abs() > 1 {
+        if (msg_line as i64 - dot_line as i64).abs() > 1
+            || (dot_line as i64 - recv_line as i64).abs() > 1
+        {
             return;
         }
 
@@ -94,7 +97,6 @@ impl Cop for DotPosition {
                 }
             }
         }
-
     }
 }
 

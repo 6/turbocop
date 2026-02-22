@@ -1,7 +1,7 @@
+use crate::cop::node_type::{DEF_NODE, SELF_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{DEF_NODE, SELF_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE};
 
 pub struct ClassMethodsDefinitions;
 
@@ -20,8 +20,8 @@ impl Cop for ClassMethodsDefinitions {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "def_self");
 
@@ -46,7 +46,6 @@ impl Cop for ClassMethodsDefinitions {
                 }
             }
         }
-
     }
 }
 
@@ -64,5 +63,8 @@ fn has_public_defs(body: &ruby_prism::Node<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ClassMethodsDefinitions, "cops/style/class_methods_definitions");
+    crate::cop_fixture_tests!(
+        ClassMethodsDefinitions,
+        "cops/style/class_methods_definitions"
+    );
 }

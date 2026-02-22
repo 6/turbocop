@@ -1,12 +1,16 @@
+use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
 
 pub struct EmptyConditionalBody;
 
 /// Check if there are any comments within a byte offset range.
-fn has_comment_in_range(parse_result: &ruby_prism::ParseResult<'_>, start: usize, end: usize) -> bool {
+fn has_comment_in_range(
+    parse_result: &ruby_prism::ParseResult<'_>,
+    start: usize,
+    end: usize,
+) -> bool {
     for comment in parse_result.comments() {
         let comment_start = comment.location().start_offset();
         if comment_start >= start && comment_start < end {
@@ -35,8 +39,8 @@ impl Cop for EmptyConditionalBody {
         node: &ruby_prism::Node<'_>,
         parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_comments = config.get_bool("AllowComments", true);
 
@@ -111,7 +115,6 @@ impl Cop for EmptyConditionalBody {
                 ));
             }
         }
-
     }
 }
 

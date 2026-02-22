@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, INTEGER_NODE, SYMBOL_NODE};
 use crate::cop::util::keyword_arg_value;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, INTEGER_NODE, SYMBOL_NODE};
 
 pub struct HttpStatus;
 
@@ -143,7 +143,13 @@ fn symbol_to_status_code(sym: &[u8]) -> Option<i64> {
 /// Permitted symbols that are not specific status codes (used by numeric style).
 const PERMITTED_SYMBOLS: &[&[u8]] = &[b"error", b"success", b"missing", b"redirect"];
 
-const STATUS_METHODS: &[&[u8]] = &[b"render", b"head", b"redirect_to", b"assert_response", b"assert_redirected_to"];
+const STATUS_METHODS: &[&[u8]] = &[
+    b"render",
+    b"head",
+    b"redirect_to",
+    b"assert_response",
+    b"assert_redirected_to",
+];
 
 /// Methods where status is passed as a direct first argument (not keyword)
 const DIRECT_STATUS_METHODS: &[&[u8]] = &[b"head", b"assert_response"];
@@ -167,8 +173,8 @@ impl Cop for HttpStatus {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "symbolic");
 
@@ -251,7 +257,6 @@ impl Cop for HttpStatus {
                 }
             }
         }
-
     }
 }
 
@@ -276,7 +281,11 @@ mod tests {
         let source = b"render :foo, status: :ok\n";
         let diags = run_cop_full_with_config(&HttpStatus, source, config);
         assert!(!diags.is_empty(), "numeric style should flag symbolic :ok");
-        assert!(diags[0].message.contains("200"), "message should mention 200: {}", diags[0].message);
+        assert!(
+            diags[0].message.contains("200"),
+            "message should mention 200: {}",
+            diags[0].message
+        );
     }
 
     #[test]

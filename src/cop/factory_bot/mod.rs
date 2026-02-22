@@ -113,10 +113,7 @@ pub fn is_factory_bot_receiver(node: &ruby_prism::Node<'_>) -> bool {
 
 /// Check if a call is a "factory_call" (receiver is FactoryBot/FactoryGirl or nil).
 /// When explicit_only is true, only matches when receiver is FactoryBot/FactoryGirl.
-pub fn is_factory_call(
-    receiver: Option<ruby_prism::Node<'_>>,
-    explicit_only: bool,
-) -> bool {
+pub fn is_factory_call(receiver: Option<ruby_prism::Node<'_>>, explicit_only: bool) -> bool {
     match receiver {
         Some(recv) => is_factory_bot_receiver(&recv),
         None => !explicit_only,

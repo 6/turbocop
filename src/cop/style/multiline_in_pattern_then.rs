@@ -17,8 +17,8 @@ impl Cop for MultilineInPatternThen {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = MultilineInPatternThenVisitor {
             cop: self,
@@ -50,7 +50,8 @@ impl<'pr> Visit<'pr> for MultilineInPatternThenVisitor<'_> {
                     let (body_line, _) = self.source.offset_to_line_col(body_loc.start_offset());
 
                     if body_line > pattern_line {
-                        let (line, column) = self.source.offset_to_line_col(then_loc.start_offset());
+                        let (line, column) =
+                            self.source.offset_to_line_col(then_loc.start_offset());
                         self.diagnostics.push(self.cop.diagnostic(
                             self.source,
                             line,
@@ -73,5 +74,8 @@ impl<'pr> Visit<'pr> for MultilineInPatternThenVisitor<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(MultilineInPatternThen, "cops/style/multiline_in_pattern_then");
+    crate::cop_fixture_tests!(
+        MultilineInPatternThen,
+        "cops/style/multiline_in_pattern_then"
+    );
 }

@@ -1,7 +1,7 @@
+use crate::cop::node_type::CLASS_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CLASS_NODE;
 
 pub struct MigrationClassName;
 
@@ -28,8 +28,8 @@ impl Cop for MigrationClassName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let class_node = match node.as_class_node() {
             Some(c) => c,
@@ -55,36 +55,37 @@ impl Cop for MigrationClassName {
 
         // Check if class name contains lowercase (i.e., not CamelCase)
         let has_lowercase = class_name.iter().any(|&b| b.is_ascii_lowercase());
-        let starts_upper = class_name
-            .first()
-            .is_some_and(|&b| b.is_ascii_uppercase());
+        let starts_upper = class_name.first().is_some_and(|&b| b.is_ascii_uppercase());
 
         if !starts_upper || !has_lowercase {
             // Doesn't look like CamelCase — flag it
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                "Migration class name should be CamelCase and match the migration filename."
-                    .to_string(),
-            ));
+            diagnostics.push(
+                self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Migration class name should be CamelCase and match the migration filename."
+                        .to_string(),
+                ),
+            );
         }
 
         // Check for underscores in the name (not CamelCase)
         if class_name.contains(&b'_') {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                "Migration class name should be CamelCase and match the migration filename."
-                    .to_string(),
-            ));
+            diagnostics.push(
+                self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Migration class name should be CamelCase and match the migration filename."
+                        .to_string(),
+                ),
+            );
         }
-
     }
 }
 

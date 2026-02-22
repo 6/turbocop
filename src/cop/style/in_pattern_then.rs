@@ -1,7 +1,7 @@
+use crate::cop::node_type::IN_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::IN_NODE;
 
 pub struct InPatternThen;
 
@@ -20,8 +20,8 @@ impl Cop for InPatternThen {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check for `in` pattern nodes in case-in expressions
         let in_node = match node.as_in_node() {
@@ -49,11 +49,13 @@ impl Cop for InPatternThen {
                     source,
                     line,
                     column,
-                    format!("Do not use `in {}`. Use `in {} then` instead.", pattern_src, pattern_src),
+                    format!(
+                        "Do not use `in {}`. Use `in {} then` instead.",
+                        pattern_src, pattern_src
+                    ),
                 ));
             }
         }
-
     }
 }
 

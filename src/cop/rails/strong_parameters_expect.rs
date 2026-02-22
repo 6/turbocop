@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, LOCAL_VARIABLE_READ_NODE};
 use crate::cop::util::as_method_chain;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, LOCAL_VARIABLE_READ_NODE};
 
 pub struct StrongParametersExpect;
 
@@ -40,8 +40,8 @@ impl Cop for StrongParametersExpect {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // minimum_target_rails_version 8.0
         // params.expect(...) was introduced in Rails 8.0; skip for older versions.
@@ -86,7 +86,10 @@ impl Cop for StrongParametersExpect {
             }
         }
 
-        let msg_loc = chain.inner_call.message_loc().unwrap_or(chain.inner_call.location());
+        let msg_loc = chain
+            .inner_call
+            .message_loc()
+            .unwrap_or(chain.inner_call.location());
 
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
 
@@ -158,6 +161,9 @@ mod tests {
             CopConfig::default(),
             "test.rb",
         );
-        assert!(diagnostics.is_empty(), "Should not fire when TargetRailsVersion defaults to 5.0");
+        assert!(
+            diagnostics.is_empty(),
+            "Should not fire when TargetRailsVersion defaults to 5.0"
+        );
     }
 }

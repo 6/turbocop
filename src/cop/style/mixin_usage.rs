@@ -19,8 +19,8 @@ impl Cop for MixinUsage {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = MixinUsageVisitor {
             cop: self,
@@ -60,7 +60,9 @@ impl<'pr> Visit<'pr> for MixinUsageVisitor<'_> {
                     self.source,
                     line,
                     column,
-                    format!("`{method_str}` is used at the top level. Use inside `class` or `module`."),
+                    format!(
+                        "`{method_str}` is used at the top level. Use inside `class` or `module`."
+                    ),
                 ));
             }
         }

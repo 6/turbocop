@@ -1,7 +1,7 @@
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, LAMBDA_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, LAMBDA_NODE};
 
 pub struct Lambda;
 
@@ -20,8 +20,8 @@ impl Cop for Lambda {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "line_count_dependent");
 
@@ -59,7 +59,11 @@ impl Lambda {
     ) {
         let loc = lambda_node.operator_loc();
         let (start_line, _) = source.offset_to_line_col(lambda_node.location().start_offset());
-        let end_off = lambda_node.location().end_offset().saturating_sub(1).max(lambda_node.location().start_offset());
+        let end_off = lambda_node
+            .location()
+            .end_offset()
+            .saturating_sub(1)
+            .max(lambda_node.location().start_offset());
         let (end_line, _) = source.offset_to_line_col(end_off);
         let is_multiline = start_line != end_line;
 
@@ -67,7 +71,12 @@ impl Lambda {
             "lambda" => {
                 // Always flag `->` — use `lambda` instead
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(self.diagnostic(source, line, column, "Use the `lambda` method for all lambdas.".to_string()));
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use the `lambda` method for all lambdas.".to_string(),
+                ));
             }
             "literal" => {
                 // `->` is preferred — no offense
@@ -78,7 +87,12 @@ impl Lambda {
                 // Multi-line `->() do ... end` should use `lambda` instead.
                 if is_multiline {
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(self.diagnostic(source, line, column, "Use the `lambda` method for multiline lambdas.".to_string()));
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Use the `lambda` method for multiline lambdas.".to_string(),
+                    ));
                 }
             }
         }
@@ -96,7 +110,12 @@ impl Lambda {
                 // Always flag `lambda` — use `->` instead
                 let loc = call.message_loc().unwrap_or_else(|| call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(self.diagnostic(source, line, column, "Use the `-> {}` lambda literal syntax for all lambdas.".to_string()));
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use the `-> {}` lambda literal syntax for all lambdas.".to_string(),
+                ));
             }
             "lambda" => {
                 // Never flag `lambda` — it's preferred
@@ -112,13 +131,28 @@ impl Lambda {
                     None => return,
                 };
 
-                let (start_line, _) = source.offset_to_line_col(block_node.location().start_offset());
-                let (end_line, _) = source.offset_to_line_col(block_node.location().end_offset().saturating_sub(1).max(block_node.location().start_offset()));
+                let (start_line, _) =
+                    source.offset_to_line_col(block_node.location().start_offset());
+                let (end_line, _) = source.offset_to_line_col(
+                    block_node
+                        .location()
+                        .end_offset()
+                        .saturating_sub(1)
+                        .max(block_node.location().start_offset()),
+                );
 
                 if start_line == end_line {
                     let loc = call.message_loc().unwrap_or_else(|| call.location());
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(self.diagnostic(source, line, column, "Use the `-> {}` lambda literal syntax for single-line lambdas.".to_string()));
+                    diagnostics.push(
+                        self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Use the `-> {}` lambda literal syntax for single-line lambdas."
+                                .to_string(),
+                        ),
+                    );
                 }
             }
         }

@@ -20,8 +20,8 @@ impl Cop for Casecmp {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let chain = match as_method_chain(node) {
             Some(c) => c,
@@ -43,10 +43,15 @@ impl Cop for Casecmp {
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(source, line, column, format!(
-            "Use `casecmp` instead of `{} ==`.",
-            std::str::from_utf8(chain.inner_method).unwrap_or("downcase")
-        )));
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            format!(
+                "Use `casecmp` instead of `{} ==`.",
+                std::str::from_utf8(chain.inner_method).unwrap_or("downcase")
+            ),
+        ));
     }
 }
 

@@ -14,7 +14,13 @@ impl Cop for Copyright {
         false // Matches vendor config/default.yml: Enabled: false
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         let notice_pattern = config.get_str("Notice", r"^Copyright (\(c\) )?2[0-9]{3} .+");
         let _autocorrect_notice = config.get_str("AutocorrectNotice", "");
 
@@ -70,7 +76,8 @@ impl Cop for Copyright {
 mod tests {
     use super::*;
     crate::cop_scenario_fixture_tests!(
-        Copyright, "cops/style/copyright",
+        Copyright,
+        "cops/style/copyright",
         missing_notice = "missing_notice.rb",
         missing_notice_with_code = "missing_notice_with_code.rb",
         missing_notice_wrong_text = "missing_notice_wrong_text.rb",

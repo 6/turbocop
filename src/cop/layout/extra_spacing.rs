@@ -23,12 +23,11 @@ impl Cop for ExtraSpacing {
         parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_for_alignment = config.get_bool("AllowForAlignment", true);
-        let allow_before_trailing_comments =
-            config.get_bool("AllowBeforeTrailingComments", false);
+        let allow_before_trailing_comments = config.get_bool("AllowBeforeTrailingComments", false);
         let _force_equal_sign_alignment = config.get_bool("ForceEqualSignAlignment", false);
 
         let lines: Vec<&[u8]> = source.lines().collect();
@@ -44,7 +43,6 @@ impl Cop for ExtraSpacing {
 
         // Identify comment-only lines (0-indexed) for skipping during alignment search
         let comment_only_lines = build_comment_only_lines(&lines);
-
 
         // Track cumulative byte offset for each line start
         let mut line_start_offset: usize = 0;
@@ -98,12 +96,7 @@ impl Cop for ExtraSpacing {
 
                         // Skip if this could be alignment with adjacent code
                         if allow_for_alignment
-                            && is_aligned_with_adjacent(
-                                &lines,
-                                line_idx,
-                                i,
-                                &comment_only_lines,
-                            )
+                            && is_aligned_with_adjacent(&lines, line_idx, i, &comment_only_lines)
                         {
                             continue;
                         }
@@ -117,9 +110,11 @@ impl Cop for ExtraSpacing {
                         if let Some(ref mut corr) = corrections {
                             // Replace multi-space run with single space
                             corr.push(crate::correction::Correction {
-                                start: abs_offset, end: abs_offset + space_count,
+                                start: abs_offset,
+                                end: abs_offset + space_count,
                                 replacement: " ".to_string(),
-                                cop_name: self.name(), cop_index: 0,
+                                cop_name: self.name(),
+                                cop_index: 0,
                             });
                             diag.corrected = true;
                         }
@@ -133,7 +128,6 @@ impl Cop for ExtraSpacing {
             // Advance to next line: line content + 1 for '\n'
             line_start_offset += line.len() + 1;
         }
-
     }
 }
 
@@ -259,18 +253,14 @@ fn is_aligned_with_adjacent(
     let current_line = lines[line_idx];
 
     // Pass 1: nearest non-blank, non-comment-only line
-    if let Some(adj) =
-        find_nearest_line(lines, line_idx, true, comment_only_lines, None)
-    {
+    if let Some(adj) = find_nearest_line(lines, line_idx, true, comment_only_lines, None) {
         if check_alignment(lines[adj], col, token_char)
             || check_equals_alignment(current_line, lines[adj], col)
         {
             return true;
         }
     }
-    if let Some(adj) =
-        find_nearest_line(lines, line_idx, false, comment_only_lines, None)
-    {
+    if let Some(adj) = find_nearest_line(lines, line_idx, false, comment_only_lines, None) {
         if check_alignment(lines[adj], col, token_char)
             || check_equals_alignment(current_line, lines[adj], col)
         {
@@ -336,10 +326,7 @@ fn find_nearest_line(
 
         let line = lines[idx];
 
-        if line
-            .iter()
-            .all(|&b| b == b' ' || b == b'\t' || b == b'\r')
-        {
+        if line.iter().all(|&b| b == b' ' || b == b'\t' || b == b'\r') {
             continue;
         }
 
@@ -376,11 +363,7 @@ fn check_alignment(line: &[u8], col: usize, token_char: u8) -> bool {
 /// Check if there's equals-sign alignment between the current line and
 /// the adjacent line. For compound assignment operators like +=, -=, ||=,
 /// &&=, the '=' sign should align with a '=' on the adjacent line.
-fn check_equals_alignment(
-    current_line: &[u8],
-    adj_line: &[u8],
-    col: usize,
-) -> bool {
+fn check_equals_alignment(current_line: &[u8], adj_line: &[u8], col: usize) -> bool {
     // Find the '=' in or near the token starting at col on the current line
     let eq_col = find_equals_col(current_line, col);
     if let Some(eq_col) = eq_col {

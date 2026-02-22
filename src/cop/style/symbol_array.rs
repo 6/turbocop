@@ -1,7 +1,7 @@
+use crate::cop::node_type::{ARRAY_NODE, SYMBOL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ARRAY_NODE, SYMBOL_NODE};
 
 pub struct SymbolArray;
 
@@ -20,8 +20,8 @@ impl Cop for SymbolArray {
         node: &ruby_prism::Node<'_>,
         parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let array_node = match node.as_array_node() {
             Some(a) => a,
@@ -52,11 +52,17 @@ impl Cop for SymbolArray {
         }
 
         // Skip arrays containing comments — %i[] can't contain comments
-        let array_start_line = source.offset_to_line_col(array_node.location().start_offset()).0;
-        let array_end_line = source.offset_to_line_col(array_node.location().end_offset().saturating_sub(1)).0;
+        let array_start_line = source
+            .offset_to_line_col(array_node.location().start_offset())
+            .0;
+        let array_end_line = source
+            .offset_to_line_col(array_node.location().end_offset().saturating_sub(1))
+            .0;
         if array_start_line != array_end_line {
             for comment in parse_result.comments() {
-                let comment_line = source.offset_to_line_col(comment.location().start_offset()).0;
+                let comment_line = source
+                    .offset_to_line_col(comment.location().start_offset())
+                    .0;
                 if comment_line >= array_start_line && comment_line <= array_end_line {
                     return;
                 }
@@ -71,7 +77,12 @@ impl Cop for SymbolArray {
         }
 
         let (line, column) = source.offset_to_line_col(opening.start_offset());
-        diagnostics.push(self.diagnostic(source, line, column, "Use `%i` or `%I` for an array of symbols.".to_string()));
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            "Use `%i` or `%I` for an array of symbols.".to_string(),
+        ));
     }
 }
 
@@ -83,8 +94,8 @@ mod tests {
 
     #[test]
     fn config_min_size_5() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([("MinSize".into(), serde_yml::Value::Number(5.into()))]),
@@ -93,27 +104,37 @@ mod tests {
         // 5 symbols should trigger with MinSize:5
         let source = b"x = [:a, :b, :c, :d, :e]\n";
         let diags = run_cop_full_with_config(&SymbolArray, source, config.clone());
-        assert!(!diags.is_empty(), "Should fire with MinSize:5 on 5-element symbol array");
+        assert!(
+            !diags.is_empty(),
+            "Should fire with MinSize:5 on 5-element symbol array"
+        );
 
         // 4 symbols should NOT trigger
         let source2 = b"x = [:a, :b, :c, :d]\n";
         let diags2 = run_cop_full_with_config(&SymbolArray, source2, config);
-        assert!(diags2.is_empty(), "Should not fire on 4-element symbol array with MinSize:5");
+        assert!(
+            diags2.is_empty(),
+            "Should not fire on 4-element symbol array with MinSize:5"
+        );
     }
 
     #[test]
     fn brackets_style_allows_bracket_arrays() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("brackets".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("brackets".into()),
+            )]),
             ..CopConfig::default()
         };
         let source = b"x = [:a, :b, :c]\n";
         let diags = run_cop_full_with_config(&SymbolArray, source, config);
-        assert!(diags.is_empty(), "Should not flag brackets with brackets style");
+        assert!(
+            diags.is_empty(),
+            "Should not flag brackets with brackets style"
+        );
     }
 }

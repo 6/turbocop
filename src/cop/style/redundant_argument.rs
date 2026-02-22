@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, FALSE_NODE, INTEGER_NODE, STRING_NODE, TRUE_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, FALSE_NODE, INTEGER_NODE, STRING_NODE, TRUE_NODE};
 
 pub struct RedundantArgument;
 
@@ -20,8 +20,8 @@ impl Cop for RedundantArgument {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _methods = config.get_string_hash("Methods");
 
@@ -75,12 +75,16 @@ impl Cop for RedundantArgument {
                 format!("Argument `{arg_src}` is redundant because it is implied by default."),
             ));
         }
-
     }
 }
 
 impl RedundantArgument {
-    fn is_string_value(&self, node: &ruby_prism::Node<'_>, _source: &SourceFile, expected: &str) -> bool {
+    fn is_string_value(
+        &self,
+        node: &ruby_prism::Node<'_>,
+        _source: &SourceFile,
+        expected: &str,
+    ) -> bool {
         if let Some(str_node) = node.as_string_node() {
             let content = str_node.unescaped();
             return content == expected.as_bytes();

@@ -1,10 +1,14 @@
 use ruby_prism::Visit;
 
-use crate::cop::factory_bot::{is_factory_call, FACTORY_BOT_SPEC_INCLUDE};
+use crate::cop::factory_bot::{FACTORY_BOT_SPEC_INCLUDE, is_factory_call};
+use crate::cop::node_type::{
+    ASSOC_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CONSTANT_PATH_NODE,
+    CONSTANT_READ_NODE, HASH_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, REQUIRED_PARAMETER_NODE,
+    STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct CreateList;
 
@@ -22,7 +26,21 @@ impl Cop for CreateList {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ASSOC_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE]
+        &[
+            ASSOC_NODE,
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            HASH_NODE,
+            INTEGER_NODE,
+            KEYWORD_HASH_NODE,
+            REQUIRED_PARAMETER_NODE,
+            STATEMENTS_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -31,8 +49,8 @@ impl Cop for CreateList {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -49,7 +67,6 @@ impl Cop for CreateList {
         if style == "n_times" {
             diagnostics.extend(self.check_for_n_times_style(source, &call, explicit_only));
         }
-
     }
 }
 
@@ -121,12 +138,7 @@ impl CreateList {
         let _ = count;
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        vec![self.diagnostic(
-            source,
-            line,
-            column,
-            "Prefer create_list.".to_string(),
-        )]
+        vec![self.diagnostic(source, line, column, "Prefer create_list.".to_string())]
     }
 
     /// With n_times style: flag `create_list :user, 3` calls
@@ -171,12 +183,7 @@ impl CreateList {
 
         let msg_loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
-        vec![self.diagnostic(
-            source,
-            line,
-            column,
-            format!("Prefer {}.times.map.", count),
-        )]
+        vec![self.diagnostic(source, line, column, format!("Prefer {}.times.map.", count))]
     }
 }
 
@@ -190,8 +197,8 @@ fn get_repeat_count_from_source(
     if method == b"times" {
         if let Some(recv) = call.receiver() {
             if let Some(int) = recv.as_integer_node() {
-                let src = &source.as_bytes()
-                    [int.location().start_offset()..int.location().end_offset()];
+                let src =
+                    &source.as_bytes()[int.location().start_offset()..int.location().end_offset()];
                 if let Ok(s) = std::str::from_utf8(src) {
                     return s.parse::<i64>().ok();
                 }
@@ -292,7 +299,11 @@ fn has_local_var_read(node: &ruby_prism::Node<'_>, names: &[Vec<u8>]) -> bool {
             &mut self,
             node: &ruby_prism::LocalVariableReadNode<'pr>,
         ) {
-            if self.names.iter().any(|n| node.name().as_slice() == n.as_slice()) {
+            if self
+                .names
+                .iter()
+                .any(|n| node.name().as_slice() == n.as_slice())
+            {
                 self.found = true;
             }
         }
@@ -307,9 +318,7 @@ fn has_local_var_read(node: &ruby_prism::Node<'_>, names: &[Vec<u8>]) -> bool {
 }
 
 /// Get the single create call from a block body.
-fn get_single_create_call<'a>(
-    body: &ruby_prism::Node<'a>,
-) -> Option<ruby_prism::CallNode<'a>> {
+fn get_single_create_call<'a>(body: &ruby_prism::Node<'a>) -> Option<ruby_prism::CallNode<'a>> {
     if let Some(stmts) = body.as_statements_node() {
         let children: Vec<_> = stmts.body().iter().collect();
         if children.len() != 1 {
@@ -369,8 +378,7 @@ fn contains_send_node(node: &ruby_prism::Node<'_>) -> bool {
 /// Extract integer value from a node via source bytes.
 fn get_integer_value(node: &ruby_prism::Node<'_>, source: &SourceFile) -> Option<i64> {
     if let Some(int) = node.as_integer_node() {
-        let src =
-            &source.as_bytes()[int.location().start_offset()..int.location().end_offset()];
+        let src = &source.as_bytes()[int.location().start_offset()..int.location().end_offset()];
         let s = std::str::from_utf8(src).ok()?;
         return s.parse::<i64>().ok();
     }

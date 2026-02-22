@@ -13,7 +13,13 @@ impl Cop for TrailingEmptyLines {
         true
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, mut corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         let style = config.get_str("EnforcedStyle", "final_newline");
         let bytes = source.as_bytes();
         if bytes.is_empty() {
@@ -126,7 +132,8 @@ mod tests {
     use crate::parse::source::SourceFile;
 
     crate::cop_scenario_fixture_tests!(
-        TrailingEmptyLines, "cops/layout/trailing_empty_lines",
+        TrailingEmptyLines,
+        "cops/layout/trailing_empty_lines",
         missing_newline = "missing_newline.rb",
         trailing_blank = "trailing_blank.rb",
         multiple_trailing = "multiple_trailing.rb",
@@ -200,24 +207,29 @@ mod tests {
     fn final_blank_line_style_accepts_trailing_blank() {
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("final_blank_line".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("final_blank_line".into()),
+            )]),
             ..CopConfig::default()
         };
         let source = SourceFile::from_bytes("test.rb", b"x = 1\n\n".to_vec());
         let mut diags = Vec::new();
         TrailingEmptyLines.check_lines(&source, &config, &mut diags, None);
-        assert!(diags.is_empty(), "final_blank_line style should accept trailing blank line");
+        assert!(
+            diags.is_empty(),
+            "final_blank_line style should accept trailing blank line"
+        );
     }
 
     #[test]
     fn final_blank_line_style_flags_missing_blank() {
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("final_blank_line".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("final_blank_line".into()),
+            )]),
             ..CopConfig::default()
         };
         let source = SourceFile::from_bytes("test.rb", b"x = 1\n".to_vec());
@@ -230,7 +242,8 @@ mod tests {
     #[test]
     fn autocorrect_missing_newline() {
         let input = b"x = 1";
-        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&TrailingEmptyLines, input);
+        let (_diags, corrections) =
+            crate::testutil::run_cop_autocorrect(&TrailingEmptyLines, input);
         assert!(!corrections.is_empty());
         let cs = crate::correction::CorrectionSet::from_vec(corrections);
         let corrected = cs.apply(input);
@@ -240,7 +253,8 @@ mod tests {
     #[test]
     fn autocorrect_trailing_blank() {
         let input = b"x = 1\n\n";
-        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&TrailingEmptyLines, input);
+        let (_diags, corrections) =
+            crate::testutil::run_cop_autocorrect(&TrailingEmptyLines, input);
         assert!(!corrections.is_empty());
         let cs = crate::correction::CorrectionSet::from_vec(corrections);
         let corrected = cs.apply(input);
@@ -250,7 +264,8 @@ mod tests {
     #[test]
     fn autocorrect_multiple_trailing() {
         let input = b"x = 1\n\n\n\n";
-        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&TrailingEmptyLines, input);
+        let (_diags, corrections) =
+            crate::testutil::run_cop_autocorrect(&TrailingEmptyLines, input);
         assert!(!corrections.is_empty());
         let cs = crate::correction::CorrectionSet::from_vec(corrections);
         let corrected = cs.apply(input);
@@ -261,14 +276,15 @@ mod tests {
     fn autocorrect_final_blank_line_style_missing() {
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("final_blank_line".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("final_blank_line".into()),
+            )]),
             ..CopConfig::default()
         };
         let input = b"x = 1\n";
-        let (_diags, corrections) = crate::testutil::run_cop_autocorrect_with_config(
-            &TrailingEmptyLines, input, config);
+        let (_diags, corrections) =
+            crate::testutil::run_cop_autocorrect_with_config(&TrailingEmptyLines, input, config);
         assert!(!corrections.is_empty());
         let cs = crate::correction::CorrectionSet::from_vec(corrections);
         let corrected = cs.apply(input);

@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, CLASS_NODE};
 use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CLASS_NODE};
 
 pub struct InheritException;
 
@@ -25,8 +25,8 @@ impl Cop for InheritException {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "standard_error");
         let _supported = config.get_string_array("SupportedStyles");
@@ -95,7 +95,6 @@ impl Cop for InheritException {
                 }
             }
         }
-
     }
 }
 

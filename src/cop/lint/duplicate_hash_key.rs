@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
+use crate::cop::node_type::{ASSOC_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 
 pub struct DuplicateHashKey;
 
@@ -26,8 +26,8 @@ impl Cop for DuplicateHashKey {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let elements = if let Some(hash_node) = node.as_hash_node() {
             hash_node.elements()
@@ -59,7 +59,6 @@ impl Cop for DuplicateHashKey {
                 ));
             }
         }
-
     }
 }
 

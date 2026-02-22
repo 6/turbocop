@@ -19,10 +19,7 @@ pub struct CodeMap {
 impl CodeMap {
     /// Build a CodeMap from a parse result, collecting non-code regions from
     /// comments, string literals, regular expressions, symbols, and heredocs.
-    pub fn from_parse_result(
-        _source: &[u8],
-        parse_result: &ruby_prism::ParseResult<'_>,
-    ) -> Self {
+    pub fn from_parse_result(_source: &[u8], parse_result: &ruby_prism::ParseResult<'_>) -> Self {
         let mut string_ranges = Vec::new();
         let mut heredoc_ranges = Vec::new();
 
@@ -140,7 +137,9 @@ impl NonCodeCollector<'_> {
             }
             ruby_prism::Node::InterpolatedStringNode { .. } => {
                 let isn = node.as_interpolated_string_node().unwrap();
-                let is_heredoc = isn.opening_loc().is_some_and(|o| o.as_slice().starts_with(b"<<"));
+                let is_heredoc = isn
+                    .opening_loc()
+                    .is_some_and(|o| o.as_slice().starts_with(b"<<"));
 
                 if is_heredoc {
                     // For heredocs, mark the entire content as non-code (interpolation
@@ -311,11 +310,7 @@ mod tests {
 
         // The comma between the two strings IS code
         // Find the comma that's between the strings
-        let comma_offset = source
-            .windows(2)
-            .position(|w| w == b"\",")
-            .unwrap()
-            + 1;
+        let comma_offset = source.windows(2).position(|w| w == b"\",").unwrap() + 1;
         assert!(cm.is_code(comma_offset));
     }
 
@@ -357,7 +352,10 @@ mod tests {
 
         // The semicolon inside the heredoc is NOT code
         let semi_offset = source.iter().position(|&b| b == b';').unwrap();
-        assert!(!cm.is_code(semi_offset), "Semicolon inside heredoc should be non-code, offset={semi_offset}");
+        assert!(
+            !cm.is_code(semi_offset),
+            "Semicolon inside heredoc should be non-code, offset={semi_offset}"
+        );
     }
 
     #[test]
@@ -367,7 +365,10 @@ mod tests {
         let cm = CodeMap::from_parse_result(source, &pr);
 
         let semi_offset = source.iter().position(|&b| b == b';').unwrap();
-        assert!(!cm.is_code(semi_offset), "Semicolon inside heredoc.squish should be non-code, offset={semi_offset}");
+        assert!(
+            !cm.is_code(semi_offset),
+            "Semicolon inside heredoc.squish should be non-code, offset={semi_offset}"
+        );
     }
 
     #[test]
@@ -390,10 +391,7 @@ mod tests {
         assert!(cm.is_code(0));
 
         // The __END__ marker itself should be non-code
-        let end_offset = source
-            .windows(7)
-            .position(|w| w == b"__END__")
-            .unwrap();
+        let end_offset = source.windows(7).position(|w| w == b"__END__").unwrap();
         assert!(
             !cm.is_code(end_offset),
             "__END__ marker at offset {} should be non-code",

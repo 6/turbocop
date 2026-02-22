@@ -1,7 +1,7 @@
+use crate::cop::node_type::RANGE_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::RANGE_NODE;
 
 pub struct SpaceInsideRangeLiteral;
 
@@ -24,8 +24,8 @@ impl Cop for SpaceInsideRangeLiteral {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check both inclusive (..) and exclusive (...) ranges
         let (left, right, op_loc) = if let Some(range) = node.as_range_node() {
@@ -68,28 +68,31 @@ impl Cop for SpaceInsideRangeLiteral {
 
         if has_space {
             let (line, col) = source.offset_to_line_col(node.location().start_offset());
-            let mut diag = self.diagnostic(
-                source, line, col,
-                "Space inside range literal.".to_string(),
-            );
+            let mut diag =
+                self.diagnostic(source, line, col, "Space inside range literal.".to_string());
             if let Some(ref mut corr) = corrections {
                 if let Some((start, end)) = space_before_range {
                     corr.push(crate::correction::Correction {
-                        start, end, replacement: String::new(),
-                        cop_name: self.name(), cop_index: 0,
+                        start,
+                        end,
+                        replacement: String::new(),
+                        cop_name: self.name(),
+                        cop_index: 0,
                     });
                 }
                 if let Some((start, end)) = space_after_range {
                     corr.push(crate::correction::Correction {
-                        start, end, replacement: String::new(),
-                        cop_name: self.name(), cop_index: 0,
+                        start,
+                        end,
+                        replacement: String::new(),
+                        cop_name: self.name(),
+                        cop_index: 0,
                     });
                 }
                 diag.corrected = true;
             }
             diagnostics.push(diag);
         }
-
     }
 }
 
@@ -97,6 +100,12 @@ impl Cop for SpaceInsideRangeLiteral {
 mod tests {
     use super::*;
 
-    crate::cop_fixture_tests!(SpaceInsideRangeLiteral, "cops/layout/space_inside_range_literal");
-    crate::cop_autocorrect_fixture_tests!(SpaceInsideRangeLiteral, "cops/layout/space_inside_range_literal");
+    crate::cop_fixture_tests!(
+        SpaceInsideRangeLiteral,
+        "cops/layout/space_inside_range_literal"
+    );
+    crate::cop_autocorrect_fixture_tests!(
+        SpaceInsideRangeLiteral,
+        "cops/layout/space_inside_range_literal"
+    );
 }

@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE};
 use crate::cop::util::is_screaming_snake_case;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE};
 
 pub struct ConstantName;
 
@@ -21,8 +21,8 @@ impl Cop for ConstantName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         if let Some(cw) = node.as_constant_write_node() {
             let const_name = cw.name().as_slice();
@@ -37,7 +37,6 @@ impl Cop for ConstantName {
             let value = cpw.value();
             diagnostics.extend(self.check_constant(source, const_name, &name_loc, &value));
         }
-
     }
 }
 
@@ -164,9 +163,7 @@ fn branch_contains_constant(if_node: &ruby_prism::IfNode<'_>) -> bool {
     // Check the "then" branch
     if let Some(stmts) = if_node.statements() {
         for child in stmts.body().iter() {
-            if child.as_constant_read_node().is_some()
-                || child.as_constant_path_node().is_some()
-            {
+            if child.as_constant_read_node().is_some() || child.as_constant_path_node().is_some() {
                 return true;
             }
         }

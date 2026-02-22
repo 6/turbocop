@@ -18,8 +18,8 @@ impl Cop for CommentedKeyword {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let bytes = source.as_bytes();
 
@@ -44,17 +44,23 @@ impl Cop for CommentedKeyword {
             let after_hash_trimmed = after_hash_str.trim_start();
 
             // Allow :nodoc: and :yields: (RDoc annotations)
-            if after_hash_trimmed.starts_with(":nodoc:") || after_hash_trimmed.starts_with(":yields:") {
+            if after_hash_trimmed.starts_with(":nodoc:")
+                || after_hash_trimmed.starts_with(":yields:")
+            {
                 continue;
             }
 
             // Allow rubocop directives (rubocop:disable, rubocop:todo, etc.)
-            if after_hash_trimmed.starts_with("rubocop:") || after_hash_trimmed.starts_with("rubocop :") {
+            if after_hash_trimmed.starts_with("rubocop:")
+                || after_hash_trimmed.starts_with("rubocop :")
+            {
                 continue;
             }
 
             // Allow steep:ignore annotations
-            if after_hash_trimmed.starts_with("steep:ignore ") || after_hash_trimmed == "steep:ignore" {
+            if after_hash_trimmed.starts_with("steep:ignore ")
+                || after_hash_trimmed == "steep:ignore"
+            {
                 continue;
             }
 
@@ -63,7 +69,8 @@ impl Cop for CommentedKeyword {
 
             // Get the full source line text before the comment
             let line_start_offset = comment_start - comment_col;
-            let before_comment = match std::str::from_utf8(&bytes[line_start_offset..comment_start]) {
+            let before_comment = match std::str::from_utf8(&bytes[line_start_offset..comment_start])
+            {
                 Ok(s) => s.trim(),
                 Err(_) => continue,
             };
@@ -74,8 +81,11 @@ impl Cop for CommentedKeyword {
             }
 
             // Allow RBS::Inline `#:` annotations on def and end lines
-            if after_hash_str.starts_with(':') && after_hash_str.get(1..2).is_some_and(|c| c != "[") {
-                if starts_with_keyword(before_comment, "def") || starts_with_keyword(before_comment, "end") {
+            if after_hash_str.starts_with(':') && after_hash_str.get(1..2).is_some_and(|c| c != "[")
+            {
+                if starts_with_keyword(before_comment, "def")
+                    || starts_with_keyword(before_comment, "end")
+                {
                     continue;
                 }
             }
@@ -103,7 +113,6 @@ impl Cop for CommentedKeyword {
                 }
             }
         }
-
     }
 }
 

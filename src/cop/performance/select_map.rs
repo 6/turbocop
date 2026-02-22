@@ -20,8 +20,8 @@ impl Cop for SelectMap {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let chain = match as_method_chain(node) {
             Some(c) => c,
@@ -48,7 +48,12 @@ impl Cop for SelectMap {
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(source, line, column, format!("Use `filter_map` instead of `{inner_name}...map`.")));
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            format!("Use `filter_map` instead of `{inner_name}...map`."),
+        ));
     }
 }
 

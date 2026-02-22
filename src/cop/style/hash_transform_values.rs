@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    BLOCK_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, STATEMENTS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, STATEMENTS_NODE};
 
 pub struct HashTransformValues;
 
@@ -11,7 +13,14 @@ impl Cop for HashTransformValues {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, STATEMENTS_NODE]
+        &[
+            BLOCK_NODE,
+            CALL_NODE,
+            HASH_NODE,
+            KEYWORD_HASH_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +29,8 @@ impl Cop for HashTransformValues {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for CallNode `each_with_object({})` with a block
         let call = match node.as_call_node() {
@@ -104,10 +113,8 @@ impl Cop for HashTransformValues {
                                 // The body is `h[k] = expr` — if `k` appears in `expr`,
                                 // the expression depends on the key.
                                 let value_loc = aargs[1].location();
-                                let value_src = &source.as_bytes()
-                                    [value_loc.start_offset()
-                                        ..value_loc.start_offset()
-                                            + value_loc.as_slice().len()];
+                                let value_src = &source.as_bytes()[value_loc.start_offset()
+                                    ..value_loc.start_offset() + value_loc.as_slice().len()];
                                 if contains_identifier(value_src, key_name.as_slice()) {
                                     return;
                                 }
@@ -119,15 +126,13 @@ impl Cop for HashTransformValues {
                                 source,
                                 line,
                                 column,
-                                "Prefer `transform_values` over `each_with_object`."
-                                    .to_string(),
+                                "Prefer `transform_values` over `each_with_object`.".to_string(),
                             ));
                         }
                     }
                 }
             }
         }
-
     }
 }
 
@@ -139,11 +144,10 @@ fn contains_identifier(haystack: &[u8], needle: &[u8]) -> bool {
     for i in 0..=haystack.len() - needle.len() {
         if &haystack[i..i + needle.len()] == needle {
             // Check word boundary before
-            let before_ok =
-                i == 0 || !is_ident_char(haystack[i - 1]);
+            let before_ok = i == 0 || !is_ident_char(haystack[i - 1]);
             // Check word boundary after
-            let after_ok = i + needle.len() >= haystack.len()
-                || !is_ident_char(haystack[i + needle.len()]);
+            let after_ok =
+                i + needle.len() >= haystack.len() || !is_ident_char(haystack[i + needle.len()]);
             if before_ok && after_ok {
                 return true;
             }

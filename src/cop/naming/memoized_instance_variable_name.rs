@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    CALL_NODE, DEF_NODE, IF_NODE, INSTANCE_VARIABLE_OR_WRITE_NODE, INSTANCE_VARIABLE_WRITE_NODE,
+    STATEMENTS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, DEF_NODE, IF_NODE, INSTANCE_VARIABLE_OR_WRITE_NODE, INSTANCE_VARIABLE_WRITE_NODE, STATEMENTS_NODE};
 
 pub struct MemoizedInstanceVariableName;
 
@@ -130,7 +133,8 @@ impl MemoizedInstanceVariableName {
                             for arg in args.arguments().iter() {
                                 if arg.as_instance_variable_read_node().is_some() {
                                     let loc = arg.location();
-                                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                    let (line, column) =
+                                        source.offset_to_line_col(loc.start_offset());
                                     diags.push(self.diagnostic(source, line, column, msg.clone()));
                                 }
                             }
@@ -232,7 +236,14 @@ impl Cop for MemoizedInstanceVariableName {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, DEF_NODE, IF_NODE, INSTANCE_VARIABLE_OR_WRITE_NODE, INSTANCE_VARIABLE_WRITE_NODE, STATEMENTS_NODE]
+        &[
+            CALL_NODE,
+            DEF_NODE,
+            IF_NODE,
+            INSTANCE_VARIABLE_OR_WRITE_NODE,
+            INSTANCE_VARIABLE_WRITE_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -241,8 +252,8 @@ impl Cop for MemoizedInstanceVariableName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyleForLeadingUnderscores", "disallowed");
 
@@ -275,7 +286,13 @@ impl Cop for MemoizedInstanceVariableName {
 
         // Body could be a bare InstanceVariableOrWriteNode (single statement)
         if let Some(or_write) = body.as_instance_variable_or_write_node() {
-            diagnostics.extend(self.check_or_write(source, or_write, base_name, method_name_str, enforced_style));
+            diagnostics.extend(self.check_or_write(
+                source,
+                or_write,
+                base_name,
+                method_name_str,
+                enforced_style,
+            ));
         }
 
         let stmts = match body.as_statements_node() {
@@ -291,7 +308,13 @@ impl Cop for MemoizedInstanceVariableName {
         // Only check the last statement — vendor requires ||= be the sole or last statement
         let last = &body_nodes[body_nodes.len() - 1];
         if let Some(or_write) = last.as_instance_variable_or_write_node() {
-            diagnostics.extend(self.check_or_write(source, or_write, base_name, method_name_str, enforced_style));
+            diagnostics.extend(self.check_or_write(
+                source,
+                or_write,
+                base_name,
+                method_name_str,
+                enforced_style,
+            ));
             return;
         }
 
@@ -302,9 +325,14 @@ impl Cop for MemoizedInstanceVariableName {
         // and the last statement must be `@ivar = expression`.
         if body_nodes.len() >= 2 {
             if let Some(ivar_base) = extract_defined_memoized_ivar(&body_nodes) {
-                diagnostics.extend(
-                    self.check_defined_memoized(source, &body_nodes, &ivar_base, base_name, method_name_str, enforced_style),
-                );
+                diagnostics.extend(self.check_defined_memoized(
+                    source,
+                    &body_nodes,
+                    &ivar_base,
+                    base_name,
+                    method_name_str,
+                    enforced_style,
+                ));
             }
         }
     }

@@ -13,7 +13,13 @@ impl Cop for EndOfLine {
         true
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, mut corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         let style = config.get_str("EnforcedStyle", "native");
         let bytes = source.as_bytes();
 
@@ -104,7 +110,6 @@ impl Cop for EndOfLine {
                 }
             }
         }
-
     }
 }
 
@@ -161,15 +166,19 @@ mod tests {
     fn crlf_style_accepts_crlf() {
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("crlf".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("crlf".into()),
+            )]),
             ..CopConfig::default()
         };
         let source = SourceFile::from_bytes("test.rb", b"x = 1\r\ny = 2\r\n".to_vec());
         let mut diags = Vec::new();
         EndOfLine.check_lines(&source, &config, &mut diags, None);
-        assert!(diags.is_empty(), "crlf style should accept CRLF line endings");
+        assert!(
+            diags.is_empty(),
+            "crlf style should accept CRLF line endings"
+        );
     }
 
     #[test]
@@ -186,13 +195,15 @@ mod tests {
     fn autocorrect_insert_cr_crlf_style() {
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("crlf".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("crlf".into()),
+            )]),
             ..CopConfig::default()
         };
         let input = b"x = 1\ny = 2\n";
-        let (_diags, corrections) = crate::testutil::run_cop_autocorrect_with_config(&EndOfLine, input, config);
+        let (_diags, corrections) =
+            crate::testutil::run_cop_autocorrect_with_config(&EndOfLine, input, config);
         assert!(!corrections.is_empty());
         let cs = crate::correction::CorrectionSet::from_vec(corrections);
         let corrected = cs.apply(input);
@@ -203,9 +214,10 @@ mod tests {
     fn crlf_style_flags_lf() {
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("crlf".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("crlf".into()),
+            )]),
             ..CopConfig::default()
         };
         let source = SourceFile::from_bytes("test.rb", b"x = 1\ny = 2\n".to_vec());

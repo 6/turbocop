@@ -116,7 +116,8 @@ mod tests {
     use crate::schema::Schema;
 
     fn setup_schema() {
-        let schema_bytes = include_bytes!("../../../testdata/cops/rails/unused_ignored_columns/schema.rb");
+        let schema_bytes =
+            include_bytes!("../../../testdata/cops/rails/unused_ignored_columns/schema.rb");
         let schema = Schema::parse(schema_bytes).unwrap();
         crate::schema::set_test_schema(Some(schema));
     }

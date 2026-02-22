@@ -20,8 +20,8 @@ impl Cop for SpaceAroundKeyword {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let bytes = source.as_bytes();
         let len = bytes.len();
@@ -46,10 +46,7 @@ impl Cop for SpaceAroundKeyword {
 
             for &kw in candidates {
                 let kw_len = kw.len();
-                if i + kw_len < len
-                    && &bytes[i..i + kw_len] == kw
-                    && code_map.is_code(i)
-                {
+                if i + kw_len < len && &bytes[i..i + kw_len] == kw && code_map.is_code(i) {
                     let word_before = if i > 0 {
                         bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_'
                     } else {
@@ -103,7 +100,8 @@ mod tests {
     #[test]
     fn autocorrect_insert_space() {
         let input = b"if(x)\n  y\nend\n";
-        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&SpaceAroundKeyword, input);
+        let (_diags, corrections) =
+            crate::testutil::run_cop_autocorrect(&SpaceAroundKeyword, input);
         assert!(!corrections.is_empty());
         let cs = crate::correction::CorrectionSet::from_vec(corrections);
         let corrected = cs.apply(input);

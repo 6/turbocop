@@ -1,8 +1,8 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::util::as_method_chain;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct FlatMap;
 
@@ -25,8 +25,8 @@ impl Cop for FlatMap {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enabled_for_flatten_without_params =
             config.get_bool("EnabledForFlattenWithoutParams", true);
@@ -66,7 +66,12 @@ impl Cop for FlatMap {
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(source, line, column, format!("Use `flat_map` instead of `{inner_name}...flatten`.")));
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            format!("Use `flat_map` instead of `{inner_name}...flatten`."),
+        ));
     }
 }
 
@@ -90,6 +95,9 @@ mod tests {
         // map { }.flatten without args — should NOT be flagged
         let src = b"[1, 2].map { |x| [x, x] }.flatten\n";
         let diags = run_cop_full_with_config(&FlatMap, src, config);
-        assert!(diags.is_empty(), "Should skip flatten without params when EnabledForFlattenWithoutParams is false");
+        assert!(
+            diags.is_empty(),
+            "Should skip flatten without params when EnabledForFlattenWithoutParams is false"
+        );
     }
 }

@@ -1,8 +1,11 @@
+use crate::cop::node_type::{
+    CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, EMBEDDED_STATEMENTS_NODE,
+    INTERPOLATED_STRING_NODE, LOCAL_VARIABLE_READ_NODE, STRING_NODE,
+};
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, EMBEDDED_STATEMENTS_NODE, INTERPOLATED_STRING_NODE, LOCAL_VARIABLE_READ_NODE, STRING_NODE};
 
 pub struct FilePath;
 
@@ -33,7 +36,15 @@ impl Cop for FilePath {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, EMBEDDED_STATEMENTS_NODE, INTERPOLATED_STRING_NODE, LOCAL_VARIABLE_READ_NODE, STRING_NODE]
+        &[
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            EMBEDDED_STATEMENTS_NODE,
+            INTERPOLATED_STRING_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            STRING_NODE,
+        ]
     }
 
     fn check_node(
@@ -42,8 +53,8 @@ impl Cop for FilePath {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "slashes");
 
@@ -60,13 +71,19 @@ impl Cop for FilePath {
                                 if let Some(str_part) = parts[i + 1].as_string_node() {
                                     if str_part.unescaped().starts_with(b"/") {
                                         let loc = node.location();
-                                        let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                        let (line, column) =
+                                            source.offset_to_line_col(loc.start_offset());
                                         let msg = if style == "arguments" {
                                             "Prefer `Rails.root.join('path', 'to').to_s`."
                                         } else {
                                             "Prefer `Rails.root.join('path/to').to_s`."
                                         };
-                                        diagnostics.push(self.diagnostic(source, line, column, msg.to_string()));
+                                        diagnostics.push(self.diagnostic(
+                                            source,
+                                            line,
+                                            column,
+                                            msg.to_string(),
+                                        ));
                                     }
                                 }
                             }
@@ -110,7 +127,8 @@ impl Cop for FilePath {
             // (Rails.root itself is a send node, so it's fine)
             let has_invalid_arg = arg_list.iter().any(|a| {
                 a.as_local_variable_read_node().is_some()
-                    || ((a.as_constant_read_node().is_some() || a.as_constant_path_node().is_some())
+                    || ((a.as_constant_read_node().is_some()
+                        || a.as_constant_path_node().is_some())
                         && util::constant_name(a) != Some(b"Rails"))
             });
             if has_invalid_arg {
@@ -174,7 +192,6 @@ impl Cop for FilePath {
                         }
                     }
                 }
-
             }
             _ => {
                 // "slashes" (default): flag multi-arg join calls
@@ -224,7 +241,10 @@ mod tests {
         };
         let source = b"Rails.root.join('app/models')\n";
         let diags = run_cop_full_with_config(&FilePath, source, config);
-        assert!(!diags.is_empty(), "arguments style should flag slash-separated path");
+        assert!(
+            !diags.is_empty(),
+            "arguments style should flag slash-separated path"
+        );
     }
 
     #[test]

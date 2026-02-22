@@ -1,7 +1,11 @@
+use crate::cop::node_type::{
+    CLASS_VARIABLE_READ_NODE, CLASS_VARIABLE_WRITE_NODE, GLOBAL_VARIABLE_READ_NODE,
+    GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_READ_NODE, INSTANCE_VARIABLE_WRITE_NODE,
+    LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, OR_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CLASS_VARIABLE_READ_NODE, CLASS_VARIABLE_WRITE_NODE, GLOBAL_VARIABLE_READ_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_READ_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, OR_NODE};
 
 pub struct OrAssignment;
 
@@ -93,13 +97,17 @@ impl OrAssignment {
                             if let Some(true_name) = Self::get_read_name(&true_nodes[0]) {
                                 if true_name == write_name {
                                     let loc = node.location();
-                                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                    return vec![cop.diagnostic(
-                                        source,
-                                        line,
-                                        column,
-                                        "Use the double pipe equals operator `||=` instead.".to_string(),
-                                    )];
+                                    let (line, column) =
+                                        source.offset_to_line_col(loc.start_offset());
+                                    return vec![
+                                        cop.diagnostic(
+                                            source,
+                                            line,
+                                            column,
+                                            "Use the double pipe equals operator `||=` instead."
+                                                .to_string(),
+                                        ),
+                                    ];
                                 }
                             }
                         }
@@ -118,7 +126,18 @@ impl Cop for OrAssignment {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CLASS_VARIABLE_READ_NODE, CLASS_VARIABLE_WRITE_NODE, GLOBAL_VARIABLE_READ_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_READ_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, OR_NODE]
+        &[
+            CLASS_VARIABLE_READ_NODE,
+            CLASS_VARIABLE_WRITE_NODE,
+            GLOBAL_VARIABLE_READ_NODE,
+            GLOBAL_VARIABLE_WRITE_NODE,
+            IF_NODE,
+            INSTANCE_VARIABLE_READ_NODE,
+            INSTANCE_VARIABLE_WRITE_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            LOCAL_VARIABLE_WRITE_NODE,
+            OR_NODE,
+        ]
     }
 
     fn check_node(
@@ -127,8 +146,8 @@ impl Cop for OrAssignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         diagnostics.extend(Self::check_or_assign(self, source, node));
     }

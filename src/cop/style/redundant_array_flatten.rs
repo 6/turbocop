@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, NIL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, NIL_NODE};
 
 pub struct RedundantArrayFlatten;
 
@@ -20,8 +20,8 @@ impl Cop for RedundantArrayFlatten {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Looking for: x.flatten.join or x.flatten.join(nil)
         let call = match node.as_call_node() {
@@ -74,7 +74,9 @@ impl Cop for RedundantArrayFlatten {
             }
         }
 
-        let msg_loc = recv_call.message_loc().unwrap_or_else(|| recv_call.location());
+        let msg_loc = recv_call
+            .message_loc()
+            .unwrap_or_else(|| recv_call.location());
         // Include the dot before flatten
         let dot_start = if let Some(op) = recv_call.call_operator_loc() {
             op.start_offset()

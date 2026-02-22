@@ -1,8 +1,11 @@
-use crate::cop::util::{self, is_rspec_example, is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{
+    CALL_NODE, FLOAT_NODE, INTEGER_NODE, INTERPOLATED_X_STRING_NODE, REGULAR_EXPRESSION_NODE,
+    X_STRING_NODE,
+};
+use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, FLOAT_NODE, INTEGER_NODE, INTERPOLATED_X_STRING_NODE, REGULAR_EXPRESSION_NODE, X_STRING_NODE};
 
 pub struct UndescriptiveLiteralsDescription;
 
@@ -20,7 +23,14 @@ impl Cop for UndescriptiveLiteralsDescription {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, FLOAT_NODE, INTEGER_NODE, INTERPOLATED_X_STRING_NODE, REGULAR_EXPRESSION_NODE, X_STRING_NODE]
+        &[
+            CALL_NODE,
+            FLOAT_NODE,
+            INTEGER_NODE,
+            INTERPOLATED_X_STRING_NODE,
+            REGULAR_EXPRESSION_NODE,
+            X_STRING_NODE,
+        ]
     }
 
     fn check_node(
@@ -29,8 +39,8 @@ impl Cop for UndescriptiveLiteralsDescription {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -40,9 +50,7 @@ impl Cop for UndescriptiveLiteralsDescription {
         let method_name = call.name().as_slice();
 
         // Must be an example group or example method
-        if !is_rspec_example_group(method_name)
-            && !is_rspec_example(method_name)
-        {
+        if !is_rspec_example_group(method_name) && !is_rspec_example(method_name) {
             return;
         }
 
@@ -92,5 +100,8 @@ impl Cop for UndescriptiveLiteralsDescription {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(UndescriptiveLiteralsDescription, "cops/rspec/undescriptive_literals_description");
+    crate::cop_fixture_tests!(
+        UndescriptiveLiteralsDescription,
+        "cops/rspec/undescriptive_literals_description"
+    );
 }

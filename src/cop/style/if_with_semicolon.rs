@@ -1,7 +1,7 @@
+use crate::cop::node_type::IF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::IF_NODE;
 
 pub struct IfWithSemicolon;
 
@@ -20,8 +20,8 @@ impl Cop for IfWithSemicolon {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let if_node = match node.as_if_node() {
             Some(n) => n,
@@ -66,7 +66,10 @@ impl Cop for IfWithSemicolon {
                 let between = &source.content[pred_end..body_start];
                 // Only flag if semicolon appears before any newline
                 // (single-line if with semicolon vs multi-line if with comments)
-                between.iter().take_while(|&&b| b != b'\n').any(|&b| b == b';')
+                between
+                    .iter()
+                    .take_while(|&&b| b != b'\n')
+                    .any(|&b| b == b';')
             } else {
                 false
             }
@@ -79,7 +82,8 @@ impl Cop for IfWithSemicolon {
         let loc = if_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
 
-        let cond_src = std::str::from_utf8(if_node.predicate().location().as_slice()).unwrap_or("...");
+        let cond_src =
+            std::str::from_utf8(if_node.predicate().location().as_slice()).unwrap_or("...");
         let kw = std::str::from_utf8(kw_bytes).unwrap_or("if");
 
         diagnostics.push(self.diagnostic(

@@ -1,8 +1,8 @@
+use crate::cop::node_type::BEGIN_NODE;
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::BEGIN_NODE;
 
 pub struct EmptyLinesAroundBeginBody;
 
@@ -25,8 +25,8 @@ impl Cop for EmptyLinesAroundBeginBody {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Only check explicit begin..end blocks (BeginNode in Prism)
         let begin_node = match node.as_begin_node() {

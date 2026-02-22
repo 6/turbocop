@@ -1,7 +1,7 @@
+use crate::cop::node_type::{ASSOC_NODE, IMPLICIT_NODE, SYMBOL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, IMPLICIT_NODE, SYMBOL_NODE};
 
 pub struct SpaceAfterColon;
 
@@ -24,8 +24,8 @@ impl Cop for SpaceAfterColon {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let assoc = match node.as_assoc_node() {
             Some(a) => a,
@@ -57,13 +57,18 @@ impl Cop for SpaceAfterColon {
             _ => {
                 let (line, column) = source.offset_to_line_col(colon_loc.start_offset());
                 let mut diag = self.diagnostic(
-                    source, line, column,
+                    source,
+                    line,
+                    column,
                     "Space missing after colon.".to_string(),
                 );
                 if let Some(ref mut corr) = corrections {
                     corr.push(crate::correction::Correction {
-                        start: after_colon, end: after_colon, replacement: " ".to_string(),
-                        cop_name: self.name(), cop_index: 0,
+                        start: after_colon,
+                        end: after_colon,
+                        replacement: " ".to_string(),
+                        cop_name: self.name(),
+                        cop_index: 0,
                     });
                     diag.corrected = true;
                 }

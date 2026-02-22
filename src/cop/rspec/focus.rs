@@ -1,19 +1,33 @@
-use crate::cop::util::{self, has_rspec_focus_metadata, is_rspec_focused, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::CALL_NODE;
+use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, has_rspec_focus_metadata, is_rspec_focused};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct Focus;
 
 /// All RSpec methods that can have focus metadata or be f-prefixed.
 const RSPEC_FOCUSABLE: &[&str] = &[
-    "describe", "context", "feature", "example_group",
-    "xdescribe", "xcontext", "xfeature",
-    "it", "specify", "example", "scenario",
-    "xit", "xspecify", "xexample", "xscenario",
-    "pending", "skip",
-    "shared_examples", "shared_examples_for", "shared_context",
+    "describe",
+    "context",
+    "feature",
+    "example_group",
+    "xdescribe",
+    "xcontext",
+    "xfeature",
+    "it",
+    "specify",
+    "example",
+    "scenario",
+    "xit",
+    "xspecify",
+    "xexample",
+    "xscenario",
+    "pending",
+    "skip",
+    "shared_examples",
+    "shared_examples_for",
+    "shared_context",
 ];
 
 fn is_focusable_method(name: &[u8]) -> bool {
@@ -44,8 +58,8 @@ impl Cop for Focus {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -100,7 +114,6 @@ impl Cop for Focus {
                 corrected: false,
             });
         }
-
     }
 }
 

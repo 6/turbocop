@@ -1,7 +1,7 @@
+use crate::cop::node_type::DEF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::DEF_NODE;
 
 pub struct ParameterLists;
 
@@ -20,8 +20,8 @@ impl Cop for ParameterLists {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -36,7 +36,6 @@ impl Cop for ParameterLists {
             Some(p) => p,
             None => return,
         };
-
 
         // Check total parameter count
         let mut count = 0usize;
@@ -62,9 +61,7 @@ impl Cop for ParameterLists {
                 source,
                 line,
                 column,
-                format!(
-                    "Avoid parameter lists longer than {max} parameters. [{count}/{max}]"
-                ),
+                format!("Avoid parameter lists longer than {max} parameters. [{count}/{max}]"),
             ));
         }
 
@@ -82,7 +79,6 @@ impl Cop for ParameterLists {
                 ),
             ));
         }
-
     }
 }
 
@@ -93,8 +89,8 @@ mod tests {
 
     #[test]
     fn config_custom_max() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([("Max".into(), serde_yml::Value::Number(2.into()))]),
@@ -103,46 +99,55 @@ mod tests {
         // 3 params exceeds Max:2
         let source = b"def foo(a, b, c)\nend\n";
         let diags = run_cop_full_with_config(&ParameterLists, source, config);
-        assert!(!diags.is_empty(), "Should fire with Max:2 on 3-param method");
+        assert!(
+            !diags.is_empty(),
+            "Should fire with Max:2 on 3-param method"
+        );
         assert!(diags[0].message.contains("[3/2]"));
     }
 
     #[test]
     fn config_max_optional_parameters() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         // 3 optional params with MaxOptionalParameters:2 should fire
         let config = CopConfig {
-            options: HashMap::from([
-                ("MaxOptionalParameters".into(), serde_yml::Value::Number(2.into())),
-            ]),
+            options: HashMap::from([(
+                "MaxOptionalParameters".into(),
+                serde_yml::Value::Number(2.into()),
+            )]),
             ..CopConfig::default()
         };
         let source = b"def foo(a = 1, b = 2, c = 3)\nend\n";
         let diags = run_cop_full_with_config(&ParameterLists, source, config);
         assert!(
-            diags.iter().any(|d| d.message.contains("too many optional parameters")),
+            diags
+                .iter()
+                .any(|d| d.message.contains("too many optional parameters")),
             "Should fire for too many optional parameters"
         );
     }
 
     #[test]
     fn config_max_optional_parameters_ok() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         // 2 optional params with MaxOptionalParameters:3 should not fire
         let config = CopConfig {
-            options: HashMap::from([
-                ("MaxOptionalParameters".into(), serde_yml::Value::Number(3.into())),
-            ]),
+            options: HashMap::from([(
+                "MaxOptionalParameters".into(),
+                serde_yml::Value::Number(3.into()),
+            )]),
             ..CopConfig::default()
         };
         let source = b"def foo(a = 1, b = 2)\nend\n";
         let diags = run_cop_full_with_config(&ParameterLists, source, config);
         assert!(
-            !diags.iter().any(|d| d.message.contains("optional parameters")),
+            !diags
+                .iter()
+                .any(|d| d.message.contains("optional parameters")),
             "Should not fire for optional parameters under limit"
         );
     }

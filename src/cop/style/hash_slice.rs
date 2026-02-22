@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE,
+    REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct HashSlice;
 
@@ -11,7 +14,16 @@ impl Cop for HashSlice {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE]
+        &[
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            CALL_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            REQUIRED_PARAMETER_NODE,
+            STATEMENTS_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +32,8 @@ impl Cop for HashSlice {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -130,7 +142,8 @@ impl Cop for HashSlice {
                     return;
                 }
 
-                let value_src = &source.as_bytes()[value_node.location().start_offset()..value_node.location().end_offset()];
+                let value_src = &source.as_bytes()
+                    [value_node.location().start_offset()..value_node.location().end_offset()];
                 let value_str = String::from_utf8_lossy(value_src);
 
                 let loc = call.message_loc().unwrap_or_else(|| call.location());
@@ -170,7 +183,8 @@ impl Cop for HashSlice {
                     return;
                 }
 
-                let recv_src = &source.as_bytes()[include_recv.location().start_offset()..include_recv.location().end_offset()];
+                let recv_src = &source.as_bytes()
+                    [include_recv.location().start_offset()..include_recv.location().end_offset()];
                 let recv_str = String::from_utf8_lossy(recv_src);
 
                 let loc = call.message_loc().unwrap_or_else(|| call.location());
@@ -183,7 +197,6 @@ impl Cop for HashSlice {
                 ));
             }
         }
-
     }
 }
 

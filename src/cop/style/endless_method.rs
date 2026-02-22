@@ -1,7 +1,7 @@
+use crate::cop::node_type::DEF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::DEF_NODE;
 
 pub struct EndlessMethod;
 
@@ -20,8 +20,8 @@ impl Cop for EndlessMethod {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -31,8 +31,7 @@ impl Cop for EndlessMethod {
         let style = config.get_str("EnforcedStyle", "allow_single_line");
 
         // Check if this is an endless method (has = sign, no end keyword)
-        let is_endless = def_node.end_keyword_loc().is_none()
-            && def_node.equal_loc().is_some();
+        let is_endless = def_node.end_keyword_loc().is_none() && def_node.equal_loc().is_some();
 
         match style {
             "disallow" => {
@@ -87,7 +86,6 @@ impl Cop for EndlessMethod {
             }
             _ => {}
         }
-
     }
 }
 

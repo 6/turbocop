@@ -1,7 +1,7 @@
+use crate::cop::node_type::BEGIN_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::BEGIN_NODE;
 
 pub struct BeginEndAlignment;
 
@@ -24,8 +24,8 @@ impl Cop for BeginEndAlignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyleAlignWith", "start_of_line");
 
@@ -77,7 +77,6 @@ impl Cop for BeginEndAlignment {
                 "`end` at 0, 0 is not aligned with `begin` at 0, 0.".to_string(),
             ));
         }
-
     }
 }
 

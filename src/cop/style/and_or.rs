@@ -1,7 +1,7 @@
+use crate::cop::node_type::{AND_NODE, IF_NODE, OR_NODE, UNLESS_NODE, UNTIL_NODE, WHILE_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{AND_NODE, IF_NODE, OR_NODE, UNLESS_NODE, UNTIL_NODE, WHILE_NODE};
 
 pub struct AndOr;
 
@@ -11,7 +11,14 @@ impl Cop for AndOr {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[AND_NODE, IF_NODE, OR_NODE, UNLESS_NODE, UNTIL_NODE, WHILE_NODE]
+        &[
+            AND_NODE,
+            IF_NODE,
+            OR_NODE,
+            UNLESS_NODE,
+            UNTIL_NODE,
+            WHILE_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +27,8 @@ impl Cop for AndOr {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "conditionals");
 
@@ -50,7 +57,11 @@ impl Cop for AndOr {
 }
 
 /// Check if a single node is an `and`/`or` keyword and report it.
-fn check_and_or_node(cop: &AndOr, source: &SourceFile, node: &ruby_prism::Node<'_>) -> Vec<Diagnostic> {
+fn check_and_or_node(
+    cop: &AndOr,
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+) -> Vec<Diagnostic> {
     if let Some(and_node) = node.as_and_node() {
         let op_loc = and_node.operator_loc();
         if op_loc.as_slice() == b"and" {

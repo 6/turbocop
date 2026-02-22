@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, INTEGER_NODE, STRING_NODE, SYMBOL_NODE};
 use crate::cop::rspec_rails::RSPEC_RAILS_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, INTEGER_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct HttpStatus;
 
@@ -166,8 +166,8 @@ impl Cop for HttpStatus {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "symbolic");
 
@@ -225,9 +225,7 @@ impl HttpStatus {
                         source,
                         line,
                         column,
-                        format!(
-                            "Prefer `:{sym}` over `{code_num}` to describe HTTP status code."
-                        ),
+                        format!("Prefer `:{sym}` over `{code_num}` to describe HTTP status code."),
                     )];
                 }
             }
@@ -259,12 +257,7 @@ impl HttpStatus {
 
             // Non-numeric string -> unknown status code
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
-                source,
-                line,
-                column,
-                "Unknown status code.".to_string(),
-            )];
+            return vec![self.diagnostic(source, line, column, "Unknown status code.".to_string())];
         }
 
         Vec::new()
@@ -291,9 +284,7 @@ impl HttpStatus {
                     source,
                     line,
                     column,
-                    format!(
-                        "Prefer `{code}` over `:{sym_str}` to describe HTTP status code."
-                    ),
+                    format!("Prefer `{code}` over `:{sym_str}` to describe HTTP status code."),
                 )];
             }
             return Vec::new();
@@ -312,9 +303,7 @@ impl HttpStatus {
                     source,
                     line,
                     column,
-                    format!(
-                        "Prefer `{code}` over `{source_text}` to describe HTTP status code."
-                    ),
+                    format!("Prefer `{code}` over `{source_text}` to describe HTTP status code."),
                 )];
             }
 
@@ -325,12 +314,7 @@ impl HttpStatus {
 
             // Non-numeric, non-symbolic string -> unknown
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            return vec![self.diagnostic(
-                source,
-                line,
-                column,
-                "Unknown status code.".to_string(),
-            )];
+            return vec![self.diagnostic(source, line, column, "Unknown status code.".to_string())];
         }
 
         Vec::new()

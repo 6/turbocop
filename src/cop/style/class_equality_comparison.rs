@@ -16,8 +16,8 @@ impl Cop for ClassEqualityComparison {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::cop::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed_methods: Vec<String> = config
             .get_string_array("AllowedMethods")
@@ -81,7 +81,10 @@ impl<'a, 'pr> Visit<'pr> for ClassEqVisitor<'a> {
                     let is_class_name_call = if !is_class_call {
                         let name = recv_call.name().as_slice();
                         if name == b"name" || name == b"to_s" || name == b"inspect" {
-                            recv_call.receiver().and_then(|ir| ir.as_call_node()).map_or(false, |ic| ic.name().as_slice() == b"class")
+                            recv_call
+                                .receiver()
+                                .and_then(|ir| ir.as_call_node())
+                                .map_or(false, |ic| ic.name().as_slice() == b"class")
                         } else {
                             false
                         }
@@ -91,7 +94,9 @@ impl<'a, 'pr> Visit<'pr> for ClassEqVisitor<'a> {
 
                     if is_class_call || is_class_name_call {
                         // Check AllowedPatterns against the source line
-                        let loc = recv_call.message_loc().unwrap_or_else(|| recv_call.location());
+                        let loc = recv_call
+                            .message_loc()
+                            .unwrap_or_else(|| recv_call.location());
                         let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                         if !self.allowed_patterns.is_empty() {
                             if let Some(line_bytes) = self.source.lines().nth(line - 1) {
@@ -121,5 +126,8 @@ impl<'a, 'pr> Visit<'pr> for ClassEqVisitor<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ClassEqualityComparison, "cops/style/class_equality_comparison");
+    crate::cop_fixture_tests!(
+        ClassEqualityComparison,
+        "cops/style/class_equality_comparison"
+    );
 }

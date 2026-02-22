@@ -21,8 +21,8 @@ impl Cop for OutOfRangeRegexpRef {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = RegexpRefVisitor {
             cop: self,
@@ -132,10 +132,21 @@ impl<'pr> Visit<'pr> for RegexpRefVisitor<'_, '_> {
         // partition, rpartition, start_with?, end_with?, []
         let sets_backref = matches!(
             method,
-            b"gsub" | b"gsub!" | b"sub" | b"sub!" | b"scan"
-                | b"slice" | b"slice!" | b"index" | b"rindex"
-                | b"partition" | b"rpartition" | b"start_with?" | b"end_with?"
-                | b"[]" | b"grep"
+            b"gsub"
+                | b"gsub!"
+                | b"sub"
+                | b"sub!"
+                | b"scan"
+                | b"slice"
+                | b"slice!"
+                | b"index"
+                | b"rindex"
+                | b"partition"
+                | b"rpartition"
+                | b"start_with?"
+                | b"end_with?"
+                | b"[]"
+                | b"grep"
         );
 
         if sets_backref {
@@ -193,7 +204,12 @@ impl<'pr> Visit<'pr> for RegexpRefVisitor<'_, '_> {
                         max_captures = max_captures.max(count);
                     }
                 }
-                if max_captures > 0 || when_node.conditions().iter().any(|c| count_captures_in_node(&c).is_some()) {
+                if max_captures > 0
+                    || when_node
+                        .conditions()
+                        .iter()
+                        .any(|c| count_captures_in_node(&c).is_some())
+                {
                     self.current_capture_count = Some(max_captures);
                 }
                 if let Some(body) = when_node.statements() {
@@ -236,18 +252,23 @@ impl<'pr> Visit<'pr> for RegexpRefVisitor<'_, '_> {
                 let loc = node.location();
                 let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                 let message = if max_captures == 0 {
-                    format!("${} is out of range (no regexp capture groups detected).", ref_num)
+                    format!(
+                        "${} is out of range (no regexp capture groups detected).",
+                        ref_num
+                    )
                 } else if max_captures == 1 {
-                    format!("${} is out of range ({} regexp capture group detected).", ref_num, max_captures)
+                    format!(
+                        "${} is out of range ({} regexp capture group detected).",
+                        ref_num, max_captures
+                    )
                 } else {
-                    format!("${} is out of range ({} regexp capture groups detected).", ref_num, max_captures)
+                    format!(
+                        "${} is out of range ({} regexp capture groups detected).",
+                        ref_num, max_captures
+                    )
                 };
-                self.diagnostics.push(self.cop.diagnostic(
-                    self.source,
-                    line,
-                    column,
-                    message,
-                ));
+                self.diagnostics
+                    .push(self.cop.diagnostic(self.source, line, column, message));
             }
         } else {
             // No regexp match seen — any $N reference is out of range
@@ -257,7 +278,10 @@ impl<'pr> Visit<'pr> for RegexpRefVisitor<'_, '_> {
                 self.source,
                 line,
                 column,
-                format!("${} is out of range (no regexp capture groups detected).", ref_num),
+                format!(
+                    "${} is out of range (no regexp capture groups detected).",
+                    ref_num
+                ),
             ));
         }
     }
@@ -352,11 +376,7 @@ fn count_capture_groups(pattern: &str) -> usize {
 
     // If there are named captures, only named captures count for $N references
     // Named captures disable numbered captures in Ruby
-    if named_count > 0 {
-        named_count
-    } else {
-        count
-    }
+    if named_count > 0 { named_count } else { count }
 }
 
 /// Count max captures in a pattern matching expression.

@@ -143,9 +143,7 @@ pub fn run_doctor(
                 } else {
                     ""
                 };
-                println!(
-                    "  {gem} {installed_ver} (baseline: {baseline_ver}){marker}"
-                );
+                println!("  {gem} {installed_ver} (baseline: {baseline_ver}){marker}");
             }
         }
         if any_mismatch {
@@ -169,7 +167,10 @@ pub fn run_doctor(
     } else {
         println!("Skip summary: {} cops skipped", summary.total());
         if !summary.preview_gated.is_empty() {
-            println!("  Preview-gated: {} (requires --preview)", summary.preview_gated.len());
+            println!(
+                "  Preview-gated: {} (requires --preview)",
+                summary.preview_gated.len()
+            );
         }
         if !summary.unimplemented.is_empty() {
             println!(
@@ -188,15 +189,16 @@ pub fn run_doctor(
     // 5. Registry info
     println!();
     println!("Registry: {} cops registered", registry.len());
-    let autocorrectable = registry.cops().iter().filter(|c| c.supports_autocorrect()).count();
+    let autocorrectable = registry
+        .cops()
+        .iter()
+        .filter(|c| c.supports_autocorrect())
+        .count();
     println!("  {} support autocorrect", autocorrectable);
 }
 
 /// Find Gemfile.lock by checking config_dir, target_dir, or current directory.
-fn find_and_read_lockfile(
-    config_dir: Option<&Path>,
-    target_dir: Option<&Path>,
-) -> Option<String> {
+fn find_and_read_lockfile(config_dir: Option<&Path>, target_dir: Option<&Path>) -> Option<String> {
     let candidates: Vec<&Path> = [config_dir, target_dir, Some(Path::new("."))]
         .into_iter()
         .flatten()

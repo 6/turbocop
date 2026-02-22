@@ -1,8 +1,8 @@
-use crate::cop::util::{count_body_lines_full, collect_foldable_ranges};
+use crate::cop::node_type::{CLASS_NODE, MODULE_NODE, STATEMENTS_NODE};
+use crate::cop::util::{collect_foldable_ranges, count_body_lines_full};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CLASS_NODE, MODULE_NODE, STATEMENTS_NODE};
 
 pub struct ClassLength;
 
@@ -47,8 +47,8 @@ impl Cop for ClassLength {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let class_node = match node.as_class_node() {
             Some(c) => c,
@@ -79,8 +79,12 @@ impl Cop for ClassLength {
         }
 
         let count = count_body_lines_full(
-            source, start_offset, end_offset, count_comments,
-            &foldable_ranges, &inner_ranges,
+            source,
+            start_offset,
+            end_offset,
+            count_comments,
+            &foldable_ranges,
+            &inner_ranges,
         );
 
         if count > max {
@@ -92,7 +96,6 @@ impl Cop for ClassLength {
                 format!("Class has too many lines. [{count}/{max}]"),
             ));
         }
-
     }
 }
 
@@ -103,8 +106,8 @@ mod tests {
 
     #[test]
     fn config_custom_max() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([("Max".into(), serde_yml::Value::Number(3.into()))]),
@@ -119,22 +122,26 @@ mod tests {
 
     #[test]
     fn config_count_as_one_hash() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         // With CountAsOne: ["hash"], a multiline hash counts as 1 line
         let config = CopConfig {
             options: HashMap::from([
                 ("Max".into(), serde_yml::Value::Number(3.into())),
-                ("CountAsOne".into(), serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("hash".into()),
-                ])),
+                (
+                    "CountAsOne".into(),
+                    serde_yml::Value::Sequence(vec![serde_yml::Value::String("hash".into())]),
+                ),
             ]),
             ..CopConfig::default()
         };
         // Body: a, b, { k: v, \n k2: v2 \n } = 2 + 1 folded = 3 lines
         let source = b"class Foo\n  a = 1\n  b = 2\n  HASH = {\n    k: 1,\n    k2: 2\n  }\nend\n";
         let diags = run_cop_full_with_config(&ClassLength, source, config);
-        assert!(diags.is_empty(), "Should not fire when hash is folded (3/3)");
+        assert!(
+            diags.is_empty(),
+            "Should not fire when hash is folded (3/3)"
+        );
     }
 }

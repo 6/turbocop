@@ -1,16 +1,28 @@
+use crate::cop::node_type::{CALL_NODE, FLOAT_NODE, INTEGER_NODE};
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, FLOAT_NODE, INTEGER_NODE};
 
 pub struct DurationArithmetic;
 
 const DURATION_METHODS: &[&[u8]] = &[
-    b"second", b"seconds", b"minute", b"minutes",
-    b"hour", b"hours", b"day", b"days",
-    b"week", b"weeks", b"fortnight", b"fortnights",
-    b"month", b"months", b"year", b"years",
+    b"second",
+    b"seconds",
+    b"minute",
+    b"minutes",
+    b"hour",
+    b"hours",
+    b"day",
+    b"days",
+    b"week",
+    b"weeks",
+    b"fortnight",
+    b"fortnights",
+    b"month",
+    b"months",
+    b"year",
+    b"years",
 ];
 
 /// Check if a node matches Time.current or Time.zone.now (or ::Time variants).
@@ -89,8 +101,8 @@ impl Cop for DurationArithmetic {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,

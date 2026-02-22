@@ -34,8 +34,8 @@ impl Cop for MissingSuper {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed_parent_classes: Vec<Vec<u8>> = config
             .get_string_array("AllowedParentClasses")
@@ -158,8 +158,7 @@ impl<'pr> Visit<'pr> for MissingSuperVisitor<'_, '_> {
     fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
         let ctx = if let Some(superclass) = node.superclass() {
             let loc = superclass.location();
-            let parent_name =
-                self.source.as_bytes()[loc.start_offset()..loc.end_offset()].to_vec();
+            let parent_name = self.source.as_bytes()[loc.start_offset()..loc.end_offset()].to_vec();
             ClassContext::ClassWithParent(parent_name)
         } else {
             ClassContext::ClassWithoutParent
@@ -200,9 +199,9 @@ impl<'pr> Visit<'pr> for MissingSuperVisitor<'_, '_> {
                                 if !arg_list.is_empty() {
                                     let first = &arg_list[0];
                                     let loc = first.location();
-                                    let parent =
-                                        self.source.as_bytes()[loc.start_offset()..loc.end_offset()]
-                                            .to_vec();
+                                    let parent = self.source.as_bytes()
+                                        [loc.start_offset()..loc.end_offset()]
+                                        .to_vec();
                                     ClassContext::ClassNewWithParent(parent)
                                 } else {
                                     ClassContext::ClassNewWithoutParent
@@ -227,9 +226,7 @@ impl<'pr> Visit<'pr> for MissingSuperVisitor<'_, '_> {
 
         if method_name == b"initialize" {
             // Check if inside a class with a stateful parent
-            if self.is_inside_class_with_stateful_parent()
-                && !Self::def_contains_super(node)
-            {
+            if self.is_inside_class_with_stateful_parent() && !Self::def_contains_super(node) {
                 let loc = node.location();
                 let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                 self.diagnostics.push(self.cop.diagnostic(

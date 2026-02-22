@@ -15,8 +15,8 @@ impl Cop for RequireOrder {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let lines: Vec<&[u8]> = source.lines().collect();
 
@@ -86,7 +86,6 @@ impl Cop for RequireOrder {
                 }
             }
         }
-
     }
 }
 

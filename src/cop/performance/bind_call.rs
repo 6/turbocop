@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct BindCall;
 
@@ -24,8 +24,8 @@ impl Cop for BindCall {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Detect: receiver.bind(obj).call(args...)
         // Pattern: (send (send _ :bind $arg) :call $...)
@@ -68,15 +68,23 @@ impl Cop for BindCall {
         }
         let bytes = source.as_bytes();
         let bind_arg_src = std::str::from_utf8(
-            &bytes[bind_arg_list[0].location().start_offset()..bind_arg_list[0].location().end_offset()]
-        ).unwrap_or("obj");
+            &bytes[bind_arg_list[0].location().start_offset()
+                ..bind_arg_list[0].location().end_offset()],
+        )
+        .unwrap_or("obj");
 
         // Extract call arguments source
         let call_args_src = if let Some(call_args) = outer_call.arguments() {
-            let args: Vec<_> = call_args.arguments().iter().map(|a| {
-                std::str::from_utf8(&bytes[a.location().start_offset()..a.location().end_offset()])
+            let args: Vec<_> = call_args
+                .arguments()
+                .iter()
+                .map(|a| {
+                    std::str::from_utf8(
+                        &bytes[a.location().start_offset()..a.location().end_offset()],
+                    )
                     .unwrap_or("?")
-            }).collect();
+                })
+                .collect();
             args.join(", ")
         } else {
             String::new()

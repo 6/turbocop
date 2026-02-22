@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, NIL_NODE, STRING_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, NIL_NODE, STRING_NODE};
 
 pub struct EnvHome;
 
@@ -11,7 +13,13 @@ impl Cop for EnvHome {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, NIL_NODE, STRING_NODE]
+        &[
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            NIL_NODE,
+            STRING_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +28,8 @@ impl Cop for EnvHome {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -46,8 +54,7 @@ impl Cop for EnvHome {
             .as_constant_read_node()
             .is_some_and(|c| c.name().as_slice() == b"ENV")
             || receiver.as_constant_path_node().is_some_and(|cp| {
-                cp.parent().is_none()
-                    && cp.name().is_some_and(|n| n.as_slice() == b"ENV")
+                cp.parent().is_none() && cp.name().is_some_and(|n| n.as_slice() == b"ENV")
             });
 
         if !is_env {
@@ -66,9 +73,9 @@ impl Cop for EnvHome {
         }
 
         let first_arg = &arg_list[0];
-        let is_home = first_arg.as_string_node().is_some_and(|s| {
-            s.unescaped() == b"HOME"
-        });
+        let is_home = first_arg
+            .as_string_node()
+            .is_some_and(|s| s.unescaped() == b"HOME");
 
         if !is_home {
             return;

@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, DEF_NODE, SYMBOL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, DEF_NODE, SYMBOL_NODE};
 
 pub struct PredicatePrefix;
 
@@ -74,8 +74,8 @@ impl Cop for PredicatePrefix {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Handle regular def nodes
         if let Some(def_node) = node.as_def_node() {
@@ -84,19 +84,19 @@ impl Cop for PredicatePrefix {
                 Ok(s) => s,
                 Err(_) => return,
             };
-            diagnostics.extend(self.check_method_name(source, name_str, def_node.name_loc().start_offset(), config));
+            diagnostics.extend(self.check_method_name(
+                source,
+                name_str,
+                def_node.name_loc().start_offset(),
+                config,
+            ));
         }
 
         // Handle MethodDefinitionMacros (e.g. define_method(:is_even))
         if let Some(call_node) = node.as_call_node() {
             let macros = config
                 .get_string_array("MethodDefinitionMacros")
-                .unwrap_or_else(|| {
-                    vec![
-                        "define_method".into(),
-                        "define_singleton_method".into(),
-                    ]
-                });
+                .unwrap_or_else(|| vec!["define_method".into(), "define_singleton_method".into()]);
 
             let call_name = call_node.name().as_slice();
             let call_name_str = match std::str::from_utf8(call_name) {
@@ -132,7 +132,6 @@ impl Cop for PredicatePrefix {
                 return;
             }
         }
-
     }
 }
 

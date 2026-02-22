@@ -22,8 +22,8 @@ impl Cop for DuplicateRequire {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = RequireVisitor {
             cop: self,
@@ -65,8 +65,7 @@ impl RequireVisitor<'_, '_> {
                         let loc = node.location();
                         let current_scope = self.scope_stack.last_mut().unwrap();
                         if current_scope.contains(&key) {
-                            let (line, column) =
-                                self.source.offset_to_line_col(loc.start_offset());
+                            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                             self.diagnostics.push(self.cop.diagnostic(
                                 self.source,
                                 line,

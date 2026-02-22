@@ -1,7 +1,11 @@
+use crate::cop::node_type::{
+    ARRAY_NODE, BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE,
+    FLOAT_NODE, HASH_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, REGULAR_EXPRESSION_NODE, SELF_NODE,
+    STRING_NODE, SYMBOL_NODE, TRUE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ARRAY_NODE, BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE, FLOAT_NODE, HASH_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, REGULAR_EXPRESSION_NODE, SELF_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE};
 
 pub struct RedundantSafeNavigation;
 
@@ -28,7 +32,23 @@ impl Cop for RedundantSafeNavigation {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ARRAY_NODE, BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE, FLOAT_NODE, HASH_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, REGULAR_EXPRESSION_NODE, SELF_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE]
+        &[
+            ARRAY_NODE,
+            BLOCK_NODE,
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            FALSE_NODE,
+            FLOAT_NODE,
+            HASH_NODE,
+            INTEGER_NODE,
+            KEYWORD_HASH_NODE,
+            REGULAR_EXPRESSION_NODE,
+            SELF_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+            TRUE_NODE,
+        ]
     }
 
     fn check_node(
@@ -37,8 +57,8 @@ impl Cop for RedundantSafeNavigation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -114,7 +134,6 @@ impl Cop for RedundantSafeNavigation {
         // Note: We'd need parent context to check if the call is in a condition.
         // For now, we only handle the simpler cases above.
         let _ = is_allowed;
-
     }
 }
 
@@ -168,7 +187,10 @@ fn is_guaranteed_instance_receiver(node: &ruby_prism::Node<'_>) -> bool {
         // Check if this block's source contains a guaranteed method with regular dot
         for method in GUARANTEED_INSTANCE_METHODS {
             let dot_method = [b"." as &[u8], *method].concat();
-            if src.windows(dot_method.len()).any(|w| w == dot_method.as_slice()) {
+            if src
+                .windows(dot_method.len())
+                .any(|w| w == dot_method.as_slice())
+            {
                 // Make sure it doesn't use &.
                 let safe_method = [b"&." as &[u8], *method].concat();
                 if !src
@@ -188,5 +210,8 @@ fn is_guaranteed_instance_receiver(node: &ruby_prism::Node<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(RedundantSafeNavigation, "cops/lint/redundant_safe_navigation");
+    crate::cop_fixture_tests!(
+        RedundantSafeNavigation,
+        "cops/lint/redundant_safe_navigation"
+    );
 }

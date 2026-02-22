@@ -9,16 +9,47 @@ pub struct SafeNavigation;
 /// Converting `foo && foo.bar.is_a?(X)` to `foo&.bar&.is_a?(X)` changes behavior
 /// because nil already responds to these methods.
 const NIL_METHODS: &[&[u8]] = &[
-    b"nil?", b"is_a?", b"kind_of?", b"instance_of?", b"respond_to?",
-    b"eql?", b"equal?", b"frozen?", b"class", b"clone", b"dup",
-    b"freeze", b"hash", b"inspect", b"to_s", b"to_a", b"to_f",
-    b"to_i", b"to_r", b"to_c", b"object_id", b"send", b"__send__",
-    b"__id__", b"public_send", b"tap", b"then", b"yield_self",
-    b"itself", b"display", b"method", b"public_method",
-    b"singleton_method", b"define_singleton_method",
-    b"extend", b"pp", b"respond_to_missing?",
-    b"instance_variable_get", b"instance_variable_set",
-    b"instance_variable_defined?", b"instance_variables",
+    b"nil?",
+    b"is_a?",
+    b"kind_of?",
+    b"instance_of?",
+    b"respond_to?",
+    b"eql?",
+    b"equal?",
+    b"frozen?",
+    b"class",
+    b"clone",
+    b"dup",
+    b"freeze",
+    b"hash",
+    b"inspect",
+    b"to_s",
+    b"to_a",
+    b"to_f",
+    b"to_i",
+    b"to_r",
+    b"to_c",
+    b"object_id",
+    b"send",
+    b"__send__",
+    b"__id__",
+    b"public_send",
+    b"tap",
+    b"then",
+    b"yield_self",
+    b"itself",
+    b"display",
+    b"method",
+    b"public_method",
+    b"singleton_method",
+    b"define_singleton_method",
+    b"extend",
+    b"pp",
+    b"respond_to_missing?",
+    b"instance_variable_get",
+    b"instance_variable_set",
+    b"instance_variable_defined?",
+    b"instance_variables",
     b"remove_instance_variable",
 ];
 
@@ -28,23 +59,38 @@ impl SafeNavigation {
     /// - instance/class/global variable reads
     /// - bare method calls (no receiver, no args) which look like variable reads
     fn same_identifier(a: &ruby_prism::Node<'_>, b: &ruby_prism::Node<'_>) -> bool {
-        if let (Some(la), Some(lb)) = (a.as_local_variable_read_node(), b.as_local_variable_read_node()) {
+        if let (Some(la), Some(lb)) = (
+            a.as_local_variable_read_node(),
+            b.as_local_variable_read_node(),
+        ) {
             return la.name().as_slice() == lb.name().as_slice();
         }
-        if let (Some(ia), Some(ib)) = (a.as_instance_variable_read_node(), b.as_instance_variable_read_node()) {
+        if let (Some(ia), Some(ib)) = (
+            a.as_instance_variable_read_node(),
+            b.as_instance_variable_read_node(),
+        ) {
             return ia.name().as_slice() == ib.name().as_slice();
         }
-        if let (Some(ca), Some(cb)) = (a.as_class_variable_read_node(), b.as_class_variable_read_node()) {
+        if let (Some(ca), Some(cb)) = (
+            a.as_class_variable_read_node(),
+            b.as_class_variable_read_node(),
+        ) {
             return ca.name().as_slice() == cb.name().as_slice();
         }
-        if let (Some(ga), Some(gb)) = (a.as_global_variable_read_node(), b.as_global_variable_read_node()) {
+        if let (Some(ga), Some(gb)) = (
+            a.as_global_variable_read_node(),
+            b.as_global_variable_read_node(),
+        ) {
             return ga.name().as_slice() == gb.name().as_slice();
         }
         // Both are bare method calls (no receiver, no args) with the same name
         if let (Some(ca), Some(cb)) = (a.as_call_node(), b.as_call_node()) {
-            if ca.receiver().is_none() && cb.receiver().is_none()
-                && ca.arguments().is_none() && cb.arguments().is_none()
-                && ca.block().is_none() && cb.block().is_none()
+            if ca.receiver().is_none()
+                && cb.receiver().is_none()
+                && ca.arguments().is_none()
+                && cb.arguments().is_none()
+                && ca.block().is_none()
+                && cb.block().is_none()
             {
                 return ca.name().as_slice() == cb.name().as_slice();
             }
@@ -52,14 +98,16 @@ impl SafeNavigation {
         // One is a local variable read and the other is a bare method call with same name
         if let Some(lv) = a.as_local_variable_read_node() {
             if let Some(call) = b.as_call_node() {
-                if call.receiver().is_none() && call.arguments().is_none() && call.block().is_none() {
+                if call.receiver().is_none() && call.arguments().is_none() && call.block().is_none()
+                {
                     return lv.name().as_slice() == call.name().as_slice();
                 }
             }
         }
         if let Some(lv) = b.as_local_variable_read_node() {
             if let Some(call) = a.as_call_node() {
-                if call.receiver().is_none() && call.arguments().is_none() && call.block().is_none() {
+                if call.receiver().is_none() && call.arguments().is_none() && call.block().is_none()
+                {
                     return lv.name().as_slice() == call.name().as_slice();
                 }
             }
@@ -90,7 +138,10 @@ impl SafeNavigation {
 
     /// Check if the innermost receiver of a call chain matches a variable.
     /// Returns the chain depth if matched.
-    fn matches_receiver_chain(node: &ruby_prism::Node<'_>, lhs: &ruby_prism::Node<'_>) -> Option<usize> {
+    fn matches_receiver_chain(
+        node: &ruby_prism::Node<'_>,
+        lhs: &ruby_prism::Node<'_>,
+    ) -> Option<usize> {
         if let Some(call) = node.as_call_node() {
             if let Some(recv) = call.receiver() {
                 if Self::same_identifier(&recv, lhs) {
@@ -119,10 +170,27 @@ impl SafeNavigation {
         // Binary/unary operator methods (called without dot)
         matches!(
             name,
-            b"+" | b"-" | b"*" | b"/" | b"%" | b"**"
-                | b"==" | b"!=" | b"<" | b">" | b"<=" | b">="
-                | b"<=>" | b"<<" | b">>" | b"&" | b"|" | b"^"
-                | b"~" | b"!" | b"+@" | b"-@"
+            b"+" | b"-"
+                | b"*"
+                | b"/"
+                | b"%"
+                | b"**"
+                | b"=="
+                | b"!="
+                | b"<"
+                | b">"
+                | b"<="
+                | b">="
+                | b"<=>"
+                | b"<<"
+                | b">>"
+                | b"&"
+                | b"|"
+                | b"^"
+                | b"~"
+                | b"!"
+                | b"+@"
+                | b"-@"
         )
     }
 
@@ -166,7 +234,10 @@ impl SafeNavigation {
     /// 1. Methods that nil responds to (is_a?, respond_to?, etc.)
     /// 2. Methods in the AllowedMethods config
     /// 3. Inherently unsafe methods (empty?, assignment methods)
-    fn has_unsafe_method_in_chain(node: &ruby_prism::Node<'_>, allowed_methods: &Option<Vec<String>>) -> bool {
+    fn has_unsafe_method_in_chain(
+        node: &ruby_prism::Node<'_>,
+        allowed_methods: &Option<Vec<String>>,
+    ) -> bool {
         if let Some(call) = node.as_call_node() {
             let name_bytes = call.name().as_slice();
 
@@ -200,7 +271,9 @@ impl SafeNavigation {
     }
 
     /// Get the single statement from a StatementsNode, if exactly one.
-    fn single_stmt_from_stmts<'a>(stmts: &ruby_prism::StatementsNode<'a>) -> Option<ruby_prism::Node<'a>> {
+    fn single_stmt_from_stmts<'a>(
+        stmts: &ruby_prism::StatementsNode<'a>,
+    ) -> Option<ruby_prism::Node<'a>> {
         let body: Vec<_> = stmts.body().iter().collect();
         if body.len() == 1 {
             Some(body.into_iter().next().unwrap())
@@ -226,12 +299,13 @@ impl Cop for SafeNavigation {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::cop::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let max_chain_length = config.get_usize("MaxChainLength", 2);
         let _convert_nil = config.get_bool("ConvertCodeThatCanStartToReturnNil", false);
-        let allowed_methods = config.get_string_array("AllowedMethods")
+        let allowed_methods = config
+            .get_string_array("AllowedMethods")
             .or_else(|| Some(vec!["present?".to_string(), "blank?".to_string()]));
 
         let mut visitor = SafeNavVisitor {
@@ -275,9 +349,21 @@ impl<'a> SafeNavVisitor<'a> {
             // Binary/unary operator methods
             if matches!(
                 name,
-                b"+" | b"-" | b"*" | b"/" | b"%" | b"**"
-                    | b"<" | b">" | b"<=" | b">="
-                    | b"<=>" | b"<<" | b">>" | b"&" | b"|" | b"^"
+                b"+" | b"-"
+                    | b"*"
+                    | b"/"
+                    | b"%"
+                    | b"**"
+                    | b"<"
+                    | b">"
+                    | b"<="
+                    | b">="
+                    | b"<=>"
+                    | b"<<"
+                    | b">>"
+                    | b"&"
+                    | b"|"
+                    | b"^"
             ) {
                 return true;
             }
@@ -389,7 +475,13 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
 
         // Check if it's a ternary (no `if` keyword location in Prism)
         if if_node.if_keyword_loc().is_none() {
-            let diags = self.cop.check_ternary(self.source, &node_loc, if_node, self.max_chain_length, &self.allowed_methods);
+            let diags = self.cop.check_ternary(
+                self.source,
+                &node_loc,
+                if_node,
+                self.max_chain_length,
+                &self.allowed_methods,
+            );
             self.diagnostics.extend(diags);
             ruby_prism::visit_if_node(self, node);
             return;
@@ -417,7 +509,14 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
             return;
         }
 
-        let diags = self.cop.check_modifier_if(self.source, &node_loc, if_node, is_unless, self.max_chain_length, &self.allowed_methods);
+        let diags = self.cop.check_modifier_if(
+            self.source,
+            &node_loc,
+            if_node,
+            is_unless,
+            self.max_chain_length,
+            &self.allowed_methods,
+        );
         self.diagnostics.extend(diags);
 
         ruby_prism::visit_if_node(self, node);
@@ -466,7 +565,8 @@ impl<'a, 'pr> Visit<'pr> for SafeNavVisitor<'a> {
         let checked_src: Option<&[u8]> = if let Some(call) = condition.as_call_node() {
             let name = call.name().as_slice();
             if name == b"nil?" {
-                call.receiver().map(|r| &bytes[r.location().start_offset()..r.location().end_offset()])
+                call.receiver()
+                    .map(|r| &bytes[r.location().start_offset()..r.location().end_offset()])
             } else {
                 None
             }
@@ -555,7 +655,8 @@ impl SafeNavigation {
                 if let Some(recv) = call.receiver() {
                     let range = (recv.location().start_offset(), recv.location().end_offset());
                     // if_branch must be nil
-                    let if_is_nil = if_node.statements()
+                    let if_is_nil = if_node
+                        .statements()
                         .and_then(|s| Self::single_stmt_from_stmts(&s))
                         .map_or(true, |n| Self::is_nil(&n));
                     if !if_is_nil {
@@ -572,7 +673,10 @@ impl SafeNavigation {
                         if inner_call.name().as_slice() == b"nil?" {
                             // !foo.nil? ? foo.bar : nil
                             if let Some(inner_recv) = inner_call.receiver() {
-                                let range = (inner_recv.location().start_offset(), inner_recv.location().end_offset());
+                                let range = (
+                                    inner_recv.location().start_offset(),
+                                    inner_recv.location().end_offset(),
+                                );
                                 // else_branch must be nil
                                 let else_is_nil = self.else_branch_is_nil(if_node);
                                 if !else_is_nil {
@@ -584,8 +688,10 @@ impl SafeNavigation {
                             }
                         } else {
                             // !foo ? nil : foo.bar
-                            let range = (recv.location().start_offset(), recv.location().end_offset());
-                            let if_is_nil = if_node.statements()
+                            let range =
+                                (recv.location().start_offset(), recv.location().end_offset());
+                            let if_is_nil = if_node
+                                .statements()
                                 .and_then(|s| Self::single_stmt_from_stmts(&s))
                                 .map_or(true, |n| Self::is_nil(&n));
                             if !if_is_nil {
@@ -596,7 +702,8 @@ impl SafeNavigation {
                     } else {
                         // !foo ? nil : foo.bar
                         let range = (recv.location().start_offset(), recv.location().end_offset());
-                        let if_is_nil = if_node.statements()
+                        let if_is_nil = if_node
+                            .statements()
                             .and_then(|s| Self::single_stmt_from_stmts(&s))
                             .map_or(true, |n| Self::is_nil(&n));
                         if !if_is_nil {
@@ -609,7 +716,10 @@ impl SafeNavigation {
                 }
             } else {
                 // foo ? foo.bar : nil => plain variable/expression check
-                let range = (condition.location().start_offset(), condition.location().end_offset());
+                let range = (
+                    condition.location().start_offset(),
+                    condition.location().end_offset(),
+                );
                 // else_branch must be nil
                 let else_is_nil = self.else_branch_is_nil(if_node);
                 if !else_is_nil {
@@ -619,7 +729,10 @@ impl SafeNavigation {
             }
         } else {
             // Non-call condition: foo ? foo.bar : nil
-            let range = (condition.location().start_offset(), condition.location().end_offset());
+            let range = (
+                condition.location().start_offset(),
+                condition.location().end_offset(),
+            );
             let else_is_nil = self.else_branch_is_nil(if_node);
             if !else_is_nil {
                 return Vec::new();
@@ -638,13 +751,19 @@ impl SafeNavigation {
                 Some(e) => e,
                 None => return Vec::new(),
             };
-            match else_node.statements().and_then(|s| Self::single_stmt_from_stmts(&s)) {
+            match else_node
+                .statements()
+                .and_then(|s| Self::single_stmt_from_stmts(&s))
+            {
                 Some(n) => n,
                 None => return Vec::new(),
             }
         } else {
             // Body is in if branch
-            match if_node.statements().and_then(|s| Self::single_stmt_from_stmts(&s)) {
+            match if_node
+                .statements()
+                .and_then(|s| Self::single_stmt_from_stmts(&s))
+            {
                 Some(n) => n,
                 None => return Vec::new(),
             }
@@ -712,7 +831,12 @@ impl SafeNavigation {
         }
     }
 
-    fn find_receiver_by_bytes(&self, node: &ruby_prism::Node<'_>, checked_src: &[u8], bytes: &[u8]) -> bool {
+    fn find_receiver_by_bytes(
+        &self,
+        node: &ruby_prism::Node<'_>,
+        checked_src: &[u8],
+        bytes: &[u8],
+    ) -> bool {
         if let Some(call) = node.as_call_node() {
             if let Some(recv) = call.receiver() {
                 let recv_src = &bytes[recv.location().start_offset()..recv.location().end_offset()];
@@ -725,7 +849,12 @@ impl SafeNavigation {
         false
     }
 
-    fn chain_length_by_bytes(&self, node: &ruby_prism::Node<'_>, checked_src: &[u8], bytes: &[u8]) -> usize {
+    fn chain_length_by_bytes(
+        &self,
+        node: &ruby_prism::Node<'_>,
+        checked_src: &[u8],
+        bytes: &[u8],
+    ) -> usize {
         if let Some(call) = node.as_call_node() {
             if let Some(recv) = call.receiver() {
                 let recv_src = &bytes[recv.location().start_offset()..recv.location().end_offset()];
@@ -738,7 +867,12 @@ impl SafeNavigation {
         0
     }
 
-    fn call_on_receiver_is_dotless_by_bytes(&self, node: &ruby_prism::Node<'_>, checked_src: &[u8], bytes: &[u8]) -> bool {
+    fn call_on_receiver_is_dotless_by_bytes(
+        &self,
+        node: &ruby_prism::Node<'_>,
+        checked_src: &[u8],
+        bytes: &[u8],
+    ) -> bool {
         if let Some(call) = node.as_call_node() {
             if let Some(recv) = call.receiver() {
                 let recv_src = &bytes[recv.location().start_offset()..recv.location().end_offset()];
@@ -780,7 +914,8 @@ impl SafeNavigation {
             if name == b"nil?" {
                 // unless foo.nil? => check foo
                 if is_unless {
-                    call.receiver().map(|r| &bytes[r.location().start_offset()..r.location().end_offset()])
+                    call.receiver()
+                        .map(|r| &bytes[r.location().start_offset()..r.location().end_offset()])
                 } else {
                     return Vec::new();
                 }
@@ -789,7 +924,9 @@ impl SafeNavigation {
                 call.receiver().and_then(|r| {
                     if let Some(inner) = r.as_call_node() {
                         if inner.name().as_slice() == b"nil?" {
-                            inner.receiver().map(|ir| &bytes[ir.location().start_offset()..ir.location().end_offset()])
+                            inner.receiver().map(|ir| {
+                                &bytes[ir.location().start_offset()..ir.location().end_offset()]
+                            })
                         } else {
                             Some(&bytes[r.location().start_offset()..r.location().end_offset()])
                         }
@@ -800,7 +937,10 @@ impl SafeNavigation {
             } else {
                 // foo.bar if foo
                 if !is_unless {
-                    Some(&bytes[condition.location().start_offset()..condition.location().end_offset()])
+                    Some(
+                        &bytes[condition.location().start_offset()
+                            ..condition.location().end_offset()],
+                    )
                 } else {
                     return Vec::new();
                 }

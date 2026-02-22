@@ -20,7 +20,11 @@ impl Formatter for TextFormatter {
         let file_word = if file_count == 1 { "file" } else { "files" };
         let corrected_count = diagnostics.iter().filter(|d| d.corrected).count();
         if corrected_count > 0 {
-            let corrected_word = if corrected_count == 1 { "offense" } else { "offenses" };
+            let corrected_word = if corrected_count == 1 {
+                "offense"
+            } else {
+                "offenses"
+            };
             let _ = writeln!(
                 out,
                 "\n{file_count} {file_word} inspected, {} {offense_word} detected, {corrected_count} {corrected_word} corrected",
@@ -41,7 +45,14 @@ mod tests {
     use super::*;
     use crate::diagnostic::{Location, Severity};
 
-    fn make_diag(path: &str, line: usize, col: usize, sev: Severity, cop: &str, msg: &str) -> Diagnostic {
+    fn make_diag(
+        path: &str,
+        line: usize,
+        col: usize,
+        sev: Severity,
+        cop: &str,
+        msg: &str,
+    ) -> Diagnostic {
         Diagnostic {
             path: path.to_string(),
             location: Location { line, column: col },
@@ -67,7 +78,14 @@ mod tests {
 
     #[test]
     fn single_offense() {
-        let d = make_diag("foo.rb", 3, 5, Severity::Convention, "Style/Foo", "bad style");
+        let d = make_diag(
+            "foo.rb",
+            3,
+            5,
+            Severity::Convention,
+            "Style/Foo",
+            "bad style",
+        );
         let out = render(&[d], &[PathBuf::from("foo.rb")]);
         assert!(out.contains("foo.rb:3:5: C: Style/Foo: bad style"));
         assert!(out.contains("1 file inspected, 1 offense detected"));
@@ -87,7 +105,10 @@ mod tests {
         let mut d = make_diag("foo.rb", 1, 5, Severity::Convention, "Style/Foo", "bad");
         d.corrected = true;
         let out = render(&[d], &[PathBuf::from("foo.rb")]);
-        assert!(out.contains("[Corrected] foo.rb:1:5:"), "Expected [Corrected] prefix, got: {out}");
+        assert!(
+            out.contains("[Corrected] foo.rb:1:5:"),
+            "Expected [Corrected] prefix, got: {out}"
+        );
     }
 
     #[test]

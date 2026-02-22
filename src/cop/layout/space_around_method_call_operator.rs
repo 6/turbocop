@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE};
 
 pub struct SpaceAroundMethodCallOperator;
 
@@ -20,10 +20,9 @@ impl Cop for SpaceAroundMethodCallOperator {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-
         // Handle CallNode (method calls with . or &.)
         if let Some(call) = node.as_call_node() {
             if let Some(dot_loc) = call.call_operator_loc() {
@@ -42,13 +41,15 @@ impl Cop for SpaceAroundMethodCallOperator {
                                 let (dot_start_line, _) = source.offset_to_line_col(dot_start);
                                 if recv_end_line == dot_start_line {
                                     let (line, col) = source.offset_to_line_col(recv_end);
-                                    diagnostics.push(self.diagnostic(
-                                        source,
-                                        line,
-                                        col,
-                                        "Avoid using spaces around a method call operator."
-                                            .to_string(),
-                                    ));
+                                    diagnostics.push(
+                                        self.diagnostic(
+                                            source,
+                                            line,
+                                            col,
+                                            "Avoid using spaces around a method call operator."
+                                                .to_string(),
+                                        ),
+                                    );
                                 }
                             }
                         }
@@ -65,13 +66,15 @@ impl Cop for SpaceAroundMethodCallOperator {
                                 let (msg_start_line, _) = source.offset_to_line_col(msg_start);
                                 if dot_end_line == msg_start_line {
                                     let (line, col) = source.offset_to_line_col(dot_end);
-                                    diagnostics.push(self.diagnostic(
-                                        source,
-                                        line,
-                                        col,
-                                        "Avoid using spaces around a method call operator."
-                                            .to_string(),
-                                    ));
+                                    diagnostics.push(
+                                        self.diagnostic(
+                                            source,
+                                            line,
+                                            col,
+                                            "Avoid using spaces around a method call operator."
+                                                .to_string(),
+                                        ),
+                                    );
                                 }
                             }
                         }
@@ -106,7 +109,6 @@ impl Cop for SpaceAroundMethodCallOperator {
                 }
             }
         }
-
     }
 }
 

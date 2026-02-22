@@ -21,7 +21,5 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(cyclomatic_complexity::CyclomaticComplexity));
     registry.register(Box::new(perceived_complexity::PerceivedComplexity));
     registry.register(Box::new(block_nesting::BlockNesting));
-    registry.register(Box::new(
-        collection_literal_length::CollectionLiteralLength,
-    ));
+    registry.register(Box::new(collection_literal_length::CollectionLiteralLength));
 }

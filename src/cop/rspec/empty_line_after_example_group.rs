@@ -1,8 +1,8 @@
-use crate::cop::util::{is_blank_line, is_rspec_example_group, line_at, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::CALL_NODE;
+use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_blank_line, is_rspec_example_group, line_at};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct EmptyLineAfterExampleGroup;
 
@@ -29,8 +29,8 @@ impl Cop for EmptyLineAfterExampleGroup {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -75,7 +75,9 @@ impl Cop for EmptyLineAfterExampleGroup {
                             check_line += 1;
                             continue;
                         }
-                        if rest.starts_with(b"end") && (rest.len() == 3 || !rest[3].is_ascii_alphanumeric()) {
+                        if rest.starts_with(b"end")
+                            && (rest.len() == 3 || !rest[3].is_ascii_alphanumeric())
+                        {
                             return; // Next meaningful line is `end` — OK
                         }
                         // Control flow keywords that are part of the enclosing
@@ -118,12 +120,14 @@ impl Cop for EmptyLineAfterExampleGroup {
 fn starts_with_keyword(rest: &[u8], keyword: &[u8]) -> bool {
     rest.starts_with(keyword)
         && (rest.len() == keyword.len()
-            || (!rest[keyword.len()].is_ascii_alphanumeric()
-                && rest[keyword.len()] != b'_'))
+            || (!rest[keyword.len()].is_ascii_alphanumeric() && rest[keyword.len()] != b'_'))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(EmptyLineAfterExampleGroup, "cops/rspec/empty_line_after_example_group");
+    crate::cop_fixture_tests!(
+        EmptyLineAfterExampleGroup,
+        "cops/rspec/empty_line_after_example_group"
+    );
 }

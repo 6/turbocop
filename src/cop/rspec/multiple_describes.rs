@@ -1,8 +1,8 @@
-use crate::cop::util::{is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, PROGRAM_NODE};
+use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, PROGRAM_NODE};
 
 /// RSpec/MultipleDescribes: Flag multiple top-level example groups in a single file.
 pub struct MultipleDescribes;
@@ -21,7 +21,12 @@ impl Cop for MultipleDescribes {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, PROGRAM_NODE]
+        &[
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            PROGRAM_NODE,
+        ]
     }
 
     fn check_node(
@@ -30,8 +35,8 @@ impl Cop for MultipleDescribes {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Only check ProgramNode (root)
         let program = match node.as_program_node() {
@@ -69,16 +74,12 @@ impl Cop for MultipleDescribes {
             col,
             "Do not use multiple top-level example groups - try to nest them.".to_string(),
         ));
-
     }
 }
 
 fn is_top_level_example_group(receiver: Option<&ruby_prism::Node<'_>>, name: &[u8]) -> bool {
     // Shared examples/contexts are excluded
-    if name == b"shared_examples"
-        || name == b"shared_examples_for"
-        || name == b"shared_context"
-    {
+    if name == b"shared_examples" || name == b"shared_examples_for" || name == b"shared_context" {
         return false;
     }
 
@@ -110,7 +111,8 @@ mod tests {
     use super::*;
 
     crate::cop_scenario_fixture_tests!(
-        MultipleDescribes, "cops/rspec/multiple_describes",
+        MultipleDescribes,
+        "cops/rspec/multiple_describes",
         scenario_class_and_method = "class_and_method.rb",
         scenario_class_only = "class_only.rb",
         scenario_string_args = "string_args.rb",

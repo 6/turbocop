@@ -1,7 +1,7 @@
+use crate::cop::node_type::{FALSE_NODE, TRUE_NODE, UNTIL_NODE, WHILE_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{FALSE_NODE, TRUE_NODE, UNTIL_NODE, WHILE_NODE};
 
 pub struct InfiniteLoop;
 
@@ -20,8 +20,8 @@ impl Cop for InfiniteLoop {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check `while true`
         if let Some(while_node) = node.as_while_node() {
@@ -52,7 +52,6 @@ impl Cop for InfiniteLoop {
                 ));
             }
         }
-
     }
 }
 

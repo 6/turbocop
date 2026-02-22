@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, GLOBAL_VARIABLE_READ_NODE, INTEGER_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, GLOBAL_VARIABLE_READ_NODE, INTEGER_NODE};
 
 pub struct NumericPredicate;
 
@@ -36,8 +36,8 @@ impl Cop for NumericPredicate {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "predicate");
         let _allowed_methods = config.get_string_array("AllowedMethods");
@@ -66,7 +66,8 @@ impl Cop for NumericPredicate {
                 if let Some(receiver) = call.receiver() {
                     // x == 0, x > 0, x < 0
                     if Self::int_value(&arg_list[0]) == Some(0) && !Self::is_global_var(&receiver) {
-                        let recv_src = std::str::from_utf8(receiver.location().as_slice()).unwrap_or("x");
+                        let recv_src =
+                            std::str::from_utf8(receiver.location().as_slice()).unwrap_or("x");
                         let replacement = match method_bytes {
                             b"==" => format!("{}.zero?", recv_src),
                             b">" => format!("{}.positive?", recv_src),
@@ -86,11 +87,12 @@ impl Cop for NumericPredicate {
 
                     // 0 == x, 0 > x, 0 < x (inverted)
                     if Self::int_value(&receiver) == Some(0) && !Self::is_global_var(&arg_list[0]) {
-                        let arg_src = std::str::from_utf8(arg_list[0].location().as_slice()).unwrap_or("x");
+                        let arg_src =
+                            std::str::from_utf8(arg_list[0].location().as_slice()).unwrap_or("x");
                         let replacement = match method_bytes {
                             b"==" => format!("{}.zero?", arg_src),
-                            b">" => format!("{}.negative?", arg_src),  // 0 > x means x is negative
-                            b"<" => format!("{}.positive?", arg_src),  // 0 < x means x is positive
+                            b">" => format!("{}.negative?", arg_src), // 0 > x means x is negative
+                            b"<" => format!("{}.positive?", arg_src), // 0 < x means x is positive
                             _ => return,
                         };
                         let loc = node.location();
@@ -132,7 +134,6 @@ impl Cop for NumericPredicate {
                 ));
             }
         }
-
     }
 }
 

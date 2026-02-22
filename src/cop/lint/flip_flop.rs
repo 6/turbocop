@@ -1,7 +1,7 @@
+use crate::cop::node_type::FLIP_FLOP_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::FLIP_FLOP_NODE;
 
 pub struct FlipFlop;
 
@@ -24,8 +24,8 @@ impl Cop for FlipFlop {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let flip_flop = match node.as_flip_flop_node() {
             Some(n) => n,

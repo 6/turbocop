@@ -1,7 +1,7 @@
+use crate::cop::node_type::{AND_NODE, CALL_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{AND_NODE, CALL_NODE, UNLESS_NODE};
 
 pub struct Present;
 
@@ -24,8 +24,8 @@ impl Cop for Present {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let not_nil_and_not_empty = config.get_bool("NotNilAndNotEmpty", true);
         let not_blank = config.get_bool("NotBlank", true);
@@ -153,10 +153,12 @@ impl Present {
         // Pattern 2: Left is foo (implicit nil check: foo && !foo.empty?)
         // The left side is any expression and right side is !<same_expr>.empty?
         let matches = matches || {
-            let left_src = &source.as_bytes()[left.location().start_offset()..left.location().end_offset()];
+            let left_src =
+                &source.as_bytes()[left.location().start_offset()..left.location().end_offset()];
             let right_recv = right_pred.receiver();
             if let Some(rr) = right_recv {
-                let right_recv_src = &source.as_bytes()[rr.location().start_offset()..rr.location().end_offset()];
+                let right_recv_src =
+                    &source.as_bytes()[rr.location().start_offset()..rr.location().end_offset()];
                 left_src == right_recv_src
             } else {
                 false
@@ -190,10 +192,7 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([(
-                "NotBlank".to_string(),
-                serde_yml::Value::Bool(false),
-            )]),
+            options: HashMap::from([("NotBlank".to_string(), serde_yml::Value::Bool(false))]),
             ..CopConfig::default()
         };
         let source = b"!x.blank?\n";
@@ -224,10 +223,7 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([(
-                "UnlessBlank".to_string(),
-                serde_yml::Value::Bool(false),
-            )]),
+            options: HashMap::from([("UnlessBlank".to_string(), serde_yml::Value::Bool(false))]),
             ..CopConfig::default()
         };
         let source = b"unless x.blank?\n  do_something\nend\n";

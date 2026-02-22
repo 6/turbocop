@@ -1,15 +1,12 @@
+use crate::cop::node_type::CLASS_NODE;
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CLASS_NODE;
 
 pub struct MailerName;
 
-const MAILER_BASES: &[&[u8]] = &[
-    b"ActionMailer::Base",
-    b"ApplicationMailer",
-];
+const MAILER_BASES: &[&[u8]] = &[b"ActionMailer::Base", b"ApplicationMailer"];
 
 impl Cop for MailerName {
     fn name(&self) -> &'static str {
@@ -34,8 +31,8 @@ impl Cop for MailerName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let class_node = match node.as_class_node() {
             Some(c) => c,

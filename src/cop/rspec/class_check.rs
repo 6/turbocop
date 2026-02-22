@@ -1,8 +1,8 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct ClassCheck;
 
@@ -29,8 +29,8 @@ impl Cop for ClassCheck {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -46,9 +46,7 @@ impl Cop for ClassCheck {
                 if method == b"be_kind_of" || method == b"be_a_kind_of" {
                     // Must not have a non-expect-chain receiver (skip Foo.be_kind_of)
                     if let Some(recv) = call.receiver() {
-                        if recv.as_call_node().is_none()
-                            && util::constant_name(&recv).is_some()
-                        {
+                        if recv.as_call_node().is_none() && util::constant_name(&recv).is_some() {
                             return;
                         }
                     }
@@ -68,9 +66,7 @@ impl Cop for ClassCheck {
                 // Flag be_a and be_an, suggest be_kind_of
                 if method == b"be_a" || method == b"be_an" {
                     if let Some(recv) = call.receiver() {
-                        if recv.as_call_node().is_none()
-                            && util::constant_name(&recv).is_some()
-                        {
+                        if recv.as_call_node().is_none() && util::constant_name(&recv).is_some() {
                             return;
                         }
                     }
@@ -88,7 +84,6 @@ impl Cop for ClassCheck {
             }
             _ => {}
         }
-
     }
 }
 

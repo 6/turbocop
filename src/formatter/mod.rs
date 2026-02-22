@@ -81,7 +81,9 @@ mod tests {
 
     #[test]
     fn create_all_formatters() {
-        for name in ["progress", "text", "json", "github", "pacman", "quiet", "files", "emacs", "simple"] {
+        for name in [
+            "progress", "text", "json", "github", "pacman", "quiet", "files", "emacs", "simple",
+        ] {
             let _f = create_formatter(name);
         }
     }
@@ -106,7 +108,9 @@ mod tests {
     fn all_formatters_run_without_panic() {
         let files = sample_files();
         let diags = sample_diagnostics();
-        for name in ["progress", "text", "json", "github", "pacman", "quiet", "files", "emacs", "simple"] {
+        for name in [
+            "progress", "text", "json", "github", "pacman", "quiet", "files", "emacs", "simple",
+        ] {
             let f = create_formatter(name);
             let mut buf = Vec::new();
             f.format_to(&[], &[], &mut buf);

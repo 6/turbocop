@@ -1,10 +1,10 @@
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
 use crate::cop::util::{
-    self, is_rspec_example, is_rspec_example_group, is_rspec_hook, RSPEC_DEFAULT_INCLUDE,
+    self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_hook,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
 
 pub struct HooksBeforeExamples;
 
@@ -31,8 +31,8 @@ impl Cop for HooksBeforeExamples {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -43,7 +43,8 @@ impl Cop for HooksBeforeExamples {
 
         // Check for example group calls (including ::RSpec.describe)
         let is_example_group = if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).map_or(false, |n| n == b"RSpec") && method_name == b"describe"
+            util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
+                && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name)
         };
@@ -77,8 +78,7 @@ impl Cop for HooksBeforeExamples {
                 let name = c.name().as_slice();
                 if c.receiver().is_none() {
                     if is_rspec_example(name)
-                        || (is_rspec_example_group(name)
-                            && !is_shared_group(name))
+                        || (is_rspec_example_group(name) && !is_shared_group(name))
                     {
                         seen_example = true;
                     } else if is_example_include(name) {
@@ -91,15 +91,12 @@ impl Cop for HooksBeforeExamples {
                             source,
                             line,
                             column,
-                            format!(
-                                "Move `{hook_name}` above the examples in the group."
-                            ),
+                            format!("Move `{hook_name}` above the examples in the group."),
                         ));
                     }
                 }
             }
         }
-
     }
 }
 
@@ -111,9 +108,7 @@ fn is_shared_group(name: &[u8]) -> bool {
 }
 
 fn is_example_include(name: &[u8]) -> bool {
-    name == b"include_examples"
-        || name == b"it_behaves_like"
-        || name == b"it_should_behave_like"
+    name == b"include_examples" || name == b"it_behaves_like" || name == b"it_should_behave_like"
 }
 
 #[cfg(test)]

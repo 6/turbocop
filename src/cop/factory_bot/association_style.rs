@@ -1,29 +1,86 @@
 use ruby_prism::Visit;
 
 use crate::cop::factory_bot::FACTORY_BOT_DEFAULT_INCLUDE;
+use crate::cop::node_type::{
+    ASSOC_NODE, BLOCK_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, STATEMENTS_NODE, SYMBOL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, BLOCK_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, STATEMENTS_NODE, SYMBOL_NODE};
 
 pub struct AssociationStyle;
 
 /// Ruby keywords that cannot be implicit associations.
 const RUBY_KEYWORDS: &[&str] = &[
-    "alias", "and", "begin", "break", "case", "class", "def", "defined?", "do",
-    "else", "elsif", "end", "ensure", "false", "for", "if", "in", "module",
-    "next", "nil", "not", "or", "redo", "rescue", "retry", "return", "self",
-    "super", "then", "true", "undef", "unless", "until", "when", "while",
-    "yield", "__FILE__", "__LINE__", "__ENCODING__",
+    "alias",
+    "and",
+    "begin",
+    "break",
+    "case",
+    "class",
+    "def",
+    "defined?",
+    "do",
+    "else",
+    "elsif",
+    "end",
+    "ensure",
+    "false",
+    "for",
+    "if",
+    "in",
+    "module",
+    "next",
+    "nil",
+    "not",
+    "or",
+    "redo",
+    "rescue",
+    "retry",
+    "return",
+    "self",
+    "super",
+    "then",
+    "true",
+    "undef",
+    "unless",
+    "until",
+    "when",
+    "while",
+    "yield",
+    "__FILE__",
+    "__LINE__",
+    "__ENCODING__",
 ];
 
 /// FactoryBot reserved methods that should not be treated as implicit associations.
 const RESERVED_METHODS: &[&str] = &[
-    "add_attribute", "after", "association", "before", "callback", "ignore",
-    "initialize_with", "sequence", "skip_create", "to_create",
-    "__send__", "__id__", "nil?", "send", "object_id", "extend",
-    "instance_eval", "initialize", "block_given?", "raise", "caller", "method",
-    "factory", "trait", "traits_for_enum", "transient",
+    "add_attribute",
+    "after",
+    "association",
+    "before",
+    "callback",
+    "ignore",
+    "initialize_with",
+    "sequence",
+    "skip_create",
+    "to_create",
+    "__send__",
+    "__id__",
+    "nil?",
+    "send",
+    "object_id",
+    "extend",
+    "instance_eval",
+    "initialize",
+    "block_given?",
+    "raise",
+    "caller",
+    "method",
+    "factory",
+    "trait",
+    "traits_for_enum",
+    "transient",
 ];
 
 fn is_reserved_method(name: &str) -> bool {
@@ -48,7 +105,15 @@ impl Cop for AssociationStyle {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ASSOC_NODE, BLOCK_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, STATEMENTS_NODE, SYMBOL_NODE]
+        &[
+            ASSOC_NODE,
+            BLOCK_NODE,
+            CALL_NODE,
+            HASH_NODE,
+            KEYWORD_HASH_NODE,
+            STATEMENTS_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -57,8 +122,8 @@ impl Cop for AssociationStyle {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -94,7 +159,6 @@ impl Cop for AssociationStyle {
 
         let style = config.get_str("EnforcedStyle", "implicit");
 
-
         let children: Vec<_> = if let Some(stmts) = body.as_statements_node() {
             stmts.body().iter().collect()
         } else {
@@ -103,7 +167,10 @@ impl Cop for AssociationStyle {
 
         for child in &children {
             if style == "implicit" {
-                if is_explicit_association(child) && !has_strategy_build(child) && !has_keyword_arg(child) {
+                if is_explicit_association(child)
+                    && !has_strategy_build(child)
+                    && !has_keyword_arg(child)
+                {
                     let loc = child.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
                     diagnostics.push(self.diagnostic(
@@ -126,7 +193,6 @@ impl Cop for AssociationStyle {
                 }
             }
         }
-
     }
 }
 
@@ -230,7 +296,10 @@ fn has_keyword_arg(node: &ruby_prism::Node<'_>) -> bool {
 }
 
 /// Check if a node is an implicit association in explicit style.
-fn is_implicit_association(node: &ruby_prism::Node<'_>, factory_or_trait_node: &ruby_prism::Node<'_>) -> bool {
+fn is_implicit_association(
+    node: &ruby_prism::Node<'_>,
+    factory_or_trait_node: &ruby_prism::Node<'_>,
+) -> bool {
     let call = match node.as_call_node() {
         Some(c) => c,
         None => return false,
@@ -302,7 +371,9 @@ fn is_trait_within_factory(method_name: &str, factory_node: &ruby_prism::Node<'_
         }
     }
 
-    let mut collector = TraitCollector { trait_names: Vec::new() };
+    let mut collector = TraitCollector {
+        trait_names: Vec::new(),
+    };
     collector.visit(&body);
 
     collector.trait_names.iter().any(|n| n == method_name)

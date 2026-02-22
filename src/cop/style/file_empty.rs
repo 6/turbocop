@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTEGER_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTEGER_NODE};
 
 pub struct FileEmpty;
 
@@ -28,7 +28,12 @@ impl Cop for FileEmpty {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTEGER_NODE]
+        &[
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            INTEGER_NODE,
+        ]
     }
 
     fn check_node(
@@ -37,8 +42,8 @@ impl Cop for FileEmpty {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -53,12 +58,14 @@ impl Cop for FileEmpty {
                 if Self::is_file_or_filetest(&recv) {
                     let loc = call.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    let recv_src = &source.as_bytes()[recv.location().start_offset()..recv.location().end_offset()];
+                    let recv_src = &source.as_bytes()
+                        [recv.location().start_offset()..recv.location().end_offset()];
                     let recv_str = String::from_utf8_lossy(recv_src);
                     if let Some(args) = call.arguments() {
                         let arg_list: Vec<_> = args.arguments().iter().collect();
                         if arg_list.len() == 1 {
-                            let arg_src = &source.as_bytes()[arg_list[0].location().start_offset()..arg_list[0].location().end_offset()];
+                            let arg_src = &source.as_bytes()[arg_list[0].location().start_offset()
+                                ..arg_list[0].location().end_offset()];
                             let arg_str = String::from_utf8_lossy(arg_src);
                             diagnostics.push(self.diagnostic(
                                 source,
@@ -87,19 +94,31 @@ impl Cop for FileEmpty {
                                         if let Some(int_node) = arg_list[0].as_integer_node() {
                                             if int_node.location().as_slice() == b"0" {
                                                 let loc = call.location();
-                                                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                                let file_src = &source.as_bytes()[file_recv.location().start_offset()..file_recv.location().end_offset()];
+                                                let (line, column) =
+                                                    source.offset_to_line_col(loc.start_offset());
+                                                let file_src = &source.as_bytes()[file_recv
+                                                    .location()
+                                                    .start_offset()
+                                                    ..file_recv.location().end_offset()];
                                                 let file_str = String::from_utf8_lossy(file_src);
                                                 if let Some(size_args) = size_call.arguments() {
-                                                    let sa: Vec<_> = size_args.arguments().iter().collect();
+                                                    let sa: Vec<_> =
+                                                        size_args.arguments().iter().collect();
                                                     if sa.len() == 1 {
-                                                        let arg_src = &source.as_bytes()[sa[0].location().start_offset()..sa[0].location().end_offset()];
-                                                        let arg_str = String::from_utf8_lossy(arg_src);
+                                                        let arg_src = &source.as_bytes()[sa[0]
+                                                            .location()
+                                                            .start_offset()
+                                                            ..sa[0].location().end_offset()];
+                                                        let arg_str =
+                                                            String::from_utf8_lossy(arg_src);
                                                         diagnostics.push(self.diagnostic(
                                                             source,
                                                             line,
                                                             column,
-                                                            format!("Use `{}.empty?({})` instead.", file_str, arg_str),
+                                                            format!(
+                                                                "Use `{}.empty?({})` instead.",
+                                                                file_str, arg_str
+                                                            ),
                                                         ));
                                                     }
                                                 }
@@ -113,7 +132,6 @@ impl Cop for FileEmpty {
                 }
             }
         }
-
     }
 }
 

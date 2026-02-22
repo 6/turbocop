@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, STRING_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, STRING_NODE};
 
 pub struct StringConcatenation;
 
@@ -20,7 +20,8 @@ impl StringConcatenation {
             if let Some(args) = node.arguments() {
                 let args_list: Vec<_> = args.arguments().iter().collect();
                 if !args_list.is_empty() {
-                    let (arg_line, _) = source.offset_to_line_col(args_list[0].location().start_offset());
+                    let (arg_line, _) =
+                        source.offset_to_line_col(args_list[0].location().start_offset());
                     return recv_line != arg_line;
                 }
             }
@@ -63,8 +64,8 @@ impl Cop for StringConcatenation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -91,7 +92,10 @@ impl Cop for StringConcatenation {
             if let Some(receiver) = call.receiver() {
                 if let Some(args) = call.arguments() {
                     let arg_list: Vec<_> = args.arguments().iter().collect();
-                    if !arg_list.is_empty() && Self::is_string_literal(&receiver) && Self::is_string_literal(&arg_list[0]) {
+                    if !arg_list.is_empty()
+                        && Self::is_string_literal(&receiver)
+                        && Self::is_string_literal(&arg_list[0])
+                    {
                         return;
                     }
                 }

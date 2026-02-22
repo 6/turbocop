@@ -20,8 +20,8 @@ impl Cop for EmptyLines {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let max = config.get_usize("Max", 1);
 
@@ -47,12 +47,8 @@ impl Cop for EmptyLines {
                 }
                 consecutive_blanks += 1;
                 if consecutive_blanks > max {
-                    let mut diag = self.diagnostic(
-                        source,
-                        i + 1,
-                        0,
-                        "Extra blank line detected.".to_string(),
-                    );
+                    let mut diag =
+                        self.diagnostic(source, i + 1, 0, "Extra blank line detected.".to_string());
                     if let Some(ref mut corr) = corrections {
                         corr.push(crate::correction::Correction {
                             start: byte_offset,
@@ -92,16 +88,25 @@ mod tests {
         // 3 consecutive blank lines should trigger with Max:2
         let source = b"x = 1\n\n\n\ny = 2\n";
         let diags = run_cop_full_with_config(&EmptyLines, source, config.clone());
-        assert!(!diags.is_empty(), "Should fire with Max:2 on 3 consecutive blank lines");
+        assert!(
+            !diags.is_empty(),
+            "Should fire with Max:2 on 3 consecutive blank lines"
+        );
 
         // 2 consecutive blank lines should NOT trigger with Max:2
         let source2 = b"x = 1\n\n\ny = 2\n";
         let diags2 = run_cop_full_with_config(&EmptyLines, source2, config);
-        assert!(diags2.is_empty(), "Should not fire on 2 consecutive blank lines with Max:2");
+        assert!(
+            diags2.is_empty(),
+            "Should not fire on 2 consecutive blank lines with Max:2"
+        );
 
         // 2 consecutive blank lines SHOULD trigger with default Max:1
         let diags3 = run_cop_full(&EmptyLines, source2);
-        assert!(!diags3.is_empty(), "Should fire with default Max:1 on 2 consecutive blank lines");
+        assert!(
+            !diags3.is_empty(),
+            "Should fire with default Max:1 on 2 consecutive blank lines"
+        );
     }
 
     #[test]
@@ -128,6 +133,9 @@ mod tests {
     fn skip_blanks_in_heredoc() {
         let source = b"x = <<~RUBY\n  foo\n\n\n  bar\nRUBY\n";
         let diags = run_cop_full(&EmptyLines, source);
-        assert!(diags.is_empty(), "Should not fire on blank lines inside heredoc");
+        assert!(
+            diags.is_empty(),
+            "Should not fire on blank lines inside heredoc"
+        );
     }
 }

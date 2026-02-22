@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    DEF_NODE, FORWARDING_SUPER_NODE, LOCAL_VARIABLE_READ_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE,
+    REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, SUPER_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{DEF_NODE, FORWARDING_SUPER_NODE, LOCAL_VARIABLE_READ_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, SUPER_NODE};
 
 pub struct UselessMethodDefinition;
 
@@ -15,7 +18,16 @@ impl Cop for UselessMethodDefinition {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[DEF_NODE, FORWARDING_SUPER_NODE, LOCAL_VARIABLE_READ_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, SUPER_NODE]
+        &[
+            DEF_NODE,
+            FORWARDING_SUPER_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            OPTIONAL_KEYWORD_PARAMETER_NODE,
+            REQUIRED_KEYWORD_PARAMETER_NODE,
+            REQUIRED_PARAMETER_NODE,
+            STATEMENTS_NODE,
+            SUPER_NODE,
+        ]
     }
 
     fn check_node(
@@ -24,8 +36,8 @@ impl Cop for UselessMethodDefinition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -72,13 +84,15 @@ impl Cop for UselessMethodDefinition {
             if fwd_super.block().is_none() {
                 let loc = def_node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Useless method definition detected. The method just delegates to `super`."
-                        .to_string(),
-                ));
+                diagnostics.push(
+                    self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Useless method definition detected. The method just delegates to `super`."
+                            .to_string(),
+                    ),
+                );
             }
         }
 
@@ -87,16 +101,17 @@ impl Cop for UselessMethodDefinition {
             if super_args_match_params(def_node.parameters(), &super_node) {
                 let loc = def_node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Useless method definition detected. The method just delegates to `super`."
-                        .to_string(),
-                ));
+                diagnostics.push(
+                    self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Useless method definition detected. The method just delegates to `super`."
+                            .to_string(),
+                    ),
+                );
             }
         }
-
     }
 }
 
@@ -160,5 +175,8 @@ fn super_args_match_params(
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(UselessMethodDefinition, "cops/lint/useless_method_definition");
+    crate::cop_fixture_tests!(
+        UselessMethodDefinition,
+        "cops/lint/useless_method_definition"
+    );
 }

@@ -108,8 +108,8 @@ pub fn run_verify(
 
     // 2. Run RuboCop subprocess
     let rubocop_json = run_rubocop(args)?;
-    let rubocop_output: RubocopOutput = serde_json::from_str(&rubocop_json)
-        .context("Failed to parse RuboCop JSON output")?;
+    let rubocop_output: RubocopOutput =
+        serde_json::from_str(&rubocop_json).context("Failed to parse RuboCop JSON output")?;
 
     // 3. Build covered cop set
     let covered: HashSet<&str> = registry.cops().iter().map(|c| c.name()).collect();
@@ -205,8 +205,7 @@ fn run_rubocop(args: &Args) -> Result<String> {
         );
     }
 
-    let stdout = String::from_utf8(output.stdout)
-        .context("RuboCop output was not valid UTF-8")?;
+    let stdout = String::from_utf8(output.stdout).context("RuboCop output was not valid UTF-8")?;
     Ok(stdout)
 }
 
@@ -216,18 +215,9 @@ pub fn print_text(result: &VerifyResult) {
     println!("turbocop verify:");
     println!("  turbocop: {} offenses", result.turbocop_count);
     println!("  rubocop:  {} offenses", result.rubocop_count);
-    println!(
-        "  matches:  {} ({:.1}%)",
-        result.matches, result.match_rate
-    );
-    println!(
-        "  FP:       {} (turbocop-only)",
-        result.false_positives
-    );
-    println!(
-        "  FN:       {} (rubocop-only)",
-        result.false_negatives
-    );
+    println!("  matches:  {} ({:.1}%)", result.matches, result.match_rate);
+    println!("  FP:       {} (turbocop-only)", result.false_positives);
+    println!("  FN:       {} (rubocop-only)", result.false_negatives);
 
     // Per-cop diffs (only cops with FP or FN, sorted by total diffs descending)
     let mut diffs: Vec<(&String, &CopStats)> = result
@@ -331,16 +321,14 @@ mod tests {
 
     #[test]
     fn diagnostics_to_set_normalizes_paths() {
-        let diags = vec![
-            Diagnostic {
-                path: "./foo/bar.rb".to_string(),
-                location: crate::diagnostic::Location { line: 3, column: 0 },
-                severity: crate::diagnostic::Severity::Convention,
-                cop_name: "Style/Test".to_string(),
-                message: "msg".to_string(),
-                corrected: false,
-            },
-        ];
+        let diags = vec![Diagnostic {
+            path: "./foo/bar.rb".to_string(),
+            location: crate::diagnostic::Location { line: 3, column: 0 },
+            severity: crate::diagnostic::Severity::Convention,
+            cop_name: "Style/Test".to_string(),
+            message: "msg".to_string(),
+            corrected: false,
+        }];
         let set = diagnostics_to_set(&diags);
         assert_eq!(set.len(), 1);
         assert!(set.contains(&("foo/bar.rb".to_string(), 3, "Style/Test".to_string())));

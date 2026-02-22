@@ -1,8 +1,8 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct Exit;
 
@@ -28,8 +28,8 @@ impl Cop for Exit {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -51,12 +51,11 @@ impl Cop for Exit {
 
         // Check receiver: must be nil, Kernel, or Process
         if let Some(receiver) = call.receiver() {
-            let is_allowed_receiver =
-                if let Some(name) = util::constant_name(&receiver) {
-                    EXPLICIT_RECEIVERS.iter().any(|&r| r == name)
-                } else {
-                    false
-                };
+            let is_allowed_receiver = if let Some(name) = util::constant_name(&receiver) {
+                EXPLICIT_RECEIVERS.iter().any(|&r| r == name)
+            } else {
+                false
+            };
             if !is_allowed_receiver {
                 return;
             }

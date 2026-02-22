@@ -1,7 +1,13 @@
+use crate::cop::node_type::{
+    CALL_NODE, CLASS_VARIABLE_READ_NODE, CLASS_VARIABLE_WRITE_NODE, CONSTANT_PATH_NODE,
+    CONSTANT_READ_NODE, CONSTANT_WRITE_NODE, FALSE_NODE, GLOBAL_VARIABLE_READ_NODE,
+    GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_READ_NODE, INSTANCE_VARIABLE_WRITE_NODE,
+    LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, NIL_NODE, PARENTHESES_NODE, SELF_NODE,
+    STATEMENTS_NODE, TRUE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CLASS_VARIABLE_READ_NODE, CLASS_VARIABLE_WRITE_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, CONSTANT_WRITE_NODE, FALSE_NODE, GLOBAL_VARIABLE_READ_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_READ_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, NIL_NODE, PARENTHESES_NODE, SELF_NODE, STATEMENTS_NODE, TRUE_NODE};
 
 pub struct TernaryParentheses;
 
@@ -66,7 +72,27 @@ impl Cop for TernaryParentheses {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CLASS_VARIABLE_READ_NODE, CLASS_VARIABLE_WRITE_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, CONSTANT_WRITE_NODE, FALSE_NODE, GLOBAL_VARIABLE_READ_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_READ_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, NIL_NODE, PARENTHESES_NODE, SELF_NODE, STATEMENTS_NODE, TRUE_NODE]
+        &[
+            CALL_NODE,
+            CLASS_VARIABLE_READ_NODE,
+            CLASS_VARIABLE_WRITE_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            CONSTANT_WRITE_NODE,
+            FALSE_NODE,
+            GLOBAL_VARIABLE_READ_NODE,
+            GLOBAL_VARIABLE_WRITE_NODE,
+            IF_NODE,
+            INSTANCE_VARIABLE_READ_NODE,
+            INSTANCE_VARIABLE_WRITE_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            LOCAL_VARIABLE_WRITE_NODE,
+            NIL_NODE,
+            PARENTHESES_NODE,
+            SELF_NODE,
+            STATEMENTS_NODE,
+            TRUE_NODE,
+        ]
     }
 
     fn check_node(
@@ -75,8 +101,8 @@ impl Cop for TernaryParentheses {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "require_no_parentheses");
         let allow_safe = config.get_bool("AllowSafeAssignment", true);
@@ -107,7 +133,12 @@ impl Cop for TernaryParentheses {
                 if !is_parenthesized {
                     let loc = predicate.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(self.diagnostic(source, line, column, "Use parentheses for ternary conditions.".to_string()));
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Use parentheses for ternary conditions.".to_string(),
+                    ));
                 }
             }
             "require_parentheses_when_complex" => {
@@ -115,12 +146,28 @@ impl Cop for TernaryParentheses {
                 if is_complex && !is_parenthesized {
                     let loc = predicate.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(self.diagnostic(source, line, column, "Use parentheses for ternary expressions with complex conditions.".to_string()));
+                    diagnostics.push(
+                        self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Use parentheses for ternary expressions with complex conditions."
+                                .to_string(),
+                        ),
+                    );
                 } else if !is_complex && is_parenthesized {
                     let paren = predicate.as_parentheses_node().unwrap();
                     let open_loc = paren.opening_loc();
                     let (line, column) = source.offset_to_line_col(open_loc.start_offset());
-                    diagnostics.push(self.diagnostic(source, line, column, "Only use parentheses for ternary expressions with complex conditions.".to_string()));
+                    diagnostics.push(
+                        self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Only use parentheses for ternary expressions with complex conditions."
+                                .to_string(),
+                        ),
+                    );
                 }
             }
             _ => {
@@ -129,18 +176,22 @@ impl Cop for TernaryParentheses {
                     let paren = predicate.as_parentheses_node().unwrap();
                     let open_loc = paren.opening_loc();
                     let (line, column) = source.offset_to_line_col(open_loc.start_offset());
-                    diagnostics.push(self.diagnostic(source, line, column, "Ternary conditions should not be wrapped in parentheses.".to_string()));
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Ternary conditions should not be wrapped in parentheses.".to_string(),
+                    ));
                 }
             }
         }
-
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{run_cop_full_with_config, run_cop_full};
+    use crate::testutil::{run_cop_full, run_cop_full_with_config};
 
     crate::cop_fixture_tests!(TernaryParentheses, "cops/style/ternary_parentheses");
 
@@ -149,21 +200,29 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("require_parentheses".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("require_parentheses".into()),
+            )]),
             ..CopConfig::default()
         };
         // No parens should be flagged
         let source = b"x = foo? ? 'a' : 'b'\n";
         let diags = run_cop_full_with_config(&TernaryParentheses, source, config.clone());
-        assert_eq!(diags.len(), 1, "Should flag missing parens with require_parentheses");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag missing parens with require_parentheses"
+        );
         assert!(diags[0].message.contains("Use parentheses"));
 
         // With parens should be OK
         let source2 = b"x = (foo?) ? 'a' : 'b'\n";
         let diags2 = run_cop_full_with_config(&TernaryParentheses, source2, config);
-        assert!(diags2.is_empty(), "Should allow parens with require_parentheses");
+        assert!(
+            diags2.is_empty(),
+            "Should allow parens with require_parentheses"
+        );
     }
 
     #[test]
@@ -179,20 +238,29 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("require_parentheses_when_complex".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("require_parentheses_when_complex".into()),
+            )]),
             ..CopConfig::default()
         };
         // defined? is non-complex — should not require parens
         let source = b"x = defined?(Foo) ? Foo : nil\n";
         let diags = run_cop_full_with_config(&TernaryParentheses, source, config.clone());
-        assert!(diags.is_empty(), "defined? should not be considered complex: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "defined? should not be considered complex: {:?}",
+            diags
+        );
 
         // yield is non-complex
         let source2 = b"x = yield ? 1 : 0\n";
         let diags2 = run_cop_full_with_config(&TernaryParentheses, source2, config);
-        assert!(diags2.is_empty(), "yield should not be considered complex: {:?}", diags2);
+        assert!(
+            diags2.is_empty(),
+            "yield should not be considered complex: {:?}",
+            diags2
+        );
     }
 
     #[test]
@@ -200,13 +268,15 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("AllowSafeAssignment".into(), serde_yml::Value::Bool(false)),
-            ]),
+            options: HashMap::from([("AllowSafeAssignment".into(), serde_yml::Value::Bool(false))]),
             ..CopConfig::default()
         };
         let source = b"(x = y) ? 'a' : 'b'\n";
         let diags = run_cop_full_with_config(&TernaryParentheses, source, config);
-        assert_eq!(diags.len(), 1, "Should flag safe assignment parens when disallowed");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag safe assignment parens when disallowed"
+        );
     }
 }

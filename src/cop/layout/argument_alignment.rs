@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct ArgumentAlignment;
 
@@ -20,8 +20,8 @@ impl Cop for ArgumentAlignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "with_first_argument");
         let indent_width = config.get_usize("IndentationWidth", 2);
@@ -64,7 +64,8 @@ impl Cop for ArgumentAlignment {
         }
 
         let first_arg = &effective_args[0];
-        let (first_line, first_col) = source.offset_to_line_col(first_arg.location().start_offset());
+        let (first_line, first_col) =
+            source.offset_to_line_col(first_arg.location().start_offset());
 
         let mut checked_lines = std::collections::HashSet::new();
         checked_lines.insert(first_line);
@@ -83,7 +84,9 @@ impl Cop for ArgumentAlignment {
                 } else if let Some(msg_loc) = call_node.message_loc() {
                     source.offset_to_line_col(msg_loc.start_offset()).0
                 } else {
-                    source.offset_to_line_col(call_node.location().start_offset()).0
+                    source
+                        .offset_to_line_col(call_node.location().start_offset())
+                        .0
                 };
                 let base_line_bytes = source.lines().nth(base_line - 1).unwrap_or(b"");
                 crate::cop::util::indentation_of(base_line_bytes) + indent_width
@@ -103,17 +106,18 @@ impl Cop for ArgumentAlignment {
                     continue;
                 }
                 if arg_col != expected_col {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        arg_line,
-                        arg_col,
-                        "Align the arguments of a method call if they span more than one line."
-                            .to_string(),
-                    ));
+                    diagnostics.push(
+                        self.diagnostic(
+                            source,
+                            arg_line,
+                            arg_col,
+                            "Align the arguments of a method call if they span more than one line."
+                                .to_string(),
+                        ),
+                    );
                 }
             }
         }
-
     }
 }
 
@@ -133,23 +137,31 @@ mod tests {
 
     #[test]
     fn with_fixed_indentation_style() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("with_fixed_indentation".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("with_fixed_indentation".into()),
+            )]),
             ..CopConfig::default()
         };
         // Args aligned with first arg (column 4) but with_fixed_indentation expects column 2
         let src = b"foo(1,\n    2)\n";
         let diags = run_cop_full_with_config(&ArgumentAlignment, src, config.clone());
-        assert_eq!(diags.len(), 1, "with_fixed_indentation should flag args aligned with first arg");
+        assert_eq!(
+            diags.len(),
+            1,
+            "with_fixed_indentation should flag args aligned with first arg"
+        );
 
         // Args at fixed indentation (2 spaces from call)
         let src2 = b"foo(1,\n  2)\n";
         let diags2 = run_cop_full_with_config(&ArgumentAlignment, src2, config);
-        assert!(diags2.is_empty(), "with_fixed_indentation should accept fixed-indent args");
+        assert!(
+            diags2.is_empty(),
+            "with_fixed_indentation should accept fixed-indent args"
+        );
     }
 }

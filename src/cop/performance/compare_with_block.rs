@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE,
+    REQUIRED_PARAMETER_NODE, STATEMENTS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE};
 
 pub struct CompareWithBlock;
 
@@ -15,7 +18,14 @@ impl Cop for CompareWithBlock {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE]
+        &[
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            CALL_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            REQUIRED_PARAMETER_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -24,8 +34,8 @@ impl Cop for CompareWithBlock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -185,8 +195,12 @@ impl Cop for CompareWithBlock {
         if method_a == b"[]" {
             // For [] indexing: require exactly 1 argument that is a literal (sym/str/int),
             // and both sides must use the same key.
-            let args_a: Vec<_> = recv_call.arguments().map_or(vec![], |a| a.arguments().iter().collect());
-            let args_b: Vec<_> = arg_call.arguments().map_or(vec![], |a| a.arguments().iter().collect());
+            let args_a: Vec<_> = recv_call
+                .arguments()
+                .map_or(vec![], |a| a.arguments().iter().collect());
+            let args_b: Vec<_> = arg_call
+                .arguments()
+                .map_or(vec![], |a| a.arguments().iter().collect());
             if args_a.len() != 1 || args_b.len() != 1 {
                 return;
             }
@@ -200,8 +214,10 @@ impl Cop for CompareWithBlock {
                 return;
             }
             // Both keys must be the same literal (compare source bytes)
-            let key_a_src = &source.as_bytes()[key_a.location().start_offset()..key_a.location().end_offset()];
-            let key_b_src = &source.as_bytes()[key_b.location().start_offset()..key_b.location().end_offset()];
+            let key_a_src =
+                &source.as_bytes()[key_a.location().start_offset()..key_a.location().end_offset()];
+            let key_b_src =
+                &source.as_bytes()[key_b.location().start_offset()..key_b.location().end_offset()];
             if key_a_src != key_b_src {
                 return;
             }
@@ -213,7 +229,15 @@ impl Cop for CompareWithBlock {
             if recv_call.arguments().is_some() || arg_call.arguments().is_some() {
                 return;
             }
-            diagnostics.push(self.diagnostic(source, line, column, "Use `sort_by(&:method)` instead of `sort { |a, b| a.method <=> b.method }`.".to_string()));
+            diagnostics.push(
+                self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use `sort_by(&:method)` instead of `sort { |a, b| a.method <=> b.method }`."
+                        .to_string(),
+                ),
+            );
         }
     }
 }

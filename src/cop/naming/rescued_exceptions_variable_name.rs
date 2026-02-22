@@ -17,8 +17,8 @@ impl Cop for RescuedExceptionsVariableName {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let preferred = config.get_str("PreferredName", "e");
         let mut visitor = RescuedVarVisitor {

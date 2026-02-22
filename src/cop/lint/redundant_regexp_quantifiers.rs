@@ -1,7 +1,7 @@
+use crate::cop::node_type::REGULAR_EXPRESSION_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::REGULAR_EXPRESSION_NODE;
 
 pub struct RedundantRegexpQuantifiers;
 
@@ -28,8 +28,8 @@ impl Cop for RedundantRegexpQuantifiers {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let regexp = match node.as_regular_expression_node() {
             Some(r) => r,
@@ -37,8 +37,8 @@ impl Cop for RedundantRegexpQuantifiers {
         };
 
         // Check for interpolation — skip
-        let raw_src = &source.as_bytes()
-            [regexp.location().start_offset()..regexp.location().end_offset()];
+        let raw_src =
+            &source.as_bytes()[regexp.location().start_offset()..regexp.location().end_offset()];
         if raw_src.windows(2).any(|w| w == b"#{") {
             return;
         }
@@ -52,7 +52,6 @@ impl Cop for RedundantRegexpQuantifiers {
         // Find redundant quantifiers: (?:...Q1)Q2 where both are greedy quantifiers
         // and the group contains only a single element with quantifier Q1
         check_redundant_quantifiers(self, source, content_str, &regexp, diagnostics);
-
     }
 }
 
@@ -105,7 +104,9 @@ fn check_redundant_quantifiers(
                 let after_group = end + 1;
                 if let Some((outer_q, outer_q_end)) = parse_quantifier(bytes, after_group) {
                     // Check if the outer quantifier is followed by a possessive (+) or reluctant (?) modifier
-                    if outer_q_end < len && (bytes[outer_q_end] == b'+' || bytes[outer_q_end] == b'?') {
+                    if outer_q_end < len
+                        && (bytes[outer_q_end] == b'+' || bytes[outer_q_end] == b'?')
+                    {
                         i = group_end.map(|e| e + 1).unwrap_or(i + 1);
                         continue;
                     }
@@ -134,12 +135,14 @@ fn check_redundant_quantifiers(
 
                                 // Report at the position of the inner quantifier end through the outer quantifier
                                 let regexp_start = regexp.location().start_offset() + 1; // skip '/'
-                                let offset = regexp_start + (end - inner_q_display.len() + 1 - (i + 3) + (i + 3));
+                                let offset = regexp_start
+                                    + (end - inner_q_display.len() + 1 - (i + 3) + (i + 3));
                                 // Calculate more carefully
                                 let inner_q_start_in_pattern = end - inner_q_display.len() + 1 - 3; // approximate
                                 // Actually, let's find the column of the quantifiers in the source
                                 // The pattern starts at regexp_start offset in the source
-                                let q_start = regexp.location().start_offset() + 1 + group_start + 3;
+                                let q_start =
+                                    regexp.location().start_offset() + 1 + group_start + 3;
                                 // The redundant range is from the inner quantifier through the outer
                                 let _ = q_start;
 
@@ -171,9 +174,9 @@ fn check_redundant_quantifiers(
 
 #[derive(Debug, Clone, PartialEq)]
 enum Quantifier {
-    Plus,       // +
-    Star,       // *
-    Question,   // ?
+    Plus,                                   // +
+    Star,                                   // *
+    Question,                               // ?
     Interval(Option<usize>, Option<usize>), // {n,m}
 }
 
@@ -182,14 +185,12 @@ fn quantifier_display(q: &Quantifier) -> String {
         Quantifier::Plus => "+".to_string(),
         Quantifier::Star => "*".to_string(),
         Quantifier::Question => "?".to_string(),
-        Quantifier::Interval(min, max) => {
-            match (min, max) {
-                (Some(n), Some(m)) => format!("{{{},{}}}", n, m),
-                (Some(n), None) => format!("{{{},}}", n),
-                (None, Some(m)) => format!("{{,{}}}", m),
-                (None, None) => "{,}".to_string(),
-            }
-        }
+        Quantifier::Interval(min, max) => match (min, max) {
+            (Some(n), Some(m)) => format!("{{{},{}}}", n, m),
+            (Some(n), None) => format!("{{{},}}", n),
+            (None, Some(m)) => format!("{{,{}}}", m),
+            (None, None) => "{,}".to_string(),
+        },
     }
 }
 
@@ -364,7 +365,11 @@ fn find_single_element_quantifier(inner: &[u8]) -> Option<(Quantifier, usize)> {
         } else {
             return None;
         }
-    } else if inner[i] == b'.' || inner[i].is_ascii_alphanumeric() || inner[i] == b'^' || inner[i] == b'$' {
+    } else if inner[i] == b'.'
+        || inner[i].is_ascii_alphanumeric()
+        || inner[i] == b'^'
+        || inner[i] == b'$'
+    {
         i += 1;
     } else {
         // Other special chars
@@ -444,5 +449,8 @@ fn contains_capture_group(pattern: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(RedundantRegexpQuantifiers, "cops/lint/redundant_regexp_quantifiers");
+    crate::cop_fixture_tests!(
+        RedundantRegexpQuantifiers,
+        "cops/lint/redundant_regexp_quantifiers"
+    );
 }

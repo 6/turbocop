@@ -1,8 +1,15 @@
-use crate::cop::util::{self, is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{
+    AND_NODE, ARRAY_NODE, ASSOC_NODE, ASSOC_SPLAT_NODE, BLOCK_NODE, CALL_NODE, ELSE_NODE,
+    EMBEDDED_STATEMENTS_NODE, HASH_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE,
+    INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, KEYWORD_HASH_NODE,
+    LOCAL_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE,
+    MULTI_WRITE_NODE, OR_NODE, PARENTHESES_NODE, RETURN_NODE, SPLAT_NODE, STATEMENTS_NODE,
+    UNLESS_NODE,
+};
+use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{AND_NODE, ARRAY_NODE, ASSOC_NODE, ASSOC_SPLAT_NODE, BLOCK_NODE, CALL_NODE, ELSE_NODE, EMBEDDED_STATEMENTS_NODE, HASH_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, MULTI_WRITE_NODE, OR_NODE, PARENTHESES_NODE, RETURN_NODE, SPLAT_NODE, STATEMENTS_NODE, UNLESS_NODE};
 
 pub struct LeakyLocalVariable;
 
@@ -22,7 +29,32 @@ impl Cop for LeakyLocalVariable {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[AND_NODE, ARRAY_NODE, ASSOC_NODE, ASSOC_SPLAT_NODE, BLOCK_NODE, CALL_NODE, ELSE_NODE, EMBEDDED_STATEMENTS_NODE, HASH_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, MULTI_WRITE_NODE, OR_NODE, PARENTHESES_NODE, RETURN_NODE, SPLAT_NODE, STATEMENTS_NODE, UNLESS_NODE]
+        &[
+            AND_NODE,
+            ARRAY_NODE,
+            ASSOC_NODE,
+            ASSOC_SPLAT_NODE,
+            BLOCK_NODE,
+            CALL_NODE,
+            ELSE_NODE,
+            EMBEDDED_STATEMENTS_NODE,
+            HASH_NODE,
+            IF_NODE,
+            INSTANCE_VARIABLE_WRITE_NODE,
+            INTERPOLATED_STRING_NODE,
+            INTERPOLATED_SYMBOL_NODE,
+            KEYWORD_HASH_NODE,
+            LOCAL_VARIABLE_OR_WRITE_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            LOCAL_VARIABLE_WRITE_NODE,
+            MULTI_WRITE_NODE,
+            OR_NODE,
+            PARENTHESES_NODE,
+            RETURN_NODE,
+            SPLAT_NODE,
+            STATEMENTS_NODE,
+            UNLESS_NODE,
+        ]
     }
 
     fn check_node(
@@ -31,8 +63,8 @@ impl Cop for LeakyLocalVariable {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for describe/context blocks (including RSpec.describe)
         let call = match node.as_call_node() {
@@ -43,7 +75,8 @@ impl Cop for LeakyLocalVariable {
         let method_name = call.name().as_slice();
 
         let is_example_group = if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).map_or(false, |n| n == b"RSpec") && is_rspec_example_group(method_name)
+            util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
+                && is_rspec_example_group(method_name)
         } else {
             is_rspec_example_group(method_name)
         };
@@ -108,12 +141,25 @@ fn check_scope_for_leaky_vars(
                 // Check if this is an example, hook, let, subject, or it_behaves_like
                 let is_inner_scope = matches!(
                     name,
-                    b"it" | b"specify" | b"example" | b"scenario"
-                        | b"xit" | b"xspecify" | b"xexample" | b"xscenario"
-                        | b"fit" | b"fspecify" | b"fexample" | b"fscenario"
-                        | b"before" | b"after" | b"around"
-                        | b"let" | b"let!"
-                        | b"subject" | b"subject!"
+                    b"it"
+                        | b"specify"
+                        | b"example"
+                        | b"scenario"
+                        | b"xit"
+                        | b"xspecify"
+                        | b"xexample"
+                        | b"xscenario"
+                        | b"fit"
+                        | b"fspecify"
+                        | b"fexample"
+                        | b"fscenario"
+                        | b"before"
+                        | b"after"
+                        | b"around"
+                        | b"let"
+                        | b"let!"
+                        | b"subject"
+                        | b"subject!"
                 ) && call.receiver().is_none();
 
                 let is_it_behaves_like = matches!(
@@ -133,7 +179,9 @@ fn check_scope_for_leaky_vars(
                     // Also check string interpolation in the first argument (e.g., `it "foo #{var}"`)
                     if let Some(args) = call.arguments() {
                         for arg in args.arguments().iter() {
-                            if is_inner_scope && arg_references_var_in_interpolation(&arg, &assign.name) {
+                            if is_inner_scope
+                                && arg_references_var_in_interpolation(&arg, &assign.name)
+                            {
                                 // If it's used ONLY in the description, not in the block body, skip
                                 // But if used in BOTH description AND body, flag it
                                 if let Some(blk) = call.block() {
@@ -188,12 +236,15 @@ fn check_scope_for_leaky_vars(
 
         if used_in_block {
             let (line, column) = source.offset_to_line_col(assign.offset);
-            diagnostics.push(cop.diagnostic(
-                source,
-                line,
-                column,
-                "Do not use local variables defined outside of examples inside of them.".to_string(),
-            ));
+            diagnostics.push(
+                cop.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Do not use local variables defined outside of examples inside of them."
+                        .to_string(),
+                ),
+            );
         }
     }
 
@@ -219,12 +270,25 @@ fn var_used_in_nested_scopes(block: ruby_prism::BlockNode<'_>, var_name: &[u8]) 
             let name = call.name().as_slice();
             let is_inner_scope = matches!(
                 name,
-                b"it" | b"specify" | b"example" | b"scenario"
-                    | b"xit" | b"xspecify" | b"xexample" | b"xscenario"
-                    | b"fit" | b"fspecify" | b"fexample" | b"fscenario"
-                    | b"before" | b"after" | b"around"
-                    | b"let" | b"let!"
-                    | b"subject" | b"subject!"
+                b"it"
+                    | b"specify"
+                    | b"example"
+                    | b"scenario"
+                    | b"xit"
+                    | b"xspecify"
+                    | b"xexample"
+                    | b"xscenario"
+                    | b"fit"
+                    | b"fspecify"
+                    | b"fexample"
+                    | b"fscenario"
+                    | b"before"
+                    | b"after"
+                    | b"around"
+                    | b"let"
+                    | b"let!"
+                    | b"subject"
+                    | b"subject!"
             ) && call.receiver().is_none();
 
             if is_inner_scope {
@@ -407,12 +471,16 @@ fn node_references_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
 
     // And/Or nodes
     if let Some(and_node) = node.as_and_node() {
-        if node_references_var(&and_node.left(), var_name) || node_references_var(&and_node.right(), var_name) {
+        if node_references_var(&and_node.left(), var_name)
+            || node_references_var(&and_node.right(), var_name)
+        {
             return true;
         }
     }
     if let Some(or_node) = node.as_or_node() {
-        if node_references_var(&or_node.left(), var_name) || node_references_var(&or_node.right(), var_name) {
+        if node_references_var(&or_node.left(), var_name)
+            || node_references_var(&or_node.right(), var_name)
+        {
             return true;
         }
     }
@@ -456,7 +524,9 @@ fn node_references_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
     if let Some(hash) = node.as_hash_node() {
         for elem in hash.elements().iter() {
             if let Some(assoc) = elem.as_assoc_node() {
-                if node_references_var(&assoc.key(), var_name) || node_references_var(&assoc.value(), var_name) {
+                if node_references_var(&assoc.key(), var_name)
+                    || node_references_var(&assoc.value(), var_name)
+                {
                     return true;
                 }
             }
@@ -467,7 +537,9 @@ fn node_references_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
     if let Some(kw) = node.as_keyword_hash_node() {
         for elem in kw.elements().iter() {
             if let Some(assoc) = elem.as_assoc_node() {
-                if node_references_var(&assoc.key(), var_name) || node_references_var(&assoc.value(), var_name) {
+                if node_references_var(&assoc.key(), var_name)
+                    || node_references_var(&assoc.value(), var_name)
+                {
                     return true;
                 }
             }

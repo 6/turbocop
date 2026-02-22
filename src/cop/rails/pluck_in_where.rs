@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    ASSOC_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, KEYWORD_HASH_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 
 pub struct PluckInWhere;
 
@@ -15,7 +17,14 @@ impl Cop for PluckInWhere {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ASSOC_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, KEYWORD_HASH_NODE]
+        &[
+            ASSOC_NODE,
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            HASH_NODE,
+            KEYWORD_HASH_NODE,
+        ]
     }
 
     fn check_node(
@@ -24,8 +33,8 @@ impl Cop for PluckInWhere {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "conservative");
 
@@ -56,7 +65,6 @@ impl Cop for PluckInWhere {
                 ));
             }
         }
-
     }
 }
 
@@ -156,6 +164,9 @@ mod tests {
         };
         let source = b"Post.where(user_id: active_users.pluck(:id))\n";
         let diags = run_cop_full_with_config(&PluckInWhere, source, config);
-        assert!(!diags.is_empty(), "aggressive style should flag non-constant receiver pluck");
+        assert!(
+            !diags.is_empty(),
+            "aggressive style should flag non-constant receiver pluck"
+        );
     }
 }

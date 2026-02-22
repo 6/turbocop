@@ -20,8 +20,8 @@ impl Cop for EmptyComment {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_border = config.get_bool("AllowBorderComment", true);
         let allow_margin = config.get_bool("AllowMarginComment", true);
@@ -29,9 +29,25 @@ impl Cop for EmptyComment {
         let lines: Vec<&[u8]> = source.lines().collect();
 
         if allow_margin {
-            check_with_grouping(&lines, allow_border, source, code_map, self, diagnostics, corrections.as_deref_mut());
+            check_with_grouping(
+                &lines,
+                allow_border,
+                source,
+                code_map,
+                self,
+                diagnostics,
+                corrections.as_deref_mut(),
+            );
         } else {
-            check_without_grouping(&lines, allow_border, source, code_map, self, diagnostics, corrections.as_deref_mut());
+            check_without_grouping(
+                &lines,
+                allow_border,
+                source,
+                code_map,
+                self,
+                diagnostics,
+                corrections.as_deref_mut(),
+            );
         }
     }
 }
@@ -97,9 +113,9 @@ fn check_with_grouping(
 
         // Check if the entire group is only empty/border comments
         let group = &comment_lines[group_start..group_end];
-        let all_empty_or_border = group.iter().all(|&(_, _, is_empty, is_border, _, _)| {
-            is_empty || (!allow_border && is_border)
-        });
+        let all_empty_or_border = group
+            .iter()
+            .all(|&(_, _, is_empty, is_border, _, _)| is_empty || (!allow_border && is_border));
 
         if all_empty_or_border {
             // Flag each empty/border comment in the group

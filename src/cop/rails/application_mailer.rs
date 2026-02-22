@@ -1,8 +1,8 @@
+use crate::cop::node_type::CLASS_NODE;
 use crate::cop::util::{full_constant_path, parent_class_name};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CLASS_NODE;
 
 pub struct ApplicationMailer;
 
@@ -29,8 +29,8 @@ impl Cop for ApplicationMailer {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let class = match node.as_class_node() {
             Some(c) => c,
@@ -57,7 +57,6 @@ impl Cop for ApplicationMailer {
                 "Use `ApplicationMailer` instead of `ActionMailer::Base`.".to_string(),
             ));
         }
-
     }
 }
 

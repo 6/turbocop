@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct BigDecimalWithNumericArgument;
 
@@ -24,8 +24,8 @@ impl Cop for BigDecimalWithNumericArgument {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -62,14 +62,27 @@ impl Cop for BigDecimalWithNumericArgument {
             if let ruby_prism::Node::FloatNode { .. } = first_arg {
                 let loc = first_arg.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(self.diagnostic(source, line, column, "Convert float literal to string and pass it to `BigDecimal`.".to_string()));
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Convert float literal to string and pass it to `BigDecimal`.".to_string(),
+                ));
             } else if let Some(str_node) = first_arg.as_string_node() {
                 let content = str_node.unescaped();
                 // Only flag string integers like BigDecimal('1'), not BigDecimal('1.5')
                 if !content.is_empty() && content.iter().all(|b| b.is_ascii_digit()) {
                     let loc = first_arg.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(self.diagnostic(source, line, column, "Convert string literal to integer and pass it to `BigDecimal`.".to_string()));
+                    diagnostics.push(
+                        self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Convert string literal to integer and pass it to `BigDecimal`."
+                                .to_string(),
+                        ),
+                    );
                 }
             }
         } else if method_name == b"to_d" {
@@ -82,13 +95,26 @@ impl Cop for BigDecimalWithNumericArgument {
             if let ruby_prism::Node::FloatNode { .. } = receiver {
                 let loc = receiver.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(self.diagnostic(source, line, column, "Convert float literal to string and pass it to `BigDecimal`.".to_string()));
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Convert float literal to string and pass it to `BigDecimal`.".to_string(),
+                ));
             } else if let Some(str_node) = receiver.as_string_node() {
                 let content = str_node.unescaped();
                 if !content.is_empty() && content.iter().all(|b| b.is_ascii_digit()) {
                     let loc = receiver.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(self.diagnostic(source, line, column, "Convert string literal to integer and pass it to `BigDecimal`.".to_string()));
+                    diagnostics.push(
+                        self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Convert string literal to integer and pass it to `BigDecimal`."
+                                .to_string(),
+                        ),
+                    );
                 }
             }
         }
@@ -98,5 +124,8 @@ impl Cop for BigDecimalWithNumericArgument {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(BigDecimalWithNumericArgument, "cops/performance/big_decimal_with_numeric_argument");
+    crate::cop_fixture_tests!(
+        BigDecimalWithNumericArgument,
+        "cops/performance/big_decimal_with_numeric_argument"
+    );
 }

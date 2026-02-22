@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    CALL_NODE, FALSE_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, NIL_NODE, RATIONAL_NODE,
+    STRING_NODE, SYMBOL_NODE, TRUE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, FALSE_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, NIL_NODE, RATIONAL_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE};
 
 pub struct YodaExpression;
 
@@ -11,7 +14,18 @@ impl Cop for YodaExpression {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, FALSE_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, NIL_NODE, RATIONAL_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE]
+        &[
+            CALL_NODE,
+            FALSE_NODE,
+            FLOAT_NODE,
+            IMAGINARY_NODE,
+            INTEGER_NODE,
+            NIL_NODE,
+            RATIONAL_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+            TRUE_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +34,8 @@ impl Cop for YodaExpression {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let supported_operators = config.get_string_array("SupportedOperators");
 
@@ -76,7 +90,6 @@ impl Cop for YodaExpression {
                 "Prefer placing the expression on the left side of the operator.".to_string(),
             ));
         }
-
     }
 }
 

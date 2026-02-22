@@ -1,13 +1,18 @@
+use crate::cop::node_type::{
+    BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE,
+    HASH_NODE, INTERPOLATED_REGULAR_EXPRESSION_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE,
+    REGULAR_EXPRESSION_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, INTERPOLATED_REGULAR_EXPRESSION_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, REGULAR_EXPRESSION_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE};
 
 pub struct SelectByRegexp;
 
 impl SelectByRegexp {
     fn is_regexp(node: &ruby_prism::Node<'_>) -> bool {
-        node.as_regular_expression_node().is_some() || node.as_interpolated_regular_expression_node().is_some()
+        node.as_regular_expression_node().is_some()
+            || node.as_interpolated_regular_expression_node().is_some()
     }
 
     fn is_local_var_named(node: &ruby_prism::Node<'_>, name: &[u8]) -> bool {
@@ -85,7 +90,20 @@ impl Cop for SelectByRegexp {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, INTERPOLATED_REGULAR_EXPRESSION_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, REGULAR_EXPRESSION_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE]
+        &[
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            HASH_NODE,
+            INTERPOLATED_REGULAR_EXPRESSION_NODE,
+            KEYWORD_HASH_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            REGULAR_EXPRESSION_NODE,
+            REQUIRED_PARAMETER_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -94,8 +112,8 @@ impl Cop for SelectByRegexp {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // We check the CallNode; its block() gives us the BlockNode
         let call = match node.as_call_node() {
@@ -107,7 +125,10 @@ impl Cop for SelectByRegexp {
         let method_bytes = method_name.as_slice();
 
         // Must be select, filter, find_all, or reject
-        if !matches!(method_bytes, b"select" | b"filter" | b"find_all" | b"reject") {
+        if !matches!(
+            method_bytes,
+            b"select" | b"filter" | b"find_all" | b"reject"
+        ) {
             return;
         }
 
@@ -188,7 +209,10 @@ impl Cop for SelectByRegexp {
             source,
             line,
             column,
-            format!("Prefer `{}` to `{}` with a regexp match.", replacement, method_str),
+            format!(
+                "Prefer `{}` to `{}` with a regexp match.",
+                replacement, method_str
+            ),
         ));
     }
 }

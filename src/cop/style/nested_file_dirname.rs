@@ -18,8 +18,8 @@ impl Cop for NestedFileDirname {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // minimum_target_ruby_version 3.1
         let ruby_ver = config
@@ -59,18 +59,14 @@ impl<'pr> Visit<'pr> for DirnameVisitor<'_, '_> {
                             let level = count_dirname_nesting(&arg_list[0], 1) + 1;
                             let inner_path_src =
                                 get_innermost_path_source(&arg_list[0], self.source);
-                            let msg_loc =
-                                node.message_loc().unwrap_or_else(|| node.location());
+                            let msg_loc = node.message_loc().unwrap_or_else(|| node.location());
                             let (line, column) =
                                 self.source.offset_to_line_col(msg_loc.start_offset());
                             self.diagnostics.push(self.cop.diagnostic(
                                 self.source,
                                 line,
                                 column,
-                                format!(
-                                    "Use `dirname({}, {})` instead.",
-                                    inner_path_src, level
-                                ),
+                                format!("Use `dirname({}, {})` instead.", inner_path_src, level),
                             ));
                             // Skip visiting children — inner File.dirname calls
                             // are already counted; don't produce inner reports.
@@ -141,8 +137,7 @@ fn is_file_const(node: &ruby_prism::Node<'_>) -> bool {
         return c.name().as_slice() == b"File";
     }
     if let Some(cp) = node.as_constant_path_node() {
-        return cp.parent().is_none()
-            && cp.name().is_some_and(|n| n.as_slice() == b"File");
+        return cp.parent().is_none() && cp.name().is_some_and(|n| n.as_slice() == b"File");
     }
     false
 }

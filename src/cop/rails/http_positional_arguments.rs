@@ -6,9 +6,7 @@ use ruby_prism::Visit;
 
 pub struct HttpPositionalArguments;
 
-const HTTP_METHODS: &[&[u8]] = &[
-    b"get", b"post", b"put", b"patch", b"delete", b"head",
-];
+const HTTP_METHODS: &[&[u8]] = &[b"get", b"post", b"put", b"patch", b"delete", b"head"];
 
 impl Cop for HttpPositionalArguments {
     fn name(&self) -> &'static str {
@@ -25,8 +23,8 @@ impl Cop for HttpPositionalArguments {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // minimum_target_rails_version 5.0
         // RuboCop uses `requires_gem('railties', '>= 5.0')` which skips the cop

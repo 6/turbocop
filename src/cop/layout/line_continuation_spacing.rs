@@ -16,8 +16,8 @@ impl Cop for LineContinuationSpacing {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "space");
 
@@ -112,7 +112,6 @@ impl Cop for LineContinuationSpacing {
                 _ => {}
             }
         }
-
     }
 }
 

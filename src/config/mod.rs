@@ -49,10 +49,10 @@ struct InheritMode {
 /// recompiling glob patterns on every `is_cop_enabled` call.
 pub struct CopFilter {
     enabled: bool,
-    include_set: Option<GlobSet>,     // None = match all files
-    exclude_set: Option<GlobSet>,     // None = exclude no files
-    include_re: Option<RegexSet>,     // Ruby regexp include patterns
-    exclude_re: Option<RegexSet>,     // Ruby regexp exclude patterns
+    include_set: Option<GlobSet>, // None = match all files
+    exclude_set: Option<GlobSet>, // None = exclude no files
+    include_re: Option<RegexSet>, // Ruby regexp include patterns
+    exclude_re: Option<RegexSet>, // Ruby regexp exclude patterns
 }
 
 impl CopFilter {
@@ -134,7 +134,7 @@ impl CopFilter {
 pub struct CopFilterSet {
     global_exclude: GlobSet,
     global_exclude_re: Option<RegexSet>, // Ruby regexp global exclude patterns
-    filters: Vec<CopFilter>,            // indexed by cop position in registry
+    filters: Vec<CopFilter>,             // indexed by cop position in registry
     /// Config directory for relativizing file paths before glob matching.
     /// Cop Include/Exclude patterns are relative to the project root
     /// (where `.rubocop.yml` lives), but file paths may include a prefix
@@ -319,15 +319,13 @@ impl CopFilterSet {
         let has_include = include_set.is_some() || include_re.is_some();
         if has_include {
             let path_str = path.to_string_lossy();
-            let glob_match = include_set
-                .as_ref()
-                .is_some_and(|inc| inc.is_match(path) || rel_path.is_some_and(|rel| inc.is_match(rel)));
-            let re_match = include_re
-                .as_ref()
-                .is_some_and(|re| {
-                    re.is_match(path_str.as_ref())
-                        || rel_path.is_some_and(|rel| re.is_match(&rel.to_string_lossy()))
-                });
+            let glob_match = include_set.as_ref().is_some_and(|inc| {
+                inc.is_match(path) || rel_path.is_some_and(|rel| inc.is_match(rel))
+            });
+            let re_match = include_re.as_ref().is_some_and(|re| {
+                re.is_match(path_str.as_ref())
+                    || rel_path.is_some_and(|rel| re.is_match(&rel.to_string_lossy()))
+            });
             if !glob_match && !re_match {
                 return false;
             }
@@ -335,8 +333,7 @@ impl CopFilterSet {
 
         // Exclude check: file is excluded if either path form matches
         if let Some(ref exc) = exclude_set {
-            let excluded =
-                exc.is_match(path) || rel_path.is_some_and(|rel| exc.is_match(rel));
+            let excluded = exc.is_match(path) || rel_path.is_some_and(|rel| exc.is_match(rel));
             if excluded {
                 return false;
             }
@@ -365,9 +362,7 @@ fn discover_sub_config_dirs(root: &Path) -> Vec<PathBuf> {
         .build();
 
     for entry in walker.flatten() {
-        if entry.file_type().is_some_and(|ft| ft.is_file())
-            && entry.file_name() == ".rubocop.yml"
-        {
+        if entry.file_type().is_some_and(|ft| ft.is_file()) && entry.file_name() == ".rubocop.yml" {
             if let Some(parent) = entry.path().parent() {
                 // Skip the root directory itself
                 if parent != root {
@@ -676,10 +671,14 @@ fn convert_standard_yml(standard_path: &Path) -> Result<String> {
             }
         }
     }
-    lines.push(format!("require:\n{}", requires.iter()
-        .map(|r| format!("  - {r}"))
-        .collect::<Vec<_>>()
-        .join("\n")));
+    lines.push(format!(
+        "require:\n{}",
+        requires
+            .iter()
+            .map(|r| format!("  - {r}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    ));
 
     // AllCops section
     let mut all_cops_lines: Vec<String> = Vec::new();
@@ -723,10 +722,7 @@ fn convert_standard_yml(standard_path: &Path) -> Result<String> {
                             if let (Some(glob), Some(cops)) = (k.as_str(), v.as_sequence()) {
                                 for cop in cops {
                                     if let Some(cop_name) = cop.as_str() {
-                                        cop_disables.push((
-                                            cop_name.to_string(),
-                                            glob.to_string(),
-                                        ));
+                                        cop_disables.push((cop_name.to_string(), glob.to_string()));
                                     }
                                 }
                             }
@@ -769,14 +765,19 @@ fn convert_standard_yml(standard_path: &Path) -> Result<String> {
     // extend_config → inherit_from
     if let Some(extend) = map.get(&serde_yml::Value::String("extend_config".into())) {
         if let Some(seq) = extend.as_sequence() {
-            let files: Vec<String> = seq.iter()
+            let files: Vec<String> = seq
+                .iter()
                 .filter_map(|v| v.as_str().map(String::from))
                 .collect();
             if !files.is_empty() {
-                lines.push(format!("inherit_from:\n{}", files.iter()
-                    .map(|f| format!("  - {f}"))
-                    .collect::<Vec<_>>()
-                    .join("\n")));
+                lines.push(format!(
+                    "inherit_from:\n{}",
+                    files
+                        .iter()
+                        .map(|f| format!("  - {f}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                ));
             }
         }
     }
@@ -885,9 +886,7 @@ pub fn load_config(
     // keep their enabled state.
     if disabled_by_default {
         for (cop_name, cop_cfg) in base.cop_configs.iter_mut() {
-            if cop_cfg.enabled == EnabledState::True
-                && !project_mentioned_cops.contains(cop_name)
-            {
+            if cop_cfg.enabled == EnabledState::True && !project_mentioned_cops.contains(cop_name) {
                 cop_cfg.enabled = EnabledState::Unset;
             }
         }
@@ -1133,13 +1132,17 @@ fn load_config_recursive_inner(
             for (i, gem) in gems.iter().enumerate() {
                 if gem == "standard-rails"
                     && !gems.iter().any(|g| g == "rubocop-rails")
-                    && !injected.iter().any(|(_, g): &(usize, String)| g == "rubocop-rails")
+                    && !injected
+                        .iter()
+                        .any(|(_, g): &(usize, String)| g == "rubocop-rails")
                 {
                     injected.push((i, "rubocop-rails".to_string()));
                 }
                 if gem == "standard-performance"
                     && !gems.iter().any(|g| g == "rubocop-performance")
-                    && !injected.iter().any(|(_, g): &(usize, String)| g == "rubocop-performance")
+                    && !injected
+                        .iter()
+                        .any(|(_, g): &(usize, String)| g == "rubocop-performance")
                 {
                     injected.push((i, "rubocop-performance".to_string()));
                 }
@@ -1161,7 +1164,6 @@ fn load_config_recursive_inner(
         let visited_before_require = visited.clone();
 
         if !gems.is_empty() {
-
             for gem_name in &gems {
                 // Determine what config file to load for this gem.
                 // rubocop-* gems use config/default.yml.
@@ -1169,9 +1171,7 @@ fn load_config_recursive_inner(
                 // Other gems (custom cops, Ruby files, etc.) are skipped.
                 let config_rel_path: Option<String> = if gem_name.starts_with("rubocop-") {
                     Some("config/default.yml".into())
-                } else if let Some(path) =
-                    standard_gem_config_path(gem_name, local_ruby_version)
-                {
+                } else if let Some(path) = standard_gem_config_path(gem_name, local_ruby_version) {
                     Some(path.into())
                 } else {
                     None
@@ -1180,18 +1180,17 @@ fn load_config_recursive_inner(
                     continue;
                 };
 
-                let gem_root =
-                    if let Some(path) = gem_cache.and_then(|c| c.get(gem_name)) {
-                        path.clone()
-                    } else {
-                        match gem_path::resolve_gem_path(gem_name, working_dir) {
-                            Ok(p) => p,
-                            Err(e) => {
-                                eprintln!("warning: require '{}': {e:#}", gem_name);
-                                continue;
-                            }
+                let gem_root = if let Some(path) = gem_cache.and_then(|c| c.get(gem_name)) {
+                    path.clone()
+                } else {
+                    match gem_path::resolve_gem_path(gem_name, working_dir) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            eprintln!("warning: require '{}': {e:#}", gem_name);
+                            continue;
                         }
-                    };
+                    }
+                };
                 let config_file = gem_root.join(&config_rel_path);
                 if !config_file.exists() {
                     // For standard-family gems, fall back to config/base.yml if the
@@ -1199,7 +1198,8 @@ fn load_config_recursive_inner(
                     if !gem_name.starts_with("rubocop-") {
                         let fallback = gem_root.join("config").join("base.yml");
                         if fallback.exists() {
-                            match load_config_recursive(&fallback, working_dir, visited, gem_cache) {
+                            match load_config_recursive(&fallback, working_dir, visited, gem_cache)
+                            {
                                 Ok(layer) => merge_layer_into(&mut base_layer, &layer, None),
                                 Err(e) => {
                                     eprintln!(
@@ -1248,16 +1248,8 @@ fn load_config_recursive_inner(
         // Track ALL cops mentioned in require: gem configs (for version awareness).
         // Cops from plugin departments not in this set don't exist in the
         // installed gem version and should be treated as disabled.
-        base_layer.require_known_cops = base_layer
-            .cop_configs
-            .keys()
-            .cloned()
-            .collect();
-        base_layer.require_departments = base_layer
-            .department_configs
-            .keys()
-            .cloned()
-            .collect();
+        base_layer.require_known_cops = base_layer.cop_configs.keys().cloned().collect();
+        base_layer.require_departments = base_layer.department_configs.keys().cloned().collect();
 
         // Also register departments from *requested* gems even if gem resolution
         // failed (e.g., `bundle` not on PATH). This ensures plugin departments
@@ -1271,19 +1263,27 @@ fn load_config_recursive_inner(
             }
         }
 
-
         // 1. Process inherit_gem
         if let Some(gem_value) = map.get(&Value::String("inherit_gem".to_string())) {
             if let Value::Mapping(gem_map) = gem_value {
                 for (gem_key, gem_paths) in gem_map {
                     if let Some(gem_name) = gem_key.as_str() {
-                        let gem_layers =
-                            resolve_inherit_gem(gem_name, gem_paths, working_dir, visited, gem_cache)?;
+                        let gem_layers = resolve_inherit_gem(
+                            gem_name,
+                            gem_paths,
+                            working_dir,
+                            visited,
+                            gem_cache,
+                        )?;
                         for layer in gem_layers {
                             // Propagate user_mentioned from the layer's recursive loading.
                             // Don't use cop_configs.keys() — that includes require: defaults.
-                            base_layer.user_mentioned_cops.extend(layer.user_mentioned_cops.iter().cloned());
-                            base_layer.user_mentioned_depts.extend(layer.user_mentioned_depts.iter().cloned());
+                            base_layer
+                                .user_mentioned_cops
+                                .extend(layer.user_mentioned_cops.iter().cloned());
+                            base_layer
+                                .user_mentioned_depts
+                                .extend(layer.user_mentioned_depts.iter().cloned());
                             merge_layer_into(&mut base_layer, &layer, None);
                         }
                     }
@@ -1316,8 +1316,12 @@ fn load_config_recursive_inner(
                     Ok(layer) => {
                         // Propagate user_mentioned from the layer's recursive loading.
                         // Don't use cop_configs.keys() — that includes require: defaults.
-                        base_layer.user_mentioned_cops.extend(layer.user_mentioned_cops.iter().cloned());
-                        base_layer.user_mentioned_depts.extend(layer.user_mentioned_depts.iter().cloned());
+                        base_layer
+                            .user_mentioned_cops
+                            .extend(layer.user_mentioned_cops.iter().cloned());
+                        base_layer
+                            .user_mentioned_depts
+                            .extend(layer.user_mentioned_depts.iter().cloned());
                         merge_layer_into(&mut base_layer, &layer, None);
                     }
                     Err(e) => {
@@ -1334,9 +1338,17 @@ fn load_config_recursive_inner(
     // 3. Parse the local config layer and merge it on top (highest priority)
     let local_layer = parse_config_layer(&raw);
     // Track cops from the local config file as user-mentioned
-    base_layer.user_mentioned_cops.extend(local_layer.cop_configs.keys().cloned());
-    base_layer.user_mentioned_depts.extend(local_layer.department_configs.keys().cloned());
-    merge_layer_into(&mut base_layer, &local_layer, Some(&local_layer.inherit_mode));
+    base_layer
+        .user_mentioned_cops
+        .extend(local_layer.cop_configs.keys().cloned());
+    base_layer
+        .user_mentioned_depts
+        .extend(local_layer.department_configs.keys().cloned());
+    merge_layer_into(
+        &mut base_layer,
+        &local_layer,
+        Some(&local_layer.inherit_mode),
+    );
 
     Ok(base_layer)
 }
@@ -1650,11 +1662,7 @@ fn merge_department_config(
 }
 
 /// Merge a single cop's overlay config into its base config.
-fn merge_cop_config(
-    base: &mut CopConfig,
-    overlay: &CopConfig,
-    inherit_mode: Option<&InheritMode>,
-) {
+fn merge_cop_config(base: &mut CopConfig, overlay: &CopConfig, inherit_mode: Option<&InheritMode>) {
     // Enabled: last writer wins (only if overlay explicitly set it)
     if overlay.enabled != EnabledState::Unset {
         base.enabled = overlay.enabled;
@@ -1802,9 +1810,7 @@ impl ResolvedConfig {
         } else if dept_enabled_state == EnabledState::False {
             EnabledState::False
         } else if dept_enabled_state == EnabledState::True {
-            if self.disabled_by_default
-                && self.project_enabled_depts.contains(dept)
-            {
+            if self.disabled_by_default && self.project_enabled_depts.contains(dept) {
                 // DisabledByDefault + department explicitly enabled by user
                 // → restore to True (matching RuboCop's handle_disabled_by_default)
                 EnabledState::True
@@ -1951,9 +1957,10 @@ impl ResolvedConfig {
                     .and_then(|cc| cc.options.get("Max"))
                     .and_then(|v| v.as_u64())
                     .unwrap_or(120);
-                config
-                    .options
-                    .insert("MaxLineLength".to_string(), Value::Number(serde_yml::Number::from(max)));
+                config.options.insert(
+                    "MaxLineLength".to_string(),
+                    Value::Number(serde_yml::Number::from(max)),
+                );
             }
             if !config.options.contains_key("LineLengthEnabled") {
                 let enabled = line_length_config
@@ -2206,8 +2213,7 @@ impl ResolvedConfig {
         // Build global exclude set (globs + regexes)
         let global_exclude_pats: Vec<&str> =
             self.global_excludes.iter().map(|s| s.as_str()).collect();
-        let global_exclude =
-            build_glob_set(&global_exclude_pats).unwrap_or_else(GlobSet::empty);
+        let global_exclude = build_glob_set(&global_exclude_pats).unwrap_or_else(GlobSet::empty);
         let global_exclude_re = build_regex_set(&global_exclude_pats);
 
         let filters: Vec<CopFilter> = registry
@@ -2272,9 +2278,7 @@ impl ResolvedConfig {
 
                 let mut enabled = match enabled_state {
                     EnabledState::False => false,
-                    EnabledState::Pending => {
-                        self.new_cops == NewCopsPolicy::Enable
-                    }
+                    EnabledState::Pending => self.new_cops == NewCopsPolicy::Enable,
                     EnabledState::Unset => !self.disabled_by_default && cop.default_enabled(),
                     EnabledState::True => true,
                 };
@@ -2415,9 +2419,7 @@ impl ResolvedConfig {
             .filter(|(_name, config)| match config.enabled {
                 EnabledState::True => true,
                 EnabledState::Unset => !self.disabled_by_default,
-                EnabledState::Pending => {
-                    self.new_cops == NewCopsPolicy::Enable
-                }
+                EnabledState::Pending => self.new_cops == NewCopsPolicy::Enable,
                 EnabledState::False => false,
             })
             .map(|(name, _)| name.clone())
@@ -2446,9 +2448,7 @@ impl ResolvedConfig {
         for name in self.enabled_cop_names() {
             if registry_names.contains(name.as_str()) {
                 // Implemented — check if preview-gated
-                if !preview
-                    && tier_map.tier_for(&name) == crate::cop::tiers::Tier::Preview
-                {
+                if !preview && tier_map.tier_for(&name) == crate::cop::tiers::Tier::Preview {
                     summary.preview_gated.push(name);
                 }
             } else if baseline.contains(name.as_str()) {
@@ -2670,9 +2670,7 @@ fn standard_perf_version_config(ruby_version: f64) -> &'static str {
 fn standard_gem_config_path(gem_name: &str, ruby_version: Option<f64>) -> Option<&'static str> {
     match gem_name {
         "standard" => Some(standard_version_config(ruby_version.unwrap_or(3.4))),
-        "standard-performance" => {
-            Some(standard_perf_version_config(ruby_version.unwrap_or(3.4)))
-        }
+        "standard-performance" => Some(standard_perf_version_config(ruby_version.unwrap_or(3.4))),
         "standard-rails" | "standard-custom" => Some("config/base.yml"),
         _ => None,
     }
@@ -2684,9 +2682,7 @@ fn standard_gem_config_path(gem_name: &str, ruby_version: Option<f64>) -> Option
 /// Core departments (Layout, Lint, Style, Metrics, Naming, Security, Bundler,
 /// Gemspec) are always available. Plugin departments need their gem loaded.
 fn is_plugin_department(dept: &str) -> bool {
-    PLUGIN_GEM_DEPARTMENTS
-        .iter()
-        .any(|(d, _)| *d == dept)
+    PLUGIN_GEM_DEPARTMENTS.iter().any(|(d, _)| *d == dept)
 }
 
 /// Resolve TargetRubyVersion from a gemspec's `required_ruby_version` constraint.
@@ -2702,11 +2698,7 @@ fn resolve_ruby_version_from_gemspec(config_dir: &Path) -> Option<f64> {
     let entries: Vec<_> = std::fs::read_dir(config_dir)
         .ok()?
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .is_some_and(|ext| ext == "gemspec")
-        })
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "gemspec"))
         .collect();
     if entries.len() != 1 {
         return None; // Must be exactly one gemspec
@@ -2790,10 +2782,7 @@ fn glob_matches(pattern: &str, path: &Path) -> bool {
         }
         return false;
     }
-    let glob = match GlobBuilder::new(pattern)
-        .literal_separator(false)
-        .build()
-    {
+    let glob = match GlobBuilder::new(pattern).literal_separator(false).build() {
         Ok(g) => g,
         Err(_) => return false,
     };
@@ -2827,8 +2816,7 @@ mod tests {
 
     #[test]
     fn missing_config_returns_empty() {
-        let config =
-            load_config(Some(Path::new("/nonexistent/.rubocop.yml")), None, None).unwrap();
+        let config = load_config(Some(Path::new("/nonexistent/.rubocop.yml")), None, None).unwrap();
         assert!(config.global_excludes().is_empty());
         assert!(config.is_cop_enabled("Style/Foo", Path::new("a.rb"), &[], &[]));
     }
@@ -2902,7 +2890,10 @@ mod tests {
     fn non_cop_keys_ignored() {
         let dir = std::env::temp_dir().join("turbocop_test_config_noncop");
         fs::create_dir_all(&dir).unwrap();
-        let path = write_config(&dir, "AllCops:\n  Exclude: []\nrequire:\n  - rubocop-rspec\n");
+        let path = write_config(
+            &dir,
+            "AllCops:\n  Exclude: []\nrequire:\n  - rubocop-rspec\n",
+        );
         let config = load_config(Some(&path), None, None).unwrap();
         // "require" has no "/" so should not be treated as a cop
         assert!(config.is_cop_enabled("require", Path::new("a.rb"), &[], &[]));
@@ -2911,8 +2902,7 @@ mod tests {
 
     #[test]
     fn default_cop_config() {
-        let config =
-            load_config(Some(Path::new("/nonexistent/.rubocop.yml")), None, None).unwrap();
+        let config = load_config(Some(Path::new("/nonexistent/.rubocop.yml")), None, None).unwrap();
         let cc = config.cop_config("Style/Whatever");
         assert_eq!(cc.enabled, EnabledState::Unset);
         assert!(cc.severity.is_none());
@@ -2924,8 +2914,7 @@ mod tests {
 
     #[test]
     fn default_include_filters_files() {
-        let config =
-            load_config(Some(Path::new("/nonexistent/.rubocop.yml")), None, None).unwrap();
+        let config = load_config(Some(Path::new("/nonexistent/.rubocop.yml")), None, None).unwrap();
         // With default_include set, only matching files pass
         // Use a core department (Style) so plugin department filtering doesn't apply.
         let inc = &["db/migrate/**/*.rb"];
@@ -2935,18 +2924,12 @@ mod tests {
             inc,
             &[]
         ));
-        assert!(!config.is_cop_enabled(
-            "Style/Foo",
-            Path::new("app/models/user.rb"),
-            inc,
-            &[]
-        ));
+        assert!(!config.is_cop_enabled("Style/Foo", Path::new("app/models/user.rb"), inc, &[]));
     }
 
     #[test]
     fn default_exclude_filters_files() {
-        let config =
-            load_config(Some(Path::new("/nonexistent/.rubocop.yml")), None, None).unwrap();
+        let config = load_config(Some(Path::new("/nonexistent/.rubocop.yml")), None, None).unwrap();
         let exc = &["spec/**/*.rb"];
         assert!(config.is_cop_enabled("Style/Foo", Path::new("app/models/user.rb"), &[], exc));
         assert!(!config.is_cop_enabled(
@@ -2962,10 +2945,7 @@ mod tests {
         let dir = std::env::temp_dir().join("turbocop_test_config_inc_override");
         fs::create_dir_all(&dir).unwrap();
         // Use a core department cop (Style/) so plugin department filtering doesn't apply
-        let path = write_config(
-            &dir,
-            "Style/Migration:\n  Include:\n    - 'db/**/*.rb'\n",
-        );
+        let path = write_config(&dir, "Style/Migration:\n  Include:\n    - 'db/**/*.rb'\n");
         let config = load_config(Some(&path), None, None).unwrap();
         // Default include is narrower but user config overrides
         let default_inc = &["db/migrate/**/*.rb"];
@@ -2984,12 +2964,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let path = write_config(&dir, "AllCops:\n  Exclude:\n    - 'vendor/**'\n");
         let config = load_config(Some(&path), None, None).unwrap();
-        assert!(!config.is_cop_enabled(
-            "Style/Foo",
-            Path::new("vendor/gems/foo.rb"),
-            &[],
-            &[]
-        ));
+        assert!(!config.is_cop_enabled("Style/Foo", Path::new("vendor/gems/foo.rb"), &[], &[]));
         assert!(config.is_cop_enabled("Style/Foo", Path::new("app/models/user.rb"), &[], &[]));
         fs::remove_dir_all(&dir).ok();
     }
@@ -3082,33 +3057,13 @@ mod tests {
             &[]
         ));
         // Regexp pattern should match vendor paths
-        assert!(!config.is_cop_enabled(
-            "Style/Foo",
-            Path::new("vendor/bundle/foo.rb"),
-            &[],
-            &[]
-        ));
+        assert!(!config.is_cop_enabled("Style/Foo", Path::new("vendor/bundle/foo.rb"), &[], &[]));
         // Regexp pattern should match tmp paths
-        assert!(!config.is_cop_enabled(
-            "Style/Foo",
-            Path::new("tmp/cache/something.rb"),
-            &[],
-            &[]
-        ));
+        assert!(!config.is_cop_enabled("Style/Foo", Path::new("tmp/cache/something.rb"), &[], &[]));
         // Regexp pattern should match bare "vendor" (end-of-string)
-        assert!(!config.is_cop_enabled(
-            "Style/Foo",
-            Path::new("vendor"),
-            &[],
-            &[]
-        ));
+        assert!(!config.is_cop_enabled("Style/Foo", Path::new("vendor"), &[], &[]));
         // Non-matching paths should still work
-        assert!(config.is_cop_enabled(
-            "Style/Foo",
-            Path::new("app/models/user.rb"),
-            &[],
-            &[]
-        ));
+        assert!(config.is_cop_enabled("Style/Foo", Path::new("app/models/user.rb"), &[], &[]));
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -3123,7 +3078,11 @@ mod tests {
         );
         let config = load_config(Some(&path), None, None).unwrap();
         // Build a minimal filter set to test is_globally_excluded
-        let pats: Vec<&str> = config.global_excludes().iter().map(|s| s.as_str()).collect();
+        let pats: Vec<&str> = config
+            .global_excludes()
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
         let global_exclude = build_glob_set(&pats).unwrap_or_else(GlobSet::empty);
         let global_exclude_re = build_regex_set(&pats);
         let filter_set = CopFilterSet {
@@ -3136,24 +3095,23 @@ mod tests {
             pattern_cop_indices: Vec::new(),
         };
         // Glob pattern should work
-        assert!(filter_set.is_globally_excluded(Path::new(&format!(
-            "{}/tmp/cache/foo.rb",
-            dir.display()
-        ))));
+        assert!(
+            filter_set
+                .is_globally_excluded(Path::new(&format!("{}/tmp/cache/foo.rb", dir.display())))
+        );
         // Regex pattern should work
-        assert!(filter_set.is_globally_excluded(Path::new(&format!(
-            "{}/vendor/gems/bar.rb",
-            dir.display()
-        ))));
-        assert!(filter_set.is_globally_excluded(Path::new(&format!(
-            "{}/bundle/config",
-            dir.display()
-        ))));
+        assert!(
+            filter_set
+                .is_globally_excluded(Path::new(&format!("{}/vendor/gems/bar.rb", dir.display())))
+        );
+        assert!(
+            filter_set.is_globally_excluded(Path::new(&format!("{}/bundle/config", dir.display())))
+        );
         // Non-matching should not be excluded
-        assert!(!filter_set.is_globally_excluded(Path::new(&format!(
-            "{}/app/models/user.rb",
-            dir.display()
-        ))));
+        assert!(
+            !filter_set
+                .is_globally_excluded(Path::new(&format!("{}/app/models/user.rb", dir.display())))
+        );
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -3162,7 +3120,10 @@ mod tests {
         // Mix of glob and regex patterns
         let patterns = vec!["vendor/**", "/(tmp|cache)($|\\/.*)/", "**/*.log"];
         let re = build_regex_set(&patterns);
-        assert!(re.is_some(), "Should build a regex set with 1 regex pattern");
+        assert!(
+            re.is_some(),
+            "Should build a regex set with 1 regex pattern"
+        );
         let re = re.unwrap();
         assert!(re.is_match("tmp/foo.rb"));
         assert!(re.is_match("cache/bar.rb"));
@@ -3339,7 +3300,10 @@ mod tests {
 
         let path = dir.join("a.yml");
         let result = load_config(Some(&path), None, None);
-        assert!(result.is_ok(), "Expected cycle to be safely broken, got: {result:?}");
+        assert!(
+            result.is_ok(),
+            "Expected cycle to be safely broken, got: {result:?}"
+        );
 
         fs::remove_dir_all(&dir).ok();
     }
@@ -3379,14 +3343,8 @@ mod tests {
 
     #[test]
     fn standard_perf_version_config_selects_correct_file() {
-        assert_eq!(
-            standard_perf_version_config(1.8),
-            "config/ruby-1.8.yml"
-        );
-        assert_eq!(
-            standard_perf_version_config(2.2),
-            "config/ruby-2.2.yml"
-        );
+        assert_eq!(standard_perf_version_config(1.8), "config/ruby-1.8.yml");
+        assert_eq!(standard_perf_version_config(2.2), "config/ruby-2.2.yml");
         // 2.3+ uses base.yml
         assert_eq!(standard_perf_version_config(2.3), "config/base.yml");
         assert_eq!(standard_perf_version_config(3.1), "config/base.yml");
@@ -3506,10 +3464,7 @@ mod tests {
         );
 
         merge_layer_into(&mut base, &overlay, None);
-        assert_eq!(
-            base.cop_configs["Style/Foo"].enabled,
-            EnabledState::False
-        );
+        assert_eq!(base.cop_configs["Style/Foo"].enabled, EnabledState::False);
     }
 
     #[test]
@@ -3663,10 +3618,7 @@ mod tests {
 
         // Pre-populate gem cache so we don't need `bundle`
         let mut gem_cache = HashMap::new();
-        gem_cache.insert(
-            "fake-rubocop-plugin".to_string(),
-            fake_gem_dir.clone(),
-        );
+        gem_cache.insert("fake-rubocop-plugin".to_string(), fake_gem_dir.clone());
 
         // Project config inherits from the fake gem and enables one cop
         let path = write_config(
@@ -3693,8 +3645,7 @@ mod tests {
         // defaults are treated as defaults (disabled), while cops explicitly
         // mentioned in user config files (inherit_gem/inherit_from/local) are
         // kept enabled.
-        let dir =
-            std::env::temp_dir().join("turbocop_test_disabled_by_default_require_cops");
+        let dir = std::env::temp_dir().join("turbocop_test_disabled_by_default_require_cops");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -3727,10 +3678,7 @@ mod tests {
         gem_cache.insert("rubocop-fakeplugin".to_string(), plugin_dir);
         gem_cache.insert("my-company-style".to_string(), style_dir);
 
-        let path = write_config(
-            &dir,
-            "inherit_gem:\n  my-company-style: default.yml\n",
-        );
+        let path = write_config(&dir, "inherit_gem:\n  my-company-style: default.yml\n");
         let config = load_config(Some(&path), None, Some(&gem_cache)).unwrap();
 
         // CopA: explicitly mentioned in core.yml (user config) → enabled
@@ -3768,14 +3716,14 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
-        let path = write_config(
-            &dir,
-            "inherit_gem:\n  nonexistent-gem-xyz: config.yml\n",
-        );
+        let path = write_config(&dir, "inherit_gem:\n  nonexistent-gem-xyz: config.yml\n");
         // Pass empty gem cache — gem won't be found
         let gem_cache = HashMap::new();
         let result = load_config(Some(&path), Some(&dir), Some(&gem_cache));
-        assert!(result.is_err(), "Expected error for missing inherit_gem, got Ok");
+        assert!(
+            result.is_err(),
+            "Expected error for missing inherit_gem, got Ok"
+        );
         let err_msg = format!("{:#}", result.unwrap_err());
         assert!(
             err_msg.contains("inherit_gem") && err_msg.contains("nonexistent-gem-xyz"),
@@ -3840,8 +3788,7 @@ mod tests {
     fn plugin_department_disabled_without_require() {
         // Plugin departments (Rails, RSpec, Performance, etc.) should be disabled
         // when the corresponding gem is not loaded via require:/plugins:
-        let config =
-            load_config(Some(Path::new("/nonexistent/.rubocop.yml")), None, None).unwrap();
+        let config = load_config(Some(Path::new("/nonexistent/.rubocop.yml")), None, None).unwrap();
         assert!(!config.is_cop_enabled("Rails/Output", Path::new("a.rb"), &[], &[]));
         assert!(!config.is_cop_enabled("RSpec/ExampleLength", Path::new("a.rb"), &[], &[]));
         assert!(!config.is_cop_enabled("Performance/Count", Path::new("a.rb"), &[], &[]));
@@ -3953,11 +3900,7 @@ mod tests {
     // These test the Include-OR / Exclude-OR logic that handles running
     // from outside the project root where file paths have a prefix.
 
-    fn make_filter(
-        enabled: bool,
-        include: &[&str],
-        exclude: &[&str],
-    ) -> CopFilter {
+    fn make_filter(enabled: bool, include: &[&str], exclude: &[&str]) -> CopFilter {
         CopFilter {
             enabled,
             include_set: build_glob_set(include),
@@ -4033,11 +3976,7 @@ mod tests {
     fn is_cop_match_exclude_on_relativized_path_overrides_include() {
         // RSpec/EmptyExampleGroup scenario: Include matches via ** prefix,
         // but project-relative Exclude should still block the file.
-        let filter = make_filter(
-            true,
-            &["**/spec/**/*_spec.rb"],
-            &["spec/requests/api/*"],
-        );
+        let filter = make_filter(true, &["**/spec/**/*_spec.rb"], &["spec/requests/api/*"]);
         let filter_set = CopFilterSet {
             global_exclude: GlobSet::empty(),
             global_exclude_re: None,
@@ -4389,10 +4328,17 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join(".standard.yml");
-        fs::write(&path, "plugins:\n  - standard-performance\n  - standard-rails\n").unwrap();
+        fs::write(
+            &path,
+            "plugins:\n  - standard-performance\n  - standard-rails\n",
+        )
+        .unwrap();
 
         let yaml = convert_standard_yml(&path).unwrap();
-        assert!(yaml.contains("- standard\n"), "should always include 'standard'");
+        assert!(
+            yaml.contains("- standard\n"),
+            "should always include 'standard'"
+        );
         assert!(yaml.contains("- standard-performance"));
         assert!(yaml.contains("- standard-rails"));
         fs::remove_dir_all(&dir).ok();
@@ -4417,11 +4363,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join(".standard.yml");
-        fs::write(
-            &path,
-            "ignore:\n  - 'db/migrate/201*'\n  - 'vendor/**'\n",
-        )
-        .unwrap();
+        fs::write(&path, "ignore:\n  - 'db/migrate/201*'\n  - 'vendor/**'\n").unwrap();
 
         let yaml = convert_standard_yml(&path).unwrap();
         assert!(yaml.contains("AllCops:"), "got: {yaml}");
@@ -4495,7 +4437,10 @@ mod tests {
         fs::write(&path, "# empty config\n").unwrap();
 
         let yaml = convert_standard_yml(&path).unwrap();
-        assert!(yaml.contains("bin/*"), "default ignores should include bin/*; got: {yaml}");
+        assert!(
+            yaml.contains("bin/*"),
+            "default ignores should include bin/*; got: {yaml}"
+        );
         assert!(
             yaml.contains("db/schema.rb"),
             "default ignores should include db/schema.rb; got: {yaml}"
@@ -4670,10 +4615,7 @@ mod tests {
         gem_cache.insert("custom-style".to_string(), style_dir);
 
         // Project config inherits from style gem (gets DisabledByDefault + require)
-        let path = write_config(
-            &dir,
-            "inherit_gem:\n  custom-style: core.yml\n",
-        );
+        let path = write_config(&dir, "inherit_gem:\n  custom-style: core.yml\n");
         let config = load_config(Some(&path), None, Some(&gem_cache)).unwrap();
 
         // FakePerf cops should be DISABLED: Enabled: true came from require:

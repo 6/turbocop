@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    CALL_NODE, FALSE_NODE, FLOAT_NODE, INTEGER_NODE, NIL_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, FALSE_NODE, FLOAT_NODE, INTEGER_NODE, NIL_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE};
 
 pub struct YodaCondition;
 
@@ -26,7 +28,16 @@ impl Cop for YodaCondition {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, FALSE_NODE, FLOAT_NODE, INTEGER_NODE, NIL_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE]
+        &[
+            CALL_NODE,
+            FALSE_NODE,
+            FLOAT_NODE,
+            INTEGER_NODE,
+            NIL_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+            TRUE_NODE,
+        ]
     }
 
     fn check_node(
@@ -35,8 +46,8 @@ impl Cop for YodaCondition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "forbid_for_all_comparison_operators");
         let call = match node.as_call_node() {
@@ -47,7 +58,8 @@ impl Cop for YodaCondition {
         let name = call.name().as_slice();
 
         let is_equality = name == b"==" || name == b"!=";
-        let is_comparison = is_equality || name == b"<" || name == b">" || name == b"<=" || name == b">=";
+        let is_comparison =
+            is_equality || name == b"<" || name == b">" || name == b"<=" || name == b">=";
 
         if !is_comparison {
             return;
@@ -83,17 +95,26 @@ impl Cop for YodaCondition {
             if !is_constant_portion(&receiver) && is_constant_portion(&arg_list[0]) {
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(self.diagnostic(source, line, column, "Prefer Yoda conditions.".to_string()));
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Prefer Yoda conditions.".to_string(),
+                ));
             }
         } else {
             // Forbid Yoda: flag when literal is on the LEFT (Yoda)
             if is_constant_portion(&receiver) && !is_constant_portion(&arg_list[0]) {
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(self.diagnostic(source, line, column, "Prefer non-Yoda conditions.".to_string()));
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Prefer non-Yoda conditions.".to_string(),
+                ));
             }
         }
-
     }
 }
 
@@ -120,13 +141,14 @@ mod tests {
 
     #[test]
     fn require_yoda_style() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("require_for_all_comparison_operators".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("require_for_all_comparison_operators".into()),
+            )]),
             ..CopConfig::default()
         };
         // Non-Yoda should be flagged
@@ -138,18 +160,22 @@ mod tests {
         // Yoda should be allowed
         let source2 = b"1 == x\n";
         let diags2 = run_cop_full_with_config(&YodaCondition, source2, config);
-        assert!(diags2.is_empty(), "Should allow Yoda conditions with require style");
+        assert!(
+            diags2.is_empty(),
+            "Should allow Yoda conditions with require style"
+        );
     }
 
     #[test]
     fn forbid_equality_only_skips_comparisons() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("forbid_for_equality_operators_only".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("forbid_for_equality_operators_only".into()),
+            )]),
             ..CopConfig::default()
         };
         // `1 == x` should be flagged (equality Yoda)
@@ -160,7 +186,10 @@ mod tests {
         // `1 < x` should NOT be flagged (comparison, not equality)
         let source2 = b"1 < x\n";
         let diags2 = run_cop_full_with_config(&YodaCondition, source2, config);
-        assert!(diags2.is_empty(), "Should skip non-equality comparison operators");
+        assert!(
+            diags2.is_empty(),
+            "Should skip non-equality comparison operators"
+        );
     }
 
     #[test]
@@ -169,6 +198,10 @@ mod tests {
         // `1 < x` should be flagged (Yoda with comparison)
         let source = b"1 < x\n";
         let diags = run_cop_full(&YodaCondition, source);
-        assert_eq!(diags.len(), 1, "Should flag comparison Yoda with default style");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag comparison Yoda with default style"
+        );
     }
 }

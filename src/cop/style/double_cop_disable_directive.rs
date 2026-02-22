@@ -15,10 +15,9 @@ impl Cop for DoubleCopDisableDirective {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-
         // Compute line byte offsets for heredoc checking
         let lines: Vec<&[u8]> = source.lines().collect();
         let mut line_offsets = Vec::with_capacity(lines.len());
@@ -68,12 +67,14 @@ impl Cop for DoubleCopDisableDirective {
                 ));
             }
         }
-
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(DoubleCopDisableDirective, "cops/style/double_cop_disable_directive");
+    crate::cop_fixture_tests!(
+        DoubleCopDisableDirective,
+        "cops/style/double_cop_disable_directive"
+    );
 }

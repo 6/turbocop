@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, FLOAT_NODE, INTEGER_NODE};
 use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, FLOAT_NODE, INTEGER_NODE};
 
 pub struct RandOne;
 
@@ -25,8 +25,8 @@ impl Cop for RandOne {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -77,12 +77,14 @@ impl Cop for RandOne {
 fn is_one_value(node: &ruby_prism::Node<'_>, source: &SourceFile) -> bool {
     // Check for integer 1 or -1
     if let Some(int_node) = node.as_integer_node() {
-        let src = &source.as_bytes()[int_node.location().start_offset()..int_node.location().end_offset()];
+        let src = &source.as_bytes()
+            [int_node.location().start_offset()..int_node.location().end_offset()];
         return src == b"1" || src == b"-1";
     }
     // Check for float 1.0 or -1.0
     if let Some(float_node) = node.as_float_node() {
-        let src = &source.as_bytes()[float_node.location().start_offset()..float_node.location().end_offset()];
+        let src = &source.as_bytes()
+            [float_node.location().start_offset()..float_node.location().end_offset()];
         return src == b"1.0" || src == b"-1.0";
     }
     // Check for unary minus: -1 as a CallNode wrapping IntegerNode
@@ -90,11 +92,13 @@ fn is_one_value(node: &ruby_prism::Node<'_>, source: &SourceFile) -> bool {
         if call.name().as_slice() == b"-@" {
             if let Some(recv) = call.receiver() {
                 if let Some(int_node) = recv.as_integer_node() {
-                    let src = &source.as_bytes()[int_node.location().start_offset()..int_node.location().end_offset()];
+                    let src = &source.as_bytes()
+                        [int_node.location().start_offset()..int_node.location().end_offset()];
                     return src == b"1";
                 }
                 if let Some(float_node) = recv.as_float_node() {
-                    let src = &source.as_bytes()[float_node.location().start_offset()..float_node.location().end_offset()];
+                    let src = &source.as_bytes()
+                        [float_node.location().start_offset()..float_node.location().end_offset()];
                     return src == b"1.0";
                 }
             }

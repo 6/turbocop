@@ -1,7 +1,7 @@
+use crate::cop::node_type::BEGIN_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::BEGIN_NODE;
 
 pub struct ShadowedException;
 
@@ -10,22 +10,68 @@ pub struct ShadowedException;
 // LoadError, NotImplementedError and SyntaxError are subclasses of ScriptError
 // (NOT StandardError). This matters for Lint/ShadowedException correctness.
 const EXCEPTION_HIERARCHY: &[(&str, &[&str])] = &[
-    ("Exception", &["StandardError", "ScriptError", "SecurityError", "SignalException",
-                     "SystemExit", "SystemStackError", "NoMemoryError", "RuntimeError",
-                     "NameError", "TypeError", "ArgumentError", "RangeError",
-                     "IOError", "EOFError", "RegexpError", "ZeroDivisionError",
-                     "ThreadError", "Errno::ENOENT", "Errno::EACCES", "LoadError",
-                     "NotImplementedError", "NoMethodError", "StopIteration",
-                     "IndexError", "KeyError", "Math::DomainError",
-                     "Encoding::UndefinedConversionError", "Encoding::InvalidByteSequenceError",
-                     "Encoding::ConverterNotFoundError", "Fiber::SchedulerError",
-                     "Interrupt", "SyntaxError"]),
-    ("StandardError", &["RuntimeError", "NameError", "TypeError", "ArgumentError",
-                         "RangeError", "IOError", "EOFError", "RegexpError",
-                         "ZeroDivisionError", "ThreadError", "Errno::ENOENT",
-                         "Errno::EACCES", "NoMethodError", "StopIteration",
-                         "IndexError", "KeyError"]),
-    ("ScriptError", &["LoadError", "NotImplementedError", "SyntaxError"]),
+    (
+        "Exception",
+        &[
+            "StandardError",
+            "ScriptError",
+            "SecurityError",
+            "SignalException",
+            "SystemExit",
+            "SystemStackError",
+            "NoMemoryError",
+            "RuntimeError",
+            "NameError",
+            "TypeError",
+            "ArgumentError",
+            "RangeError",
+            "IOError",
+            "EOFError",
+            "RegexpError",
+            "ZeroDivisionError",
+            "ThreadError",
+            "Errno::ENOENT",
+            "Errno::EACCES",
+            "LoadError",
+            "NotImplementedError",
+            "NoMethodError",
+            "StopIteration",
+            "IndexError",
+            "KeyError",
+            "Math::DomainError",
+            "Encoding::UndefinedConversionError",
+            "Encoding::InvalidByteSequenceError",
+            "Encoding::ConverterNotFoundError",
+            "Fiber::SchedulerError",
+            "Interrupt",
+            "SyntaxError",
+        ],
+    ),
+    (
+        "StandardError",
+        &[
+            "RuntimeError",
+            "NameError",
+            "TypeError",
+            "ArgumentError",
+            "RangeError",
+            "IOError",
+            "EOFError",
+            "RegexpError",
+            "ZeroDivisionError",
+            "ThreadError",
+            "Errno::ENOENT",
+            "Errno::EACCES",
+            "NoMethodError",
+            "StopIteration",
+            "IndexError",
+            "KeyError",
+        ],
+    ),
+    (
+        "ScriptError",
+        &["LoadError", "NotImplementedError", "SyntaxError"],
+    ),
     ("NameError", &["NoMethodError"]),
     ("RangeError", &["FloatDomainError"]),
     ("IOError", &["EOFError"]),
@@ -33,11 +79,27 @@ const EXCEPTION_HIERARCHY: &[(&str, &[&str])] = &[
     ("SignalException", &["Interrupt"]),
     // Standard library exception hierarchies
     ("IPAddr::Error", &["IPAddr::InvalidAddressError"]),
-    ("Net::ProtocolError", &["Net::HTTPBadResponse", "Net::HTTPHeaderSyntaxError",
-                              "Net::FTPPermError", "Net::FTPTempError", "Net::FTPProtoError",
-                              "Net::FTPReplyError"]),
-    ("Gem::Exception", &["Gem::LoadError", "Gem::InstallError", "Gem::DependencyError",
-                          "Gem::FormatException", "Gem::CommandLineError"]),
+    (
+        "Net::ProtocolError",
+        &[
+            "Net::HTTPBadResponse",
+            "Net::HTTPHeaderSyntaxError",
+            "Net::FTPPermError",
+            "Net::FTPTempError",
+            "Net::FTPProtoError",
+            "Net::FTPReplyError",
+        ],
+    ),
+    (
+        "Gem::Exception",
+        &[
+            "Gem::LoadError",
+            "Gem::InstallError",
+            "Gem::DependencyError",
+            "Gem::FormatException",
+            "Gem::CommandLineError",
+        ],
+    ),
 ];
 
 fn is_ancestor_of(ancestor: &str, descendant: &str) -> bool {
@@ -111,8 +173,8 @@ impl Cop for ShadowedException {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let begin_node = match node.as_begin_node() {
             Some(n) => n,
@@ -149,8 +211,16 @@ impl Cop for ShadowedException {
 
         // Check if groups are sorted
         let all_sorted = groups.windows(2).all(|w| {
-            let earlier = if w[0].is_empty() { vec!["StandardError".to_string()] } else { w[0].clone() };
-            let later = if w[1].is_empty() { vec!["StandardError".to_string()] } else { w[1].clone() };
+            let earlier = if w[0].is_empty() {
+                vec!["StandardError".to_string()]
+            } else {
+                w[0].clone()
+            };
+            let later = if w[1].is_empty() {
+                vec!["StandardError".to_string()]
+            } else {
+                w[1].clone()
+            };
             groups_sorted(&earlier, &later)
         });
 
@@ -178,13 +248,16 @@ impl Cop for ShadowedException {
         }
 
         // Second check: first clause that makes ordering unsorted
-        let resolved_groups: Vec<Vec<String>> = all_clauses.iter().map(|(excs, _)| {
-            if excs.is_empty() {
-                vec!["StandardError".to_string()]
-            } else {
-                excs.clone()
-            }
-        }).collect();
+        let resolved_groups: Vec<Vec<String>> = all_clauses
+            .iter()
+            .map(|(excs, _)| {
+                if excs.is_empty() {
+                    vec!["StandardError".to_string()]
+                } else {
+                    excs.clone()
+                }
+            })
+            .collect();
 
         for i in 0..resolved_groups.len().saturating_sub(1) {
             if !groups_sorted(&resolved_groups[i], &resolved_groups[i + 1]) {
@@ -197,7 +270,6 @@ impl Cop for ShadowedException {
                 ));
             }
         }
-
     }
 }
 

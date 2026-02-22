@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, NIL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, NIL_NODE};
 
 pub struct HashFetchChain;
 
@@ -23,11 +25,15 @@ impl HashFetchChain {
         if let Some(call) = node.as_call_node() {
             if call.name().as_slice() == b"new" && call.arguments().is_none() {
                 if let Some(recv) = call.receiver() {
-                    if recv.as_constant_read_node().map_or(false, |c| c.name().as_slice() == b"Hash") {
+                    if recv
+                        .as_constant_read_node()
+                        .map_or(false, |c| c.name().as_slice() == b"Hash")
+                    {
                         return true;
                     }
                     if recv.as_constant_path_node().map_or(false, |cp| {
-                        cp.parent().is_none() && cp.name().map_or(false, |n| n.as_slice() == b"Hash")
+                        cp.parent().is_none()
+                            && cp.name().map_or(false, |n| n.as_slice() == b"Hash")
                     }) {
                         return true;
                     }
@@ -44,7 +50,13 @@ impl Cop for HashFetchChain {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, NIL_NODE]
+        &[
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            HASH_NODE,
+            NIL_NODE,
+        ]
     }
 
     fn check_node(
@@ -53,8 +65,8 @@ impl Cop for HashFetchChain {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -115,12 +127,16 @@ impl Cop for HashFetchChain {
         }
 
         // Build dig arguments
-        let first_key_src = &source.as_bytes()[recv_arg_list[0].location().start_offset()..recv_arg_list[0].location().end_offset()];
-        let second_key_src = &source.as_bytes()[arg_list[0].location().start_offset()..arg_list[0].location().end_offset()];
+        let first_key_src = &source.as_bytes()
+            [recv_arg_list[0].location().start_offset()..recv_arg_list[0].location().end_offset()];
+        let second_key_src = &source.as_bytes()
+            [arg_list[0].location().start_offset()..arg_list[0].location().end_offset()];
         let first_key = String::from_utf8_lossy(first_key_src);
         let second_key = String::from_utf8_lossy(second_key_src);
 
-        let msg_loc = recv_call.message_loc().unwrap_or_else(|| recv_call.location());
+        let msg_loc = recv_call
+            .message_loc()
+            .unwrap_or_else(|| recv_call.location());
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
 
         diagnostics.push(self.diagnostic(

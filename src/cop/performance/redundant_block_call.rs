@@ -20,8 +20,8 @@ impl Cop for RedundantBlockCall {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = DefVisitor {
             cop: self,
@@ -104,10 +104,7 @@ struct ReassignFinder<'a> {
 }
 
 impl<'pr> Visit<'pr> for ReassignFinder<'_> {
-    fn visit_local_variable_write_node(
-        &mut self,
-        node: &ruby_prism::LocalVariableWriteNode<'pr>,
-    ) {
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
         if node.name().as_slice() == self.name {
             self.found = true;
         }
@@ -130,18 +127,20 @@ impl<'pr> Visit<'pr> for BlockCallFinder<'_, '_, '_> {
                     if local_var.name().as_slice() == self.arg_name {
                         // Don't flag if the call itself has a block literal
                         // (e.g., block.call { ... })
-                        if node.block().is_none()
-                            || node.block().unwrap().as_block_node().is_none()
+                        if node.block().is_none() || node.block().unwrap().as_block_node().is_none()
                         {
                             let loc = node.location();
-                            let (line, column) =
-                                self.source.offset_to_line_col(loc.start_offset());
+                            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                             let msg = format!(
                                 "Use `yield` instead of `{}.call`.",
                                 std::str::from_utf8(self.arg_name).unwrap_or("block")
                             );
-                            self.diagnostics
-                                .push(self.cop.diagnostic(self.source, line, column, msg));
+                            self.diagnostics.push(self.cop.diagnostic(
+                                self.source,
+                                line,
+                                column,
+                                msg,
+                            ));
                         }
                     }
                 }

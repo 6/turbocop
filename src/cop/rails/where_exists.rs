@@ -1,8 +1,8 @@
+use crate::cop::node_type::{ARRAY_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 use crate::cop::util::as_method_chain;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ARRAY_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 
 pub struct WhereExists;
 
@@ -25,8 +25,8 @@ impl Cop for WhereExists {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "exists");
 
@@ -153,7 +153,10 @@ mod tests {
         };
         let source = b"User.exists?(name: 'john')\n";
         let diags = run_cop_full_with_config(&WhereExists, source, config);
-        assert!(!diags.is_empty(), "where style should flag exists? with hash args");
+        assert!(
+            !diags.is_empty(),
+            "where style should flag exists? with hash args"
+        );
     }
 
     #[test]

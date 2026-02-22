@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    ASSOC_NODE, HASH_NODE, IMPLICIT_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, SYMBOL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, HASH_NODE, IMPLICIT_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, SYMBOL_NODE};
 
 pub struct HashSyntax;
 
@@ -11,7 +13,14 @@ impl Cop for HashSyntax {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ASSOC_NODE, HASH_NODE, IMPLICIT_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, SYMBOL_NODE]
+        &[
+            ASSOC_NODE,
+            HASH_NODE,
+            IMPLICIT_NODE,
+            KEYWORD_HASH_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,29 +29,35 @@ impl Cop for HashSyntax {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Handle both explicit hashes `{ k: v }` and implicit keyword hashes `foo(k: v)`
-        let elements: Vec<ruby_prism::Node<'_>> =
-            if let Some(hash_node) = node.as_hash_node() {
-                hash_node.elements().iter().collect()
-            } else if let Some(kw_hash) = node.as_keyword_hash_node() {
-                kw_hash.elements().iter().collect()
-            } else {
-                return;
-            };
+        let elements: Vec<ruby_prism::Node<'_>> = if let Some(hash_node) = node.as_hash_node() {
+            hash_node.elements().iter().collect()
+        } else if let Some(kw_hash) = node.as_keyword_hash_node() {
+            kw_hash.elements().iter().collect()
+        } else {
+            return;
+        };
 
         let enforced_style = config.get_str("EnforcedStyle", "ruby19");
         let enforced_shorthand = config.get_str("EnforcedShorthandSyntax", "either");
         let use_rockets_symbol_vals = config.get_bool("UseHashRocketsWithSymbolValues", false);
-        let prefer_rockets_nonalnum = config.get_bool("PreferHashRocketsForNonAlnumEndingSymbols", false);
+        let prefer_rockets_nonalnum =
+            config.get_bool("PreferHashRocketsForNonAlnumEndingSymbols", false);
 
         // EnforcedShorthandSyntax: check Ruby 3.1 hash value omission syntax
         // This is checked separately from the main EnforcedStyle
         if enforced_shorthand != "either" {
             let mut shorthand_diags = Vec::new();
-            check_shorthand_syntax(self, source, &elements, enforced_shorthand, &mut shorthand_diags);
+            check_shorthand_syntax(
+                self,
+                source,
+                &elements,
+                enforced_shorthand,
+                &mut shorthand_diags,
+            );
             if !shorthand_diags.is_empty() {
                 diagnostics.extend(shorthand_diags);
                 return;
@@ -172,7 +187,6 @@ impl Cop for HashSyntax {
                         "Don't mix styles in the same hash.".to_string(),
                     ));
                 }
-
             }
             _ => {}
         }
@@ -304,8 +318,7 @@ fn is_convertible_symbol_key(name: &[u8]) -> bool {
     } else {
         (&[] as &[u8], None)
     };
-    body.iter()
-        .all(|&b| b.is_ascii_alphanumeric() || b == b'_')
+    body.iter().all(|&b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
 #[cfg(test)]
@@ -346,15 +359,19 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("UseHashRocketsWithSymbolValues".into(), serde_yml::Value::Bool(true)),
-            ]),
+            options: HashMap::from([(
+                "UseHashRocketsWithSymbolValues".into(),
+                serde_yml::Value::Bool(true),
+            )]),
             ..CopConfig::default()
         };
         // Hash with symbol value should not be flagged when UseHashRocketsWithSymbolValues is true
         let source = b"{ :foo => :bar }\n";
         let diags = run_cop_full_with_config(&HashSyntax, source, config);
-        assert!(diags.is_empty(), "Should allow rockets when value is a symbol");
+        assert!(
+            diags.is_empty(),
+            "Should allow rockets when value is a symbol"
+        );
     }
 
     #[test]
@@ -362,16 +379,19 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedShorthandSyntax".into(), serde_yml::Value::String("never".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedShorthandSyntax".into(),
+                serde_yml::Value::String("never".into()),
+            )]),
             ..CopConfig::default()
         };
         // Ruby 3.1 hash value omission: `{x:}` (shorthand)
         let source = b"x = 1; {x:}\n";
         let diags = run_cop_full_with_config(&HashSyntax, source, config);
         assert!(
-            diags.iter().any(|d| d.message.contains("Include the hash value")),
+            diags
+                .iter()
+                .any(|d| d.message.contains("Include the hash value")),
             "Should flag shorthand with EnforcedShorthandSyntax: never"
         );
     }
@@ -393,14 +413,18 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("PreferHashRocketsForNonAlnumEndingSymbols".into(), serde_yml::Value::Bool(true)),
-            ]),
+            options: HashMap::from([(
+                "PreferHashRocketsForNonAlnumEndingSymbols".into(),
+                serde_yml::Value::Bool(true),
+            )]),
             ..CopConfig::default()
         };
         // Hash with symbol key ending in `?` should not be flagged (non-alnum ending)
         let source = b"{ :production? => false }\n";
         let diags = run_cop_full_with_config(&HashSyntax, source, config);
-        assert!(diags.is_empty(), "Should allow rockets for non-alnum ending symbols");
+        assert!(
+            diags.is_empty(),
+            "Should allow rockets for non-alnum ending symbols"
+        );
     }
 }

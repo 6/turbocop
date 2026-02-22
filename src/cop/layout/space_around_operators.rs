@@ -60,8 +60,8 @@ impl Cop for SpaceAroundOperators {
         parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_for_alignment = config.get_bool("AllowForAlignment", true);
         let enforced_style_exponent =
@@ -100,9 +100,7 @@ impl Cop for SpaceAroundOperators {
         let mut i = 0;
 
         // Helper closure: check if offset `pos` falls within any operator method name range
-        let in_def_name = |pos: usize| -> bool {
-            def_name_ranges.iter().any(|r| r.contains(&pos))
-        };
+        let in_def_name = |pos: usize| -> bool { def_name_ranges.iter().any(|r| r.contains(&pos)) };
 
         while i < len {
             if !code_map.is_code(i) {
@@ -147,20 +145,28 @@ impl Cop for SpaceAroundOperators {
                     if !space_before || (!space_after && !newline_after) {
                         let (line, column) = source.offset_to_line_col(i);
                         let mut diag = self.diagnostic(
-                            source, line, column,
+                            source,
+                            line,
+                            column,
                             format!("Surrounding space missing for operator `{op_str}`."),
                         );
                         if let Some(ref mut corr) = corrections {
                             if !space_before {
                                 corr.push(crate::correction::Correction {
-                                    start: i, end: i, replacement: " ".to_string(),
-                                    cop_name: self.name(), cop_index: 0,
+                                    start: i,
+                                    end: i,
+                                    replacement: " ".to_string(),
+                                    cop_name: self.name(),
+                                    cop_index: 0,
                                 });
                             }
                             if !space_after && !newline_after {
                                 corr.push(crate::correction::Correction {
-                                    start: i + 2, end: i + 2, replacement: " ".to_string(),
-                                    cop_name: self.name(), cop_index: 0,
+                                    start: i + 2,
+                                    end: i + 2,
+                                    replacement: " ".to_string(),
+                                    cop_name: self.name(),
+                                    cop_index: 0,
                                 });
                             }
                             diag.corrected = true;
@@ -221,25 +227,32 @@ impl Cop for SpaceAroundOperators {
 
                 let space_before = i > 0 && bytes[i - 1] == b' ';
                 let space_after = i + 1 < len && bytes[i + 1] == b' ';
-                let newline_after =
-                    i + 1 >= len || bytes[i + 1] == b'\n' || bytes[i + 1] == b'\r';
+                let newline_after = i + 1 >= len || bytes[i + 1] == b'\n' || bytes[i + 1] == b'\r';
                 if !space_before || (!space_after && !newline_after) {
                     let (line, column) = source.offset_to_line_col(i);
                     let mut diag = self.diagnostic(
-                        source, line, column,
+                        source,
+                        line,
+                        column,
                         "Surrounding space missing for operator `=`.".to_string(),
                     );
                     if let Some(ref mut corr) = corrections {
                         if !space_before {
                             corr.push(crate::correction::Correction {
-                                start: i, end: i, replacement: " ".to_string(),
-                                cop_name: self.name(), cop_index: 0,
+                                start: i,
+                                end: i,
+                                replacement: " ".to_string(),
+                                cop_name: self.name(),
+                                cop_index: 0,
                             });
                         }
                         if !space_after && !newline_after {
                             corr.push(crate::correction::Correction {
-                                start: i + 1, end: i + 1, replacement: " ".to_string(),
-                                cop_name: self.name(), cop_index: 0,
+                                start: i + 1,
+                                end: i + 1,
+                                replacement: " ".to_string(),
+                                cop_name: self.name(),
+                                cop_index: 0,
                             });
                         }
                         diag.corrected = true;
@@ -252,14 +265,12 @@ impl Cop for SpaceAroundOperators {
 
             i += 1;
         }
-
     }
 }
 
 const BINARY_OPERATORS: &[&[u8]] = &[
-    b"+", b"-", b"*", b"/", b"%", b"**",
-    b"&", b"|", b"^", b"<<", b">>",
-    b"<", b">", b"<=", b">=", b"<=>",
+    b"+", b"-", b"*", b"/", b"%", b"**", b"&", b"|", b"^", b"<<", b">>", b"<", b">", b"<=", b">=",
+    b"<=>",
 ];
 
 struct BinaryOperatorChecker<'a> {
@@ -330,8 +341,7 @@ impl BinaryOperatorChecker<'_> {
                 }
 
                 let line_bytes = lines[check_idx];
-                let first_non_ws =
-                    line_bytes.iter().position(|&b| b != b' ' && b != b'\t');
+                let first_non_ws = line_bytes.iter().position(|&b| b != b' ' && b != b'\t');
 
                 match first_non_ws {
                     None => {
@@ -399,7 +409,8 @@ impl BinaryOperatorChecker<'_> {
 
         // Check for multiple spaces (extra whitespace before or after operator)
         let multi_space_before = start >= 2 && bytes[start - 1] == b' ' && bytes[start - 2] == b' ';
-        let multi_space_after = end + 1 < bytes.len() && bytes[end] == b' ' && bytes[end + 1] == b' ';
+        let multi_space_after =
+            end + 1 < bytes.len() && bytes[end] == b' ' && bytes[end + 1] == b' ';
 
         if multi_space_before || multi_space_after {
             // Skip if operator is at start of line (spaces are indentation, not extra spacing)
@@ -414,9 +425,7 @@ impl BinaryOperatorChecker<'_> {
             }
 
             // AllowForAlignment: skip if aligned with same operator on adjacent line
-            if self.allow_for_alignment
-                && self.is_aligned_with_adjacent(start, op_loc.as_slice())
-            {
+            if self.allow_for_alignment && self.is_aligned_with_adjacent(start, op_loc.as_slice()) {
                 return;
             }
 
@@ -463,15 +472,21 @@ impl BinaryOperatorChecker<'_> {
                 // Replace multi-space before with single space
                 if multi_space_before {
                     self.corrections.push(crate::correction::Correction {
-                        start: ws_start_before, end: start, replacement: " ".to_string(),
-                        cop_name: self.cop.name(), cop_index: 0,
+                        start: ws_start_before,
+                        end: start,
+                        replacement: " ".to_string(),
+                        cop_name: self.cop.name(),
+                        cop_index: 0,
                     });
                 }
                 // Replace multi-space after with single space
                 if multi_space_after {
                     self.corrections.push(crate::correction::Correction {
-                        start: end, end: ws_end_after, replacement: " ".to_string(),
-                        cop_name: self.cop.name(), cop_index: 0,
+                        start: end,
+                        end: ws_end_after,
+                        replacement: " ".to_string(),
+                        cop_name: self.cop.name(),
+                        cop_index: 0,
                     });
                 }
                 diag.corrected = true;
@@ -488,14 +503,20 @@ impl BinaryOperatorChecker<'_> {
             if self.has_corrections {
                 if !space_before {
                     self.corrections.push(crate::correction::Correction {
-                        start, end: start, replacement: " ".to_string(),
-                        cop_name: self.cop.name(), cop_index: 0,
+                        start,
+                        end: start,
+                        replacement: " ".to_string(),
+                        cop_name: self.cop.name(),
+                        cop_index: 0,
                     });
                 }
                 if !space_after && !newline_after {
                     self.corrections.push(crate::correction::Correction {
-                        start: end, end, replacement: " ".to_string(),
-                        cop_name: self.cop.name(), cop_index: 0,
+                        start: end,
+                        end,
+                        replacement: " ".to_string(),
+                        cop_name: self.cop.name(),
+                        cop_index: 0,
                     });
                 }
                 diag.corrected = true;
@@ -511,7 +532,8 @@ impl<'pr> Visit<'pr> for BinaryOperatorChecker<'_> {
         if BINARY_OPERATORS.iter().any(|&op| op == name)
             && node.receiver().is_some()
             && node.arguments().is_some()
-            && node.call_operator_loc().is_none() // skip x.+ y and x&.+ y
+            && node.call_operator_loc().is_none()
+        // skip x.+ y and x&.+ y
         {
             if let Some(msg_loc) = node.message_loc() {
                 self.check_operator_spacing(&msg_loc);
@@ -544,5 +566,8 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(SpaceAroundOperators, "cops/layout/space_around_operators");
-    crate::cop_autocorrect_fixture_tests!(SpaceAroundOperators, "cops/layout/space_around_operators");
+    crate::cop_autocorrect_fixture_tests!(
+        SpaceAroundOperators,
+        "cops/layout/space_around_operators"
+    );
 }

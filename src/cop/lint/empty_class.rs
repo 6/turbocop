@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CLASS_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CLASS_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE};
 
 pub struct EmptyClass;
 
@@ -24,8 +24,8 @@ impl Cop for EmptyClass {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Handle both ClassNode and SingletonClassNode (metaclass)
         let (body_empty, kw_loc, start_line, end_line) =

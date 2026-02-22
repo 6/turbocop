@@ -20,11 +20,13 @@ impl Cop for UselessAccessModifier {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _context_creating = config.get_string_array("ContextCreatingMethods");
-        let method_creating = config.get_string_array("MethodCreatingMethods").unwrap_or_default();
+        let method_creating = config
+            .get_string_array("MethodCreatingMethods")
+            .unwrap_or_default();
         let mut visitor = UselessAccessVisitor {
             cop: self,
             source,
@@ -93,7 +95,10 @@ fn is_method_definition(node: &ruby_prism::Node<'_>) -> bool {
 }
 
 /// Check if a node is a call to one of the configured MethodCreatingMethods.
-fn is_method_creating_call(node: &ruby_prism::Node<'_>, method_creating_methods: &[String]) -> bool {
+fn is_method_creating_call(
+    node: &ruby_prism::Node<'_>,
+    method_creating_methods: &[String],
+) -> bool {
     if method_creating_methods.is_empty() {
         return false;
     }
@@ -179,7 +184,9 @@ fn check_scope(
             }
         }
 
-        if has_method_definition_in_subtree(stmt) || is_method_creating_call(stmt, method_creating_methods) {
+        if has_method_definition_in_subtree(stmt)
+            || is_method_creating_call(stmt, method_creating_methods)
+        {
             unused_modifier = None;
         }
     }
@@ -207,7 +214,13 @@ impl<'pr> Visit<'pr> for UselessAccessVisitor<'_, '_> {
     fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
         if let Some(body) = node.body() {
             if let Some(stmts) = body.as_statements_node() {
-                check_scope(self.cop, self.source, &mut self.diagnostics, &stmts, &self.method_creating_methods);
+                check_scope(
+                    self.cop,
+                    self.source,
+                    &mut self.diagnostics,
+                    &stmts,
+                    &self.method_creating_methods,
+                );
             }
         }
         ruby_prism::visit_class_node(self, node);
@@ -216,7 +229,13 @@ impl<'pr> Visit<'pr> for UselessAccessVisitor<'_, '_> {
     fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
         if let Some(body) = node.body() {
             if let Some(stmts) = body.as_statements_node() {
-                check_scope(self.cop, self.source, &mut self.diagnostics, &stmts, &self.method_creating_methods);
+                check_scope(
+                    self.cop,
+                    self.source,
+                    &mut self.diagnostics,
+                    &stmts,
+                    &self.method_creating_methods,
+                );
             }
         }
         ruby_prism::visit_module_node(self, node);

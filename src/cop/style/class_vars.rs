@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    CALL_NODE, CLASS_VARIABLE_AND_WRITE_NODE, CLASS_VARIABLE_OPERATOR_WRITE_NODE,
+    CLASS_VARIABLE_OR_WRITE_NODE, CLASS_VARIABLE_WRITE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CLASS_VARIABLE_AND_WRITE_NODE, CLASS_VARIABLE_OPERATOR_WRITE_NODE, CLASS_VARIABLE_OR_WRITE_NODE, CLASS_VARIABLE_WRITE_NODE};
 
 pub struct ClassVars;
 
@@ -11,7 +14,13 @@ impl Cop for ClassVars {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CLASS_VARIABLE_AND_WRITE_NODE, CLASS_VARIABLE_OPERATOR_WRITE_NODE, CLASS_VARIABLE_OR_WRITE_NODE, CLASS_VARIABLE_WRITE_NODE]
+        &[
+            CALL_NODE,
+            CLASS_VARIABLE_AND_WRITE_NODE,
+            CLASS_VARIABLE_OPERATOR_WRITE_NODE,
+            CLASS_VARIABLE_OR_WRITE_NODE,
+            CLASS_VARIABLE_WRITE_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +29,8 @@ impl Cop for ClassVars {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check class variable write: @@foo = 1
         if let Some(cvasgn) = node.as_class_variable_write_node() {
@@ -87,7 +96,8 @@ impl Cop for ClassVars {
                     if !arg_list.is_empty() {
                         let first_arg = &arg_list[0];
                         let arg_src = first_arg.location().as_slice();
-                        let (line, column) = source.offset_to_line_col(first_arg.location().start_offset());
+                        let (line, column) =
+                            source.offset_to_line_col(first_arg.location().start_offset());
                         diagnostics.push(self.diagnostic(
                             source,
                             line,
@@ -101,7 +111,6 @@ impl Cop for ClassVars {
                 }
             }
         }
-
     }
 }
 

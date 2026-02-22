@@ -1,8 +1,8 @@
-use crate::cop::util::{self, is_rspec_example, is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{CALL_NODE, INTERPOLATED_STRING_NODE, STRING_NODE};
+use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, INTERPOLATED_STRING_NODE, STRING_NODE};
 
 pub struct ExcessiveDocstringSpacing;
 
@@ -29,8 +29,8 @@ impl Cop for ExcessiveDocstringSpacing {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -132,8 +132,12 @@ impl Cop for ExcessiveDocstringSpacing {
             Err(_) => return,
         };
 
-        let has_leading_space = content_str.starts_with(' ') || content_str.starts_with('\u{3000}') || content_str.starts_with('\u{00a0}');
-        let has_trailing_space = content_str.ends_with(' ') || content_str.ends_with('\u{3000}') || content_str.ends_with('\u{00a0}');
+        let has_leading_space = content_str.starts_with(' ')
+            || content_str.starts_with('\u{3000}')
+            || content_str.starts_with('\u{00a0}');
+        let has_trailing_space = content_str.ends_with(' ')
+            || content_str.ends_with('\u{3000}')
+            || content_str.ends_with('\u{00a0}');
         // RuboCop checks: [^[[:space:]]][[:blank:]]{2,}[^[[:blank:]]]
         // Two or more consecutive blanks must be preceded by a non-whitespace character
         // (so leading indentation on continuation lines doesn't count).
@@ -142,13 +146,16 @@ impl Cop for ExcessiveDocstringSpacing {
             let mut found = false;
             let mut i = 0;
             while i + 2 < bytes.len() {
-                if !bytes[i].is_ascii_whitespace() && (bytes[i + 1] == b' ' || bytes[i + 1] == b'\t') {
+                if !bytes[i].is_ascii_whitespace()
+                    && (bytes[i + 1] == b' ' || bytes[i + 1] == b'\t')
+                {
                     // Found a non-space char followed by blank; count consecutive blanks
                     let mut j = i + 1;
                     while j < bytes.len() && (bytes[j] == b' ' || bytes[j] == b'\t') {
                         j += 1;
                     }
-                    if j - (i + 1) >= 2 && j < bytes.len() && bytes[j] != b' ' && bytes[j] != b'\t' {
+                    if j - (i + 1) >= 2 && j < bytes.len() && bytes[j] != b' ' && bytes[j] != b'\t'
+                    {
                         found = true;
                         break;
                     }
@@ -178,5 +185,8 @@ impl Cop for ExcessiveDocstringSpacing {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ExcessiveDocstringSpacing, "cops/rspec/excessive_docstring_spacing");
+    crate::cop_fixture_tests!(
+        ExcessiveDocstringSpacing,
+        "cops/rspec/excessive_docstring_spacing"
+    );
 }

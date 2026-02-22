@@ -1,9 +1,9 @@
 // Handles both as_constant_read_node and as_constant_path_node (qualified constants like ::Fixnum)
+use crate::cop::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 
 pub struct UnifiedInteger;
 
@@ -30,8 +30,8 @@ impl Cop for UnifiedInteger {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let name = match constant_name(node) {
             Some(n) => n,
@@ -57,9 +57,11 @@ impl Cop for UnifiedInteger {
                 "Integer".to_string()
             };
             corr.push(crate::correction::Correction {
-                start: loc.start_offset(), end: loc.end_offset(),
+                start: loc.start_offset(),
+                end: loc.end_offset(),
                 replacement,
-                cop_name: self.name(), cop_index: 0,
+                cop_name: self.name(),
+                cop_index: 0,
             });
             diag.corrected = true;
         }

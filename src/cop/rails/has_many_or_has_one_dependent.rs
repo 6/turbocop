@@ -1,8 +1,8 @@
+use crate::cop::node_type::CLASS_NODE;
 use crate::cop::util::{class_body_calls, has_keyword_arg, is_dsl_call};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CLASS_NODE;
 
 pub struct HasManyOrHasOneDependent;
 
@@ -25,8 +25,8 @@ impl Cop for HasManyOrHasOneDependent {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let class = match node.as_class_node() {
             Some(c) => c,
@@ -60,7 +60,6 @@ impl Cop for HasManyOrHasOneDependent {
                 ));
             }
         }
-
     }
 }
 

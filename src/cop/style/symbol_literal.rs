@@ -1,7 +1,7 @@
+use crate::cop::node_type::SYMBOL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::SYMBOL_NODE;
 
 pub struct SymbolLiteral;
 
@@ -20,8 +20,8 @@ impl Cop for SymbolLiteral {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let sym_node = match node.as_symbol_node() {
             Some(s) => s,
@@ -56,7 +56,9 @@ impl Cop for SymbolLiteral {
         }
 
         // All chars must be word characters
-        let all_word_chars = content.iter().all(|&b: &u8| b.is_ascii_alphanumeric() || b == b'_');
+        let all_word_chars = content
+            .iter()
+            .all(|&b: &u8| b.is_ascii_alphanumeric() || b == b'_');
         if !all_word_chars {
             return;
         }

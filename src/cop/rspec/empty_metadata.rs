@@ -1,8 +1,8 @@
-use crate::cop::util::{self, is_rspec_example, is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{CALL_NODE, HASH_NODE};
+use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, HASH_NODE};
 
 pub struct EmptyMetadata;
 
@@ -29,8 +29,8 @@ impl Cop for EmptyMetadata {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Detect empty metadata hash `{}` in example groups/examples
         let call = match node.as_call_node() {
@@ -44,7 +44,8 @@ impl Cop for EmptyMetadata {
         let is_rspec = if call.receiver().is_none() {
             is_rspec_example_group(method_name) || is_rspec_example(method_name)
         } else if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).map_or(false, |n| n == b"RSpec") && method_name == b"describe"
+            util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
+                && method_name == b"describe"
         } else {
             false
         };
@@ -74,7 +75,6 @@ impl Cop for EmptyMetadata {
                 }
             }
         }
-
     }
 }
 

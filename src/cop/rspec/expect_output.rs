@@ -1,8 +1,11 @@
-use crate::cop::util::{is_rspec_example, is_rspec_hook, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{
+    BEGIN_NODE, BLOCK_NODE, CALL_NODE, DEF_NODE, ELSE_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE,
+    PROGRAM_NODE, STATEMENTS_NODE, SYMBOL_NODE,
+};
+use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_hook};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BEGIN_NODE, BLOCK_NODE, CALL_NODE, DEF_NODE, ELSE_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, PROGRAM_NODE, STATEMENTS_NODE, SYMBOL_NODE};
 
 pub struct ExpectOutput;
 
@@ -20,7 +23,18 @@ impl Cop for ExpectOutput {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BEGIN_NODE, BLOCK_NODE, CALL_NODE, DEF_NODE, ELSE_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, PROGRAM_NODE, STATEMENTS_NODE, SYMBOL_NODE]
+        &[
+            BEGIN_NODE,
+            BLOCK_NODE,
+            CALL_NODE,
+            DEF_NODE,
+            ELSE_NODE,
+            GLOBAL_VARIABLE_WRITE_NODE,
+            IF_NODE,
+            PROGRAM_NODE,
+            STATEMENTS_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -29,8 +43,8 @@ impl Cop for ExpectOutput {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Only process at program level to walk the full AST with context
         let program = match node.as_program_node() {

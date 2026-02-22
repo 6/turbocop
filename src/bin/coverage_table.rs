@@ -1,3 +1,4 @@
+#![allow(clippy::manual_contains)]
 //! Generate a Markdown coverage table showing turbocop cop coverage vs vendor RuboCop.
 //!
 //! Usage:
@@ -35,23 +36,61 @@ static VENDOR_SOURCES: &[VendorSource] = &[
     VendorSource {
         dir: "rubocop",
         owned_departments: &[
-            "Layout", "Lint", "Style", "Metrics", "Naming",
-            "Security", "Bundler", "Gemspec", "Migration",
+            "Layout",
+            "Lint",
+            "Style",
+            "Metrics",
+            "Naming",
+            "Security",
+            "Bundler",
+            "Gemspec",
+            "Migration",
         ],
         version_file: "lib/rubocop/version.rb",
     },
-    VendorSource { dir: "rubocop-rails", owned_departments: &["Rails"], version_file: "lib/rubocop/rails/version.rb" },
-    VendorSource { dir: "rubocop-performance", owned_departments: &["Performance"], version_file: "lib/rubocop/performance/version.rb" },
-    VendorSource { dir: "rubocop-rspec", owned_departments: &["RSpec"], version_file: "lib/rubocop/rspec/version.rb" },
-    VendorSource { dir: "rubocop-rspec_rails", owned_departments: &["RSpecRails"], version_file: "lib/rubocop/rspec_rails/version.rb" },
-    VendorSource { dir: "rubocop-factory_bot", owned_departments: &["FactoryBot"], version_file: "lib/rubocop/factory_bot/version.rb" },
+    VendorSource {
+        dir: "rubocop-rails",
+        owned_departments: &["Rails"],
+        version_file: "lib/rubocop/rails/version.rb",
+    },
+    VendorSource {
+        dir: "rubocop-performance",
+        owned_departments: &["Performance"],
+        version_file: "lib/rubocop/performance/version.rb",
+    },
+    VendorSource {
+        dir: "rubocop-rspec",
+        owned_departments: &["RSpec"],
+        version_file: "lib/rubocop/rspec/version.rb",
+    },
+    VendorSource {
+        dir: "rubocop-rspec_rails",
+        owned_departments: &["RSpecRails"],
+        version_file: "lib/rubocop/rspec_rails/version.rb",
+    },
+    VendorSource {
+        dir: "rubocop-factory_bot",
+        owned_departments: &["FactoryBot"],
+        version_file: "lib/rubocop/factory_bot/version.rb",
+    },
 ];
 
 /// Repo display order for conformance table (matches bench_turbocop REPOS order).
 const REPO_ORDER: &[&str] = &[
-    "mastodon", "discourse", "rails", "rubocop", "chatwoot", "errbit",
-    "activeadmin", "good_job", "docuseal", "rubygems.org", "doorkeeper", "fat_free_crm",
-    "multi_json", "lobsters",
+    "mastodon",
+    "discourse",
+    "rails",
+    "rubocop",
+    "chatwoot",
+    "errbit",
+    "activeadmin",
+    "good_job",
+    "docuseal",
+    "rubygems.org",
+    "doorkeeper",
+    "fat_free_crm",
+    "multi_json",
+    "lobsters",
 ];
 
 // --- Conformance JSON types (must match bench_turbocop) ---
@@ -77,8 +116,14 @@ struct CopStats {
 
 // --- Vendor YAML parsing ---
 
-fn parse_vendor_cops(vendor_dir: &Path, source: &VendorSource) -> BTreeMap<String, BTreeSet<String>> {
-    let yml_path = vendor_dir.join(source.dir).join("config").join("default.yml");
+fn parse_vendor_cops(
+    vendor_dir: &Path,
+    source: &VendorSource,
+) -> BTreeMap<String, BTreeSet<String>> {
+    let yml_path = vendor_dir
+        .join(source.dir)
+        .join("config")
+        .join("default.yml");
     let mut dept_cops: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
     let content = match fs::read_to_string(&yml_path) {
@@ -90,13 +135,22 @@ fn parse_vendor_cops(vendor_dir: &Path, source: &VendorSource) -> BTreeMap<Strin
     };
 
     for line in content.lines() {
-        if !line.starts_with(|c: char| c.is_ascii_uppercase()) { continue; }
-        let Some(colon) = line.find(':') else { continue; };
+        if !line.starts_with(|c: char| c.is_ascii_uppercase()) {
+            continue;
+        }
+        let Some(colon) = line.find(':') else {
+            continue;
+        };
         let key = &line[..colon];
-        let Some(slash) = key.find('/') else { continue; };
+        let Some(slash) = key.find('/') else {
+            continue;
+        };
         let dept = &key[..slash];
         if source.owned_departments.iter().any(|&d| d == dept) {
-            dept_cops.entry(dept.to_string()).or_default().insert(key.to_string());
+            dept_cops
+                .entry(dept.to_string())
+                .or_default()
+                .insert(key.to_string());
         }
     }
     dept_cops
@@ -120,10 +174,21 @@ fn display_dept(dept: &str) -> &str {
 
 fn dept_order(dept: &str) -> usize {
     match dept {
-        "Layout" => 0, "Lint" => 1, "Style" => 2, "Metrics" => 3, "Naming" => 4,
-        "Security" => 5, "Bundler" => 6, "Gemspec" => 7, "Migration" => 8,
-        "Rails" => 9, "Performance" => 10, "RSpec" => 11, "RSpecRails" => 12,
-        "FactoryBot" => 13, _ => 99,
+        "Layout" => 0,
+        "Lint" => 1,
+        "Style" => 2,
+        "Metrics" => 3,
+        "Naming" => 4,
+        "Security" => 5,
+        "Bundler" => 6,
+        "Gemspec" => 7,
+        "Migration" => 8,
+        "Rails" => 9,
+        "Performance" => 10,
+        "RSpec" => 11,
+        "RSpecRails" => 12,
+        "FactoryBot" => 13,
+        _ => 99,
     }
 }
 
@@ -134,7 +199,9 @@ fn render_conformance(project_root: &Path, cop_count: usize) -> Option<String> {
     let content = fs::read_to_string(&json_path).ok()?;
     let data: HashMap<String, ConformResult> = serde_json::from_str(&content).ok()?;
 
-    if data.is_empty() { return None; }
+    if data.is_empty() {
+        return None;
+    }
 
     let mut out = String::new();
     writeln!(out, "## Conformance").unwrap();
@@ -142,14 +209,25 @@ fn render_conformance(project_root: &Path, cop_count: usize) -> Option<String> {
     writeln!(out, "Location-level comparison: file + line + cop_name. Only cops implemented by turbocop ({cop_count}) are compared.").unwrap();
     writeln!(out).unwrap();
     writeln!(out, "| Repo | turbocop | rubocop | Matches | FP (turbocop only) | FN (rubocop only) | Match rate |").unwrap();
-    writeln!(out, "|------|-------:|--------:|--------:|-----------------:|------------------:|-----------:|").unwrap();
+    writeln!(
+        out,
+        "|------|-------:|--------:|--------:|-----------------:|------------------:|-----------:|"
+    )
+    .unwrap();
 
     for &repo in REPO_ORDER {
         if let Some(c) = data.get(repo) {
-            writeln!(out, "| {repo} | {} | {} | {} | {} | {} | **{:.1}%** |",
-                c.turbocop_count, c.rubocop_count, c.matches,
-                c.false_positives, c.false_negatives, c.match_rate,
-            ).unwrap();
+            writeln!(
+                out,
+                "| {repo} | {} | {} | {} | {} | {} | **{:.1}%** |",
+                c.turbocop_count,
+                c.rubocop_count,
+                c.matches,
+                c.false_positives,
+                c.false_negatives,
+                c.match_rate,
+            )
+            .unwrap();
         }
     }
     writeln!(out).unwrap();
@@ -157,7 +235,9 @@ fn render_conformance(project_root: &Path, cop_count: usize) -> Option<String> {
     // Per-cop divergence details
     for &repo in REPO_ORDER {
         if let Some(c) = data.get(repo) {
-            let mut divergent: Vec<(&String, &CopStats)> = c.per_cop.iter()
+            let mut divergent: Vec<(&String, &CopStats)> = c
+                .per_cop
+                .iter()
                 .filter(|(_, s)| s.fp > 0 || s.fn_ > 0)
                 .collect();
             divergent.sort_by_key(|(_, s)| std::cmp::Reverse(s.fp + s.fn_));
@@ -170,12 +250,22 @@ fn render_conformance(project_root: &Path, cop_count: usize) -> Option<String> {
 
             let shown = divergent.len().min(30);
             writeln!(out, "<details>").unwrap();
-            writeln!(out, "<summary>Divergent cops \u{2014} {repo} ({shown} of {} shown)</summary>", divergent.len()).unwrap();
+            writeln!(
+                out,
+                "<summary>Divergent cops \u{2014} {repo} ({shown} of {} shown)</summary>",
+                divergent.len()
+            )
+            .unwrap();
             writeln!(out).unwrap();
             writeln!(out, "| Cop | Matches | FP | FN |").unwrap();
             writeln!(out, "|-----|--------:|---:|---:|").unwrap();
             for (cop, stats) in divergent.iter().take(30) {
-                writeln!(out, "| {cop} | {} | {} | {} |", stats.matches, stats.fp, stats.fn_).unwrap();
+                writeln!(
+                    out,
+                    "| {cop} | {} | {} | {} |",
+                    stats.matches, stats.fp, stats.fn_
+                )
+                .unwrap();
             }
             writeln!(out).unwrap();
             writeln!(out, "</details>").unwrap();
@@ -206,7 +296,10 @@ fn main() {
     let mut turbocop_cops: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for name in registry.names() {
         if let Some(slash) = name.find('/') {
-            turbocop_cops.entry(name[..slash].to_string()).or_default().insert(name.to_string());
+            turbocop_cops
+                .entry(name[..slash].to_string())
+                .or_default()
+                .insert(name.to_string());
         }
     }
 
@@ -221,7 +314,11 @@ fn main() {
     let mut out = String::new();
     writeln!(out, "# turbocop Coverage Report").unwrap();
     writeln!(out).unwrap();
-    writeln!(out, "> Auto-generated by `cargo run --bin coverage_table`. Do not edit manually.").unwrap();
+    writeln!(
+        out,
+        "> Auto-generated by `cargo run --bin coverage_table`. Do not edit manually."
+    )
+    .unwrap();
     writeln!(out).unwrap();
     writeln!(out, "## Cop Coverage").unwrap();
     writeln!(out).unwrap();
@@ -231,22 +328,43 @@ fn main() {
     // Gem-level summary table
     writeln!(out, "### By Gem").unwrap();
     writeln!(out).unwrap();
-    writeln!(out, "| Gem | Version | Departments | RuboCop | turbocop | Coverage |").unwrap();
-    writeln!(out, "|-----|---------|-------------|--------:|-------:|---------:|").unwrap();
+    writeln!(
+        out,
+        "| Gem | Version | Departments | RuboCop | turbocop | Coverage |"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "|-----|---------|-------------|--------:|-------:|---------:|"
+    )
+    .unwrap();
 
     for source in VENDOR_SOURCES {
         let version = parse_vendor_version(&vendor_dir, source).unwrap_or_else(|| "?".into());
         let depts_list = source.owned_departments.join(", ");
-        let v: usize = source.owned_departments.iter()
+        let v: usize = source
+            .owned_departments
+            .iter()
             .map(|d| vendor_cops.get(*d).map_or(0, |s| s.len()))
             .sum();
-        let r: usize = source.owned_departments.iter()
+        let r: usize = source
+            .owned_departments
+            .iter()
             .map(|d| turbocop_cops.get(*d).map_or(0, |s| s.len()))
             .sum();
-        let pct = if r >= v && v > 0 { "**100%**".to_string() }
-            else if v > 0 { format!("{:.0}%", r as f64 / v as f64 * 100.0) }
-            else { "100%".to_string() };
-        writeln!(out, "| {} | {version} | {depts_list} | {v} | {r} | {pct} |", source.dir).unwrap();
+        let pct = if r >= v && v > 0 {
+            "**100%**".to_string()
+        } else if v > 0 {
+            format!("{:.0}%", r as f64 / v as f64 * 100.0)
+        } else {
+            "100%".to_string()
+        };
+        writeln!(
+            out,
+            "| {} | {version} | {depts_list} | {v} | {r} | {pct} |",
+            source.dir
+        )
+        .unwrap();
     }
 
     writeln!(out).unwrap();
@@ -265,14 +383,26 @@ fn main() {
         let r = turbocop_cops.get(dept).map_or(0, |s| s.len());
         total_v += v;
         total_r += r;
-        let pct = if r >= v && v > 0 { "**100%**".to_string() }
-            else if v > 0 { format!("{:.0}%", r as f64 / v as f64 * 100.0) }
-            else { "100%".to_string() };
+        let pct = if r >= v && v > 0 {
+            "**100%**".to_string()
+        } else if v > 0 {
+            format!("{:.0}%", r as f64 / v as f64 * 100.0)
+        } else {
+            "100%".to_string()
+        };
         writeln!(out, "| {} | {v} | {r} | {pct} |", display_dept(dept)).unwrap();
     }
 
-    let total_pct = if total_v > 0 { total_r as f64 / total_v as f64 * 100.0 } else { 0.0 };
-    writeln!(out, "| **Total** | **{total_v}** | **{total_r}** | **{total_pct:.1}%** |").unwrap();
+    let total_pct = if total_v > 0 {
+        total_r as f64 / total_v as f64 * 100.0
+    } else {
+        0.0
+    };
+    writeln!(
+        out,
+        "| **Total** | **{total_v}** | **{total_r}** | **{total_pct:.1}%** |"
+    )
+    .unwrap();
 
     // 5. Missing cops
     if args.show_missing {
@@ -286,14 +416,24 @@ fn main() {
                 let missing: Vec<_> = vs.difference(&rs).collect();
                 if !missing.is_empty() {
                     any = true;
-                    writeln!(out, "### {} ({} missing)", display_dept(dept), missing.len()).unwrap();
+                    writeln!(
+                        out,
+                        "### {} ({} missing)",
+                        display_dept(dept),
+                        missing.len()
+                    )
+                    .unwrap();
                     writeln!(out).unwrap();
-                    for cop in &missing { writeln!(out, "- `{cop}`").unwrap(); }
+                    for cop in &missing {
+                        writeln!(out, "- `{cop}`").unwrap();
+                    }
                     writeln!(out).unwrap();
                 }
             }
         }
-        if !any { writeln!(out, "All vendor cops are implemented.").unwrap(); }
+        if !any {
+            writeln!(out, "All vendor cops are implemented.").unwrap();
+        }
 
         let mut extras: Vec<String> = Vec::new();
         for dept in &sorted_depts {
@@ -306,7 +446,9 @@ fn main() {
             writeln!(out).unwrap();
             writeln!(out, "### Extra Cops (in turbocop, not in vendor)").unwrap();
             writeln!(out).unwrap();
-            for cop in &extras { writeln!(out, "- `{cop}`").unwrap(); }
+            for cop in &extras {
+                writeln!(out, "- `{cop}`").unwrap();
+            }
             writeln!(out).unwrap();
         }
     }
@@ -323,8 +465,14 @@ fn main() {
 
     // 7. Output
     if let Some(path) = args.output {
-        let abs = if path.is_absolute() { path } else { project_root.join(path) };
-        if let Some(p) = abs.parent() { fs::create_dir_all(p).ok(); }
+        let abs = if path.is_absolute() {
+            path
+        } else {
+            project_root.join(path)
+        };
+        if let Some(p) = abs.parent() {
+            fs::create_dir_all(p).ok();
+        }
         fs::write(&abs, &out).expect("failed to write output file");
         eprintln!("Wrote {}", abs.display());
     } else {

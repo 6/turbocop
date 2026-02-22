@@ -1,10 +1,12 @@
-use crate::cop::util::{is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{
+    BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, PROGRAM_NODE, STATEMENTS_NODE,
+};
+use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 use std::collections::HashMap;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, PROGRAM_NODE, STATEMENTS_NODE};
 
 /// RSpec/RepeatedExampleGroupBody: Flag example groups with identical bodies.
 pub struct RepeatedExampleGroupBody;
@@ -23,7 +25,14 @@ impl Cop for RepeatedExampleGroupBody {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, PROGRAM_NODE, STATEMENTS_NODE]
+        &[
+            BLOCK_NODE,
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            PROGRAM_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -32,8 +41,8 @@ impl Cop for RepeatedExampleGroupBody {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // We need to look at sibling example groups within a common parent.
         // The parent can be a ProgramNode (top-level) or any block body.
@@ -137,7 +146,9 @@ fn check_sibling_groups_iter<'a>(
         // content produce different signatures.
         let loc = body.location();
         let mut end_offset = loc.end_offset();
-        let mut finder = MaxExtentFinder { max_end: end_offset };
+        let mut finder = MaxExtentFinder {
+            max_end: end_offset,
+        };
         finder.visit(&body);
         end_offset = finder.max_end;
         let body_src = &source.as_bytes()[loc.start_offset()..end_offset];
@@ -149,21 +160,27 @@ fn check_sibling_groups_iter<'a>(
 
         let call_loc = call.location();
         let (line, col) = source.offset_to_line_col(call_loc.start_offset());
-        body_map.entry(sig).or_default().push((line, col, name.to_vec()));
+        body_map
+            .entry(sig)
+            .or_default()
+            .push((line, col, name.to_vec()));
     }
 
     let mut diagnostics = Vec::new();
     for (_sig, locs) in &body_map {
         if locs.len() > 1 {
             for (idx, (line, col, group_name)) in locs.iter().enumerate() {
-                let other_lines: Vec<String> = locs.iter().enumerate()
+                let other_lines: Vec<String> = locs
+                    .iter()
+                    .enumerate()
                     .filter(|(i, _)| *i != idx)
                     .map(|(_, (l, _, _))| l.to_string())
                     .collect();
                 let group_type = std::str::from_utf8(group_name).unwrap_or("describe");
                 // Strip f/x prefix for display
                 let display_type = group_type
-                    .strip_prefix('f').or(group_type.strip_prefix('x'))
+                    .strip_prefix('f')
+                    .or(group_type.strip_prefix('x'))
                     .unwrap_or(group_type);
                 let msg = format!(
                     "Repeated {} block body on line(s) [{}]",
@@ -181,10 +198,7 @@ fn check_sibling_groups_iter<'a>(
 fn is_rspec_example_group_for_body(call: &ruby_prism::CallNode<'_>) -> bool {
     let name = call.name().as_slice();
     // Must be a describe/context/feature - not shared examples
-    if name == b"shared_examples"
-        || name == b"shared_examples_for"
-        || name == b"shared_context"
-    {
+    if name == b"shared_examples" || name == b"shared_examples_for" || name == b"shared_context" {
         return false;
     }
     if !is_rspec_example_group(name) {
@@ -253,10 +267,7 @@ struct MaxExtentFinder {
 }
 
 impl<'pr> Visit<'pr> for MaxExtentFinder {
-    fn visit_interpolated_string_node(
-        &mut self,
-        node: &ruby_prism::InterpolatedStringNode<'pr>,
-    ) {
+    fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
         if let Some(close) = node.closing_loc() {
             let end = close.end_offset();
             if end > self.max_end {
@@ -300,5 +311,8 @@ fn is_parent_group(name: &[u8]) -> bool {
 mod tests {
     use super::*;
 
-    crate::cop_fixture_tests!(RepeatedExampleGroupBody, "cops/rspec/repeated_example_group_body");
+    crate::cop_fixture_tests!(
+        RepeatedExampleGroupBody,
+        "cops/rspec/repeated_example_group_body"
+    );
 }

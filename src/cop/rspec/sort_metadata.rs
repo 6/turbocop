@@ -1,8 +1,8 @@
-use crate::cop::util::{self, is_rspec_example, is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE};
+use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE};
 
 pub struct SortMetadata;
 
@@ -29,8 +29,8 @@ impl Cop for SortMetadata {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -40,9 +40,7 @@ impl Cop for SortMetadata {
         let method_name = call.name().as_slice();
 
         // Must be an RSpec method
-        if !is_rspec_example_group(method_name)
-            && !is_rspec_example(method_name)
-        {
+        if !is_rspec_example_group(method_name) && !is_rspec_example(method_name) {
             return;
         }
 
@@ -75,7 +73,9 @@ impl Cop for SortMetadata {
 
         for arg in arg_list.iter() {
             if let Some(sym) = arg.as_symbol_node() {
-                let name = std::str::from_utf8(sym.unescaped()).unwrap_or("").to_string();
+                let name = std::str::from_utf8(sym.unescaped())
+                    .unwrap_or("")
+                    .to_string();
                 let offset = sym.location().start_offset();
                 if first_symbol_offset.is_none() {
                     first_symbol_offset = Some(offset);
@@ -85,7 +85,9 @@ impl Cop for SortMetadata {
                 for elem in kw.elements().iter() {
                     if let Some(assoc) = elem.as_assoc_node() {
                         if let Some(key_sym) = assoc.key().as_symbol_node() {
-                            let name = std::str::from_utf8(key_sym.unescaped()).unwrap_or("").to_string();
+                            let name = std::str::from_utf8(key_sym.unescaped())
+                                .unwrap_or("")
+                                .to_string();
                             let offset = elem.location().start_offset();
                             hash_keys.push((name, offset));
                         }
@@ -116,7 +118,6 @@ impl Cop for SortMetadata {
                 "Sort metadata alphabetically.".to_string(),
             ));
         }
-
     }
 }
 

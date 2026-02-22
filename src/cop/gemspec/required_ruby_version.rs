@@ -31,7 +31,13 @@ impl Cop for RequiredRubyVersion {
         &["**/*.gemspec"]
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         let mut found = false;
         let mut version_info: Option<(usize, usize, String)> = None; // (line, col, version_str)
 
@@ -47,10 +53,7 @@ impl Cop for RequiredRubyVersion {
 
             // Check for required_ruby_version assignment
             if trimmed.contains(".required_ruby_version") {
-                let after = trimmed
-                    .split(".required_ruby_version")
-                    .nth(1)
-                    .unwrap_or("");
+                let after = trimmed.split(".required_ruby_version").nth(1).unwrap_or("");
                 let after_trimmed = after.trim_start();
                 // Must be an assignment (= or >=) not just a method call check
                 if after_trimmed.starts_with('=') || after_trimmed.is_empty() {
@@ -125,7 +128,8 @@ mod tests {
     use std::collections::HashMap;
 
     crate::cop_scenario_fixture_tests!(
-        RequiredRubyVersion, "cops/gemspec/required_ruby_version",
+        RequiredRubyVersion,
+        "cops/gemspec/required_ruby_version",
         missing_version = "missing_version.rb",
         empty_gemspec = "empty_gemspec.rb",
         only_other_attrs = "only_other_attrs.rb",
@@ -147,7 +151,9 @@ mod tests {
     fn version_mismatch() {
         crate::testutil::assert_cop_offenses_full_with_config(
             &RequiredRubyVersion,
-            include_bytes!("../../../testdata/cops/gemspec/required_ruby_version/offense/version_mismatch.rb"),
+            include_bytes!(
+                "../../../testdata/cops/gemspec/required_ruby_version/offense/version_mismatch.rb"
+            ),
             config_with_target_ruby(3.1),
         );
     }

@@ -20,8 +20,8 @@ impl Cop for RedundantStringChars {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let chain = match as_method_chain(node) {
             Some(c) => c,
@@ -47,7 +47,12 @@ impl Cop for RedundantStringChars {
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(source, line, column, "Use `[]` instead of `chars.first`.".to_string()));
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            "Use `[]` instead of `chars.first`.".to_string(),
+        ));
     }
 }
 
@@ -55,5 +60,8 @@ impl Cop for RedundantStringChars {
 mod tests {
     use super::*;
 
-    crate::cop_fixture_tests!(RedundantStringChars, "cops/performance/redundant_string_chars");
+    crate::cop_fixture_tests!(
+        RedundantStringChars,
+        "cops/performance/redundant_string_chars"
+    );
 }

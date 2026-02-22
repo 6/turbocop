@@ -1,4 +1,4 @@
-use crate::cop::util::{is_rspec_example, is_rspec_hook, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_hook};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::codemap::CodeMap;
@@ -31,8 +31,8 @@ impl Cop for NamedSubject {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "always");
         let named_only = style == "named_only";
@@ -241,9 +241,13 @@ mod tests {
             ..CopConfig::default()
         };
         // File with bare `subject` but no named subject declaration
-        let source = b"describe Foo do\n  it 'works' do\n    expect(subject).to be_valid\n  end\nend\n";
+        let source =
+            b"describe Foo do\n  it 'works' do\n    expect(subject).to be_valid\n  end\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&NamedSubject, source, config);
-        assert!(diags.is_empty(), "named_only should not flag without named subject");
+        assert!(
+            diags.is_empty(),
+            "named_only should not flag without named subject"
+        );
     }
 
     #[test]
@@ -252,15 +256,15 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([(
-                "IgnoreSharedExamples".into(),
-                serde_yml::Value::Bool(true),
-            )]),
+            options: HashMap::from([("IgnoreSharedExamples".into(), serde_yml::Value::Bool(true))]),
             ..CopConfig::default()
         };
         let source = b"shared_examples 'foo' do\n  it { subject }\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&NamedSubject, source, config);
-        assert!(diags.is_empty(), "IgnoreSharedExamples should skip shared groups");
+        assert!(
+            diags.is_empty(),
+            "IgnoreSharedExamples should skip shared groups"
+        );
     }
 
     #[test]
@@ -335,6 +339,10 @@ mod tests {
             \x20 end\n\
             end\n";
         let diags = crate::testutil::run_cop_full_with_config(&NamedSubject, source, config);
-        assert_eq!(diags.len(), 1, "named_only should flag when nearest subject is named");
+        assert_eq!(
+            diags.len(),
+            1,
+            "named_only should flag when nearest subject is named"
+        );
     }
 }

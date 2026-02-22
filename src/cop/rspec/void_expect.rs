@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, STATEMENTS_NODE};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, STATEMENTS_NODE};
 
 pub struct VoidExpect;
 
@@ -29,8 +29,8 @@ impl Cop for VoidExpect {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Detect `expect(...)` or `expect { ... }` without `.to` or `.not_to` chained.
         // This means the expect call node should NOT be the receiver of a `.to`/`.not_to`/`.to_not` call.
@@ -88,7 +88,6 @@ impl Cop for VoidExpect {
                     .to_string(),
             ));
         }
-
     }
 }
 

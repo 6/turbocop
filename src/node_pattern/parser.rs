@@ -319,9 +319,7 @@ mod tests {
                 assert_eq!(node_type, "send");
                 assert_eq!(children.len(), 3);
                 assert!(matches!(children[0], PatternNode::NilPredicate));
-                assert!(
-                    matches!(&children[1], PatternNode::SymbolLiteral(s) if s == "expect")
-                );
+                assert!(matches!(&children[1], PatternNode::SymbolLiteral(s) if s == "expect"));
                 assert!(matches!(children[2], PatternNode::Rest));
             }
             _ => panic!("Expected NodeMatch"),
@@ -381,9 +379,7 @@ mod tests {
                 assert!(
                     matches!(&items[0], PatternNode::Negation(inner) if matches!(**inner, PatternNode::NilPredicate))
                 );
-                assert!(
-                    matches!(&items[1], PatternNode::TypePredicate(t) if t == "send")
-                );
+                assert!(matches!(&items[1], PatternNode::TypePredicate(t) if t == "send"));
             }
             _ => panic!("Expected Conjunction, got {:?}", pattern_summary(&ast)),
         }
@@ -400,12 +396,8 @@ mod tests {
             PatternNode::Capture(inner) => match *inner {
                 PatternNode::Alternatives(alts) => {
                     assert_eq!(alts.len(), 2);
-                    assert!(
-                        matches!(&alts[0], PatternNode::SymbolLiteral(s) if s == "first")
-                    );
-                    assert!(
-                        matches!(&alts[1], PatternNode::SymbolLiteral(s) if s == "take")
-                    );
+                    assert!(matches!(&alts[0], PatternNode::SymbolLiteral(s) if s == "first"));
+                    assert!(matches!(&alts[1], PatternNode::SymbolLiteral(s) if s == "take"));
                 }
                 _ => panic!("Expected Alternatives inside Capture"),
             },
@@ -435,9 +427,7 @@ mod tests {
                 children,
             } => {
                 assert_eq!(node_type, "send");
-                assert!(
-                    matches!(&children[0], PatternNode::HelperCall(n) if n == "expect?")
-                );
+                assert!(matches!(&children[0], PatternNode::HelperCall(n) if n == "expect?"));
                 assert!(matches!(&children[1], PatternNode::Wildcard));
                 assert!(matches!(&children[2], PatternNode::Rest));
             }
@@ -447,9 +437,7 @@ mod tests {
 
     #[test]
     fn test_parser_deeply_nested() {
-        let mut lexer = Lexer::new(
-            "(block (send (send nil? :described_class) :new ...) (args) _)",
-        );
+        let mut lexer = Lexer::new("(block (send (send nil? :described_class) :new ...) (args) _)");
         let tokens = lexer.tokenize();
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().unwrap();

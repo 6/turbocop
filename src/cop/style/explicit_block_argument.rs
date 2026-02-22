@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    BLOCK_NODE, BLOCK_PARAMETERS_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE,
+    STATEMENTS_NODE, YIELD_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, YIELD_NODE};
 
 pub struct ExplicitBlockArgument;
 
@@ -11,7 +14,14 @@ impl Cop for ExplicitBlockArgument {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, YIELD_NODE]
+        &[
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            REQUIRED_PARAMETER_NODE,
+            STATEMENTS_NODE,
+            YIELD_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +30,8 @@ impl Cop for ExplicitBlockArgument {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for block nodes where the body is just `yield` with the same args
         let block_node = match node.as_block_node() {

@@ -1,6 +1,6 @@
 use ruby_prism::Visit;
 
-use crate::cop::node_type::{node_type_tag, NODE_TYPE_COUNT};
+use crate::cop::node_type::{NODE_TYPE_COUNT, node_type_tag};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -99,12 +99,26 @@ impl<'a, 'pr> BatchedCopWalker<'a, 'pr> {
         let tag = node_type_tag(node) as usize;
 
         for &(cop, cop_config) in &self.universal_cops {
-            cop.check_node(self.source, node, self.parse_result, cop_config, &mut self.diagnostics, self.corrections.as_mut());
+            cop.check_node(
+                self.source,
+                node,
+                self.parse_result,
+                cop_config,
+                &mut self.diagnostics,
+                self.corrections.as_mut(),
+            );
         }
 
         if let Some(cops) = self.dispatch_table.get(tag) {
             for &(cop, cop_config) in cops {
-                cop.check_node(self.source, node, self.parse_result, cop_config, &mut self.diagnostics, self.corrections.as_mut());
+                cop.check_node(
+                    self.source,
+                    node,
+                    self.parse_result,
+                    cop_config,
+                    &mut self.diagnostics,
+                    self.corrections.as_mut(),
+                );
             }
         }
     }

@@ -20,8 +20,8 @@ impl Cop for IndentationStyle {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "spaces");
         let indent_width = config.get_usize("IndentationWidth", 2);
@@ -41,7 +41,10 @@ impl Cop for IndentationStyle {
 
             if style == "spaces" {
                 // Flag tabs in indentation
-                let indent_end = line.iter().take_while(|&&b| b == b' ' || b == b'\t').count();
+                let indent_end = line
+                    .iter()
+                    .take_while(|&&b| b == b' ' || b == b'\t')
+                    .count();
                 let indent = &line[..indent_end];
                 if indent.iter().any(|&b| b == b'\t') {
                     let tab_col = indent.iter().position(|&b| b == b'\t').unwrap_or(0);
@@ -57,7 +60,11 @@ impl Cop for IndentationStyle {
                         if let Some(ref mut corr) = corrections {
                             // Calculate visual width of the mixed indent region
                             let visual_width = indent.iter().fold(0usize, |w, &b| {
-                                if b == b'\t' { (w / indent_width + 1) * indent_width } else { w + 1 }
+                                if b == b'\t' {
+                                    (w / indent_width + 1) * indent_width
+                                } else {
+                                    w + 1
+                                }
                             });
                             corr.push(crate::correction::Correction {
                                 start: line_start,
@@ -73,7 +80,10 @@ impl Cop for IndentationStyle {
                 }
             } else {
                 // "tabs" — flag spaces in indentation
-                let indent_end = line.iter().take_while(|&&b| b == b' ' || b == b'\t').count();
+                let indent_end = line
+                    .iter()
+                    .take_while(|&&b| b == b' ' || b == b'\t')
+                    .count();
                 let indent = &line[..indent_end];
                 if indent.iter().any(|&b| b == b' ') {
                     let space_col = indent.iter().position(|&b| b == b' ').unwrap_or(0);
@@ -107,7 +117,6 @@ impl Cop for IndentationStyle {
                 }
             }
         }
-
     }
 }
 
@@ -132,13 +141,15 @@ mod tests {
     fn autocorrect_spaces_to_tab() {
         use std::collections::HashMap;
         let config = crate::cop::CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("tabs".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("tabs".into()),
+            )]),
             ..crate::cop::CopConfig::default()
         };
         let input = b"  x = 1\n";
-        let (_diags, corrections) = crate::testutil::run_cop_autocorrect_with_config(&IndentationStyle, input, config);
+        let (_diags, corrections) =
+            crate::testutil::run_cop_autocorrect_with_config(&IndentationStyle, input, config);
         assert!(!corrections.is_empty());
         let cs = crate::correction::CorrectionSet::from_vec(corrections);
         let corrected = cs.apply(input);

@@ -1,8 +1,8 @@
+use crate::cop::node_type::DEF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
-use crate::cop::node_type::DEF_NODE;
 
 pub struct ActiveRecordOverride;
 
@@ -42,8 +42,8 @@ impl Cop for ActiveRecordOverride {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -70,9 +70,8 @@ impl Cop for ActiveRecordOverride {
         }
 
         let method_str = std::str::from_utf8(method_name).unwrap_or("?");
-        let callbacks = format!(
-            "`before_{method_str}`, `around_{method_str}`, or `after_{method_str}`"
-        );
+        let callbacks =
+            format!("`before_{method_str}`, `around_{method_str}`, or `after_{method_str}`");
 
         let loc = def_node.name_loc();
         let (line, column) = source.offset_to_line_col(loc.start_offset());

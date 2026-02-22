@@ -1,11 +1,11 @@
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
 use crate::cop::util::{
-    self, is_rspec_example, is_rspec_example_group, is_rspec_hook, is_rspec_let, is_rspec_subject,
-    RSPEC_DEFAULT_INCLUDE,
+    self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_hook,
+    is_rspec_let, is_rspec_subject,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
 
 pub struct LeadingSubject;
 
@@ -32,8 +32,8 @@ impl Cop for LeadingSubject {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -44,7 +44,8 @@ impl Cop for LeadingSubject {
 
         // Check for example group calls (including ::RSpec.describe)
         let is_example_group = if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).map_or(false, |n| n == b"RSpec") && method_name == b"describe"
+            util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
+                && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name)
         };
@@ -92,9 +93,7 @@ impl Cop for LeadingSubject {
                             source,
                             line,
                             column,
-                            format!(
-                                "Declare `subject` above any other `{prev_str}` declarations."
-                            ),
+                            format!("Declare `subject` above any other `{prev_str}` declarations."),
                         ));
                     }
                 } else if is_rspec_let(name)
@@ -109,7 +108,6 @@ impl Cop for LeadingSubject {
                 }
             }
         }
-
     }
 }
 

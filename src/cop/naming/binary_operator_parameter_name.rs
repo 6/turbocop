@@ -1,21 +1,17 @@
+use crate::cop::node_type::{DEF_NODE, REQUIRED_PARAMETER_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{DEF_NODE, REQUIRED_PARAMETER_NODE};
 
 pub struct BinaryOperatorParameterName;
 
 const BINARY_OPERATORS: &[&[u8]] = &[
-    b"+", b"-", b"*", b"/", b"%", b"**",
-    b"==", b"!=", b"<", b">", b"<=", b">=", b"<=>",
-    b"&", b"|", b"^", b">>",
-    b"eql?", b"equal?",
+    b"+", b"-", b"*", b"/", b"%", b"**", b"==", b"!=", b"<", b">", b"<=", b">=", b"<=>", b"&",
+    b"|", b"^", b">>", b"eql?", b"equal?",
 ];
 
 // Operators excluded from this cop per RuboCop: +@ -@ [] []= << === ` =~
-const EXCLUDED_OPERATORS: &[&[u8]] = &[
-    b"+@", b"-@", b"[]", b"[]=", b"<<", b"===", b"`", b"=~",
-];
+const EXCLUDED_OPERATORS: &[&[u8]] = &[b"+@", b"-@", b"[]", b"[]=", b"<<", b"===", b"`", b"=~"];
 
 impl Cop for BinaryOperatorParameterName {
     fn name(&self) -> &'static str {
@@ -32,8 +28,8 @@ impl Cop for BinaryOperatorParameterName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -57,7 +53,8 @@ impl Cop for BinaryOperatorParameterName {
         if !BINARY_OPERATORS.iter().any(|&op| op == method_name) {
             // Also accept non-word methods (operators) that aren't excluded
             let name_str = std::str::from_utf8(method_name).unwrap_or("");
-            let is_op = !name_str.is_empty() && !name_str.starts_with(|c: char| c.is_alphanumeric() || c == '_');
+            let is_op = !name_str.is_empty()
+                && !name_str.starts_with(|c: char| c.is_alphanumeric() || c == '_');
             if !is_op {
                 return;
             }
@@ -85,13 +82,10 @@ impl Cop for BinaryOperatorParameterName {
                     source,
                     line,
                     column,
-                    format!(
-                        "When defining the `{op_str}` operator, name its argument `other`."
-                    ),
+                    format!("When defining the `{op_str}` operator, name its argument `other`."),
                 ));
             }
         }
-
     }
 }
 

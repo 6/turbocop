@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct DoubleNegation;
 
@@ -20,8 +20,8 @@ impl Cop for DoubleNegation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "allowed_in_returns");
 
@@ -107,7 +107,9 @@ impl Cop for DoubleNegation {
                 let trimmed_after = after.trim_ascii_start();
                 if trimmed_after.starts_with(b"end")
                     && (trimmed_after.len() == 3
-                        || !trimmed_after[3..4].iter().all(|&b: &u8| b.is_ascii_alphanumeric() || b == b'_'))
+                        || !trimmed_after[3..4]
+                            .iter()
+                            .all(|&b: &u8| b.is_ascii_alphanumeric() || b == b'_'))
                 {
                     return;
                 }

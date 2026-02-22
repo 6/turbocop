@@ -23,8 +23,8 @@ impl Cop for UselessConstantScoping {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = ConstScopingVisitor {
             cop: self,
@@ -102,7 +102,10 @@ impl ConstScopingVisitor<'_, '_> {
                 if let Some(casgn) = node.as_constant_write_node() {
                     let const_name = casgn.name().as_slice();
                     // Check if this constant has a private_constant call
-                    if !private_constant_names.iter().any(|n| n.as_slice() == const_name) {
+                    if !private_constant_names
+                        .iter()
+                        .any(|n| n.as_slice() == const_name)
+                    {
                         let loc = casgn.location();
                         let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                         self.diagnostics.push(self.cop.diagnostic(

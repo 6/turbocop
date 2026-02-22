@@ -17,7 +17,13 @@ impl Cop for InsecureProtocolSource {
         &["**/*.gemfile", "**/Gemfile", "**/gems.rb"]
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         let allow_http = config.get_bool("AllowHttpProtocol", true);
 
         for (i, line) in source.lines().enumerate() {
@@ -86,5 +92,8 @@ impl Cop for InsecureProtocolSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(InsecureProtocolSource, "cops/bundler/insecure_protocol_source");
+    crate::cop_fixture_tests!(
+        InsecureProtocolSource,
+        "cops/bundler/insecure_protocol_source"
+    );
 }

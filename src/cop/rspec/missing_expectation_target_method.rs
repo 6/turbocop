@@ -1,8 +1,8 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct MissingExpectationTargetMethod;
 
@@ -29,8 +29,8 @@ impl Cop for MissingExpectationTargetMethod {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for expect(x).something or is_expected.something
         // where something is not .to / .not_to / .to_not
@@ -85,5 +85,8 @@ impl Cop for MissingExpectationTargetMethod {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(MissingExpectationTargetMethod, "cops/rspec/missing_expectation_target_method");
+    crate::cop_fixture_tests!(
+        MissingExpectationTargetMethod,
+        "cops/rspec/missing_expectation_target_method"
+    );
 }

@@ -1,7 +1,7 @@
+use crate::cop::node_type::DEF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::DEF_NODE;
 
 pub struct DefWithParentheses;
 
@@ -20,8 +20,8 @@ impl Cop for DefWithParentheses {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -55,7 +55,10 @@ impl Cop for DefWithParentheses {
         if !is_endless {
             let def_loc = def_node.location();
             let start_line = source.offset_to_line_col(def_loc.start_offset()).0;
-            let end_off = def_loc.end_offset().saturating_sub(1).max(def_loc.start_offset());
+            let end_off = def_loc
+                .end_offset()
+                .saturating_sub(1)
+                .max(def_loc.start_offset());
             let end_line = source.offset_to_line_col(end_off).0;
             if start_line == end_line {
                 return;
@@ -76,13 +79,15 @@ impl Cop for DefWithParentheses {
         }
 
         let (line, column) = source.offset_to_line_col(lparen_loc.start_offset());
-        diagnostics.push(self.diagnostic(
-            source,
-            line,
-            column,
-            "Omit the parentheses in defs when the method doesn't accept any arguments."
-                .to_string(),
-        ));
+        diagnostics.push(
+            self.diagnostic(
+                source,
+                line,
+                column,
+                "Omit the parentheses in defs when the method doesn't accept any arguments."
+                    .to_string(),
+            ),
+        );
     }
 }
 

@@ -1,9 +1,11 @@
-use crate::cop::util::{is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{
+    BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, PROGRAM_NODE, STATEMENTS_NODE,
+};
+use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use std::collections::HashMap;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, PROGRAM_NODE, STATEMENTS_NODE};
 
 /// RSpec/RepeatedExampleGroupDescription: Flag example groups with identical descriptions.
 pub struct RepeatedExampleGroupDescription;
@@ -22,7 +24,14 @@ impl Cop for RepeatedExampleGroupDescription {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, PROGRAM_NODE, STATEMENTS_NODE]
+        &[
+            BLOCK_NODE,
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            PROGRAM_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -31,8 +40,8 @@ impl Cop for RepeatedExampleGroupDescription {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check top-level siblings or siblings inside an example group
         let stmts: Vec<ruby_prism::Node<'_>> = if let Some(program) = node.as_program_node() {
@@ -85,19 +94,25 @@ impl Cop for RepeatedExampleGroupDescription {
 
             let loc = call.location();
             let (line, col) = source.offset_to_line_col(loc.start_offset());
-            desc_map.entry(desc_sig).or_default().push((line, col, name.to_vec()));
+            desc_map
+                .entry(desc_sig)
+                .or_default()
+                .push((line, col, name.to_vec()));
         }
 
         for (_sig, locs) in &desc_map {
             if locs.len() > 1 {
                 for (idx, (line, col, group_name)) in locs.iter().enumerate() {
-                    let other_lines: Vec<String> = locs.iter().enumerate()
+                    let other_lines: Vec<String> = locs
+                        .iter()
+                        .enumerate()
                         .filter(|(i, _)| *i != idx)
                         .map(|(_, (l, _, _))| l.to_string())
                         .collect();
                     let group_type = std::str::from_utf8(group_name).unwrap_or("describe");
                     let display_type = group_type
-                        .strip_prefix('f').or(group_type.strip_prefix('x'))
+                        .strip_prefix('f')
+                        .or(group_type.strip_prefix('x'))
                         .unwrap_or(group_type);
                     let msg = format!(
                         "Repeated {} block description on line(s) [{}]",
@@ -108,7 +123,6 @@ impl Cop for RepeatedExampleGroupDescription {
                 }
             }
         }
-
     }
 }
 
@@ -127,10 +141,7 @@ fn description_signature(source: &SourceFile, call: &ruby_prism::CallNode<'_>) -
 
 fn is_rspec_group_for_desc(call: &ruby_prism::CallNode<'_>) -> bool {
     let name = call.name().as_slice();
-    if name == b"shared_examples"
-        || name == b"shared_examples_for"
-        || name == b"shared_context"
-    {
+    if name == b"shared_examples" || name == b"shared_examples_for" || name == b"shared_context" {
         return false;
     }
     if !is_rspec_example_group(name) {
@@ -173,5 +184,8 @@ fn is_parent_group(name: &[u8]) -> bool {
 mod tests {
     use super::*;
 
-    crate::cop_fixture_tests!(RepeatedExampleGroupDescription, "cops/rspec/repeated_example_group_description");
+    crate::cop_fixture_tests!(
+        RepeatedExampleGroupDescription,
+        "cops/rspec/repeated_example_group_description"
+    );
 }

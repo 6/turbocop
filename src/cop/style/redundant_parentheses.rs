@@ -17,8 +17,8 @@ impl Cop for RedundantParentheses {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = RedundantParensVisitor {
             cop: self,
@@ -68,12 +68,12 @@ impl RedundantParensVisitor<'_> {
             None => return,
         };
 
-        let inner_nodes: Vec<ruby_prism::Node<'_>> =
-            if let Some(stmts) = body.as_statements_node() {
-                stmts.body().iter().collect()
-            } else {
-                vec![body]
-            };
+        let inner_nodes: Vec<ruby_prism::Node<'_>> = if let Some(stmts) = body.as_statements_node()
+        {
+            stmts.body().iter().collect()
+        } else {
+            vec![body]
+        };
 
         if inner_nodes.len() != 1 {
             return;
@@ -101,8 +101,10 @@ impl RedundantParensVisitor<'_> {
 
         // multiline_control_flow_statements?
         if let Some(p) = parent {
-            if matches!(p.kind, ParentKind::Return | ParentKind::Next | ParentKind::Break)
-                && p.multiline
+            if matches!(
+                p.kind,
+                ParentKind::Return | ParentKind::Next | ParentKind::Break
+            ) && p.multiline
             {
                 return;
             }
@@ -112,7 +114,10 @@ impl RedundantParensVisitor<'_> {
         // when the keyword is directly adjacent to the open paren (no space).
         // RuboCop's `parens_required?` checks if a letter precedes the `(`.
         if let Some(p) = parent {
-            if matches!(p.kind, ParentKind::Return | ParentKind::Next | ParentKind::Break) {
+            if matches!(
+                p.kind,
+                ParentKind::Return | ParentKind::Next | ParentKind::Break
+            ) {
                 let open_offset = node.location().start_offset();
                 if open_offset > 0 {
                     let before = self.source.content[open_offset - 1];
@@ -289,10 +294,7 @@ fn check_method_call<'a>(
     let call = inner.as_call_node()?;
 
     // prefix_not: !expr
-    if call.name().as_slice() == b"!"
-        && call.receiver().is_some()
-        && call.arguments().is_none()
-    {
+    if call.name().as_slice() == b"!" && call.receiver().is_some() && call.arguments().is_none() {
         return None;
     }
 
@@ -346,8 +348,14 @@ impl<'pr> Visit<'pr> for RedundantParensVisitor<'_> {
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         if let Some(top) = self.parent_stack.last_mut() {
-            let start_line = self.source.offset_to_line_col(node.location().start_offset()).0;
-            let end_line = self.source.offset_to_line_col(node.location().end_offset().saturating_sub(1)).0;
+            let start_line = self
+                .source
+                .offset_to_line_col(node.location().start_offset())
+                .0;
+            let end_line = self
+                .source
+                .offset_to_line_col(node.location().end_offset().saturating_sub(1))
+                .0;
             top.kind = ParentKind::Call;
             top.multiline = start_line != end_line;
             top.call_parenthesized = node.opening_loc().is_some();
@@ -382,8 +390,14 @@ impl<'pr> Visit<'pr> for RedundantParensVisitor<'_> {
 
     fn visit_return_node(&mut self, node: &ruby_prism::ReturnNode<'pr>) {
         if let Some(top) = self.parent_stack.last_mut() {
-            let start_line = self.source.offset_to_line_col(node.location().start_offset()).0;
-            let end_line = self.source.offset_to_line_col(node.location().end_offset().saturating_sub(1)).0;
+            let start_line = self
+                .source
+                .offset_to_line_col(node.location().start_offset())
+                .0;
+            let end_line = self
+                .source
+                .offset_to_line_col(node.location().end_offset().saturating_sub(1))
+                .0;
             top.kind = ParentKind::Return;
             top.multiline = start_line != end_line;
         }
@@ -392,8 +406,14 @@ impl<'pr> Visit<'pr> for RedundantParensVisitor<'_> {
 
     fn visit_next_node(&mut self, node: &ruby_prism::NextNode<'pr>) {
         if let Some(top) = self.parent_stack.last_mut() {
-            let start_line = self.source.offset_to_line_col(node.location().start_offset()).0;
-            let end_line = self.source.offset_to_line_col(node.location().end_offset().saturating_sub(1)).0;
+            let start_line = self
+                .source
+                .offset_to_line_col(node.location().start_offset())
+                .0;
+            let end_line = self
+                .source
+                .offset_to_line_col(node.location().end_offset().saturating_sub(1))
+                .0;
             top.kind = ParentKind::Next;
             top.multiline = start_line != end_line;
         }
@@ -402,8 +422,14 @@ impl<'pr> Visit<'pr> for RedundantParensVisitor<'_> {
 
     fn visit_break_node(&mut self, node: &ruby_prism::BreakNode<'pr>) {
         if let Some(top) = self.parent_stack.last_mut() {
-            let start_line = self.source.offset_to_line_col(node.location().start_offset()).0;
-            let end_line = self.source.offset_to_line_col(node.location().end_offset().saturating_sub(1)).0;
+            let start_line = self
+                .source
+                .offset_to_line_col(node.location().start_offset())
+                .0;
+            let end_line = self
+                .source
+                .offset_to_line_col(node.location().end_offset().saturating_sub(1))
+                .0;
             top.kind = ParentKind::Break;
             top.multiline = start_line != end_line;
         }
@@ -562,10 +588,7 @@ fn is_assignment(node: &ruby_prism::Node<'_>) -> bool {
 fn is_comparison(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(call) = node.as_call_node() {
         let name = call.name().as_slice();
-        matches!(
-            name,
-            b"==" | b"!=" | b"<" | b">" | b"<=" | b">=" | b"<=>"
-        )
+        matches!(name, b"==" | b"!=" | b"<" | b">" | b"<=" | b">=" | b"<=>")
     } else {
         false
     }

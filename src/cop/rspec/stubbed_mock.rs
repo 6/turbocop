@@ -1,8 +1,10 @@
+use crate::cop::node_type::{
+    BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE,
+};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 
 pub struct StubbedMock;
 
@@ -26,7 +28,14 @@ impl Cop for StubbedMock {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE]
+        &[
+            BLOCK_ARGUMENT_NODE,
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            CALL_NODE,
+            HASH_NODE,
+            KEYWORD_HASH_NODE,
+        ]
     }
 
     fn check_node(
@@ -114,12 +123,15 @@ impl Cop for StubbedMock {
                 ));
             }
             b"is_expected" if recv_call.receiver().is_none() => {
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Prefer `allow(subject)` over `is_expected` when configuring a response.".to_string(),
-                ));
+                diagnostics.push(
+                    self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Prefer `allow(subject)` over `is_expected` when configuring a response."
+                            .to_string(),
+                    ),
+                );
             }
             _ => {}
         }
@@ -193,8 +205,12 @@ fn is_matcher_with_configured_response(node: &ruby_prism::Node<'_>) -> bool {
 fn is_configured_response(name: &[u8]) -> bool {
     matches!(
         name,
-        b"and_return" | b"and_raise" | b"and_throw" | b"and_yield"
-            | b"and_call_original" | b"and_wrap_original"
+        b"and_return"
+            | b"and_raise"
+            | b"and_throw"
+            | b"and_yield"
+            | b"and_call_original"
+            | b"and_wrap_original"
     )
 }
 
@@ -257,7 +273,9 @@ fn is_matcher_with_blockpass(node: &ruby_prism::Node<'_>) -> bool {
             if name == b"with" {
                 if let Some(recv) = call.receiver() {
                     if let Some(recv_call) = recv.as_call_node() {
-                        if recv_call.receiver().is_none() && recv_call.name().as_slice() == b"receive" {
+                        if recv_call.receiver().is_none()
+                            && recv_call.name().as_slice() == b"receive"
+                        {
                             return true;
                         }
                     }
@@ -300,7 +318,6 @@ fn is_matcher_with_block(node: &ruby_prism::Node<'_>) -> bool {
 
     false
 }
-
 
 #[cfg(test)]
 mod tests {

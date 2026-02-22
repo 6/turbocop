@@ -1,18 +1,16 @@
 use std::collections::HashMap;
 
+use crate::cop::node_type::{CLASS_NODE, SYMBOL_NODE};
 use crate::cop::util::{class_body_calls, is_dsl_call, parent_class_name};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CLASS_NODE, SYMBOL_NODE};
 
 pub struct DuplicateAssociation;
 
 /// Check if the parent class looks like an ActiveRecord base class.
 fn is_active_record_parent(parent: &[u8]) -> bool {
-    parent == b"ApplicationRecord"
-        || parent == b"ActiveRecord::Base"
-        || parent.ends_with(b"Record")
+    parent == b"ApplicationRecord" || parent == b"ActiveRecord::Base" || parent.ends_with(b"Record")
 }
 
 impl Cop for DuplicateAssociation {
@@ -34,8 +32,8 @@ impl Cop for DuplicateAssociation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let class = match node.as_class_node() {
             Some(c) => c,
@@ -87,7 +85,6 @@ impl Cop for DuplicateAssociation {
                 seen.insert(name, 0);
             }
         }
-
     }
 }
 

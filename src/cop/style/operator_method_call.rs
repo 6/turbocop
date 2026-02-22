@@ -1,14 +1,13 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct OperatorMethodCall;
 
 const OPERATOR_METHODS: &[&[u8]] = &[
-    b"+", b"-", b"*", b"/", b"%", b"**",
-    b"==", b"!=", b"<", b">", b"<=", b">=", b"<=>",
-    b"<<", b">>", b"|", b"&", b"^",
+    b"+", b"-", b"*", b"/", b"%", b"**", b"==", b"!=", b"<", b">", b"<=", b">=", b"<=>", b"<<",
+    b">>", b"|", b"&", b"^",
 ];
 
 impl Cop for OperatorMethodCall {
@@ -26,8 +25,8 @@ impl Cop for OperatorMethodCall {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -81,10 +80,18 @@ impl Cop for OperatorMethodCall {
                 // Check if there's a dot immediately after the closing paren
                 // (possibly with whitespace/newlines)
                 let mut pos = end_off;
-                while pos < src.len() && (src[pos] == b' ' || src[pos] == b'\t' || src[pos] == b'\n' || src[pos] == b'\r') {
+                while pos < src.len()
+                    && (src[pos] == b' '
+                        || src[pos] == b'\t'
+                        || src[pos] == b'\n'
+                        || src[pos] == b'\r')
+                {
                     pos += 1;
                 }
-                if pos < src.len() && (src[pos] == b'.' || (pos + 1 < src.len() && src[pos] == b'&' && src[pos + 1] == b'.')) {
+                if pos < src.len()
+                    && (src[pos] == b'.'
+                        || (pos + 1 < src.len() && src[pos] == b'&' && src[pos + 1] == b'.'))
+                {
                     return;
                 }
             }

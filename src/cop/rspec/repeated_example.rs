@@ -1,9 +1,11 @@
-use crate::cop::util::{is_rspec_example, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{
+    BLOCK_NODE, CALL_NODE, INTERPOLATED_STRING_NODE, STATEMENTS_NODE, STRING_NODE,
+};
+use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use std::collections::HashMap;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, INTERPOLATED_STRING_NODE, STATEMENTS_NODE, STRING_NODE};
 
 /// RSpec/RepeatedExample: Don't repeat examples (same body) within an example group.
 pub struct RepeatedExample;
@@ -22,7 +24,13 @@ impl Cop for RepeatedExample {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE, INTERPOLATED_STRING_NODE, STATEMENTS_NODE, STRING_NODE]
+        &[
+            BLOCK_NODE,
+            CALL_NODE,
+            INTERPOLATED_STRING_NODE,
+            STATEMENTS_NODE,
+            STRING_NODE,
+        ]
     }
 
     fn check_node(
@@ -31,8 +39,8 @@ impl Cop for RepeatedExample {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -81,7 +89,9 @@ impl Cop for RepeatedExample {
         for (_sig, locs) in &body_map {
             if locs.len() > 1 {
                 for (idx, &(line, col)) in locs.iter().enumerate() {
-                    let other_lines: Vec<String> = locs.iter().enumerate()
+                    let other_lines: Vec<String> = locs
+                        .iter()
+                        .enumerate()
                         .filter(|(i, _)| *i != idx)
                         .map(|(_, (l, _))| l.to_string())
                         .collect();
@@ -93,7 +103,6 @@ impl Cop for RepeatedExample {
                 }
             }
         }
-
     }
 }
 
@@ -107,7 +116,9 @@ fn example_body_signature(source: &SourceFile, call: &ruby_prism::CallNode<'_>) 
         let arg_list: Vec<_> = args.arguments().iter().collect();
         for (i, arg) in arg_list.iter().enumerate() {
             // Skip first argument if it's a string (description)
-            if i == 0 && (arg.as_string_node().is_some() || arg.as_interpolated_string_node().is_some()) {
+            if i == 0
+                && (arg.as_string_node().is_some() || arg.as_interpolated_string_node().is_some())
+            {
                 continue;
             }
             let loc = arg.location();

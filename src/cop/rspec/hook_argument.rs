@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, SYMBOL_NODE};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, SYMBOL_NODE};
 
 pub struct HookArgument;
 
@@ -35,8 +35,8 @@ impl Cop for HookArgument {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: EnforcedStyle — "implicit" (default), "each", or "example"
         let enforced_style = config.get_str("EnforcedStyle", "implicit");
@@ -77,8 +77,7 @@ impl Cop for HookArgument {
             } else if let Some(sym) = arg_list[0].as_symbol_node() {
                 let val = sym.unescaped();
                 // Only flag if missing expected scope arg
-                val == b"each" || val == b"example"
-                    || NON_EXAMPLE_SCOPES.iter().any(|s| val == *s)
+                val == b"each" || val == b"example" || NON_EXAMPLE_SCOPES.iter().any(|s| val == *s)
             } else {
                 false
             };
@@ -151,13 +150,10 @@ impl Cop for HookArgument {
                     source,
                     line,
                     column,
-                    format!(
-                        "Omit the default `:{scope_str}` argument for RSpec hooks.",
-                    ),
+                    format!("Omit the default `:{scope_str}` argument for RSpec hooks.",),
                 ));
             }
         }
-
     }
 }
 

@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    ASSOC_SPLAT_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_SPLAT_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE};
 
 pub struct RedundantMerge;
 
@@ -15,7 +17,13 @@ impl Cop for RedundantMerge {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ASSOC_SPLAT_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE]
+        &[
+            ASSOC_SPLAT_NODE,
+            CALL_NODE,
+            HASH_NODE,
+            KEYWORD_HASH_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+        ]
     }
 
     fn check_node(
@@ -24,8 +32,8 @@ impl Cop for RedundantMerge {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let max_kv_pairs = config.get_usize("MaxKeyValuePairs", 2);
 
@@ -56,13 +64,21 @@ impl Cop for RedundantMerge {
             // Don't flag if argument contains a splat (**hash)
             if first.as_keyword_hash_node().is_some() {
                 let kw = first.as_keyword_hash_node().unwrap();
-                if kw.elements().iter().any(|e| e.as_assoc_splat_node().is_some()) {
+                if kw
+                    .elements()
+                    .iter()
+                    .any(|e| e.as_assoc_splat_node().is_some())
+                {
                     return;
                 }
                 kw.elements().len()
             } else if first.as_hash_node().is_some() {
                 let hash = first.as_hash_node().unwrap();
-                if hash.elements().iter().any(|e| e.as_assoc_splat_node().is_some()) {
+                if hash
+                    .elements()
+                    .iter()
+                    .any(|e| e.as_assoc_splat_node().is_some())
+                {
                     return;
                 }
                 hash.elements().len()
@@ -109,7 +125,11 @@ impl Cop for RedundantMerge {
             if before_call[i] == b'=' {
                 // Make sure it's not ==, !=, >=, <=
                 let prev = if i > 0 { before_call[i - 1] } else { 0 };
-                let next = if i + 1 < before_call.len() { before_call[i + 1] } else { 0 };
+                let next = if i + 1 < before_call.len() {
+                    before_call[i + 1]
+                } else {
+                    0
+                };
                 if prev != b'=' && prev != b'!' && prev != b'>' && prev != b'<' && next != b'=' {
                     return;
                 }
@@ -136,19 +156,31 @@ impl Cop for RedundantMerge {
         // non-blank/non-comment line after the merge! END line. This also handles
         // modifier conditionals like `h.merge!(k: v) if cond`.
         // Use the call's END offset to handle multi-line merge! calls.
-        let end_off = call.location().end_offset().saturating_sub(1).max(call.location().start_offset());
+        let end_off = call
+            .location()
+            .end_offset()
+            .saturating_sub(1)
+            .max(call.location().start_offset());
         let (call_line, _) = source.offset_to_line_col(end_off);
         let all_lines: Vec<&[u8]> = source.lines().collect();
         for next_line_idx in call_line..all_lines.len() {
             if let Some(nl) = all_lines.get(next_line_idx) {
-                let nt = nl.iter()
+                let nt = nl
+                    .iter()
                     .position(|&b| b != b' ' && b != b'\t')
                     .map(|start| &nl[start..])
                     .unwrap_or(&[]);
                 if nt.is_empty() || nt.starts_with(b"#") {
                     continue;
                 }
-                if nt.starts_with(b"end") || nt.starts_with(b"}") || nt.starts_with(b"rescue") || nt.starts_with(b"ensure") || nt.starts_with(b"else") || nt.starts_with(b"elsif") || nt.starts_with(b"when") {
+                if nt.starts_with(b"end")
+                    || nt.starts_with(b"}")
+                    || nt.starts_with(b"rescue")
+                    || nt.starts_with(b"ensure")
+                    || nt.starts_with(b"else")
+                    || nt.starts_with(b"elsif")
+                    || nt.starts_with(b"when")
+                {
                     return;
                 }
                 break;
@@ -173,69 +205,85 @@ mod tests {
 
     #[test]
     fn config_max_kv_pairs_flags_two() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         // Default MaxKeyValuePairs:2 should flag merge! with 2 KV pairs on a local var
         let config = CopConfig {
-            options: HashMap::from([
-                ("MaxKeyValuePairs".into(), serde_yml::Value::Number(2.into())),
-            ]),
+            options: HashMap::from([(
+                "MaxKeyValuePairs".into(),
+                serde_yml::Value::Number(2.into()),
+            )]),
             ..CopConfig::default()
         };
         let source = b"h = {}\nh.merge!(a: 1, b: 2)\n";
         let diags = run_cop_full_with_config(&RedundantMerge, source, config);
-        assert!(!diags.is_empty(), "Should flag merge! with 2 pairs when MaxKeyValuePairs:2");
+        assert!(
+            !diags.is_empty(),
+            "Should flag merge! with 2 pairs when MaxKeyValuePairs:2"
+        );
     }
 
     #[test]
     fn config_max_kv_pairs_allows_three() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         // MaxKeyValuePairs:2 should NOT flag merge! with 3 KV pairs
         let config = CopConfig {
-            options: HashMap::from([
-                ("MaxKeyValuePairs".into(), serde_yml::Value::Number(2.into())),
-            ]),
+            options: HashMap::from([(
+                "MaxKeyValuePairs".into(),
+                serde_yml::Value::Number(2.into()),
+            )]),
             ..CopConfig::default()
         };
         let source = b"h = {}\nh.merge!(a: 1, b: 2, c: 3)\n";
         let diags = run_cop_full_with_config(&RedundantMerge, source, config);
-        assert!(diags.is_empty(), "Should not flag merge! with 3 pairs when MaxKeyValuePairs:2");
+        assert!(
+            diags.is_empty(),
+            "Should not flag merge! with 3 pairs when MaxKeyValuePairs:2"
+        );
     }
 
     #[test]
     fn config_max_kv_pairs_higher() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         // MaxKeyValuePairs:5 should flag merge! with up to 5 KV pairs on a local var
         let config = CopConfig {
-            options: HashMap::from([
-                ("MaxKeyValuePairs".into(), serde_yml::Value::Number(5.into())),
-            ]),
+            options: HashMap::from([(
+                "MaxKeyValuePairs".into(),
+                serde_yml::Value::Number(5.into()),
+            )]),
             ..CopConfig::default()
         };
         let source = b"h = {}\nh.merge!(a: 1, b: 2, c: 3)\n";
         let diags = run_cop_full_with_config(&RedundantMerge, source, config);
-        assert!(!diags.is_empty(), "Should flag merge! with 3 pairs when MaxKeyValuePairs:5");
+        assert!(
+            !diags.is_empty(),
+            "Should flag merge! with 3 pairs when MaxKeyValuePairs:5"
+        );
     }
 
     #[test]
     fn non_pure_receiver_multi_pair_not_flagged() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("MaxKeyValuePairs".into(), serde_yml::Value::Number(2.into())),
-            ]),
+            options: HashMap::from([(
+                "MaxKeyValuePairs".into(),
+                serde_yml::Value::Number(2.into()),
+            )]),
             ..CopConfig::default()
         };
         // Method call receiver — not a local variable, should not be flagged with 2 pairs
         let source = b"obj.options.merge!(a: 1, b: 2)\n";
         let diags = run_cop_full_with_config(&RedundantMerge, source, config);
-        assert!(diags.is_empty(), "Should not flag non-pure receiver with multiple pairs");
+        assert!(
+            diags.is_empty(),
+            "Should not flag non-pure receiver with multiple pairs"
+        );
     }
 }

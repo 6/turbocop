@@ -1,7 +1,7 @@
+use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
 
 pub struct OneLineConditional;
 
@@ -20,8 +20,8 @@ impl Cop for OneLineConditional {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // AlwaysCorrectToMultiline only affects auto-correction (ternary vs multiline),
         // not detection. Read it to satisfy config completeness.
@@ -108,7 +108,6 @@ impl Cop for OneLineConditional {
                 "Favor the ternary operator (`?:`) over single-line `unless/then/else/end` constructs.".to_string(),
             ));
         }
-
     }
 }
 

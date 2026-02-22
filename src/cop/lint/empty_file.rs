@@ -13,7 +13,13 @@ impl Cop for EmptyFile {
         Severity::Warning
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         let allow_comments = config.get_bool("AllowComments", true);
 
         let src = source.as_bytes();
@@ -62,7 +68,8 @@ impl Cop for EmptyFile {
 mod tests {
     use super::*;
     crate::cop_scenario_fixture_tests!(
-        EmptyFile, "cops/lint/empty_file",
+        EmptyFile,
+        "cops/lint/empty_file",
         empty_file = "empty.rb",
         whitespace_only = "whitespace_only.rb",
         blank_lines = "blank_lines.rb",

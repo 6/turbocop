@@ -1,12 +1,14 @@
+use crate::cop::node_type::{
+    ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, STRING_NODE,
+    SYMBOL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct I18nLocaleTexts;
 
-const MSG: &str =
-    "Move locale texts to the locale files in the `config/locales` directory.";
+const MSG: &str = "Move locale texts to the locale files in the `config/locales` directory.";
 
 /// Check if a node is a plain string literal (not a symbol, not interpolated).
 fn is_string_literal(node: &ruby_prism::Node<'_>) -> bool {
@@ -77,10 +79,17 @@ fn find_message_strings_in_validation_args(
                 for inner_elem in hash.elements().iter() {
                     if let Some(inner_assoc) = inner_elem.as_assoc_node() {
                         if let Some(sym) = inner_assoc.key().as_symbol_node() {
-                            if sym.unescaped() == b"message" && is_string_literal(&inner_assoc.value()) {
+                            if sym.unescaped() == b"message"
+                                && is_string_literal(&inner_assoc.value())
+                            {
                                 let loc = inner_assoc.value().location();
                                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                diagnostics.push(cop.diagnostic(source, line, column, MSG.to_string()));
+                                diagnostics.push(cop.diagnostic(
+                                    source,
+                                    line,
+                                    column,
+                                    MSG.to_string(),
+                                ));
                             }
                         }
                     }
@@ -101,7 +110,15 @@ impl Cop for I18nLocaleTexts {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, STRING_NODE, SYMBOL_NODE]
+        &[
+            ASSOC_NODE,
+            CALL_NODE,
+            HASH_NODE,
+            KEYWORD_HASH_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -110,8 +127,8 @@ impl Cop for I18nLocaleTexts {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -133,7 +150,12 @@ impl Cop for I18nLocaleTexts {
                         if is_string_literal(&val) {
                             let loc = val.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            diagnostics.push(self.diagnostic(source, line, column, MSG.to_string()));
+                            diagnostics.push(self.diagnostic(
+                                source,
+                                line,
+                                column,
+                                MSG.to_string(),
+                            ));
                         }
                     }
                 }
@@ -177,7 +199,6 @@ impl Cop for I18nLocaleTexts {
                 }
             }
         }
-
     }
 }
 

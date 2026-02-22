@@ -16,8 +16,8 @@ impl Cop for GuardClause {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let min_body_length = config.get_usize("MinBodyLength", 1);
         let _allow_consecutive = config.get_bool("AllowConsecutiveConditionals", false);
@@ -110,7 +110,9 @@ impl GuardClauseVisitor<'_, '_> {
 
         let condition_src = self.node_source(&predicate);
         let example = format!("return unless {}", condition_src);
-        let (line, column) = self.source.offset_to_line_col(if_keyword_loc.start_offset());
+        let (line, column) = self
+            .source
+            .offset_to_line_col(if_keyword_loc.start_offset());
 
         // Skip if guard clause would be too long and body is trivial
         if self.too_long_and_trivial(

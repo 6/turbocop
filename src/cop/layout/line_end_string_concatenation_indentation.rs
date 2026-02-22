@@ -17,8 +17,8 @@ impl Cop for LineEndStringConcatenationIndentation {
         parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "aligned");
         let indent_width = config.get_usize("IndentationWidth", 2);
@@ -71,8 +71,12 @@ impl ConcatVisitor<'_> {
         // Check that this is a backslash-concatenated string (multiline dstr
         // where each child is a single-line string/dstr part)
         let bytes = self.source.as_bytes();
-        let (first_line, _) = self.source.offset_to_line_col(parts[0].location().start_offset());
-        let (last_line, _) = self.source.offset_to_line_col(parts.last().unwrap().location().start_offset());
+        let (first_line, _) = self
+            .source
+            .offset_to_line_col(parts[0].location().start_offset());
+        let (last_line, _) = self
+            .source
+            .offset_to_line_col(parts.last().unwrap().location().start_offset());
         if first_line == last_line {
             return; // Not multiline
         }
@@ -81,7 +85,9 @@ impl ConcatVisitor<'_> {
         for part in &parts {
             let loc = part.location();
             let (sl, _) = self.source.offset_to_line_col(loc.start_offset());
-            let (el, _) = self.source.offset_to_line_col(loc.end_offset().saturating_sub(1).max(loc.start_offset()));
+            let (el, _) = self
+                .source
+                .offset_to_line_col(loc.end_offset().saturating_sub(1).max(loc.start_offset()));
             if sl != el {
                 return; // Multi-line part
             }
@@ -107,23 +113,35 @@ impl ConcatVisitor<'_> {
         //   nil (top-level), :block, :begin, :def, :defs, :if
         let always_indented = matches!(
             self.direct_parent_type,
-            ParentType::TopLevel | ParentType::Block | ParentType::Begin | ParentType::Def | ParentType::If
+            ParentType::TopLevel
+                | ParentType::Block
+                | ParentType::Begin
+                | ParentType::Def
+                | ParentType::If
         );
         let use_indented = self.style == "indented" || always_indented;
 
         // Get column positions of each part
-        let columns: Vec<usize> = parts.iter().map(|p| {
-            let (_, col) = self.source.offset_to_line_col(p.location().start_offset());
-            col
-        }).collect();
+        let columns: Vec<usize> = parts
+            .iter()
+            .map(|p| {
+                let (_, col) = self.source.offset_to_line_col(p.location().start_offset());
+                col
+            })
+            .collect();
 
         if use_indented && columns.len() >= 2 {
             // First, check indentation of the second part
             // base_column = indentation of the first part's source line
-            let (first_part_line, _) = self.source.offset_to_line_col(parts[0].location().start_offset());
+            let (first_part_line, _) = self
+                .source
+                .offset_to_line_col(parts[0].location().start_offset());
             let first_line_indent = if first_part_line > 0 {
                 let lines: Vec<&[u8]> = self.source.lines().collect();
-                lines[first_part_line - 1].iter().take_while(|&&b| b == b' ').count()
+                lines[first_part_line - 1]
+                    .iter()
+                    .take_while(|&&b| b == b' ')
+                    .count()
             } else {
                 0
             };
@@ -134,7 +152,9 @@ impl ConcatVisitor<'_> {
             let expected_indent = first_line_indent + self.indent_width;
 
             if columns[1] != expected_indent {
-                let (line_num, _) = self.source.offset_to_line_col(parts[1].location().start_offset());
+                let (line_num, _) = self
+                    .source
+                    .offset_to_line_col(parts[1].location().start_offset());
                 self.diagnostics.push(self.cop.diagnostic(
                     self.source,
                     line_num,
@@ -150,7 +170,9 @@ impl ConcatVisitor<'_> {
                 for (idx, &col) in columns[2..].iter().enumerate() {
                     if col != base {
                         let part_idx = idx + 2;
-                        let (line_num, _) = self.source.offset_to_line_col(parts[part_idx].location().start_offset());
+                        let (line_num, _) = self
+                            .source
+                            .offset_to_line_col(parts[part_idx].location().start_offset());
                         self.diagnostics.push(self.cop.diagnostic(
                             self.source,
                             line_num,
@@ -167,7 +189,9 @@ impl ConcatVisitor<'_> {
             for (idx, &col) in columns[1..].iter().enumerate() {
                 if col != base {
                     let part_idx = idx + 1;
-                    let (line_num, _) = self.source.offset_to_line_col(parts[part_idx].location().start_offset());
+                    let (line_num, _) = self
+                        .source
+                        .offset_to_line_col(parts[part_idx].location().start_offset());
                     self.diagnostics.push(self.cop.diagnostic(
                         self.source,
                         line_num,
@@ -240,7 +264,10 @@ impl<'pr> Visit<'pr> for ConcatVisitor<'_> {
         self.direct_parent_type = was;
     }
 
-    fn visit_instance_variable_write_node(&mut self, node: &ruby_prism::InstanceVariableWriteNode<'pr>) {
+    fn visit_instance_variable_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableWriteNode<'pr>,
+    ) {
         let was = self.direct_parent_type;
         self.direct_parent_type = ParentType::Other;
         ruby_prism::visit_instance_variable_write_node(self, node);

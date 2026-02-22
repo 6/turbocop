@@ -63,12 +63,15 @@ impl<'pr> Visit<'pr> for MethodObjectVisitor<'_, '_> {
                     if is_method_object_block_arg(&block_arg) {
                         let loc = block_arg.location();
                         let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-                        self.diagnostics.push(self.cop.diagnostic(
-                            self.source,
-                            line,
-                            column,
-                            "Use a block instead of `&method(...)` for better performance.".to_string(),
-                        ));
+                        self.diagnostics.push(
+                            self.cop.diagnostic(
+                                self.source,
+                                line,
+                                column,
+                                "Use a block instead of `&method(...)` for better performance."
+                                    .to_string(),
+                            ),
+                        );
                     }
                 }
             }
@@ -97,5 +100,8 @@ impl<'pr> Visit<'pr> for MethodObjectVisitor<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(MethodObjectAsBlock, "cops/performance/method_object_as_block");
+    crate::cop_fixture_tests!(
+        MethodObjectAsBlock,
+        "cops/performance/method_object_as_block"
+    );
 }

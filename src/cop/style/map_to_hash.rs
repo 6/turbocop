@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct MapToHash;
 
@@ -20,8 +20,8 @@ impl Cop for MapToHash {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Looking for: foo.map { ... }.to_h  or  foo.collect { ... }.to_h
         let call = match node.as_call_node() {
@@ -60,7 +60,9 @@ impl Cop for MapToHash {
         }
 
         let method_str = std::str::from_utf8(method_bytes).unwrap_or("map");
-        let msg_loc = recv_call.message_loc().unwrap_or_else(|| recv_call.location());
+        let msg_loc = recv_call
+            .message_loc()
+            .unwrap_or_else(|| recv_call.location());
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,

@@ -1,10 +1,10 @@
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 use std::collections::HashSet;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE};
 
 /// RSpec/LetSetup: Flag `let!` that is not referenced in tests (only used for side effects).
 pub struct LetSetup;
@@ -23,7 +23,13 @@ impl Cop for LetSetup {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE]
+        &[
+            BLOCK_NODE,
+            CALL_NODE,
+            STATEMENTS_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -32,8 +38,8 @@ impl Cop for LetSetup {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -97,7 +103,6 @@ impl Cop for LetSetup {
                 ));
             }
         }
-
     }
 }
 
@@ -128,10 +133,7 @@ impl<'pr> Visit<'pr> for IdentifierCollector<'_> {
         ruby_prism::visit_call_node(self, node);
     }
 
-    fn visit_local_variable_read_node(
-        &mut self,
-        node: &ruby_prism::LocalVariableReadNode<'pr>,
-    ) {
+    fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
         self.names.insert(node.name().as_slice().to_vec());
         ruby_prism::visit_local_variable_read_node(self, node);
     }

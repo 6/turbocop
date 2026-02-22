@@ -1,7 +1,7 @@
+use crate::cop::node_type::GLOBAL_VARIABLE_READ_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::GLOBAL_VARIABLE_READ_NODE;
 
 pub struct SpecialGlobalVars;
 
@@ -70,8 +70,8 @@ impl Cop for SpecialGlobalVars {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let require_english = config.get_bool("RequireEnglish", true);
         let enforced_style = config.get_str("EnforcedStyle", "use_english_names");
@@ -114,7 +114,6 @@ impl Cop for SpecialGlobalVars {
                 }
             }
         }
-
     }
 }
 
@@ -141,19 +140,27 @@ mod tests {
 
     #[test]
     fn use_perl_names_flags_english() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("use_perl_names".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("use_perl_names".into()),
+            )]),
             ..CopConfig::default()
         };
         let source = b"puts $ERROR_INFO\n";
         let diags = run_cop_full_with_config(&SpecialGlobalVars, source, config);
-        assert_eq!(diags.len(), 1, "Should flag English-style var with use_perl_names");
-        assert!(diags[0].message.contains("$!"), "Should suggest perl equivalent");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag English-style var with use_perl_names"
+        );
+        assert!(
+            diags[0].message.contains("$!"),
+            "Should suggest perl equivalent"
+        );
     }
 
     #[test]
@@ -170,13 +177,11 @@ mod tests {
 
     #[test]
     fn require_english_false_omits_hint() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("RequireEnglish".into(), serde_yml::Value::Bool(false)),
-            ]),
+            options: HashMap::from([("RequireEnglish".into(), serde_yml::Value::Bool(false))]),
             ..CopConfig::default()
         };
         let source = b"puts $!\n";
@@ -190,17 +195,21 @@ mod tests {
 
     #[test]
     fn use_perl_names_allows_perl() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("use_perl_names".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("use_perl_names".into()),
+            )]),
             ..CopConfig::default()
         };
         let source = b"puts $!\n";
         let diags = run_cop_full_with_config(&SpecialGlobalVars, source, config);
-        assert!(diags.is_empty(), "Should allow perl-style var with use_perl_names");
+        assert!(
+            diags.is_empty(),
+            "Should allow perl-style var with use_perl_names"
+        );
     }
 }

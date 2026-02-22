@@ -1,17 +1,12 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::util::is_blank_line;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct EmptyLinesAroundAttributeAccessor;
 
-const ATTRIBUTE_METHODS: &[&[u8]] = &[
-    b"attr_reader",
-    b"attr_writer",
-    b"attr_accessor",
-    b"attr",
-];
+const ATTRIBUTE_METHODS: &[&[u8]] = &[b"attr_reader", b"attr_writer", b"attr_accessor", b"attr"];
 
 const DEFAULT_ALLOWED_METHODS: &[&str] = &["alias_method", "public", "protected", "private"];
 
@@ -34,8 +29,8 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _allow_alias_syntax = config.get_bool("AllowAliasSyntax", true);
         let _allowed_methods = config.get_string_array("AllowedMethods");

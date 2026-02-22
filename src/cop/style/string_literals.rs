@@ -160,136 +160,172 @@ mod tests {
 
     #[test]
     fn config_double_quotes() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("double_quotes".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("double_quotes".into()),
+            )]),
             ..CopConfig::default()
         };
         // Single-quoted string should trigger with double_quotes style
         let source = b"x = 'hello'\n";
         let diags = run_cop_full_with_config(&StringLiterals, source, config);
-        assert!(!diags.is_empty(), "Should fire with EnforcedStyle:double_quotes on single-quoted string");
+        assert!(
+            !diags.is_empty(),
+            "Should fire with EnforcedStyle:double_quotes on single-quoted string"
+        );
         assert!(diags[0].message.contains("double-quoted"));
     }
 
     #[test]
     fn double_quotes_skips_inside_interpolation() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("double_quotes".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("double_quotes".into()),
+            )]),
             ..CopConfig::default()
         };
         // Single-quoted string inside interpolation should NOT be flagged
         let source = b"x = \"hello #{env['KEY']}\"\n";
         let diags = run_cop_full_with_config(&StringLiterals, source, config);
-        assert!(diags.is_empty(), "Should not flag single-quoted string inside interpolation: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "Should not flag single-quoted string inside interpolation: {:?}",
+            diags
+        );
     }
 
     #[test]
     fn double_quotes_skips_string_containing_double_quotes() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("double_quotes".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("double_quotes".into()),
+            )]),
             ..CopConfig::default()
         };
         // Single-quoted string containing " should NOT be flagged
         let source = b"x = 'say \"hello\"'\n";
         let diags = run_cop_full_with_config(&StringLiterals, source, config);
-        assert!(diags.is_empty(), "Should not flag single-quoted string with double quotes inside");
+        assert!(
+            diags.is_empty(),
+            "Should not flag single-quoted string with double quotes inside"
+        );
     }
 
     #[test]
     fn double_quotes_skips_hash_brace_content() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("double_quotes".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("double_quotes".into()),
+            )]),
             ..CopConfig::default()
         };
         // Single-quoted string containing #{ should NOT be flagged —
         // converting to double quotes would make it interpolation
         let source = b"x = '#{'\n";
         let diags = run_cop_full_with_config(&StringLiterals, source, config);
-        assert!(diags.is_empty(), "Should not flag single-quoted string containing #{{: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "Should not flag single-quoted string containing #{{: {:?}",
+            diags
+        );
     }
 
     #[test]
     fn double_quotes_skips_multiline_strings() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("double_quotes".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("double_quotes".into()),
+            )]),
             ..CopConfig::default()
         };
         // Multi-line single-quoted string should NOT be flagged
         let source = b"x = '\n  hello\n  world\n'\n";
         let diags = run_cop_full_with_config(&StringLiterals, source, config);
-        assert!(diags.is_empty(), "Should not flag multi-line single-quoted string: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "Should not flag multi-line single-quoted string: {:?}",
+            diags
+        );
     }
 
     #[test]
     fn double_quotes_flags_string_inside_hash() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("double_quotes".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("double_quotes".into()),
+            )]),
             ..CopConfig::default()
         };
         let source = b"foo(custom_attributes: { tenant_id: 'different' })\n";
         let diags = run_cop_full_with_config(&StringLiterals, source, config);
-        assert_eq!(diags.len(), 1, "Should flag single-quoted string inside hash arg: {:?}", diags);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag single-quoted string inside hash arg: {:?}",
+            diags
+        );
     }
-
 
     #[test]
     fn double_quotes_flags_string_after_earlier_interpolation() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("double_quotes".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("double_quotes".into()),
+            )]),
             ..CopConfig::default()
         };
         // Earlier in the file there's a string with interpolation, and later a
         // single-quoted string inside a hash literal. The hash braces should NOT
         // be confused with interpolation braces.
-        let source = b"x = \"hello #{world}\"\nfoo(custom_attributes: { tenant_id: 'different' })\n";
+        let source =
+            b"x = \"hello #{world}\"\nfoo(custom_attributes: { tenant_id: 'different' })\n";
         let diags = run_cop_full_with_config(&StringLiterals, source, config);
-        assert_eq!(diags.len(), 1, "Should flag 'different' even with earlier interpolation in file: {:?}", diags);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag 'different' even with earlier interpolation in file: {:?}",
+            diags
+        );
     }
 
     #[test]
     fn consistent_multiline_skips_multiline_strings() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("ConsistentQuotesInMultiline".into(), serde_yml::Value::Bool(true)),
-            ]),
+            options: HashMap::from([(
+                "ConsistentQuotesInMultiline".into(),
+                serde_yml::Value::Bool(true),
+            )]),
             ..CopConfig::default()
         };
         // Multiline string with double quotes should not be flagged when ConsistentQuotesInMultiline is true

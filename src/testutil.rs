@@ -238,28 +238,47 @@ pub fn assert_cop_offenses_with_config(cop: &dyn Cop, fixture_bytes: &[u8], conf
 
     for (i, (diag, exp)) in diagnostics.iter().zip(expected.iter()).enumerate() {
         assert_eq!(
-            diag.location.line, exp.line,
+            diag.location.line,
+            exp.line,
             "Offense #{}: line mismatch (expected {} got {})\n  expected: {}:{} {}: {}\n  actual:   {d}",
-            i + 1, exp.line, diag.location.line,
-            exp.line, exp.column, exp.cop_name, exp.message,
+            i + 1,
+            exp.line,
+            diag.location.line,
+            exp.line,
+            exp.column,
+            exp.cop_name,
+            exp.message,
             d = diag,
         );
         assert_eq!(
-            diag.location.column, exp.column,
+            diag.location.column,
+            exp.column,
             "Offense #{}: column mismatch (expected {} got {})\n  expected: {}:{} {}: {}\n  actual:   {d}",
-            i + 1, exp.column, diag.location.column,
-            exp.line, exp.column, exp.cop_name, exp.message,
+            i + 1,
+            exp.column,
+            diag.location.column,
+            exp.line,
+            exp.column,
+            exp.cop_name,
+            exp.message,
             d = diag,
         );
         assert_eq!(
-            diag.cop_name, exp.cop_name,
+            diag.cop_name,
+            exp.cop_name,
             "Offense #{}: cop name mismatch\n  expected: {}\n  actual:   {}",
-            i + 1, exp.cop_name, diag.cop_name,
+            i + 1,
+            exp.cop_name,
+            diag.cop_name,
         );
         assert_eq!(
-            diag.message, exp.message,
+            diag.message,
+            exp.message,
             "Offense #{}: message mismatch for {}\n  expected: {:?}\n  actual:   {:?}",
-            i + 1, exp.cop_name, exp.message, diag.message,
+            i + 1,
+            exp.cop_name,
+            exp.message,
+            diag.message,
         );
     }
 }
@@ -316,7 +335,14 @@ pub fn run_cop_full_internal(
     cop.check_lines(&source, &config, &mut diagnostics, None);
 
     // Source-based checks
-    cop.check_source(&source, &parse_result, &code_map, &config, &mut diagnostics, None);
+    cop.check_source(
+        &source,
+        &parse_result,
+        &code_map,
+        &config,
+        &mut diagnostics,
+        None,
+    );
 
     // AST-based checks
     let mut walker = CopWalker {
@@ -364,28 +390,47 @@ pub fn assert_cop_offenses_full_with_config(
 
     for (i, (diag, exp)) in diagnostics.iter().zip(expected.iter()).enumerate() {
         assert_eq!(
-            diag.location.line, exp.line,
+            diag.location.line,
+            exp.line,
             "Offense #{}: line mismatch (expected {} got {})\n  expected: {}:{} {}: {}\n  actual:   {d}",
-            i + 1, exp.line, diag.location.line,
-            exp.line, exp.column, exp.cop_name, exp.message,
+            i + 1,
+            exp.line,
+            diag.location.line,
+            exp.line,
+            exp.column,
+            exp.cop_name,
+            exp.message,
             d = diag,
         );
         assert_eq!(
-            diag.location.column, exp.column,
+            diag.location.column,
+            exp.column,
             "Offense #{}: column mismatch (expected {} got {})\n  expected: {}:{} {}: {}\n  actual:   {d}",
-            i + 1, exp.column, diag.location.column,
-            exp.line, exp.column, exp.cop_name, exp.message,
+            i + 1,
+            exp.column,
+            diag.location.column,
+            exp.line,
+            exp.column,
+            exp.cop_name,
+            exp.message,
             d = diag,
         );
         assert_eq!(
-            diag.cop_name, exp.cop_name,
+            diag.cop_name,
+            exp.cop_name,
             "Offense #{}: cop name mismatch\n  expected: {}\n  actual:   {}",
-            i + 1, exp.cop_name, diag.cop_name,
+            i + 1,
+            exp.cop_name,
+            diag.cop_name,
         );
         assert_eq!(
-            diag.message, exp.message,
+            diag.message,
+            exp.message,
             "Offense #{}: message mismatch for {}\n  expected: {:?}\n  actual:   {:?}",
-            i + 1, exp.cop_name, exp.message, diag.message,
+            i + 1,
+            exp.cop_name,
+            exp.message,
+            diag.message,
         );
     }
 }
@@ -450,7 +495,14 @@ pub fn run_cop_autocorrect_internal(
     cop.check_lines(&source, &config, &mut diagnostics, Some(&mut corrections));
 
     // Source-based checks
-    cop.check_source(&source, &parse_result, &code_map, &config, &mut diagnostics, Some(&mut corrections));
+    cop.check_source(
+        &source,
+        &parse_result,
+        &code_map,
+        &config,
+        &mut diagnostics,
+        Some(&mut corrections),
+    );
 
     // AST-based checks
     let mut walker = CopWalker {
@@ -587,9 +639,8 @@ mod tests {
 
     #[test]
     fn parse_annotation_many_carets() {
-        let ann =
-            try_parse_annotation("^^^^^^^^^^ Layout/LineLength: Line is too long. [130/120]")
-                .unwrap();
+        let ann = try_parse_annotation("^^^^^^^^^^ Layout/LineLength: Line is too long. [130/120]")
+            .unwrap();
         assert_eq!(ann.column, 0);
         assert_eq!(ann.message, "Line is too long. [130/120]");
     }
@@ -851,5 +902,4 @@ mod tests {
         };
         assert_cop_no_offenses_with_config(&LineLength, b"short line\n", config);
     }
-
 }

@@ -1,7 +1,7 @@
+use crate::cop::node_type::BLOCK_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::BLOCK_NODE;
 
 pub struct BlockAlignment;
 
@@ -20,8 +20,8 @@ impl Cop for BlockAlignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyleAlignWith", "either");
         let block_node = match node.as_block_node() {
@@ -54,7 +54,8 @@ impl Cop for BlockAlignment {
         // The `end` should align with `@account` (col 2), not `.in_batches` line.
         // Since Prism doesn't give parent pointers, we scan backwards through
         // source lines for continuation patterns (lines starting with `.`).
-        let expression_start_indent = find_chain_expression_start(bytes, opening_loc.start_offset());
+        let expression_start_indent =
+            find_chain_expression_start(bytes, opening_loc.start_offset());
 
         // Get the column of `do` keyword itself
         let (_, do_col) = source.offset_to_line_col(opening_loc.start_offset());
@@ -85,13 +86,15 @@ impl Cop for BlockAlignment {
             "start_of_line" => {
                 // `end` must align with start of the expression
                 if end_col != expression_start_indent {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        end_line,
-                        end_col,
-                        "Align `end` with the start of the line where the block is defined."
-                            .to_string(),
-                    ));
+                    diagnostics.push(
+                        self.diagnostic(
+                            source,
+                            end_line,
+                            end_col,
+                            "Align `end` with the start of the line where the block is defined."
+                                .to_string(),
+                        ),
+                    );
                 }
             }
             _ => {
@@ -105,17 +108,18 @@ impl Cop for BlockAlignment {
                     && end_col != expression_start_indent
                     && end_col != call_expr_col
                 {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        end_line,
-                        end_col,
-                        "Align `end` with the start of the line where the block is defined."
-                            .to_string(),
-                    ));
+                    diagnostics.push(
+                        self.diagnostic(
+                            source,
+                            end_line,
+                            end_col,
+                            "Align `end` with the start of the line where the block is defined."
+                                .to_string(),
+                        ),
+                    );
                 }
             }
         }
-
     }
 }
 
@@ -179,14 +183,29 @@ fn find_call_expression_col(bytes: &[u8], do_offset: usize) -> usize {
     while pos > line_start {
         let ch = bytes[pos - 1];
         match ch {
-            b')' | b']' => { paren_depth += 1; pos -= 1; }
-            b'(' | b'[' => {
-                if paren_depth > 0 { paren_depth -= 1; pos -= 1; }
-                else { break; }
+            b')' | b']' => {
+                paren_depth += 1;
+                pos -= 1;
             }
-            _ if paren_depth > 0 => { pos -= 1; } // inside parens, eat everything
-            _ if ch.is_ascii_alphanumeric() || ch == b'_' || ch == b'.'
-                || ch == b'?' || ch == b'!' || ch == b'@' || ch == b'$' => {
+            b'(' | b'[' => {
+                if paren_depth > 0 {
+                    paren_depth -= 1;
+                    pos -= 1;
+                } else {
+                    break;
+                }
+            }
+            _ if paren_depth > 0 => {
+                pos -= 1;
+            } // inside parens, eat everything
+            _ if ch.is_ascii_alphanumeric()
+                || ch == b'_'
+                || ch == b'.'
+                || ch == b'?'
+                || ch == b'!'
+                || ch == b'@'
+                || ch == b'$' =>
+            {
                 pos -= 1;
             }
             // `::` namespace separator
@@ -263,7 +282,9 @@ fn find_chain_expression_start(bytes: &[u8], do_offset: usize) -> usize {
         // or ends with `,` (multiline argument list)
         // or has unclosed brackets (multiline literal/args)
         let prev_line_content = &bytes[prev_line_start..prev_line_end];
-        let trimmed_end = prev_line_content.iter().rposition(|&b| b != b' ' && b != b'\t' && b != b'\r');
+        let trimmed_end = prev_line_content
+            .iter()
+            .rposition(|&b| b != b' ' && b != b'\t' && b != b'\r');
         if let Some(last_non_ws) = trimmed_end {
             let last_byte = prev_line_content[last_non_ws];
             if last_byte == b'\\' || last_byte == b',' {
@@ -322,19 +343,24 @@ mod tests {
 
     #[test]
     fn start_of_block_style() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyleAlignWith".into(), serde_yml::Value::String("start_of_block".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyleAlignWith".into(),
+                serde_yml::Value::String("start_of_block".into()),
+            )]),
             ..CopConfig::default()
         };
         // `end` aligned with start of line (col 0), not with `do` (col 11)
         let src = b"items.each do |x|\n  puts x\nend\n";
         let diags = run_cop_full_with_config(&BlockAlignment, src, config);
-        assert_eq!(diags.len(), 1, "start_of_block should flag end not aligned with do");
+        assert_eq!(
+            diags.len(),
+            1,
+            "start_of_block should flag end not aligned with do"
+        );
         assert!(diags[0].message.contains("do"));
     }
 }

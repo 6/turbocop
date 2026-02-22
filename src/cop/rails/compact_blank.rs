@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE,
+    REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, SYMBOL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, SYMBOL_NODE};
 
 pub struct CompactBlank;
 
@@ -28,7 +31,16 @@ impl Cop for CompactBlank {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, SYMBOL_NODE]
+        &[
+            BLOCK_ARGUMENT_NODE,
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            CALL_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            REQUIRED_PARAMETER_NODE,
+            STATEMENTS_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -37,8 +49,8 @@ impl Cop for CompactBlank {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // minimum_target_rails_version 6.1
         // compact_blank was introduced in Rails 6.1; skip for older versions.
@@ -121,12 +133,10 @@ impl Cop for CompactBlank {
         // Single arg: reject { |e| e.blank? }
         // Two args (hash form): reject { |_k, v| v.blank? }
         let check_param_name = match requireds.len() {
-            1 => {
-                match requireds[0].as_required_parameter_node() {
-                    Some(p) => p.name().as_slice().to_vec(),
-                    None => return,
-                }
-            }
+            1 => match requireds[0].as_required_parameter_node() {
+                Some(p) => p.name().as_slice().to_vec(),
+                None => return,
+            },
             2 => {
                 // Hash form: the SECOND argument is the value
                 match requireds[1].as_required_parameter_node() {

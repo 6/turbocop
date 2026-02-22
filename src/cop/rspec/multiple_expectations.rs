@@ -1,6 +1,6 @@
 use ruby_prism::Visit;
 
-use crate::cop::util::{is_rspec_example, is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -26,8 +26,8 @@ impl Cop for MultipleExpectations {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let max = config.get_usize("Max", 1);
         let mut visitor = MultipleExpectationsVisitor {
@@ -51,7 +51,11 @@ struct MultipleExpectationsVisitor<'a> {
 }
 
 impl<'a, 'pr> MultipleExpectationsVisitor<'a> {
-    fn check_example(&mut self, call: &ruby_prism::CallNode<'pr>, block: &ruby_prism::BlockNode<'pr>) {
+    fn check_example(
+        &mut self,
+        call: &ruby_prism::CallNode<'pr>,
+        block: &ruby_prism::BlockNode<'pr>,
+    ) {
         // Check if this example itself has :aggregate_failures metadata
         let example_af = has_aggregate_failures_metadata(call);
         match example_af {
@@ -143,7 +147,7 @@ fn has_aggregate_failures_metadata(call: &ruby_prism::CallNode<'_>) -> Option<bo
     for arg in args.arguments().iter() {
         // Symbol argument: :aggregate_failures
         if let Some(sym) = arg.as_symbol_node() {
-            if sym.unescaped()== b"aggregate_failures" {
+            if sym.unescaped() == b"aggregate_failures" {
                 return Some(true);
             }
         }
@@ -152,7 +156,7 @@ fn has_aggregate_failures_metadata(call: &ruby_prism::CallNode<'_>) -> Option<bo
             for element in hash.elements().iter() {
                 if let Some(pair) = element.as_assoc_node() {
                     if let Some(key_sym) = pair.key().as_symbol_node() {
-                        if key_sym.unescaped()== b"aggregate_failures" {
+                        if key_sym.unescaped() == b"aggregate_failures" {
                             let val = pair.value();
                             if val.as_true_node().is_some() {
                                 return Some(true);
@@ -184,9 +188,7 @@ impl<'pr> Visit<'pr> for ExpectCounter {
             return; // Don't recurse into aggregate_failures block
         }
         if node.receiver().is_none()
-            && (name == b"expect"
-                || name == b"expect_any_instance_of"
-                || name == b"is_expected")
+            && (name == b"expect" || name == b"expect_any_instance_of" || name == b"is_expected")
         {
             self.count += 1;
         }

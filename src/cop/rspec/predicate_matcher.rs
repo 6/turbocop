@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, FALSE_NODE, TRUE_NODE};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, FALSE_NODE, TRUE_NODE};
 
 pub struct PredicateMatcher;
 
@@ -31,15 +31,17 @@ impl Cop for PredicateMatcher {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: Strict — when false, also match be(true)/be(false) in addition to be_truthy/be_falsey
         let strict = config.get_bool("Strict", true);
         // Config: EnforcedStyle — "inflected" (default) or "explicit"
         let enforced_style = config.get_str("EnforcedStyle", "inflected");
         // Config: AllowedExplicitMatchers — matchers to allow in explicit style
-        let allowed_explicit = config.get_string_array("AllowedExplicitMatchers").unwrap_or_default();
+        let allowed_explicit = config
+            .get_string_array("AllowedExplicitMatchers")
+            .unwrap_or_default();
 
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -270,16 +272,23 @@ mod tests {
 
         let config = CopConfig {
             options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("explicit".into())),
-                ("AllowedExplicitMatchers".into(), serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("be_valid".into()),
-                ])),
+                (
+                    "EnforcedStyle".into(),
+                    serde_yml::Value::String("explicit".into()),
+                ),
+                (
+                    "AllowedExplicitMatchers".into(),
+                    serde_yml::Value::Sequence(vec![serde_yml::Value::String("be_valid".into())]),
+                ),
             ]),
             ..CopConfig::default()
         };
         let source = b"expect(foo).to be_valid\n";
         let diags = crate::testutil::run_cop_full_with_config(&PredicateMatcher, source, config);
-        assert!(diags.is_empty(), "AllowedExplicitMatchers should skip listed matchers");
+        assert!(
+            diags.is_empty(),
+            "AllowedExplicitMatchers should skip listed matchers"
+        );
     }
 
     #[test]
@@ -288,10 +297,7 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([(
-                "Strict".into(),
-                serde_yml::Value::Bool(false),
-            )]),
+            options: HashMap::from([("Strict".into(), serde_yml::Value::Bool(false))]),
             ..CopConfig::default()
         };
         let source = b"expect(foo.valid?).to be(true)\n";
@@ -314,22 +320,25 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([(
-                "Strict".into(),
-                serde_yml::Value::Bool(false),
-            )]),
+            options: HashMap::from([("Strict".into(), serde_yml::Value::Bool(false))]),
             ..CopConfig::default()
         };
         let source = b"expect(enabled?('Layout/DotPosition')).to be(false)\n";
         let diags = crate::testutil::run_cop_full_with_config(&PredicateMatcher, source, config);
-        assert!(diags.is_empty(), "Bare predicate calls without a receiver should not be flagged");
+        assert!(
+            diags.is_empty(),
+            "Bare predicate calls without a receiver should not be flagged"
+        );
     }
 
     #[test]
     fn respond_to_with_multiple_args_not_flagged() {
         let source = b"expect(foo.respond_to?(:bar, true)).to be_truthy\n";
         let diags = crate::testutil::run_cop_full(&PredicateMatcher, source);
-        assert!(diags.is_empty(), "respond_to? with multiple args should not be flagged");
+        assert!(
+            diags.is_empty(),
+            "respond_to? with multiple args should not be flagged"
+        );
     }
 
     #[test]
@@ -338,14 +347,15 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([(
-                "Strict".into(),
-                serde_yml::Value::Bool(false),
-            )]),
+            options: HashMap::from([("Strict".into(), serde_yml::Value::Bool(false))]),
             ..CopConfig::default()
         };
         let source = b"expect(foo.valid?).to eql(true)\n";
         let diags = crate::testutil::run_cop_full_with_config(&PredicateMatcher, source, config);
-        assert_eq!(diags.len(), 1, "eql(true) should be flagged in non-strict mode");
+        assert_eq!(
+            diags.len(),
+            1,
+            "eql(true) should be flagged in non-strict mode"
+        );
     }
 }

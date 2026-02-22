@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    CALL_NODE, CLASS_VARIABLE_OPERATOR_WRITE_NODE, FLOAT_NODE, GLOBAL_VARIABLE_OPERATOR_WRITE_NODE,
+    INSTANCE_VARIABLE_OPERATOR_WRITE_NODE, INTEGER_NODE, LOCAL_VARIABLE_OPERATOR_WRITE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CLASS_VARIABLE_OPERATOR_WRITE_NODE, FLOAT_NODE, GLOBAL_VARIABLE_OPERATOR_WRITE_NODE, INSTANCE_VARIABLE_OPERATOR_WRITE_NODE, INTEGER_NODE, LOCAL_VARIABLE_OPERATOR_WRITE_NODE};
 
 pub struct UselessNumericOperation;
 
@@ -17,7 +20,15 @@ impl Cop for UselessNumericOperation {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CLASS_VARIABLE_OPERATOR_WRITE_NODE, FLOAT_NODE, GLOBAL_VARIABLE_OPERATOR_WRITE_NODE, INSTANCE_VARIABLE_OPERATOR_WRITE_NODE, INTEGER_NODE, LOCAL_VARIABLE_OPERATOR_WRITE_NODE]
+        &[
+            CALL_NODE,
+            CLASS_VARIABLE_OPERATOR_WRITE_NODE,
+            FLOAT_NODE,
+            GLOBAL_VARIABLE_OPERATOR_WRITE_NODE,
+            INSTANCE_VARIABLE_OPERATOR_WRITE_NODE,
+            INTEGER_NODE,
+            LOCAL_VARIABLE_OPERATOR_WRITE_NODE,
+        ]
     }
 
     fn check_node(
@@ -26,8 +37,8 @@ impl Cop for UselessNumericOperation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check for binary operator calls: x + 0, x - 0, x * 1, x / 1, x ** 1
         // RuboCop only matches `(call (call nil? $_) $_ (int $_))`, meaning the
@@ -149,14 +160,13 @@ impl Cop for UselessNumericOperation {
                 diagnostics.push(self.diagnostic(source, line, column, MSG.to_string()));
             }
         }
-
     }
 }
 
 fn is_zero(node: &ruby_prism::Node<'_>, source: &SourceFile) -> bool {
     if let Some(int_node) = node.as_integer_node() {
-        let src =
-            &source.as_bytes()[int_node.location().start_offset()..int_node.location().end_offset()];
+        let src = &source.as_bytes()
+            [int_node.location().start_offset()..int_node.location().end_offset()];
         return src == b"0";
     }
     if let Some(float_node) = node.as_float_node() {
@@ -169,8 +179,8 @@ fn is_zero(node: &ruby_prism::Node<'_>, source: &SourceFile) -> bool {
 
 fn is_one(node: &ruby_prism::Node<'_>, source: &SourceFile) -> bool {
     if let Some(int_node) = node.as_integer_node() {
-        let src =
-            &source.as_bytes()[int_node.location().start_offset()..int_node.location().end_offset()];
+        let src = &source.as_bytes()
+            [int_node.location().start_offset()..int_node.location().end_offset()];
         return src == b"1";
     }
     if let Some(float_node) = node.as_float_node() {
@@ -184,5 +194,8 @@ fn is_one(node: &ruby_prism::Node<'_>, source: &SourceFile) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(UselessNumericOperation, "cops/lint/useless_numeric_operation");
+    crate::cop_fixture_tests!(
+        UselessNumericOperation,
+        "cops/lint/useless_numeric_operation"
+    );
 }

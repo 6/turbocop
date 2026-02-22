@@ -1,8 +1,8 @@
+use crate::cop::node_type::DEF_NODE;
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::DEF_NODE;
 
 pub struct DefEndAlignment;
 
@@ -21,8 +21,8 @@ impl Cop for DefEndAlignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyleAlignWith", "start_of_line");
         let def_node = match node.as_def_node() {
@@ -56,7 +56,6 @@ impl Cop for DefEndAlignment {
                         "Align `end` with `def`.".to_string(),
                     ));
                 }
-
             }
             _ => {
                 // "start_of_line" (default): align `end` with start of the line containing `def`
@@ -88,23 +87,31 @@ mod tests {
 
     #[test]
     fn def_style_aligns_with_def_keyword() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyleAlignWith".into(), serde_yml::Value::String("def".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyleAlignWith".into(),
+                serde_yml::Value::String("def".into()),
+            )]),
             ..CopConfig::default()
         };
         // `end` aligned with `def` (both at column 2)
         let src = b"  def foo\n    42\n  end\n";
         let diags = run_cop_full_with_config(&DefEndAlignment, src, config.clone());
-        assert!(diags.is_empty(), "def style should accept end aligned with def");
+        assert!(
+            diags.is_empty(),
+            "def style should accept end aligned with def"
+        );
 
         // `end` at column 0, `def` at column 2 → mismatch
         let src2 = b"  def foo\n    42\nend\n";
         let diags2 = run_cop_full_with_config(&DefEndAlignment, src2, config);
-        assert_eq!(diags2.len(), 1, "def style should flag end not aligned with def");
+        assert_eq!(
+            diags2.len(),
+            1,
+            "def style should flag end not aligned with def"
+        );
     }
 }

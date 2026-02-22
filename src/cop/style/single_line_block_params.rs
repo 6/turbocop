@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, REQUIRED_PARAMETER_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, REQUIRED_PARAMETER_NODE};
 
 pub struct SingleLineBlockParams;
 
@@ -11,7 +13,12 @@ impl Cop for SingleLineBlockParams {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, REQUIRED_PARAMETER_NODE]
+        &[
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            CALL_NODE,
+            REQUIRED_PARAMETER_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +27,8 @@ impl Cop for SingleLineBlockParams {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _methods = config.get_string_array("Methods");
 
@@ -97,7 +104,6 @@ impl Cop for SingleLineBlockParams {
                 }
             }
         }
-
     }
 }
 

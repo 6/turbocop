@@ -1,8 +1,10 @@
-use crate::cop::util::{is_blank_line, is_rspec_example, line_at, node_on_single_line, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::CALL_NODE;
+use crate::cop::util::{
+    RSPEC_DEFAULT_INCLUDE, is_blank_line, is_rspec_example, line_at, node_on_single_line,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct EmptyLineAfterExample;
 
@@ -29,8 +31,8 @@ impl Cop for EmptyLineAfterExample {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -147,7 +149,13 @@ fn is_terminator_line(line: &[u8]) -> bool {
     if let Some(start) = trimmed {
         let rest = &line[start..];
         for keyword in &[
-            b"end" as &[u8], b"else", b"elsif", b"when", b"rescue", b"ensure", b"in ",
+            b"end" as &[u8],
+            b"else",
+            b"elsif",
+            b"when",
+            b"rescue",
+            b"ensure",
+            b"in ",
         ] {
             if rest.starts_with(keyword) {
                 // Ensure keyword isn't part of a longer identifier
@@ -177,10 +185,22 @@ fn is_single_line_block(line: &[u8]) -> bool {
 }
 
 fn starts_with_example_keyword(line: &[u8]) -> bool {
-    for keyword in &[b"it " as &[u8], b"it(", b"it{", b"it {",
-                      b"specify ", b"specify(", b"specify{", b"specify {",
-                      b"example ", b"example(", b"example{", b"example {",
-                      b"scenario ", b"scenario("] {
+    for keyword in &[
+        b"it " as &[u8],
+        b"it(",
+        b"it{",
+        b"it {",
+        b"specify ",
+        b"specify(",
+        b"specify{",
+        b"specify {",
+        b"example ",
+        b"example(",
+        b"example{",
+        b"example {",
+        b"scenario ",
+        b"scenario(",
+    ] {
         if line.starts_with(keyword) {
             return true;
         }

@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, ELSE_NODE, FALSE_NODE, IF_NODE, TRUE_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, ELSE_NODE, FALSE_NODE, IF_NODE, TRUE_NODE};
 
 pub struct RedundantConditional;
 
@@ -53,8 +53,8 @@ impl Cop for RedundantConditional {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let if_node = match node.as_if_node() {
             Some(n) => n,
@@ -92,14 +92,17 @@ impl Cop for RedundantConditional {
         };
 
         // Check for `if cond; true; else; false; end` or `if cond; false; else; true; end`
-        let then_true_else_false = Self::single_stmt_is_true(&then_stmts) && Self::single_stmt_is_false(&else_stmts);
-        let then_false_else_true = Self::single_stmt_is_false(&then_stmts) && Self::single_stmt_is_true(&else_stmts);
+        let then_true_else_false =
+            Self::single_stmt_is_true(&then_stmts) && Self::single_stmt_is_false(&else_stmts);
+        let then_false_else_true =
+            Self::single_stmt_is_false(&then_stmts) && Self::single_stmt_is_true(&else_stmts);
 
         if !then_true_else_false && !then_false_else_true {
             return;
         }
 
-        let condition_src = std::str::from_utf8(predicate.location().as_slice()).unwrap_or("condition");
+        let condition_src =
+            std::str::from_utf8(predicate.location().as_slice()).unwrap_or("condition");
         let replacement = if then_true_else_false {
             condition_src.to_string()
         } else {
@@ -112,7 +115,10 @@ impl Cop for RedundantConditional {
             source,
             line,
             column,
-            format!("This conditional expression can just be replaced by `{}`.", replacement),
+            format!(
+                "This conditional expression can just be replaced by `{}`.",
+                replacement
+            ),
         ));
     }
 }

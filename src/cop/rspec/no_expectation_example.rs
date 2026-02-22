@@ -1,10 +1,10 @@
 use ruby_prism::Visit;
 
-use crate::cop::util::{is_rspec_example, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::CALL_NODE;
+use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct NoExpectationExample;
 
@@ -31,8 +31,8 @@ impl Cop for NoExpectationExample {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -169,14 +169,16 @@ mod tests {
         let config = CopConfig {
             options: HashMap::from([(
                 "AllowedPatterns".into(),
-                serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("^triggers".into()),
-                ]),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("^triggers".into())]),
             )]),
             ..CopConfig::default()
         };
         let source = b"it 'triggers a callback' do\n  run_job\nend\n";
-        let diags = crate::testutil::run_cop_full_with_config(&NoExpectationExample, source, config);
-        assert!(diags.is_empty(), "AllowedPatterns should skip matching descriptions");
+        let diags =
+            crate::testutil::run_cop_full_with_config(&NoExpectationExample, source, config);
+        assert!(
+            diags.is_empty(),
+            "AllowedPatterns should skip matching descriptions"
+        );
     }
 }

@@ -18,8 +18,8 @@ impl Cop for FirstArgumentIndentation {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str(
             "EnforcedStyle",
@@ -110,20 +110,19 @@ impl FirstArgVisitor<'_> {
             return;
         }
 
-        let expected = self.compute_expected_indent(
-            call_start_offset,
-            first_arg_loc.start_offset(),
-            arg_line,
-        );
+        let expected =
+            self.compute_expected_indent(call_start_offset, first_arg_loc.start_offset(), arg_line);
 
         if arg_col != expected {
-            self.diagnostics.push(self.cop.diagnostic(
-                self.source,
-                arg_line,
-                arg_col,
-                "Indent the first argument one step more than the start of the previous line."
-                    .to_string(),
-            ));
+            self.diagnostics.push(
+                self.cop.diagnostic(
+                    self.source,
+                    arg_line,
+                    arg_col,
+                    "Indent the first argument one step more than the start of the previous line."
+                        .to_string(),
+                ),
+            );
         }
     }
 
@@ -262,7 +261,10 @@ fn previous_code_line_indent(source: &SourceFile, line_number: usize) -> usize {
         line_num -= 1;
         let line_bytes = source.lines().nth(line_num - 1).unwrap_or(b"");
         // Skip blank lines
-        if line_bytes.iter().all(|&b| b == b' ' || b == b'\t' || b == b'\n' || b == b'\r') {
+        if line_bytes
+            .iter()
+            .all(|&b| b == b' ' || b == b'\t' || b == b'\n' || b == b'\r')
+        {
             continue;
         }
         // Skip comment lines (lines where first non-whitespace is #)
@@ -282,8 +284,29 @@ fn is_bare_operator(name: &str) -> bool {
     // Operators that can be defined as methods
     matches!(
         name,
-        "+" | "-" | "*" | "/" | "%" | "**" | "==" | "!=" | ">" | "<" | ">=" | "<=" | "<=>"
-            | "<<" | ">>" | "&" | "|" | "^" | "~" | "!" | "=~" | "!~" | "[]" | "[]="
+        "+" | "-"
+            | "*"
+            | "/"
+            | "%"
+            | "**"
+            | "=="
+            | "!="
+            | ">"
+            | "<"
+            | ">="
+            | "<="
+            | "<=>"
+            | "<<"
+            | ">>"
+            | "&"
+            | "|"
+            | "^"
+            | "~"
+            | "!"
+            | "=~"
+            | "!~"
+            | "[]"
+            | "[]="
     )
 }
 
@@ -291,7 +314,7 @@ fn is_setter_method(name: &str) -> bool {
     name.ends_with('=') && name != "==" && name != "!=" && name != "[]="
 }
 
-impl<'pr> Visit<'pr> for FirstArgVisitor<'_, > {
+impl<'pr> Visit<'pr> for FirstArgVisitor<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         let call_start_offset = node.location().start_offset();
         let name_bytes = node.name().as_slice();
@@ -308,9 +331,7 @@ impl<'pr> Visit<'pr> for FirstArgVisitor<'_, > {
 
         // Determine if this call is parenthesized and eligible for being a
         // "parent call" context for inner calls
-        let is_parenthesized = node
-            .opening_loc()
-            .is_some_and(|loc| loc.as_slice() == b"(");
+        let is_parenthesized = node.opening_loc().is_some_and(|loc| loc.as_slice() == b"(");
         let is_eligible = !is_bare_operator(name_str) && !is_setter_method(name_str);
 
         // Collect argument start offsets
@@ -366,7 +387,11 @@ mod tests {
         // Inner call in parenthesized outer call — first arg aligned after receiver start + width
         let source = b"Conversation.create!(conversation_params.merge(\n                       contact_inbox_id: id\n                     ))\n";
         let diags = run_cop_full(&FirstArgumentIndentation, source);
-        assert!(diags.is_empty(), "inner call with args aligned to receiver start should not be flagged, got: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "inner call with args aligned to receiver start should not be flagged, got: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -374,7 +399,11 @@ mod tests {
         // expect(helper.generate_category_link(\n         portal_slug: 'x'\n       ))
         let source = b"expect(helper.generate_category_link(\n         portal_slug: 'portal_slug'\n       ))\n";
         let diags = run_cop_full(&FirstArgumentIndentation, source);
-        assert!(diags.is_empty(), "inner call in expect() should not be flagged, got: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "inner call in expect() should not be flagged, got: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -382,6 +411,10 @@ mod tests {
         // Top-level call (not inside another call) with wrong indent
         let source = b"foo(\n      1\n)\n";
         let diags = run_cop_full(&FirstArgumentIndentation, source);
-        assert_eq!(diags.len(), 1, "non-inner call with wrong indent should be flagged");
+        assert_eq!(
+            diags.len(),
+            1,
+            "non-inner call with wrong indent should be flagged"
+        );
     }
 }

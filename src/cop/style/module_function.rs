@@ -17,8 +17,8 @@ impl Cop for ModuleFunction {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "module_function");
         // Autocorrect config key acknowledged (autocorrect not yet implemented)
@@ -57,21 +57,27 @@ impl<'pr> Visit<'pr> for ModuleFunctionVisitor<'_> {
                                     let arg_list: Vec<_> = args.arguments().iter().collect();
                                     if arg_list.len() == 1 && arg_list[0].as_self_node().is_some() {
                                         let loc = call.location();
-                                        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-                                        self.diagnostics.push(self.cop.diagnostic(
-                                            self.source,
-                                            line,
-                                            column,
-                                            "Use `module_function` instead of `extend self`.".to_string(),
-                                        ));
+                                        let (line, column) =
+                                            self.source.offset_to_line_col(loc.start_offset());
+                                        self.diagnostics.push(
+                                            self.cop.diagnostic(
+                                                self.source,
+                                                line,
+                                                column,
+                                                "Use `module_function` instead of `extend self`."
+                                                    .to_string(),
+                                            ),
+                                        );
                                     }
                                 }
                             }
-                        } else if self.style == "extend_self" && method_bytes == b"module_function" {
+                        } else if self.style == "extend_self" && method_bytes == b"module_function"
+                        {
                             // Check if it has no arguments (bare `module_function`)
                             if call.receiver().is_none() && call.arguments().is_none() {
                                 let loc = call.location();
-                                let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                                let (line, column) =
+                                    self.source.offset_to_line_col(loc.start_offset());
                                 self.diagnostics.push(self.cop.diagnostic(
                                     self.source,
                                     line,
@@ -82,19 +88,24 @@ impl<'pr> Visit<'pr> for ModuleFunctionVisitor<'_> {
                         } else if self.style == "forbidden" {
                             if method_bytes == b"module_function" && call.receiver().is_none() {
                                 let loc = call.location();
-                                let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-                                self.diagnostics.push(self.cop.diagnostic(
-                                    self.source,
-                                    line,
-                                    column,
-                                    "`module_function` and `extend self` are forbidden.".to_string(),
-                                ));
+                                let (line, column) =
+                                    self.source.offset_to_line_col(loc.start_offset());
+                                self.diagnostics.push(
+                                    self.cop.diagnostic(
+                                        self.source,
+                                        line,
+                                        column,
+                                        "`module_function` and `extend self` are forbidden."
+                                            .to_string(),
+                                    ),
+                                );
                             } else if method_bytes == b"extend" && call.receiver().is_none() {
                                 if let Some(args) = call.arguments() {
                                     let arg_list: Vec<_> = args.arguments().iter().collect();
                                     if arg_list.len() == 1 && arg_list[0].as_self_node().is_some() {
                                         let loc = call.location();
-                                        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                                        let (line, column) =
+                                            self.source.offset_to_line_col(loc.start_offset());
                                         self.diagnostics.push(self.cop.diagnostic(
                                             self.source,
                                             line,

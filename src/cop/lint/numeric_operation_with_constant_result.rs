@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, INTEGER_NODE, LOCAL_VARIABLE_READ_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, INTEGER_NODE, LOCAL_VARIABLE_READ_NODE};
 
 /// Checks for numeric operations that have a constant result.
 /// For example: `x * 0` always returns 0, `x / x` always returns 1.
@@ -26,8 +26,8 @@ impl Cop for NumericOperationWithConstantResult {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -85,7 +85,8 @@ impl Cop for NumericOperationWithConstantResult {
 
 fn is_zero(node: &ruby_prism::Node<'_>, source: &SourceFile) -> bool {
     if let Some(int_node) = node.as_integer_node() {
-        let src = &source.as_bytes()[int_node.location().start_offset()..int_node.location().end_offset()];
+        let src = &source.as_bytes()
+            [int_node.location().start_offset()..int_node.location().end_offset()];
         return src == b"0";
     }
     false

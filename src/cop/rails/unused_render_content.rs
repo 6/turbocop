@@ -1,7 +1,7 @@
+use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE};
 
 pub struct UnusedRenderContent;
 
@@ -19,8 +19,20 @@ fn is_non_content_code(code: i64) -> bool {
 }
 
 const BODY_OPTIONS: &[&[u8]] = &[
-    b"action", b"body", b"content_type", b"file", b"html", b"inline", b"json", b"js", b"layout",
-    b"plain", b"raw", b"template", b"text", b"xml",
+    b"action",
+    b"body",
+    b"content_type",
+    b"file",
+    b"html",
+    b"inline",
+    b"json",
+    b"js",
+    b"layout",
+    b"plain",
+    b"raw",
+    b"template",
+    b"text",
+    b"xml",
 ];
 
 impl Cop for UnusedRenderContent {
@@ -33,7 +45,13 @@ impl Cop for UnusedRenderContent {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ASSOC_NODE, CALL_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE]
+        &[
+            ASSOC_NODE,
+            CALL_NODE,
+            INTEGER_NODE,
+            KEYWORD_HASH_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -42,8 +60,8 @@ impl Cop for UnusedRenderContent {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -91,8 +109,7 @@ impl Cop for UnusedRenderContent {
                     // Check numeric status
                     if let Some(_int) = assoc.value().as_integer_node() {
                         let int_loc = assoc.value().location();
-                        let code_text =
-                            std::str::from_utf8(int_loc.as_slice()).unwrap_or("");
+                        let code_text = std::str::from_utf8(int_loc.as_slice()).unwrap_or("");
                         if let Ok(code_num) = code_text.parse::<i64>() {
                             if is_non_content_code(code_num) {
                                 has_non_content_status = true;
@@ -108,15 +125,16 @@ impl Cop for UnusedRenderContent {
         if has_non_content_status && has_content_keys {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                "Do not specify body content for a response with a non-content status code"
-                    .to_string(),
-            ));
+            diagnostics.push(
+                self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Do not specify body content for a response with a non-content status code"
+                        .to_string(),
+                ),
+            );
         }
-
     }
 }
 

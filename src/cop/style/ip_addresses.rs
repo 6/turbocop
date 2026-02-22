@@ -1,7 +1,7 @@
+use crate::cop::node_type::STRING_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::STRING_NODE;
 
 pub struct IpAddresses;
 
@@ -45,8 +45,16 @@ impl IpAddresses {
             if parts.len() != 2 {
                 return false;
             }
-            let left_groups = if parts[0].is_empty() { 0 } else { parts[0].split(':').count() };
-            let right_groups = if parts[1].is_empty() { 0 } else { parts[1].split(':').count() };
+            let left_groups = if parts[0].is_empty() {
+                0
+            } else {
+                parts[0].split(':').count()
+            };
+            let right_groups = if parts[1].is_empty() {
+                0
+            } else {
+                parts[1].split(':').count()
+            };
             if left_groups + right_groups > 7 {
                 return false;
             }
@@ -99,8 +107,8 @@ impl Cop for IpAddresses {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let string_node = match node.as_string_node() {
             Some(s) => s,
@@ -117,7 +125,8 @@ impl Cop for IpAddresses {
             return;
         }
 
-        let allowed = config.get_string_array("AllowedAddresses")
+        let allowed = config
+            .get_string_array("AllowedAddresses")
             .or_else(|| Some(vec!["::".to_string()]));
 
         // Check if it's in allowed addresses
@@ -142,7 +151,6 @@ impl Cop for IpAddresses {
                 "Do not hardcode IP addresses.".to_string(),
             ));
         }
-
     }
 }
 

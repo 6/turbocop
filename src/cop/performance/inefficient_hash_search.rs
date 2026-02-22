@@ -20,8 +20,8 @@ impl Cop for InefficientHashSearch {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let chain = match as_method_chain(node) {
             Some(c) => c,
@@ -54,5 +54,8 @@ impl Cop for InefficientHashSearch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(InefficientHashSearch, "cops/performance/inefficient_hash_search");
+    crate::cop_fixture_tests!(
+        InefficientHashSearch,
+        "cops/performance/inefficient_hash_search"
+    );
 }

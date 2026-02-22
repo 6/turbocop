@@ -1,7 +1,7 @@
+use crate::cop::node_type::BLOCK_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::BLOCK_NODE;
 
 pub struct SpaceInsideBlockBraces;
 
@@ -54,13 +54,18 @@ impl Cop for SpaceInsideBlockBraces {
                 "space" => {
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
                     let mut diag = self.diagnostic(
-                        source, line, column,
+                        source,
+                        line,
+                        column,
                         "Space inside empty braces missing.".to_string(),
                     );
                     if let Some(ref mut corr) = corrections {
                         corr.push(crate::correction::Correction {
-                            start: open_end, end: open_end, replacement: " ".to_string(),
-                            cop_name: self.name(), cop_index: 0,
+                            start: open_end,
+                            end: open_end,
+                            replacement: " ".to_string(),
+                            cop_name: self.name(),
+                            cop_index: 0,
                         });
                         diag.corrected = true;
                     }
@@ -76,13 +81,18 @@ impl Cop for SpaceInsideBlockBraces {
                 "no_space" => {
                     let (line, column) = source.offset_to_line_col(open_end);
                     let mut diag = self.diagnostic(
-                        source, line, column,
+                        source,
+                        line,
+                        column,
                         "Space inside empty braces detected.".to_string(),
                     );
                     if let Some(ref mut corr) = corrections {
                         corr.push(crate::correction::Correction {
-                            start: open_end, end: open_end + 1, replacement: String::new(),
-                            cop_name: self.name(), cop_index: 0,
+                            start: open_end,
+                            end: open_end + 1,
+                            replacement: String::new(),
+                            cop_name: self.name(),
+                            cop_index: 0,
                         });
                         diag.corrected = true;
                     }
@@ -100,13 +110,18 @@ impl Cop for SpaceInsideBlockBraces {
                 if pipe_start == open_end + 1 && bytes.get(open_end) == Some(&b' ') {
                     let (line, column) = source.offset_to_line_col(open_end);
                     let mut diag = self.diagnostic(
-                        source, line, column,
+                        source,
+                        line,
+                        column,
                         "Space between { and | detected.".to_string(),
                     );
                     if let Some(ref mut corr) = corrections {
                         corr.push(crate::correction::Correction {
-                            start: open_end, end: open_end + 1, replacement: String::new(),
-                            cop_name: self.name(), cop_index: 0,
+                            start: open_end,
+                            end: open_end + 1,
+                            replacement: String::new(),
+                            cop_name: self.name(),
+                            cop_index: 0,
                         });
                         diag.corrected = true;
                     }
@@ -133,13 +148,18 @@ impl Cop for SpaceInsideBlockBraces {
                 if !space_after_open {
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
                     let mut diag = self.diagnostic(
-                        source, line, column,
+                        source,
+                        line,
+                        column,
                         "Space missing inside {.".to_string(),
                     );
                     if let Some(ref mut corr) = corrections {
                         corr.push(crate::correction::Correction {
-                            start: open_end, end: open_end, replacement: " ".to_string(),
-                            cop_name: self.name(), cop_index: 0,
+                            start: open_end,
+                            end: open_end,
+                            replacement: " ".to_string(),
+                            cop_name: self.name(),
+                            cop_index: 0,
                         });
                         diag.corrected = true;
                     }
@@ -148,13 +168,18 @@ impl Cop for SpaceInsideBlockBraces {
                 if !space_before_close {
                     let (line, column) = source.offset_to_line_col(closing.start_offset());
                     let mut diag = self.diagnostic(
-                        source, line, column,
+                        source,
+                        line,
+                        column,
                         "Space missing inside }.".to_string(),
                     );
                     if let Some(ref mut corr) = corrections {
                         corr.push(crate::correction::Correction {
-                            start: close_start, end: close_start, replacement: " ".to_string(),
-                            cop_name: self.name(), cop_index: 0,
+                            start: close_start,
+                            end: close_start,
+                            replacement: " ".to_string(),
+                            cop_name: self.name(),
+                            cop_index: 0,
                         });
                         diag.corrected = true;
                     }
@@ -165,13 +190,18 @@ impl Cop for SpaceInsideBlockBraces {
                 if space_after_open {
                     let (line, column) = source.offset_to_line_col(open_end);
                     let mut diag = self.diagnostic(
-                        source, line, column,
+                        source,
+                        line,
+                        column,
                         "Space inside { detected.".to_string(),
                     );
                     if let Some(ref mut corr) = corrections {
                         corr.push(crate::correction::Correction {
-                            start: open_end, end: open_end + 1, replacement: String::new(),
-                            cop_name: self.name(), cop_index: 0,
+                            start: open_end,
+                            end: open_end + 1,
+                            replacement: String::new(),
+                            cop_name: self.name(),
+                            cop_index: 0,
                         });
                         diag.corrected = true;
                     }
@@ -180,13 +210,18 @@ impl Cop for SpaceInsideBlockBraces {
                 if space_before_close {
                     let (line, column) = source.offset_to_line_col(close_start - 1);
                     let mut diag = self.diagnostic(
-                        source, line, column,
+                        source,
+                        line,
+                        column,
                         "Space inside } detected.".to_string(),
                     );
                     if let Some(ref mut corr) = corrections {
                         corr.push(crate::correction::Correction {
-                            start: close_start - 1, end: close_start, replacement: String::new(),
-                            cop_name: self.name(), cop_index: 0,
+                            start: close_start - 1,
+                            end: close_start,
+                            replacement: String::new(),
+                            cop_name: self.name(),
+                            cop_index: 0,
                         });
                         diag.corrected = true;
                     }
@@ -195,7 +230,6 @@ impl Cop for SpaceInsideBlockBraces {
             }
             _ => {}
         }
-
     }
 }
 
@@ -203,40 +237,54 @@ impl Cop for SpaceInsideBlockBraces {
 mod tests {
     use super::*;
 
-    crate::cop_fixture_tests!(SpaceInsideBlockBraces, "cops/layout/space_inside_block_braces");
-    crate::cop_autocorrect_fixture_tests!(SpaceInsideBlockBraces, "cops/layout/space_inside_block_braces");
+    crate::cop_fixture_tests!(
+        SpaceInsideBlockBraces,
+        "cops/layout/space_inside_block_braces"
+    );
+    crate::cop_autocorrect_fixture_tests!(
+        SpaceInsideBlockBraces,
+        "cops/layout/space_inside_block_braces"
+    );
 
     #[test]
     fn empty_braces_space_style_flags_no_space() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyleForEmptyBraces".into(), serde_yml::Value::String("space".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyleForEmptyBraces".into(),
+                serde_yml::Value::String("space".into()),
+            )]),
             ..CopConfig::default()
         };
         let src = b"items.each {}\n";
         let diags = run_cop_full_with_config(&SpaceInsideBlockBraces, src, config);
-        assert_eq!(diags.len(), 1, "space style for empty braces should flag braces");
+        assert_eq!(
+            diags.len(),
+            1,
+            "space style for empty braces should flag braces"
+        );
         assert!(diags[0].message.contains("missing"));
     }
 
     #[test]
     fn space_before_block_params_false_flags_space() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("SpaceBeforeBlockParameters".into(), serde_yml::Value::Bool(false)),
-            ]),
+            options: HashMap::from([(
+                "SpaceBeforeBlockParameters".into(),
+                serde_yml::Value::Bool(false),
+            )]),
             ..CopConfig::default()
         };
         let src = b"items.each { |x| puts x }\n";
         let diags = run_cop_full_with_config(&SpaceInsideBlockBraces, src, config);
-        assert!(diags.iter().any(|d| d.message.contains("{ and |")),
-            "SpaceBeforeBlockParameters:false should flag space between {{ and |");
+        assert!(
+            diags.iter().any(|d| d.message.contains("{ and |")),
+            "SpaceBeforeBlockParameters:false should flag space between {{ and |"
+        );
     }
 }

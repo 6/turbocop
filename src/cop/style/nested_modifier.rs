@@ -1,7 +1,7 @@
+use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
 
 pub struct NestedModifier;
 
@@ -20,8 +20,8 @@ impl Cop for NestedModifier {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Get the body of a modifier conditional (if/unless)
         let body_node = if let Some(if_node) = node.as_if_node() {
@@ -91,7 +91,6 @@ impl Cop for NestedModifier {
                 ));
             }
         }
-
     }
 }
 

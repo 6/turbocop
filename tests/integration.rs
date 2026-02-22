@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 
 use turbocop::cli::Args;
 use turbocop::config::load_config;
-use turbocop::cop::registry::CopRegistry;
 use turbocop::cop::autocorrect_allowlist::AutocorrectAllowlist;
+use turbocop::cop::registry::CopRegistry;
 use turbocop::cop::tiers::TierMap;
 use turbocop::fs::DiscoveredFiles;
 use turbocop::linter::run_linter;
@@ -94,7 +94,14 @@ fn lint_clean_file_no_offenses() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert_eq!(result.file_count, 1);
     assert!(
         result.diagnostics.is_empty(),
@@ -117,10 +124,21 @@ fn lint_file_with_multiple_offenses() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert_eq!(result.file_count, 1);
 
-    let cop_names: Vec<&str> = result.diagnostics.iter().map(|d| d.cop_name.as_str()).collect();
+    let cop_names: Vec<&str> = result
+        .diagnostics
+        .iter()
+        .map(|d| d.cop_name.as_str())
+        .collect();
     assert!(
         cop_names.contains(&"Style/FrozenStringLiteralComment"),
         "Expected FrozenStringLiteralComment offense"
@@ -136,18 +154,21 @@ fn lint_file_with_multiple_offenses() {
 #[test]
 fn lint_multiple_files() {
     let dir = temp_dir("multi_file");
-    let f1 = write_file(
-        &dir,
-        "a.rb",
-        b"# frozen_string_literal: true\n\nx = 1\n",
-    );
+    let f1 = write_file(&dir, "a.rb", b"# frozen_string_literal: true\n\nx = 1\n");
     let f2 = write_file(&dir, "b.rb", b"y = 2  \n");
 
     let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[f1, f2]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[f1, f2]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert_eq!(result.file_count, 2);
 
     // a.rb should be clean, b.rb should have offenses
@@ -181,7 +202,14 @@ fn only_filter_limits_cops() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
 
     // Only TrailingWhitespace should fire
     for d in &result.diagnostics {
@@ -213,9 +241,19 @@ fn except_filter_excludes_cops() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
 
-    let excluded_cops = ["Style/FrozenStringLiteralComment", "Layout/TrailingWhitespace"];
+    let excluded_cops = [
+        "Style/FrozenStringLiteralComment",
+        "Layout/TrailingWhitespace",
+    ];
     for d in &result.diagnostics {
         assert!(
             !excluded_cops.contains(&d.cop_name.as_str()),
@@ -238,7 +276,14 @@ fn only_with_single_cop_on_clean_file() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert!(result.diagnostics.is_empty());
 
     fs::remove_dir_all(&dir).ok();
@@ -259,7 +304,14 @@ fn config_disables_cop() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
 
     let disabled_cops = [
         "Layout/TrailingWhitespace",
@@ -285,11 +337,7 @@ fn config_line_length_max_override() {
         "test.rb",
         b"# frozen_string_literal: true\n\ntwenty_char_line = 1\n",
     );
-    let config_path = write_file(
-        &dir,
-        ".rubocop.yml",
-        b"Layout/LineLength:\n  Max: 10\n",
-    );
+    let config_path = write_file(&dir, ".rubocop.yml", b"Layout/LineLength:\n  Max: 10\n");
     let config = load_config(Some(config_path.as_path()), None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
@@ -297,7 +345,14 @@ fn config_line_length_max_override() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
 
     assert!(
         !result.diagnostics.is_empty(),
@@ -305,7 +360,10 @@ fn config_line_length_max_override() {
     );
     for d in &result.diagnostics {
         assert_eq!(d.cop_name, "Layout/LineLength");
-        assert!(d.message.contains("/10]"), "Message should reference Max:10");
+        assert!(
+            d.message.contains("/10]"),
+            "Message should reference Max:10"
+        );
     }
 
     fs::remove_dir_all(&dir).ok();
@@ -315,10 +373,7 @@ fn config_line_length_max_override() {
 fn default_line_length_allows_120() {
     let dir = temp_dir("default_max");
     // 120 chars exactly — should NOT trigger
-    let line = format!(
-        "# frozen_string_literal: true\n\n{}\n",
-        "x" .repeat(120)
-    );
+    let line = format!("# frozen_string_literal: true\n\n{}\n", "x".repeat(120));
     let file = write_file(&dir, "test.rb", line.as_bytes());
     let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
@@ -327,7 +382,14 @@ fn default_line_length_allows_120() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert!(
         result.diagnostics.is_empty(),
         "120-char line should not trigger default LineLength"
@@ -346,7 +408,14 @@ fn empty_file_no_crash() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert_eq!(result.file_count, 1);
     // Should not panic; may or may not have offenses (FrozenStringLiteralComment fires)
 
@@ -363,7 +432,14 @@ fn file_with_syntax_errors_still_lints() {
     let args = default_args();
 
     // Should not panic
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert_eq!(result.file_count, 1);
     // Line-based cops should still find offenses (at minimum FrozenStringLiteralComment)
 
@@ -380,7 +456,14 @@ fn binary_content_no_crash() {
     let args = default_args();
 
     // Should not panic
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert_eq!(result.file_count, 1);
 
     fs::remove_dir_all(&dir).ok();
@@ -401,7 +484,14 @@ fn crlf_line_endings_detected() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert!(
         !result.diagnostics.is_empty(),
         "EndOfLine should detect CRLF"
@@ -426,7 +516,14 @@ fn diagnostics_are_sorted_by_path_then_location() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[f1, f2]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[f1, f2]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert_eq!(result.diagnostics.len(), 2);
     // Diagnostics should be sorted: a.rb before b.rb
     assert!(
@@ -453,7 +550,14 @@ fn all_registered_cops_can_fire() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
 
     let cop_names: Vec<&str> = result
         .diagnostics
@@ -1151,7 +1255,14 @@ fn performance_cops_fire_on_slow_patterns() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let perf_diags: Vec<_> = result
         .diagnostics
         .iter()
@@ -1196,7 +1307,14 @@ fn lint_cops_fire_on_bad_code() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let lint_diags: Vec<_> = result
         .diagnostics
         .iter()
@@ -1236,16 +1354,19 @@ fn json_formatter_includes_all_departments() {
     // - Layout: trailing whitespace
     // - Style: missing frozen_string_literal
     // - Lint: binding.pry (Debugger), :true (BooleanSymbol)
-    let file = write_file(
-        &dir,
-        "multi.rb",
-        b"binding.pry  \nx = :true\n",
-    );
+    let file = write_file(&dir, "multi.rb", b"binding.pry  \nx = :true\n");
     let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
 
     // Collect unique department prefixes
     let departments: std::collections::HashSet<&str> = result
@@ -1300,7 +1421,14 @@ fn migration_cop_filtered_by_path() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[migrate_file, model_file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[migrate_file, model_file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
 
     // Only the migration file should have offenses
     let migrate_offenses: Vec<_> = result
@@ -1331,9 +1459,7 @@ fn global_exclude_skips_file() {
     let dir = temp_dir("global_exclude");
     // Use absolute pattern in AllCops.Exclude to match temp dir paths
     let dir_str = dir.display();
-    let config_yaml = format!(
-        "AllCops:\n  Exclude:\n    - '{dir_str}/vendor/**'\n"
-    );
+    let config_yaml = format!("AllCops:\n  Exclude:\n    - '{dir_str}/vendor/**'\n");
     let config_path = write_file(&dir, ".rubocop.yml", config_yaml.as_bytes());
     // Place a file with trailing whitespace in vendor/
     let vendor_file = write_file(&dir, "vendor/foo.rb", b"x = 1  \n");
@@ -1347,7 +1473,14 @@ fn global_exclude_skips_file() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[vendor_file, app_file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[vendor_file, app_file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
 
     let vendor_offenses: Vec<_> = result
         .diagnostics
@@ -1393,7 +1526,14 @@ fn user_include_override_widens_scope() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[seeds_file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[seeds_file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
 
     assert!(
         !result.diagnostics.is_empty(),
@@ -1545,14 +1685,20 @@ fn all_cops_have_fixture_files() {
         } else if dir_alt.exists() {
             &dir_alt
         } else {
-            missing.push(format!("{cop_name}: missing directory ({} or {})", dir.display(), dir_alt.display()));
+            missing.push(format!(
+                "{cop_name}: missing directory ({} or {})",
+                dir.display(),
+                dir_alt.display()
+            ));
             continue;
         };
 
         let has_offense_file = effective_dir.join("offense.rb").exists();
         let has_offense_dir = effective_dir.join("offense").is_dir();
         if !has_offense_file && !has_offense_dir {
-            missing.push(format!("{cop_name}: missing offense.rb or offense/ directory"));
+            missing.push(format!(
+                "{cop_name}: missing offense.rb or offense/ directory"
+            ));
         }
         if !effective_dir.join("no_offense.rb").exists() {
             missing.push(format!("{cop_name}: missing no_offense.rb"));
@@ -1584,7 +1730,14 @@ fn metrics_cops_fire_on_complex_code() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert!(
         !result.diagnostics.is_empty(),
         "Metrics/MethodLength should fire on 16-line method"
@@ -1610,8 +1763,19 @@ fn naming_cops_fire_on_bad_names() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
-    let cop_names: Vec<&str> = result.diagnostics.iter().map(|d| d.cop_name.as_str()).collect();
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
+    let cop_names: Vec<&str> = result
+        .diagnostics
+        .iter()
+        .map(|d| d.cop_name.as_str())
+        .collect();
     assert!(
         cop_names.contains(&"Naming/MethodName"),
         "Naming/MethodName should fire on camelCase method name"
@@ -1629,11 +1793,7 @@ fn config_overrides_new_departments() {
         "short_method.rb",
         b"# frozen_string_literal: true\n\ndef foo\n  a = 1\n  b = 2\n  c = 3\n  d = 4\nend\n",
     );
-    let config_path = write_file(
-        &dir,
-        ".rubocop.yml",
-        b"Metrics/MethodLength:\n  Max: 3\n",
-    );
+    let config_path = write_file(&dir, ".rubocop.yml", b"Metrics/MethodLength:\n  Max: 3\n");
     let config = load_config(Some(config_path.as_path()), None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
@@ -1641,7 +1801,14 @@ fn config_overrides_new_departments() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert!(
         !result.diagnostics.is_empty(),
         "Metrics/MethodLength should fire with Max:3 on 4-line method"
@@ -1673,7 +1840,12 @@ fn inherit_from_merges_configs() {
 
     // Child disables FrozenStringLiteralComment (base had it enabled)
     assert!(
-        !config.is_cop_enabled("Style/FrozenStringLiteralComment", Path::new("a.rb"), &[], &[]),
+        !config.is_cop_enabled(
+            "Style/FrozenStringLiteralComment",
+            Path::new("a.rb"),
+            &[],
+            &[]
+        ),
         "Child should disable FrozenStringLiteralComment"
     );
 
@@ -1720,7 +1892,12 @@ fn diamond_dependency_does_not_error() {
     );
     // But explicitly enabled cops from left/right branches should be on
     assert!(
-        config.is_cop_enabled("Style/FrozenStringLiteralComment", Path::new("a.rb"), &[], &[]),
+        config.is_cop_enabled(
+            "Style/FrozenStringLiteralComment",
+            Path::new("a.rb"),
+            &[],
+            &[]
+        ),
         "Style/FrozenStringLiteralComment enabled in diamond_left.yml should be on"
     );
     assert!(
@@ -1780,12 +1957,7 @@ fn rubocop_only_outputs_uncovered_cops() {
 #[test]
 fn stdin_detects_trailing_whitespace() {
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
-        .args([
-            "--stdin",
-            "test.rb",
-            "--only",
-            "Layout/TrailingWhitespace",
-        ])
+        .args(["--stdin", "test.rb", "--only", "Layout/TrailingWhitespace"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -1799,7 +1971,9 @@ fn stdin_detects_trailing_whitespace() {
         stdin.write_all(b"x = 1   \n").unwrap();
     }
 
-    let output = child.wait_with_output().expect("Failed to wait for turbocop");
+    let output = child
+        .wait_with_output()
+        .expect("Failed to wait for turbocop");
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
@@ -1819,12 +1993,7 @@ fn stdin_detects_trailing_whitespace() {
 #[test]
 fn stdin_clean_code_exits_zero() {
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
-        .args([
-            "--stdin",
-            "clean.rb",
-            "--only",
-            "Layout/TrailingWhitespace",
-        ])
+        .args(["--stdin", "clean.rb", "--only", "Layout/TrailingWhitespace"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -1837,7 +2006,9 @@ fn stdin_clean_code_exits_zero() {
         stdin.write_all(b"x = 1\ny = 2\n").unwrap();
     }
 
-    let output = child.wait_with_output().expect("Failed to wait for turbocop");
+    let output = child
+        .wait_with_output()
+        .expect("Failed to wait for turbocop");
 
     assert!(
         output.status.success(),
@@ -1850,15 +2021,14 @@ fn stdin_display_path_affects_include_matching() {
     // RSpec cops should run when display path matches spec pattern.
     // Need a config dir with plugins: rubocop-rspec so the RSpec department is enabled.
     let config_dir = temp_dir("stdin_include_config");
-    write_file(&config_dir, ".rubocop.yml", b"plugins:\n  - rubocop-rspec\n");
+    write_file(
+        &config_dir,
+        ".rubocop.yml",
+        b"plugins:\n  - rubocop-rspec\n",
+    );
 
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
-        .args([
-            "--stdin",
-            "spec/foo_spec.rb",
-            "--only",
-            "RSpec/Focus",
-        ])
+        .args(["--stdin", "spec/foo_spec.rb", "--only", "RSpec/Focus"])
         .current_dir(&config_dir)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -1874,7 +2044,9 @@ fn stdin_display_path_affects_include_matching() {
             .unwrap();
     }
 
-    let output = child.wait_with_output().expect("Failed to wait for turbocop");
+    let output = child
+        .wait_with_output()
+        .expect("Failed to wait for turbocop");
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
@@ -1922,11 +2094,7 @@ fn inherited_config_affects_linting() {
         "base.yml",
         b"Layout/TrailingWhitespace:\n  Enabled: false\n",
     );
-    let config_path = write_file(
-        &dir,
-        ".rubocop.yml",
-        b"inherit_from: base.yml\n",
-    );
+    let config_path = write_file(&dir, ".rubocop.yml", b"inherit_from: base.yml\n");
     let file = write_file(&dir, "test.rb", b"x = 1   \n");
 
     let config = load_config(Some(config_path.as_path()), None, None).unwrap();
@@ -1936,7 +2104,14 @@ fn inherited_config_affects_linting() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert!(
         result.diagnostics.is_empty(),
         "TrailingWhitespace should be disabled by inherited config, got {} offenses",
@@ -1951,8 +2126,7 @@ fn lint_source_directly() {
     use turbocop::linter::lint_source;
     use turbocop::parse::source::SourceFile;
 
-    let source =
-        SourceFile::from_string(PathBuf::from("test.rb"), "x = 1   \n".to_string());
+    let source = SourceFile::from_string(PathBuf::from("test.rb"), "x = 1   \n".to_string());
     let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
@@ -1960,16 +2134,20 @@ fn lint_source_directly() {
         ..default_args()
     };
 
-    let result = lint_source(&source, &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = lint_source(
+        &source,
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert_eq!(result.file_count, 1);
     assert!(
         !result.diagnostics.is_empty(),
         "lint_source should detect trailing whitespace"
     );
-    assert_eq!(
-        result.diagnostics[0].cop_name,
-        "Layout/TrailingWhitespace"
-    );
+    assert_eq!(result.diagnostics[0].cop_name, "Layout/TrailingWhitespace");
     assert_eq!(result.diagnostics[0].path, "test.rb");
 }
 
@@ -2024,10 +2202,7 @@ fn list_cops_prints_all_registered_cops() {
         lines.contains(&"Rails/FindBy"),
         "Should contain Rails/FindBy"
     );
-    assert!(
-        lines.contains(&"RSpec/Focus"),
-        "Should contain RSpec/Focus"
-    );
+    assert!(lines.contains(&"RSpec/Focus"), "Should contain RSpec/Focus");
 }
 
 // ---------- Config audit ----------
@@ -2068,9 +2243,8 @@ fn config_audit() {
     .collect();
 
     // Also filter Supported* prefix keys (e.g. SupportedStylesAlignWith)
-    let is_infrastructure = |key: &str| -> bool {
-        infrastructure_keys.contains(key) || key.starts_with("Supported")
-    };
+    let is_infrastructure =
+        |key: &str| -> bool { infrastructure_keys.contains(key) || key.starts_with("Supported") };
 
     // Build a map of cop name -> YAML child keys (config options only)
     let mut yaml_cop_keys: std::collections::HashMap<String, Vec<String>> =
@@ -2151,7 +2325,11 @@ fn config_audit() {
         current_gaps.is_empty(),
         "\n[config_audit] {} cop(s) have YAML config keys not referenced in Rust source:\n{}\n",
         current_gaps.len(),
-        current_gaps.iter().map(|g| format!("  {g}")).collect::<Vec<_>>().join("\n")
+        current_gaps
+            .iter()
+            .map(|g| format!("  {g}"))
+            .collect::<Vec<_>>()
+            .join("\n")
     );
 }
 
@@ -2200,7 +2378,11 @@ fn prism_pitfalls() {
         current_gaps.is_empty(),
         "\n[prism_pitfalls] {} pitfall(s) found:\n{}\n",
         current_gaps.len(),
-        current_gaps.iter().map(|g| format!("  {g}")).collect::<Vec<_>>().join("\n")
+        current_gaps
+            .iter()
+            .map(|g| format!("  {g}"))
+            .collect::<Vec<_>>()
+            .join("\n")
     );
 }
 
@@ -2340,7 +2522,14 @@ fn no_redundant_disable_unknown_cop_in_known_department() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2371,7 +2560,14 @@ fn no_redundant_disable_unknown_department() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2401,7 +2597,14 @@ fn no_redundant_disable_running_cop_no_offense() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2430,7 +2633,14 @@ fn no_redundant_disable_when_offense_suppressed() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2475,7 +2685,14 @@ fn no_redundant_disable_with_only_flag() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2506,7 +2723,14 @@ fn redundant_disable_disabled_cop() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2541,7 +2765,14 @@ fn no_redundant_disable_department_used() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2570,7 +2801,14 @@ fn redundant_disable_todo_directive() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2603,7 +2841,14 @@ fn no_redundant_disable_all() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2634,7 +2879,14 @@ fn redundant_disable_renamed_cop_extended_format() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2670,7 +2922,14 @@ fn redundant_disable_renamed_cop_simple_value() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -2702,7 +2961,13 @@ fn no_cop_returns_vec_diagnostic() {
     let cop_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/cop");
     let mut failures = Vec::new();
 
-    let skip_files = ["mod.rs", "walker.rs", "node_type.rs", "registry.rs", "util.rs"];
+    let skip_files = [
+        "mod.rs",
+        "walker.rs",
+        "node_type.rs",
+        "registry.rs",
+        "util.rs",
+    ];
 
     fn collect_rs_files(dir: &Path, files: &mut Vec<PathBuf>) {
         if let Ok(entries) = fs::read_dir(dir) {
@@ -2735,7 +3000,12 @@ fn no_cop_returns_vec_diagnostic() {
                 || trimmed.contains("fn check_source("))
                 && !trimmed.starts_with("//")
             {
-                let remaining: String = content.lines().skip(i).take(10).collect::<Vec<_>>().join(" ");
+                let remaining: String = content
+                    .lines()
+                    .skip(i)
+                    .take(10)
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 if remaining.contains("-> Vec<Diagnostic>") {
                     let rel = path.strip_prefix(&cop_dir).unwrap().display();
                     failures.push(format!(
@@ -2773,7 +3043,14 @@ fn cache_produces_same_results_as_uncached() {
         cache: "false".to_string(),
         ..default_args()
     };
-    let result_no_cache = run_linter(&discovered(&[file1.clone(), file2.clone()]), &config, &registry, &args_no_cache, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result_no_cache = run_linter(
+        &discovered(&[file1.clone(), file2.clone()]),
+        &config,
+        &registry,
+        &args_no_cache,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
 
     // Run with cache (cold)
     let cache_dir = dir.join("cache");
@@ -2785,10 +3062,24 @@ fn cache_produces_same_results_as_uncached() {
         cache: "true".to_string(),
         ..default_args()
     };
-    let result_cold = run_linter(&discovered(&[file1.clone(), file2.clone()]), &config, &registry, &args_cached, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result_cold = run_linter(
+        &discovered(&[file1.clone(), file2.clone()]),
+        &config,
+        &registry,
+        &args_cached,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
 
     // Run with cache (warm)
-    let result_warm = run_linter(&discovered(&[file1.clone(), file2.clone()]), &config, &registry, &args_cached, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result_warm = run_linter(
+        &discovered(&[file1.clone(), file2.clone()]),
+        &config,
+        &registry,
+        &args_cached,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
 
     unsafe { std::env::remove_var("TURBOCOP_CACHE_DIR") };
 
@@ -2805,7 +3096,11 @@ fn cache_produces_same_results_as_uncached() {
     );
 
     // Verify actual offenses match
-    for (d1, d2) in result_no_cache.diagnostics.iter().zip(result_warm.diagnostics.iter()) {
+    for (d1, d2) in result_no_cache
+        .diagnostics
+        .iter()
+        .zip(result_warm.diagnostics.iter())
+    {
         assert_eq!(d1.cop_name, d2.cop_name);
         assert_eq!(d1.location.line, d2.location.line);
         assert_eq!(d1.location.column, d2.location.column);
@@ -2833,15 +3128,37 @@ fn cache_invalidated_by_file_change() {
     };
 
     // First run: should detect trailing whitespace
-    let result1 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
-    assert_eq!(result1.diagnostics.len(), 1, "Should detect trailing whitespace");
+    let result1 = run_linter(
+        &discovered(&[file.clone()]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
+    assert_eq!(
+        result1.diagnostics.len(),
+        1,
+        "Should detect trailing whitespace"
+    );
 
     // Modify file to remove the offense
     fs::write(&file, b"x = 1\n").unwrap();
 
     // Second run: file changed, cache should miss, no offense
-    let result2 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
-    assert_eq!(result2.diagnostics.len(), 0, "After fix, should find no offenses");
+    let result2 = run_linter(
+        &discovered(&[file.clone()]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
+    assert_eq!(
+        result2.diagnostics.len(),
+        0,
+        "After fix, should find no offenses"
+    );
 
     unsafe { std::env::remove_var("TURBOCOP_CACHE_DIR") };
     let _ = fs::remove_dir_all(&dir);
@@ -2865,7 +3182,14 @@ fn cache_invalidated_by_config_change() {
         cache: "true".to_string(),
         ..default_args()
     };
-    let result1 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args1, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result1 = run_linter(
+        &discovered(&[file.clone()]),
+        &config,
+        &registry,
+        &args1,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert_eq!(result1.diagnostics.len(), 1);
 
     // Run with --only a different cop — different session hash, so cache miss
@@ -2874,7 +3198,14 @@ fn cache_invalidated_by_config_change() {
         cache: "true".to_string(),
         ..default_args()
     };
-    let result2 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args2, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result2 = run_linter(
+        &discovered(&[file.clone()]),
+        &config,
+        &registry,
+        &args2,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     // Should get different results (FrozenStringLiteralComment, not TrailingWhitespace)
     for d in &result2.diagnostics {
         assert_ne!(
@@ -2921,7 +3252,10 @@ fn cache_preserves_all_severity_types() {
         },
         Diagnostic {
             path: rb_file.to_string_lossy().to_string(),
-            location: Location { line: 3, column: 10 },
+            location: Location {
+                line: 3,
+                column: 10,
+            },
             severity: Severity::Error,
             cop_name: "Security/C".to_string(),
             message: "error".to_string(),
@@ -2974,7 +3308,14 @@ fn redundant_disable_for_disabled_cop() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3020,7 +3361,14 @@ fn redundant_disable_excluded_cop() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3067,7 +3415,14 @@ fn no_redundant_disable_include_mismatch_cop() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3098,7 +3453,14 @@ fn no_redundant_disable_self_referential() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3137,7 +3499,14 @@ fn redundant_disable_mixed_excluded_and_active() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3190,7 +3559,14 @@ fn no_redundant_disable_executed_cop_no_offense() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3221,7 +3597,14 @@ fn redundant_disable_for_renamed_cop() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3257,7 +3640,14 @@ fn no_redundant_disable_for_unknown_cop() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3287,7 +3677,14 @@ fn no_redundant_disable_for_department_only() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3317,7 +3714,14 @@ fn no_redundant_disable_for_all_wildcard() {
     let registry = CopRegistry::default_registry();
     let args = default_args();
 
-    let result = run_linter(&discovered(&[file]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     let redundant: Vec<_> = result
         .diagnostics
         .iter()
@@ -3358,14 +3762,8 @@ fn list_target_files_prints_discovered_files() {
 
     let lines: Vec<&str> = stdout.lines().collect();
     assert_eq!(lines.len(), 2, "Should list 2 .rb files, got: {stdout}");
-    assert!(
-        stdout.contains("a.rb"),
-        "Should list a.rb, got: {stdout}"
-    );
-    assert!(
-        stdout.contains("b.rb"),
-        "Should list b.rb, got: {stdout}"
-    );
+    assert!(stdout.contains("a.rb"), "Should list a.rb, got: {stdout}");
+    assert!(stdout.contains("b.rb"), "Should list b.rb, got: {stdout}");
     assert!(
         !stdout.contains("c.txt"),
         "Should not list c.txt, got: {stdout}"
@@ -3488,13 +3886,7 @@ fn require_flag_accepted_and_ignored() {
 fn require_multiple_values_accepted() {
     // Test that multiple -r flags work (common in .rubocop files)
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
-        .args([
-            "-r",
-            "rubocop-rspec",
-            "-r",
-            "rubocop-rails",
-            "--list-cops",
-        ])
+        .args(["-r", "rubocop-rspec", "-r", "rubocop-rails", "--list-cops"])
         .output()
         .expect("Failed to execute turbocop");
 
@@ -3613,10 +4005,7 @@ fn fail_level_invalid_value_errors() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
-    assert!(
-        !output.status.success(),
-        "Invalid --fail-level should fail"
-    );
+    assert!(!output.status.success(), "Invalid --fail-level should fail");
     assert!(
         stderr.contains("invalid --fail-level"),
         "Should show helpful error, got: {stderr}"
@@ -3813,11 +4202,7 @@ fn force_default_config_ignores_config_file() {
 fn autocorrect_fixes_file_on_disk() {
     let dir = temp_dir("autocorrect_disk");
     // File has: leading blank lines, trailing whitespace, trailing blank lines
-    let file = write_file(
-        &dir,
-        "fixme.rb",
-        b"\n\nx = 1  \ny = 2\n\n\n",
-    );
+    let file = write_file(&dir, "fixme.rb", b"\n\nx = 1  \ny = 2\n\n\n");
     let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
@@ -3830,7 +4215,14 @@ fn autocorrect_fixes_file_on_disk() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file.clone()]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert!(
         result.corrected_count > 0,
         "Expected corrected_count > 0, got {}",
@@ -3840,8 +4232,7 @@ fn autocorrect_fixes_file_on_disk() {
     // Verify file was corrected on disk
     let corrected = fs::read(&file).unwrap();
     assert_eq!(
-        corrected,
-        b"x = 1\ny = 2\n",
+        corrected, b"x = 1\ny = 2\n",
         "File should be corrected: leading blanks removed, trailing whitespace removed, trailing blank lines removed"
     );
 
@@ -3851,11 +4242,7 @@ fn autocorrect_fixes_file_on_disk() {
 #[test]
 fn autocorrect_inserts_frozen_string_literal() {
     let dir = temp_dir("autocorrect_frozen");
-    let file = write_file(
-        &dir,
-        "missing_magic.rb",
-        b"x = 1\n",
-    );
+    let file = write_file(&dir, "missing_magic.rb", b"x = 1\n");
     let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     // FrozenStringLiteralComment is SafeAutoCorrect: false, so use -A
@@ -3865,7 +4252,14 @@ fn autocorrect_inserts_frozen_string_literal() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file.clone()]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert!(
         result.corrected_count > 0,
         "Expected corrected_count > 0, got {}",
@@ -3886,11 +4280,7 @@ fn autocorrect_inserts_frozen_string_literal() {
 fn autocorrect_safe_mode_skips_unsafe_cops() {
     let dir = temp_dir("autocorrect_safe");
     // Configure FrozenStringLiteralComment with SafeAutoCorrect: false
-    let file = write_file(
-        &dir,
-        "unsafe_test.rb",
-        b"x = 1  \n",
-    );
+    let file = write_file(&dir, "unsafe_test.rb", b"x = 1  \n");
     let config_path = write_file(
         &dir,
         ".rubocop.yml",
@@ -3899,7 +4289,7 @@ fn autocorrect_safe_mode_skips_unsafe_cops() {
     let config = load_config(Some(config_path.as_path()), None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
-        autocorrect: true,  // -a (safe only)
+        autocorrect: true, // -a (safe only)
         only: vec![
             "Style/FrozenStringLiteralComment".to_string(),
             "Layout/TrailingWhitespace".to_string(),
@@ -3907,7 +4297,14 @@ fn autocorrect_safe_mode_skips_unsafe_cops() {
         ..default_args()
     };
 
-    let _result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let _result = run_linter(
+        &discovered(&[file.clone()]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
 
     let corrected = fs::read(&file).unwrap();
     // TrailingWhitespace should be fixed (safe autocorrect)
@@ -3927,15 +4324,11 @@ fn autocorrect_safe_mode_skips_unsafe_cops() {
 #[test]
 fn autocorrect_all_mode_includes_unsafe_cops() {
     let dir = temp_dir("autocorrect_all");
-    let file = write_file(
-        &dir,
-        "unsafe_all.rb",
-        b"x = 1  \n",
-    );
+    let file = write_file(&dir, "unsafe_all.rb", b"x = 1  \n");
     let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
-        autocorrect_all: true,  // -A (all)
+        autocorrect_all: true, // -A (all)
         only: vec![
             "Style/FrozenStringLiteralComment".to_string(),
             "Layout/TrailingWhitespace".to_string(),
@@ -3943,7 +4336,14 @@ fn autocorrect_all_mode_includes_unsafe_cops() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file.clone()]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert!(
         result.corrected_count > 0,
         "Expected corrected_count > 0, got {}",
@@ -3976,17 +4376,21 @@ fn autocorrect_clean_file_unchanged() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file.clone()]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert_eq!(
         result.corrected_count, 0,
         "Clean file should have no corrections"
     );
 
     let after = fs::read(&file).unwrap();
-    assert_eq!(
-        after, content,
-        "Clean file should be unchanged on disk"
-    );
+    assert_eq!(after, content, "Clean file should be unchanged on disk");
 
     fs::remove_dir_all(&dir).ok();
 }
@@ -3995,11 +4399,7 @@ fn autocorrect_clean_file_unchanged() {
 fn autocorrect_multi_iteration_converges() {
     let dir = temp_dir("autocorrect_multi_iter");
     // Leading blanks + trailing whitespace — requires multiple cops to fix
-    let file = write_file(
-        &dir,
-        "multi.rb",
-        b"\n\nx = 1  \ny = 2\n",
-    );
+    let file = write_file(&dir, "multi.rb", b"\n\nx = 1  \ny = 2\n");
     let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
@@ -4011,7 +4411,14 @@ fn autocorrect_multi_iteration_converges() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file.clone()]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert!(
         result.corrected_count >= 2,
         "Expected at least 2 corrections (leading blanks + trailing whitespace), got {}",
@@ -4028,15 +4435,11 @@ fn autocorrect_multi_iteration_converges() {
 fn autocorrect_corrected_count_across_iterations() {
     let dir = temp_dir("autocorrect_count");
     // Leading blanks + trailing whitespace + missing frozen_string_literal
-    let file = write_file(
-        &dir,
-        "count.rb",
-        b"\n\nx = 1  \n",
-    );
+    let file = write_file(&dir, "count.rb", b"\n\nx = 1  \n");
     let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
-        autocorrect_all: true,  // -A to include FrozenStringLiteralComment
+        autocorrect_all: true, // -A to include FrozenStringLiteralComment
         only: vec![
             "Layout/LeadingEmptyLines".to_string(),
             "Layout/TrailingWhitespace".to_string(),
@@ -4045,7 +4448,14 @@ fn autocorrect_corrected_count_across_iterations() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file.clone()]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert!(
         result.corrected_count >= 3,
         "Expected at least 3 corrections, got {}",
@@ -4058,11 +4468,7 @@ fn autocorrect_corrected_count_across_iterations() {
 #[test]
 fn autocorrect_idempotent_second_run() {
     let dir = temp_dir("autocorrect_idempotent");
-    let file = write_file(
-        &dir,
-        "idem.rb",
-        b"\n\nx = 1  \ny = 2\n\n\n",
-    );
+    let file = write_file(&dir, "idem.rb", b"\n\nx = 1  \ny = 2\n\n\n");
     let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
     let args = Args {
@@ -4076,18 +4482,35 @@ fn autocorrect_idempotent_second_run() {
     };
 
     // First run: fix offenses
-    let result1 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result1 = run_linter(
+        &discovered(&[file.clone()]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert!(result1.corrected_count > 0);
     let after_first = fs::read(&file).unwrap();
 
     // Second run: should find nothing to correct
-    let result2 = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result2 = run_linter(
+        &discovered(&[file.clone()]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert_eq!(
         result2.corrected_count, 0,
         "Second run should have no corrections"
     );
     let after_second = fs::read(&file).unwrap();
-    assert_eq!(after_first, after_second, "File should be unchanged after second run");
+    assert_eq!(
+        after_first, after_second,
+        "File should be unchanged after second run"
+    );
 
     fs::remove_dir_all(&dir).ok();
 }
@@ -4104,7 +4527,14 @@ fn autocorrect_empty_file_no_crash() {
     };
 
     // Should not panic
-    let _result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let _result = run_linter(
+        &discovered(&[file.clone()]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
 
     fs::remove_dir_all(&dir).ok();
 }
@@ -4129,7 +4559,14 @@ fn autocorrect_no_write_when_no_corrections() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file.clone()]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
     assert_eq!(result.corrected_count, 0);
 
     let mtime_after = fs::metadata(&file).unwrap().modified().unwrap();
@@ -4151,7 +4588,7 @@ fn autocorrect_diagnostics_include_corrected_offenses() {
     let file = write_file(
         &dir,
         "test.rb",
-        b"x = 1  \n",  // trailing whitespace
+        b"x = 1  \n", // trailing whitespace
     );
     let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
@@ -4161,11 +4598,21 @@ fn autocorrect_diagnostics_include_corrected_offenses() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file.clone()]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
 
     // The file should be corrected
     let content = fs::read_to_string(&file).unwrap();
-    assert_eq!(content, "x = 1\n", "File should have trailing whitespace removed");
+    assert_eq!(
+        content, "x = 1\n",
+        "File should have trailing whitespace removed"
+    );
 
     // The diagnostics should include the corrected offense
     let corrected_diags: Vec<_> = result.diagnostics.iter().filter(|d| d.corrected).collect();
@@ -4173,12 +4620,18 @@ fn autocorrect_diagnostics_include_corrected_offenses() {
         !corrected_diags.is_empty(),
         "Expected at least one diagnostic with corrected=true, but found none. \
          All diagnostics: {:?}",
-        result.diagnostics.iter().map(|d| (&d.cop_name, d.corrected)).collect::<Vec<_>>()
+        result
+            .diagnostics
+            .iter()
+            .map(|d| (&d.cop_name, d.corrected))
+            .collect::<Vec<_>>()
     );
 
     // Verify it's specifically the TrailingWhitespace offense
     assert!(
-        corrected_diags.iter().any(|d| d.cop_name == "Layout/TrailingWhitespace"),
+        corrected_diags
+            .iter()
+            .any(|d| d.cop_name == "Layout/TrailingWhitespace"),
         "Expected a corrected Layout/TrailingWhitespace diagnostic"
     );
 
@@ -4193,7 +4646,7 @@ fn autocorrect_json_output_marks_corrected_offenses() {
     let file = write_file(
         &dir,
         "test.rb",
-        b"x = 1  \ny = 2\n",  // trailing whitespace on line 1, clean line 2
+        b"x = 1  \ny = 2\n", // trailing whitespace on line 1, clean line 2
     );
     let config = load_config(None, None, None).unwrap();
     let registry = CopRegistry::default_registry();
@@ -4203,16 +4656,32 @@ fn autocorrect_json_output_marks_corrected_offenses() {
         ..default_args()
     };
 
-    let result = run_linter(&discovered(&[file.clone()]), &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load());
+    let result = run_linter(
+        &discovered(&[file.clone()]),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
+    );
 
     assert_eq!(result.corrected_count, 1, "Should have corrected 1 offense");
 
     // There should be exactly 1 diagnostic, and it should be marked corrected
-    let tw_diags: Vec<_> = result.diagnostics.iter()
+    let tw_diags: Vec<_> = result
+        .diagnostics
+        .iter()
         .filter(|d| d.cop_name == "Layout/TrailingWhitespace")
         .collect();
-    assert_eq!(tw_diags.len(), 1, "Should have exactly 1 TrailingWhitespace diagnostic");
-    assert!(tw_diags[0].corrected, "The diagnostic should be marked as corrected");
+    assert_eq!(
+        tw_diags.len(),
+        1,
+        "Should have exactly 1 TrailingWhitespace diagnostic"
+    );
+    assert!(
+        tw_diags[0].corrected,
+        "The diagnostic should be marked as corrected"
+    );
 
     fs::remove_dir_all(&dir).ok();
 }
@@ -4470,9 +4939,18 @@ fn migrate_text_output() {
         "--migrate should exit 0, stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(stdout.contains("Baseline versions:"), "Should show baseline: {stdout}");
-    assert!(stdout.contains("Stable:"), "Should show stable count: {stdout}");
-    assert!(stdout.contains("Preview:"), "Should show preview count: {stdout}");
+    assert!(
+        stdout.contains("Baseline versions:"),
+        "Should show baseline: {stdout}"
+    );
+    assert!(
+        stdout.contains("Stable:"),
+        "Should show stable count: {stdout}"
+    );
+    assert!(
+        stdout.contains("Preview:"),
+        "Should show preview count: {stdout}"
+    );
     assert!(
         stdout.contains("Performance/BigDecimalWithNumericArgument"),
         "Should list preview cop: {stdout}"
@@ -4521,8 +4999,14 @@ fn migrate_json_output() {
 
     let parsed: serde_json::Value = serde_json::from_str(&stdout)
         .unwrap_or_else(|e| panic!("Should be valid JSON: {e}\n{stdout}"));
-    assert!(parsed["baseline"]["rubocop"].is_string(), "Should have baseline.rubocop");
-    assert!(parsed["counts"]["stable"].is_number(), "Should have counts.stable");
+    assert!(
+        parsed["baseline"]["rubocop"].is_string(),
+        "Should have baseline.rubocop"
+    );
+    assert!(
+        parsed["counts"]["stable"].is_number(),
+        "Should have counts.stable"
+    );
     assert!(parsed["cops"].is_array(), "Should have cops array");
 
     // Check that Custom/FakeCop is classified as outside_baseline
@@ -4530,7 +5014,8 @@ fn migrate_json_output() {
     let fake = cops.iter().find(|c| c["name"] == "Custom/FakeCop");
     assert!(fake.is_some(), "Should include Custom/FakeCop in cops list");
     assert_eq!(
-        fake.unwrap()["status"], "outside_baseline",
+        fake.unwrap()["status"],
+        "outside_baseline",
         "Custom/FakeCop should be outside_baseline"
     );
 
@@ -4723,10 +5208,7 @@ fn rules_table_output() {
         "--rules should exit 0, stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(
-        stdout.contains("Name"),
-        "Should show header: {stdout}"
-    );
+    assert!(stdout.contains("Name"), "Should show header: {stdout}");
     assert!(
         stdout.contains("Layout/TrailingWhitespace"),
         "Should list a known cop: {stdout}"
@@ -4767,13 +5249,19 @@ fn rules_json_output() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
-    let parsed: serde_json::Value = serde_json::from_str(&stdout)
-        .unwrap_or_else(|e| panic!("Should be valid JSON: {e}\n{}", &stdout[..200.min(stdout.len())]));
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|e| {
+        panic!(
+            "Should be valid JSON: {e}\n{}",
+            &stdout[..200.min(stdout.len())]
+        )
+    });
     assert!(parsed.is_array(), "Should be a JSON array");
     let arr = parsed.as_array().unwrap();
     assert!(arr.len() > 900, "Should have 900+ cops, got {}", arr.len());
     // Spot-check a known cop
-    let tw = arr.iter().find(|c| c["name"] == "Layout/TrailingWhitespace");
+    let tw = arr
+        .iter()
+        .find(|c| c["name"] == "Layout/TrailingWhitespace");
     assert!(tw.is_some(), "Should contain Layout/TrailingWhitespace");
     let tw = tw.unwrap();
     assert_eq!(tw["implemented"], true);
@@ -4795,7 +5283,11 @@ fn autocorrect_safe_allowlist_permits_listed_cop() {
     // Layout/TrailingWhitespace is on the allowlist, so -a should correct it
     let result = run_linter(
         &discovered(&[file.clone()]),
-        &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load(),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
     );
     assert!(
         result.corrected_count > 0,
@@ -4823,7 +5315,11 @@ fn autocorrect_all_bypasses_allowlist() {
     // -A should correct regardless of allowlist
     let result = run_linter(
         &discovered(&[file.clone()]),
-        &config, &registry, &args, &TierMap::load(), &AutocorrectAllowlist::load(),
+        &config,
+        &registry,
+        &args,
+        &TierMap::load(),
+        &AutocorrectAllowlist::load(),
     );
     assert!(
         result.corrected_count > 0,
@@ -4844,9 +5340,9 @@ fn autocorrect_all_bypasses_allowlist() {
 /// handle every pattern we've curated from vendor RuboCop source.
 #[test]
 fn verifier_all_patterns_parse() {
-    use turbocop::node_pattern::pattern_db::PATTERNS;
     use turbocop::node_pattern::lexer::Lexer;
     use turbocop::node_pattern::parser::Parser;
+    use turbocop::node_pattern::pattern_db::PATTERNS;
 
     let mut failures = Vec::new();
 
@@ -4870,7 +5366,11 @@ fn verifier_all_patterns_parse() {
         failures.join("\n"),
     );
 
-    eprintln!("verifier: all {}/{} patterns parse OK", PATTERNS.len(), PATTERNS.len());
+    eprintln!(
+        "verifier: all {}/{} patterns parse OK",
+        PATTERNS.len(),
+        PATTERNS.len()
+    );
 }
 
 /// Verify the interpreter produces correct results on known Ruby snippets.
@@ -5095,7 +5595,7 @@ fn verifier_known_matches() {
 #[test]
 fn verifier_vendor_pattern_parse_coverage() {
     use std::collections::HashMap;
-    use turbocop::node_pattern::{walk_vendor_patterns, Lexer, Parser};
+    use turbocop::node_pattern::{Lexer, Parser, walk_vendor_patterns};
 
     let vendor_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("vendor");
     if !vendor_root.is_dir() {
@@ -5117,11 +5617,7 @@ fn verifier_vendor_pattern_parse_coverage() {
 
     for (cop_name, extracted) in &patterns {
         total += 1;
-        let dept = cop_name
-            .split('/')
-            .next()
-            .unwrap_or("Unknown")
-            .to_string();
+        let dept = cop_name.split('/').next().unwrap_or("Unknown").to_string();
 
         let mut lexer = Lexer::new(&extracted.pattern);
         let tokens = lexer.tokenize();

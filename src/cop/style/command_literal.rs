@@ -1,7 +1,7 @@
+use crate::cop::node_type::{INTERPOLATED_X_STRING_NODE, X_STRING_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{INTERPOLATED_X_STRING_NODE, X_STRING_NODE};
 
 pub struct CommandLiteral;
 
@@ -20,17 +20,25 @@ impl Cop for CommandLiteral {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "backticks");
         let allow_inner_backticks = config.get_bool("AllowInnerBackticks", false);
 
         // Check both XStringNode and InterpolatedXStringNode
         let (opening_loc, node_loc, node_source) = if let Some(x) = node.as_x_string_node() {
-            (Some(x.opening_loc()), x.location(), x.location().as_slice().to_vec())
+            (
+                Some(x.opening_loc()),
+                x.location(),
+                x.location().as_slice().to_vec(),
+            )
         } else if let Some(x) = node.as_interpolated_x_string_node() {
-            (Some(x.opening_loc()), x.location(), x.location().as_slice().to_vec())
+            (
+                Some(x.opening_loc()),
+                x.location(),
+                x.location().as_slice().to_vec(),
+            )
         } else {
             return;
         };
@@ -107,7 +115,6 @@ impl Cop for CommandLiteral {
             }
             _ => {}
         }
-
     }
 }
 

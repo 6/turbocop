@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, OR_NODE};
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, OR_NODE};
 
 pub struct EnvLocal;
 
@@ -59,8 +59,8 @@ impl Cop for EnvLocal {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let or_node = match node.as_or_node() {
             Some(o) => o,
@@ -73,8 +73,7 @@ impl Cop for EnvLocal {
         // Check both orderings: dev? || test? or test? || dev?
         let matches = (is_rails_env_check(&left, b"development?")
             && is_rails_env_check(&right, b"test?"))
-            || (is_rails_env_check(&left, b"test?")
-                && is_rails_env_check(&right, b"development?"));
+            || (is_rails_env_check(&left, b"test?") && is_rails_env_check(&right, b"development?"));
 
         if !matches {
             return;

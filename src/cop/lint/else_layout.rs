@@ -1,7 +1,7 @@
+use crate::cop::node_type::{ELSE_NODE, IF_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ELSE_NODE, IF_NODE};
 
 pub struct ElseLayout;
 
@@ -24,8 +24,8 @@ impl Cop for ElseLayout {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let if_node = match node.as_if_node() {
             Some(n) => n,
@@ -69,14 +69,16 @@ impl Cop for ElseLayout {
         let (stmt_line, stmt_col) = source.offset_to_line_col(first_loc.start_offset());
 
         if stmt_line == else_line {
-            diagnostics.push(self.diagnostic(
-                source,
-                stmt_line,
-                stmt_col,
-                "Odd `else` layout detected. Code on the same line as `else` is not allowed.".to_string(),
-            ));
+            diagnostics.push(
+                self.diagnostic(
+                    source,
+                    stmt_line,
+                    stmt_col,
+                    "Odd `else` layout detected. Code on the same line as `else` is not allowed."
+                        .to_string(),
+                ),
+            );
         }
-
     }
 }
 

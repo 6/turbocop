@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 
 pub struct DirEmpty;
 
@@ -31,8 +31,8 @@ impl Cop for DirEmpty {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -46,7 +46,8 @@ impl Cop for DirEmpty {
         if method_name == "empty?" || method_name == "none?" {
             if let Some(receiver) = call.receiver() {
                 if let Some(recv_call) = receiver.as_call_node() {
-                    let recv_method = std::str::from_utf8(recv_call.name().as_slice()).unwrap_or("");
+                    let recv_method =
+                        std::str::from_utf8(recv_call.name().as_slice()).unwrap_or("");
                     if matches!(recv_method, "children" | "each_child") {
                         if let Some(recv_recv) = recv_call.receiver() {
                             if is_dir_const(&recv_recv) {
@@ -70,22 +71,28 @@ impl Cop for DirEmpty {
         if method_name == "==" || method_name == "!=" || method_name == ">" {
             if let Some(receiver) = call.receiver() {
                 if let Some(recv_call) = receiver.as_call_node() {
-                    let recv_method = std::str::from_utf8(recv_call.name().as_slice()).unwrap_or("");
+                    let recv_method =
+                        std::str::from_utf8(recv_call.name().as_slice()).unwrap_or("");
                     if recv_method == "size" || recv_method == "length" || recv_method == "count" {
                         if let Some(inner_recv) = recv_call.receiver() {
                             if let Some(inner_call) = inner_recv.as_call_node() {
-                                let inner_method = std::str::from_utf8(inner_call.name().as_slice()).unwrap_or("");
+                                let inner_method =
+                                    std::str::from_utf8(inner_call.name().as_slice()).unwrap_or("");
                                 if matches!(inner_method, "entries" | "children") {
                                     if let Some(dir_recv) = inner_call.receiver() {
                                         if is_dir_const(&dir_recv) {
                                             let loc = node.location();
-                                            let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                            diagnostics.push(self.diagnostic(
-                                                source,
-                                                line,
-                                                column,
-                                                "Use `Dir.empty?('path/to/dir')` instead.".to_string(),
-                                            ));
+                                            let (line, column) =
+                                                source.offset_to_line_col(loc.start_offset());
+                                            diagnostics.push(
+                                                self.diagnostic(
+                                                    source,
+                                                    line,
+                                                    column,
+                                                    "Use `Dir.empty?('path/to/dir')` instead."
+                                                        .to_string(),
+                                                ),
+                                            );
                                         }
                                     }
                                 }
@@ -95,7 +102,6 @@ impl Cop for DirEmpty {
                 }
             }
         }
-
     }
 }
 

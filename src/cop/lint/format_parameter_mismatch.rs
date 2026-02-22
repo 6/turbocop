@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    ARRAY_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE,
+    INTERPOLATED_STRING_NODE, KEYWORD_HASH_NODE, SPLAT_NODE, STRING_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ARRAY_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, INTERPOLATED_STRING_NODE, KEYWORD_HASH_NODE, SPLAT_NODE, STRING_NODE};
 
 pub struct FormatParameterMismatch;
 
@@ -15,7 +18,17 @@ impl Cop for FormatParameterMismatch {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ARRAY_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, HASH_NODE, INTERPOLATED_STRING_NODE, KEYWORD_HASH_NODE, SPLAT_NODE, STRING_NODE]
+        &[
+            ARRAY_NODE,
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            HASH_NODE,
+            INTERPOLATED_STRING_NODE,
+            KEYWORD_HASH_NODE,
+            SPLAT_NODE,
+            STRING_NODE,
+        ]
     }
 
     fn check_node(
@@ -24,8 +37,8 @@ impl Cop for FormatParameterMismatch {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -35,9 +48,7 @@ impl Cop for FormatParameterMismatch {
         let method_name = call.name().as_slice();
 
         // Check for format/sprintf (bare or Kernel.method)
-        if (method_name == b"format" || method_name == b"sprintf")
-            && is_format_call(&call)
-        {
+        if (method_name == b"format" || method_name == b"sprintf") && is_format_call(&call) {
             diagnostics.extend(check_format_sprintf(self, source, &call, method_name));
             return;
         }
@@ -47,7 +58,6 @@ impl Cop for FormatParameterMismatch {
             diagnostics.extend(check_string_percent(self, source, &call));
             return;
         }
-
     }
 }
 
@@ -58,10 +68,9 @@ fn is_format_call(call: &ruby_prism::CallNode<'_>) -> bool {
         Some(recv) => {
             recv.as_constant_read_node()
                 .is_some_and(|c| c.name().as_slice() == b"Kernel")
-                || recv.as_constant_path_node().is_some_and(|cp| {
-                    cp.name()
-                        .is_some_and(|n| n.as_slice() == b"Kernel")
-                })
+                || recv
+                    .as_constant_path_node()
+                    .is_some_and(|cp| cp.name().is_some_and(|n| n.as_slice() == b"Kernel"))
         }
     }
 }
@@ -503,5 +512,8 @@ fn parse_format_string(fmt: &str) -> FormatParseResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(FormatParameterMismatch, "cops/lint/format_parameter_mismatch");
+    crate::cop_fixture_tests!(
+        FormatParameterMismatch,
+        "cops/lint/format_parameter_mismatch"
+    );
 }

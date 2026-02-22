@@ -8,12 +8,34 @@ pub struct Next;
 
 /// Iterator methods whose blocks should use `next` instead of wrapping conditionals
 const ITERATION_METHODS: &[&[u8]] = &[
-    b"each", b"each_with_index", b"each_with_object", b"each_pair",
-    b"each_key", b"each_value", b"each_slice", b"each_cons",
-    b"collect", b"map", b"select", b"filter", b"reject",
-    b"detect", b"find", b"find_all", b"flat_map", b"collect_concat",
-    b"any?", b"all?", b"none?", b"sort_by", b"min_by", b"max_by",
-    b"times", b"upto", b"downto", b"reverse_each",
+    b"each",
+    b"each_with_index",
+    b"each_with_object",
+    b"each_pair",
+    b"each_key",
+    b"each_value",
+    b"each_slice",
+    b"each_cons",
+    b"collect",
+    b"map",
+    b"select",
+    b"filter",
+    b"reject",
+    b"detect",
+    b"find",
+    b"find_all",
+    b"flat_map",
+    b"collect_concat",
+    b"any?",
+    b"all?",
+    b"none?",
+    b"sort_by",
+    b"min_by",
+    b"max_by",
+    b"times",
+    b"upto",
+    b"downto",
+    b"reverse_each",
 ];
 
 impl Cop for Next {
@@ -27,8 +49,8 @@ impl Cop for Next {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "skip_modifier_ifs");
         let min_body_length = config.get_usize("MinBodyLength", 3);

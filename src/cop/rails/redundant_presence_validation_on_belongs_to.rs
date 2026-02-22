@@ -1,8 +1,11 @@
+use crate::cop::node_type::{
+    ASSOC_NODE, CLASS_NODE, FALSE_NODE, HASH_NODE, KEYWORD_HASH_NODE, NIL_NODE, SYMBOL_NODE,
+    TRUE_NODE,
+};
 use crate::cop::util::{class_body_calls, is_dsl_call, keyword_arg_value};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, CLASS_NODE, FALSE_NODE, HASH_NODE, KEYWORD_HASH_NODE, NIL_NODE, SYMBOL_NODE, TRUE_NODE};
 
 pub struct RedundantPresenceValidationOnBelongsTo;
 
@@ -16,7 +19,16 @@ impl Cop for RedundantPresenceValidationOnBelongsTo {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ASSOC_NODE, CLASS_NODE, FALSE_NODE, HASH_NODE, KEYWORD_HASH_NODE, NIL_NODE, SYMBOL_NODE, TRUE_NODE]
+        &[
+            ASSOC_NODE,
+            CLASS_NODE,
+            FALSE_NODE,
+            HASH_NODE,
+            KEYWORD_HASH_NODE,
+            NIL_NODE,
+            SYMBOL_NODE,
+            TRUE_NODE,
+        ]
     }
 
     fn check_node(
@@ -25,8 +37,8 @@ impl Cop for RedundantPresenceValidationOnBelongsTo {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let class = match node.as_class_node() {
             Some(c) => c,
@@ -95,7 +107,6 @@ impl Cop for RedundantPresenceValidationOnBelongsTo {
                 }
             }
         }
-
     }
 }
 

@@ -16,8 +16,8 @@ impl Cop for MissingRespondToMissing {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = MethodMissingVisitor {
             source,
@@ -77,7 +77,10 @@ impl MethodMissingVisitor<'_> {
             // Check for inline access modifier: `private def method_missing`
             if let Some(call_node) = stmt.as_call_node() {
                 let method_bytes = call_node.name().as_slice();
-                if method_bytes == b"private" || method_bytes == b"protected" || method_bytes == b"public" {
+                if method_bytes == b"private"
+                    || method_bytes == b"protected"
+                    || method_bytes == b"public"
+                {
                     if let Some(args) = call_node.arguments() {
                         for arg in args.arguments().into_iter() {
                             if let Some(def_node) = arg.as_def_node() {
@@ -86,13 +89,15 @@ impl MethodMissingVisitor<'_> {
 
                                 if def_node.receiver().is_some() {
                                     if name_bytes == b"method_missing" {
-                                        has_class_method_missing.push(def_node.location().start_offset());
+                                        has_class_method_missing
+                                            .push(def_node.location().start_offset());
                                     } else if name_bytes == b"respond_to_missing?" {
                                         has_class_respond_to_missing = true;
                                     }
                                 } else {
                                     if name_bytes == b"method_missing" {
-                                        has_instance_method_missing.push(def_node.location().start_offset());
+                                        has_instance_method_missing
+                                            .push(def_node.location().start_offset());
                                     } else if name_bytes == b"respond_to_missing?" {
                                         has_instance_respond_to_missing = true;
                                     }
@@ -149,5 +154,8 @@ impl<'pr> Visit<'pr> for MethodMissingVisitor<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(MissingRespondToMissing, "cops/style/missing_respond_to_missing");
+    crate::cop_fixture_tests!(
+        MissingRespondToMissing,
+        "cops/style/missing_respond_to_missing"
+    );
 }

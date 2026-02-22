@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
+use crate::cop::node_type::BEGIN_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::BEGIN_NODE;
 
 pub struct DuplicateRescueException;
 
@@ -26,8 +26,8 @@ impl Cop for DuplicateRescueException {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let begin_node = match node.as_begin_node() {
             Some(n) => n,
@@ -53,12 +53,14 @@ impl Cop for DuplicateRescueException {
             }
             rescue_opt = rescue_node.subsequent();
         }
-
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(DuplicateRescueException, "cops/lint/duplicate_rescue_exception");
+    crate::cop_fixture_tests!(
+        DuplicateRescueException,
+        "cops/lint/duplicate_rescue_exception"
+    );
 }

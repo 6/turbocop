@@ -17,8 +17,8 @@ impl Cop for StringLiteralsInInterpolation {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "single_quotes").to_string();
 
@@ -106,7 +106,8 @@ fn needs_double_quotes(content: &[u8]) -> bool {
         }
         if content[i] == b'\\' && i + 1 < content.len() {
             match content[i + 1] {
-                b'n' | b't' | b'r' | b'\\' | b'"' | b'0' | b'a' | b'b' | b'e' | b'f' | b's' | b'v' => return true,
+                b'n' | b't' | b'r' | b'\\' | b'"' | b'0' | b'a' | b'b' | b'e' | b'f' | b's'
+                | b'v' => return true,
                 b'x' | b'u' => return true,
                 _ => {}
             }
@@ -121,5 +122,8 @@ fn needs_double_quotes(content: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(StringLiteralsInInterpolation, "cops/style/string_literals_in_interpolation");
+    crate::cop_fixture_tests!(
+        StringLiteralsInInterpolation,
+        "cops/style/string_literals_in_interpolation"
+    );
 }

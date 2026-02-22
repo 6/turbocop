@@ -1,7 +1,11 @@
+use crate::cop::node_type::{
+    CALL_NODE, CLASS_VARIABLE_READ_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, DEF_NODE,
+    GLOBAL_VARIABLE_READ_NODE, INSTANCE_VARIABLE_READ_NODE, LOCAL_VARIABLE_READ_NODE,
+    REQUIRED_PARAMETER_NODE, SELF_NODE, STATEMENTS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CLASS_VARIABLE_READ_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, DEF_NODE, GLOBAL_VARIABLE_READ_NODE, INSTANCE_VARIABLE_READ_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, SELF_NODE, STATEMENTS_NODE};
 
 pub struct Delegate;
 
@@ -15,7 +19,19 @@ impl Cop for Delegate {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CLASS_VARIABLE_READ_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, DEF_NODE, GLOBAL_VARIABLE_READ_NODE, INSTANCE_VARIABLE_READ_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, SELF_NODE, STATEMENTS_NODE]
+        &[
+            CALL_NODE,
+            CLASS_VARIABLE_READ_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            DEF_NODE,
+            GLOBAL_VARIABLE_READ_NODE,
+            INSTANCE_VARIABLE_READ_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            REQUIRED_PARAMETER_NODE,
+            SELF_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -24,8 +40,8 @@ impl Cop for Delegate {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforce_for_prefixed = config.get_bool("EnforceForPrefixed", true);
 
@@ -58,7 +74,6 @@ impl Cop for Delegate {
                         .map(|rp| rp.name().as_slice().to_vec())
                 })
                 .collect()
-
         } else {
             Vec::new()
         };
@@ -100,7 +115,10 @@ impl Cop for Delegate {
 
         // Safe navigation (&.) is ignored — Rails' delegate with allow_nil
         // has different semantics than safe navigation
-        if call.call_operator_loc().is_some_and(|op: ruby_prism::Location<'_>| op.as_slice() == b"&.") {
+        if call
+            .call_operator_loc()
+            .is_some_and(|op: ruby_prism::Location<'_>| op.as_slice() == b"&.")
+        {
             return;
         }
 
@@ -123,7 +141,9 @@ impl Cop for Delegate {
         } else if let Some(recv_call) = receiver.as_call_node() {
             // self.class → delegate to :class
             if recv_call.name().as_slice() == b"class"
-                && recv_call.receiver().is_some_and(|r| r.as_self_node().is_some())
+                && recv_call
+                    .receiver()
+                    .is_some_and(|r| r.as_self_node().is_some())
                 && recv_call.arguments().is_none()
             {
                 true
@@ -156,7 +176,6 @@ impl Cop for Delegate {
                         .map(|lv| lv.name().as_slice().to_vec())
                 })
                 .collect()
-
         } else {
             Vec::new()
         };
@@ -231,7 +250,11 @@ fn is_private_or_protected(source: &SourceFile, def_offset: usize) -> bool {
         line_start -= 1;
     }
     let line_to_def = &bytes[line_start..def_offset];
-    let trimmed = line_to_def.iter().copied().skip_while(|&b| b == b' ' || b == b'\t').collect::<Vec<u8>>();
+    let trimmed = line_to_def
+        .iter()
+        .copied()
+        .skip_while(|&b| b == b' ' || b == b'\t')
+        .collect::<Vec<u8>>();
     if trimmed.starts_with(b"private ") || trimmed.starts_with(b"protected ") {
         return true;
     }
@@ -244,7 +267,10 @@ fn is_private_or_protected(source: &SourceFile, def_offset: usize) -> bool {
     let mut in_private = false;
     for line_idx in 0..def_line {
         let line = lines[line_idx];
-        let indent = line.iter().take_while(|&&b| b == b' ' || b == b'\t').count();
+        let indent = line
+            .iter()
+            .take_while(|&&b| b == b' ' || b == b'\t')
+            .count();
         let trimmed: Vec<u8> = line[indent..].to_vec();
 
         // Scope boundary: class/module at same or lower indent resets private state.
@@ -256,18 +282,34 @@ fn is_private_or_protected(source: &SourceFile, def_offset: usize) -> bool {
             }
         }
         if indent < def_col {
-            if trimmed == b"end" || trimmed.starts_with(b"end ") || trimmed.starts_with(b"end\n") || trimmed.starts_with(b"end\r") {
+            if trimmed == b"end"
+                || trimmed.starts_with(b"end ")
+                || trimmed.starts_with(b"end\n")
+                || trimmed.starts_with(b"end\r")
+            {
                 in_private = false;
             }
         }
 
         // Only consider private/protected/public at the same indent level
         if indent == def_col {
-            if trimmed == b"private" || trimmed.starts_with(b"private\n") || trimmed.starts_with(b"private\r") || trimmed.starts_with(b"private #") {
+            if trimmed == b"private"
+                || trimmed.starts_with(b"private\n")
+                || trimmed.starts_with(b"private\r")
+                || trimmed.starts_with(b"private #")
+            {
                 in_private = true;
-            } else if trimmed == b"protected" || trimmed.starts_with(b"protected\n") || trimmed.starts_with(b"protected\r") || trimmed.starts_with(b"protected #") {
+            } else if trimmed == b"protected"
+                || trimmed.starts_with(b"protected\n")
+                || trimmed.starts_with(b"protected\r")
+                || trimmed.starts_with(b"protected #")
+            {
                 in_private = true;
-            } else if trimmed == b"public" || trimmed.starts_with(b"public\n") || trimmed.starts_with(b"public\r") || trimmed.starts_with(b"public #") {
+            } else if trimmed == b"public"
+                || trimmed.starts_with(b"public\n")
+                || trimmed.starts_with(b"public\r")
+                || trimmed.starts_with(b"public #")
+            {
                 in_private = false;
             }
         }

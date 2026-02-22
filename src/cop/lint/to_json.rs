@@ -1,7 +1,7 @@
+use crate::cop::node_type::DEF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::DEF_NODE;
 
 pub struct ToJSON;
 
@@ -24,8 +24,8 @@ impl Cop for ToJSON {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -66,13 +66,15 @@ impl Cop for ToJSON {
 
         let loc = def_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(
-            source,
-            line,
-            column,
-            "`#to_json` requires an optional argument to be parsable via JSON.generate(obj)."
-                .to_string(),
-        ));
+        diagnostics.push(
+            self.diagnostic(
+                source,
+                line,
+                column,
+                "`#to_json` requires an optional argument to be parsable via JSON.generate(obj)."
+                    .to_string(),
+            ),
+        );
     }
 }
 

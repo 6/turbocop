@@ -18,8 +18,8 @@ impl Cop for FirstHashElementIndentation {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "special_inside_parentheses");
         let width = config.get_usize("IndentationWidth", 2);
@@ -51,11 +51,7 @@ struct HashIndentVisitor<'a> {
 }
 
 impl HashIndentVisitor<'_> {
-    fn check_hash(
-        &mut self,
-        hash_node: &ruby_prism::HashNode<'_>,
-        left_paren_col: Option<usize>,
-    ) {
+    fn check_hash(&mut self, hash_node: &ruby_prism::HashNode<'_>, left_paren_col: Option<usize>) {
         let opening_loc = hash_node.opening_loc();
         if opening_loc.as_slice() != b"{" {
             return;
@@ -130,8 +126,7 @@ impl HashIndentVisitor<'_> {
         if let Some(hash) = node.as_hash_node() {
             let opening_loc = hash.opening_loc();
             if opening_loc.as_slice() == b"{" {
-                let (brace_line, _) =
-                    self.source.offset_to_line_col(opening_loc.start_offset());
+                let (brace_line, _) = self.source.offset_to_line_col(opening_loc.start_offset());
                 if brace_line == paren_line {
                     self.handled_hashes.push(hash.location().start_offset());
                     self.check_hash(&hash, Some(paren_col));
@@ -187,10 +182,7 @@ impl HashIndentVisitor<'_> {
     /// key and value start on the same line AND the pair has a right sibling
     /// on a subsequent line, set `parent_pair_col` so the child hash uses
     /// the pair's column as indent base.
-    fn visit_pairs_with_hash_values(
-        &mut self,
-        elements: ruby_prism::NodeList<'_>,
-    ) {
+    fn visit_pairs_with_hash_values(&mut self, elements: ruby_prism::NodeList<'_>) {
         let elems: Vec<_> = elements.iter().collect();
         for (i, elem) in elems.iter().enumerate() {
             let assoc = match elem.as_assoc_node() {
@@ -203,9 +195,9 @@ impl HashIndentVisitor<'_> {
 
             // Check if the value is a HashNode with `{`
             let value = assoc.value();
-            let is_hash_value = value.as_hash_node().is_some_and(|h| {
-                h.opening_loc().as_slice() == b"{"
-            });
+            let is_hash_value = value
+                .as_hash_node()
+                .is_some_and(|h| h.opening_loc().as_slice() == b"{");
 
             if !is_hash_value || self.style == "consistent" || self.style == "align_braces" {
                 self.visit(elem);
@@ -213,12 +205,12 @@ impl HashIndentVisitor<'_> {
             }
 
             // Check condition: key and value begin on the same line
-            let (key_line, _) = self.source.offset_to_line_col(
-                assoc.key().location().start_offset(),
-            );
-            let (val_line, _) = self.source.offset_to_line_col(
-                value.location().start_offset(),
-            );
+            let (key_line, _) = self
+                .source
+                .offset_to_line_col(assoc.key().location().start_offset());
+            let (val_line, _) = self
+                .source
+                .offset_to_line_col(value.location().start_offset());
             if key_line != val_line {
                 self.visit(elem);
                 continue;
@@ -226,21 +218,20 @@ impl HashIndentVisitor<'_> {
 
             // Check condition: right sibling begins on a subsequent line
             let has_right_sibling_on_next_line = if i + 1 < elems.len() {
-                let (pair_last_line, _) = self.source.offset_to_line_col(
-                    elem.location().end_offset(),
-                );
-                let (sibling_line, _) = self.source.offset_to_line_col(
-                    elems[i + 1].location().start_offset(),
-                );
+                let (pair_last_line, _) =
+                    self.source.offset_to_line_col(elem.location().end_offset());
+                let (sibling_line, _) = self
+                    .source
+                    .offset_to_line_col(elems[i + 1].location().start_offset());
                 pair_last_line < sibling_line
             } else {
                 false
             };
 
             if has_right_sibling_on_next_line {
-                let (_, pair_col) = self.source.offset_to_line_col(
-                    elem.location().start_offset(),
-                );
+                let (_, pair_col) = self
+                    .source
+                    .offset_to_line_col(elem.location().start_offset());
                 let saved = self.parent_pair_col;
                 self.parent_pair_col = Some(pair_col);
                 self.visit(elem);
@@ -256,8 +247,9 @@ impl Visit<'_> for HashIndentVisitor<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'_>) {
         if let Some(open_paren_loc) = node.opening_loc() {
             if open_paren_loc.as_slice() == b"(" {
-                let (paren_line, paren_col) =
-                    self.source.offset_to_line_col(open_paren_loc.start_offset());
+                let (paren_line, paren_col) = self
+                    .source
+                    .offset_to_line_col(open_paren_loc.start_offset());
                 if let Some(args) = node.arguments() {
                     for arg in args.arguments().iter() {
                         self.find_hash_args_in_call(&arg, paren_line, paren_col);
@@ -319,8 +311,7 @@ mod tests {
             ..CopConfig::default()
         };
         let src = b"x = {\n      a: 1\n}\n";
-        let diags =
-            run_cop_full_with_config(&FirstHashElementIndentation, src, config.clone());
+        let diags = run_cop_full_with_config(&FirstHashElementIndentation, src, config.clone());
         assert!(
             diags.is_empty(),
             "align_braces should accept element at brace column + width"
@@ -378,8 +369,7 @@ mod tests {
 
     #[test]
     fn safe_navigation_with_hash_arg() {
-        let source =
-            b"receiver&.func({\n                 a: 1\n               })\n";
+        let source = b"receiver&.func({\n                 a: 1\n               })\n";
         let diags = run_cop_full(&FirstHashElementIndentation, source);
         assert!(
             diags.is_empty(),
@@ -399,8 +389,7 @@ mod tests {
 
     #[test]
     fn nested_hash_in_keyword_arg() {
-        let source =
-            b"Config.new('Key' => {\n             val: 1\n           })\n";
+        let source = b"Config.new('Key' => {\n             val: 1\n           })\n";
         let diags = run_cop_full(&FirstHashElementIndentation, source);
         assert!(
             diags.is_empty(),

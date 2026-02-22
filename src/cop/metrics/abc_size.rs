@@ -1,29 +1,80 @@
 use ruby_prism::Visit;
 
+use crate::cop::node_type::{
+    BLOCK_NODE, BLOCK_PARAMETER_NODE, CALL_NODE, CASE_NODE, DEF_NODE, ELSE_NODE, IF_NODE,
+    KEYWORD_REST_PARAMETER_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE,
+    OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE,
+    REQUIRED_PARAMETER_NODE, REST_PARAMETER_NODE, UNLESS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETER_NODE, CALL_NODE, CASE_NODE, DEF_NODE, ELSE_NODE, IF_NODE, KEYWORD_REST_PARAMETER_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE, REST_PARAMETER_NODE, UNLESS_NODE};
 
 pub struct AbcSize;
 
 /// Known iterating method names that make blocks count toward conditions.
 /// Matches the list in CyclomaticComplexity/PerceivedComplexity.
 const KNOWN_ITERATING_METHODS: &[&[u8]] = &[
-    b"each", b"each_with_index", b"each_with_object", b"each_pair",
-    b"each_key", b"each_value", b"each_slice", b"each_cons",
-    b"each_line", b"each_byte", b"each_char", b"each_codepoint",
-    b"map", b"flat_map", b"collect", b"collect_concat",
-    b"select", b"filter", b"find_all", b"reject", b"filter_map",
-    b"detect", b"find", b"find_index", b"rindex",
-    b"reduce", b"inject", b"any?", b"all?", b"none?", b"one?",
-    b"count", b"sum", b"min", b"max", b"min_by", b"max_by",
-    b"minmax", b"minmax_by", b"sort_by", b"group_by",
-    b"partition", b"zip", b"take_while", b"drop_while",
-    b"chunk", b"chunk_while", b"slice_before", b"slice_after", b"slice_when",
-    b"times", b"upto", b"downto", b"step",
-    b"loop", b"tap", b"then", b"yield_self",
-    b"each_index", b"reverse_each",
+    b"each",
+    b"each_with_index",
+    b"each_with_object",
+    b"each_pair",
+    b"each_key",
+    b"each_value",
+    b"each_slice",
+    b"each_cons",
+    b"each_line",
+    b"each_byte",
+    b"each_char",
+    b"each_codepoint",
+    b"map",
+    b"flat_map",
+    b"collect",
+    b"collect_concat",
+    b"select",
+    b"filter",
+    b"find_all",
+    b"reject",
+    b"filter_map",
+    b"detect",
+    b"find",
+    b"find_index",
+    b"rindex",
+    b"reduce",
+    b"inject",
+    b"any?",
+    b"all?",
+    b"none?",
+    b"one?",
+    b"count",
+    b"sum",
+    b"min",
+    b"max",
+    b"min_by",
+    b"max_by",
+    b"minmax",
+    b"minmax_by",
+    b"sort_by",
+    b"group_by",
+    b"partition",
+    b"zip",
+    b"take_while",
+    b"drop_while",
+    b"chunk",
+    b"chunk_while",
+    b"slice_before",
+    b"slice_after",
+    b"slice_when",
+    b"times",
+    b"upto",
+    b"downto",
+    b"step",
+    b"loop",
+    b"tap",
+    b"then",
+    b"yield_self",
+    b"each_index",
+    b"reverse_each",
 ];
 
 struct AbcCounter {
@@ -153,7 +204,10 @@ impl AbcCounter {
             }
             ruby_prism::Node::RestParameterNode { .. } => {
                 if let Some(param) = node.as_rest_parameter_node() {
-                    if param.name().is_some_and(|n| !n.as_slice().starts_with(b"_")) {
+                    if param
+                        .name()
+                        .is_some_and(|n| !n.as_slice().starts_with(b"_"))
+                    {
                         self.assignments += 1;
                     }
                 }
@@ -174,14 +228,20 @@ impl AbcCounter {
             }
             ruby_prism::Node::KeywordRestParameterNode { .. } => {
                 if let Some(param) = node.as_keyword_rest_parameter_node() {
-                    if param.name().is_some_and(|n| !n.as_slice().starts_with(b"_")) {
+                    if param
+                        .name()
+                        .is_some_and(|n| !n.as_slice().starts_with(b"_"))
+                    {
                         self.assignments += 1;
                     }
                 }
             }
             ruby_prism::Node::BlockParameterNode { .. } => {
                 if let Some(param) = node.as_block_parameter_node() {
-                    if param.name().is_some_and(|n| !n.as_slice().starts_with(b"_")) {
+                    if param
+                        .name()
+                        .is_some_and(|n| !n.as_slice().starts_with(b"_"))
+                    {
                         self.assignments += 1;
                     }
                 }
@@ -219,10 +279,9 @@ impl AbcCounter {
                         // RuboCop where csend is both a branch and a condition.
                         // But repeated &. on the same local variable is discounted.
                         if call.call_operator_loc().map_or(false, |loc| {
-                                let bytes = loc.as_slice();
-                                bytes == b"&."
-                            })
-                        {
+                            let bytes = loc.as_slice();
+                            bytes == b"&."
+                        }) {
                             if !self.discount_repeated_csend(&call) {
                                 self.conditions += 1;
                             }
@@ -251,7 +310,11 @@ impl AbcCounter {
                 if let Some(if_node) = node.as_if_node() {
                     // Add +1 for explicit else (not elsif), but NOT for ternary
                     let is_ternary = if_node.if_keyword_loc().is_none();
-                    if !is_ternary && if_node.subsequent().is_some_and(|s| s.as_else_node().is_some()) {
+                    if !is_ternary
+                        && if_node
+                            .subsequent()
+                            .is_some_and(|s| s.as_else_node().is_some())
+                    {
                         self.conditions += 1;
                     }
                 }
@@ -334,10 +397,7 @@ impl<'pr> Visit<'pr> for AbcCounter {
 /// RuboCop comparison operators: ==, ===, !=, <=, >=, >, <
 /// These are counted as conditions, not branches, in ABC metric.
 fn is_comparison_method(name: &[u8]) -> bool {
-    matches!(
-        name,
-        b"==" | b"===" | b"!=" | b"<=" | b">=" | b">" | b"<"
-    )
+    matches!(name, b"==" | b"===" | b"!=" | b"<=" | b">=" | b">" | b"<")
 }
 
 /// Setter methods end in '=' but are not operators (!=, ==, <=, >=, []=).
@@ -355,7 +415,24 @@ impl Cop for AbcSize {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, BLOCK_PARAMETER_NODE, CALL_NODE, CASE_NODE, DEF_NODE, ELSE_NODE, IF_NODE, KEYWORD_REST_PARAMETER_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE, REST_PARAMETER_NODE, UNLESS_NODE]
+        &[
+            BLOCK_NODE,
+            BLOCK_PARAMETER_NODE,
+            CALL_NODE,
+            CASE_NODE,
+            DEF_NODE,
+            ELSE_NODE,
+            IF_NODE,
+            KEYWORD_REST_PARAMETER_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            LOCAL_VARIABLE_WRITE_NODE,
+            OPTIONAL_KEYWORD_PARAMETER_NODE,
+            OPTIONAL_PARAMETER_NODE,
+            REQUIRED_KEYWORD_PARAMETER_NODE,
+            REQUIRED_PARAMETER_NODE,
+            REST_PARAMETER_NODE,
+            UNLESS_NODE,
+        ]
     }
 
     fn check_node(
@@ -364,8 +441,8 @@ impl Cop for AbcSize {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -378,15 +455,17 @@ impl Cop for AbcSize {
         // AllowedMethods / AllowedPatterns: skip methods matching these
         let allowed_methods = config.get_string_array("AllowedMethods");
         let allowed_patterns = config.get_string_array("AllowedPatterns");
-        let method_name_str =
-            std::str::from_utf8(def_node.name().as_slice()).unwrap_or("");
+        let method_name_str = std::str::from_utf8(def_node.name().as_slice()).unwrap_or("");
         if let Some(allowed) = &allowed_methods {
             if allowed.iter().any(|m| m == method_name_str) {
                 return;
             }
         }
         if let Some(patterns) = &allowed_patterns {
-            if patterns.iter().any(|p| method_name_str.contains(p.as_str())) {
+            if patterns
+                .iter()
+                .any(|p| method_name_str.contains(p.as_str()))
+            {
                 return;
             }
         }
@@ -404,8 +483,7 @@ impl Cop for AbcSize {
 
         let score = counter.score();
         if score > max as f64 {
-            let method_name =
-                std::str::from_utf8(def_node.name().as_slice()).unwrap_or("unknown");
+            let method_name = std::str::from_utf8(def_node.name().as_slice()).unwrap_or("unknown");
             let start_offset = def_node.def_keyword_loc().start_offset();
             let (line, column) = source.offset_to_line_col(start_offset);
             diagnostics.push(self.diagnostic(
@@ -417,7 +495,6 @@ impl Cop for AbcSize {
                 ),
             ));
         }
-
     }
 }
 
@@ -428,8 +505,8 @@ mod tests {
 
     #[test]
     fn config_custom_max() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([("Max".into(), serde_yml::Value::Number(1.into()))]),
@@ -438,14 +515,17 @@ mod tests {
         // Multiple assignments and calls push ABC well above 1
         let source = b"def foo\n  a = 1\n  b = 2\n  c = bar\n  d = baz\nend\n";
         let diags = run_cop_full_with_config(&AbcSize, source, config);
-        assert!(!diags.is_empty(), "Should fire with Max:1 on method with high ABC");
+        assert!(
+            !diags.is_empty(),
+            "Should fire with Max:1 on method with high ABC"
+        );
         assert!(diags[0].message.contains("/1]"));
     }
 
     #[test]
     fn config_count_repeated_attributes_false() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         // model is called 3 times; with CountRepeatedAttributes:false it counts as 1 branch
         let source = b"def search\n  x = model\n  y = model\n  z = model\nend\n";
@@ -454,7 +534,10 @@ mod tests {
         let config_true = CopConfig {
             options: HashMap::from([
                 ("Max".into(), serde_yml::Value::Number(3.into())),
-                ("CountRepeatedAttributes".into(), serde_yml::Value::Bool(true)),
+                (
+                    "CountRepeatedAttributes".into(),
+                    serde_yml::Value::Bool(true),
+                ),
             ]),
             ..CopConfig::default()
         };
@@ -464,36 +547,54 @@ mod tests {
         let config_false = CopConfig {
             options: HashMap::from([
                 ("Max".into(), serde_yml::Value::Number(3.into())),
-                ("CountRepeatedAttributes".into(), serde_yml::Value::Bool(false)),
+                (
+                    "CountRepeatedAttributes".into(),
+                    serde_yml::Value::Bool(false),
+                ),
             ]),
             ..CopConfig::default()
         };
         let _diags_false = run_cop_full_with_config(&AbcSize, source, config_false);
 
         // ABC with true: A=3, B=3, C=0 => sqrt(9+9) = 4.24 > 3
-        assert!(!diags_true.is_empty(), "Should fire with CountRepeatedAttributes:true");
+        assert!(
+            !diags_true.is_empty(),
+            "Should fire with CountRepeatedAttributes:true"
+        );
         // ABC with false: A=3, B=1, C=0 => sqrt(9+1) = 3.16 > 3
         // Actually this still fires. Let me use Max:4 instead
         // A=3, B=1, C=0 => sqrt(9+1) = 3.16 which is > 3 but < 4
         let config_false2 = CopConfig {
             options: HashMap::from([
                 ("Max".into(), serde_yml::Value::Number(4.into())),
-                ("CountRepeatedAttributes".into(), serde_yml::Value::Bool(false)),
+                (
+                    "CountRepeatedAttributes".into(),
+                    serde_yml::Value::Bool(false),
+                ),
             ]),
             ..CopConfig::default()
         };
         let diags_false2 = run_cop_full_with_config(&AbcSize, source, config_false2);
-        assert!(diags_false2.is_empty(), "Should not fire with CountRepeatedAttributes:false and Max:4");
+        assert!(
+            diags_false2.is_empty(),
+            "Should not fire with CountRepeatedAttributes:false and Max:4"
+        );
 
         // Same Max:4 but with true => A=3, B=3, C=0 => 4.24 > 4 => fires
         let config_true2 = CopConfig {
             options: HashMap::from([
                 ("Max".into(), serde_yml::Value::Number(4.into())),
-                ("CountRepeatedAttributes".into(), serde_yml::Value::Bool(true)),
+                (
+                    "CountRepeatedAttributes".into(),
+                    serde_yml::Value::Bool(true),
+                ),
             ]),
             ..CopConfig::default()
         };
         let diags_true2 = run_cop_full_with_config(&AbcSize, source, config_true2);
-        assert!(!diags_true2.is_empty(), "Should fire with CountRepeatedAttributes:true and Max:4");
+        assert!(
+            !diags_true2.is_empty(),
+            "Should fire with CountRepeatedAttributes:true and Max:4"
+        );
     }
 }

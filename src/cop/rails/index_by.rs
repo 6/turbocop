@@ -1,8 +1,11 @@
+use crate::cop::node_type::{
+    ARRAY_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE,
+    LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE,
+};
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ARRAY_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE};
 
 pub struct IndexBy;
 
@@ -201,7 +204,17 @@ impl Cop for IndexBy {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ARRAY_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE]
+        &[
+            ARRAY_NODE,
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            CALL_NODE,
+            HASH_NODE,
+            KEYWORD_HASH_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            REQUIRED_PARAMETER_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -210,8 +223,8 @@ impl Cop for IndexBy {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Pattern 1: items.map { |e| [key, e] }.to_h
         if let Some(chain) = util::as_method_chain(node) {
@@ -309,7 +322,6 @@ impl Cop for IndexBy {
                 }
             }
         }
-
     }
 }
 
@@ -325,7 +337,11 @@ mod tests {
         // memo[record] = record — key is the element itself, not a method on it
         let source = b"records.each_with_object({}) { |record, h| h[record] = record }\n";
         let diags = run_cop_full(&IndexBy, source);
-        assert!(diags.is_empty(), "identity each_with_object should not be flagged: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "identity each_with_object should not be flagged: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -333,7 +349,11 @@ mod tests {
         // Hash[map { |name| [name, name] }] — key is the element itself
         let source = b"Hash[columns.map { |name| [name, name] }]\n";
         let diags = run_cop_full(&IndexBy, source);
-        assert!(diags.is_empty(), "identity Hash[map] should not be flagged: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "identity Hash[map] should not be flagged: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -341,7 +361,11 @@ mod tests {
         // memo[record.id] = record — key is a method call on element
         let source = b"records.each_with_object({}) { |record, h| h[record.id] = record }\n";
         let diags = run_cop_full(&IndexBy, source);
-        assert_eq!(diags.len(), 1, "method-key each_with_object should be flagged");
+        assert_eq!(
+            diags.len(),
+            1,
+            "method-key each_with_object should be flagged"
+        );
     }
 
     #[test]

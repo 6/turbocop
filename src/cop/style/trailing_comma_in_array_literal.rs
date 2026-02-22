@@ -1,8 +1,8 @@
+use crate::cop::node_type::ARRAY_NODE;
 use crate::cop::util::has_trailing_comma;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::ARRAY_NODE;
 
 pub struct TrailingCommaInArrayLiteral;
 
@@ -21,8 +21,8 @@ impl Cop for TrailingCommaInArrayLiteral {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let array_node = match node.as_array_node() {
             Some(a) => a,
@@ -95,14 +95,13 @@ impl Cop for TrailingCommaInArrayLiteral {
 
         match style {
             "comma" => {
-                let each_on_own_line = no_elements_on_same_line(source, &elements[..], closing_start);
+                let each_on_own_line =
+                    no_elements_on_same_line(source, &elements[..], closing_start);
                 let should_have = is_multiline && each_on_own_line;
                 if has_comma && !should_have {
                     // Trailing comma present but not wanted (single-line or elements share lines)
                     let search_range = &bytes[last_end..closing_start];
-                    if let Some(comma_offset) =
-                        search_range.iter().position(|&b| b == b',')
-                    {
+                    if let Some(comma_offset) = search_range.iter().position(|&b| b == b',') {
                         let abs_offset = last_end + comma_offset;
                         let (line, column) = source.offset_to_line_col(abs_offset);
                         diagnostics.push(self.diagnostic(
@@ -126,9 +125,7 @@ impl Cop for TrailingCommaInArrayLiteral {
                 if has_comma && !is_multiline {
                     // Trailing comma on single-line array
                     let search_range = &bytes[last_end..closing_start];
-                    if let Some(comma_offset) =
-                        search_range.iter().position(|&b| b == b',')
-                    {
+                    if let Some(comma_offset) = search_range.iter().position(|&b| b == b',') {
                         let abs_offset = last_end + comma_offset;
                         let (line, column) = source.offset_to_line_col(abs_offset);
                         diagnostics.push(self.diagnostic(
@@ -151,9 +148,7 @@ impl Cop for TrailingCommaInArrayLiteral {
             _ => {
                 if has_comma {
                     let search_range = &bytes[last_end..closing_start];
-                    if let Some(comma_offset) =
-                        search_range.iter().position(|&b| b == b',')
-                    {
+                    if let Some(comma_offset) = search_range.iter().position(|&b| b == b',') {
                         let abs_offset = last_end + comma_offset;
                         let (line, column) = source.offset_to_line_col(abs_offset);
                         diagnostics.push(self.diagnostic(
@@ -166,7 +161,6 @@ impl Cop for TrailingCommaInArrayLiteral {
                 }
             }
         }
-
     }
 }
 
@@ -180,7 +174,9 @@ fn no_elements_on_same_line(
     // Check each consecutive pair of elements
     for pair in elements.windows(2) {
         let end_line = source.offset_to_line_col(pair[0].location().end_offset()).0;
-        let start_line = source.offset_to_line_col(pair[1].location().start_offset()).0;
+        let start_line = source
+            .offset_to_line_col(pair[1].location().start_offset())
+            .0;
         if end_line == start_line {
             return false;
         }
@@ -226,7 +222,11 @@ mod tests {
     fn comma_style_multiline_elements_on_same_line_no_offense() {
         // Multiline array with elements sharing lines should NOT be flagged
         let fixture = b"x = [\n  Foo, Bar, Baz,\n  Qux\n]\n";
-        assert_cop_no_offenses_full_with_config(&TrailingCommaInArrayLiteral, fixture, comma_config());
+        assert_cop_no_offenses_full_with_config(
+            &TrailingCommaInArrayLiteral,
+            fixture,
+            comma_config(),
+        );
     }
 
     #[test]
@@ -247,6 +247,10 @@ mod tests {
     fn comma_style_multiline_each_on_own_line_with_comma_no_offense() {
         // Multiline array with each element on its own line AND trailing comma is fine
         let fixture = b"x = [\n  1,\n  2,\n  3,\n]\n";
-        assert_cop_no_offenses_full_with_config(&TrailingCommaInArrayLiteral, fixture, comma_config());
+        assert_cop_no_offenses_full_with_config(
+            &TrailingCommaInArrayLiteral,
+            fixture,
+            comma_config(),
+        );
     }
 }

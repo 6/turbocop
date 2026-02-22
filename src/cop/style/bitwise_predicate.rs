@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, INTEGER_NODE, PARENTHESES_NODE, STATEMENTS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, INTEGER_NODE, PARENTHESES_NODE, STATEMENTS_NODE};
 
 pub struct BitwisePredicate;
 
@@ -20,8 +20,8 @@ impl Cop for BitwisePredicate {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -39,7 +39,9 @@ impl Cop for BitwisePredicate {
                             let stmt_list: Vec<_> = stmts.body().iter().collect();
                             if stmt_list.len() == 1 {
                                 if let Some(inner_call) = stmt_list[0].as_call_node() {
-                                    let inner_method = std::str::from_utf8(inner_call.name().as_slice()).unwrap_or("");
+                                    let inner_method =
+                                        std::str::from_utf8(inner_call.name().as_slice())
+                                            .unwrap_or("");
                                     if inner_method == "&" {
                                         let predicate = if method_name == "positive?" {
                                             "anybits?"
@@ -47,12 +49,16 @@ impl Cop for BitwisePredicate {
                                             "nobits?"
                                         };
                                         let loc = node.location();
-                                        let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                        let (line, column) =
+                                            source.offset_to_line_col(loc.start_offset());
                                         diagnostics.push(self.diagnostic(
                                             source,
                                             line,
                                             column,
-                                            format!("Replace with `{}` for comparison with bit flags.", predicate),
+                                            format!(
+                                                "Replace with `{}` for comparison with bit flags.",
+                                                predicate
+                                            ),
                                         ));
                                     }
                                 }
@@ -72,14 +78,22 @@ impl Cop for BitwisePredicate {
                             let stmt_list: Vec<_> = stmts.body().iter().collect();
                             if stmt_list.len() == 1 {
                                 if let Some(inner_call) = stmt_list[0].as_call_node() {
-                                    let inner_method = std::str::from_utf8(inner_call.name().as_slice()).unwrap_or("");
+                                    let inner_method =
+                                        std::str::from_utf8(inner_call.name().as_slice())
+                                            .unwrap_or("");
                                     if inner_method == "&" {
                                         // Check that the comparison value is 0 or 1
                                         if let Some(args) = call.arguments() {
-                                            let arg_list: Vec<_> = args.arguments().iter().collect();
+                                            let arg_list: Vec<_> =
+                                                args.arguments().iter().collect();
                                             if arg_list.len() == 1 {
-                                                if let Some(int_node) = arg_list[0].as_integer_node() {
-                                                    let src = std::str::from_utf8(int_node.location().as_slice()).unwrap_or("");
+                                                if let Some(int_node) =
+                                                    arg_list[0].as_integer_node()
+                                                {
+                                                    let src = std::str::from_utf8(
+                                                        int_node.location().as_slice(),
+                                                    )
+                                                    .unwrap_or("");
                                                     if let Ok(v) = src.parse::<i64>() {
                                                         let is_zero = v == 0;
                                                         let is_one = v == 1;
@@ -88,7 +102,10 @@ impl Cop for BitwisePredicate {
                                                             || (method_name == ">=" && is_one)
                                                         {
                                                             let loc = node.location();
-                                                            let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                                            let (line, column) = source
+                                                                .offset_to_line_col(
+                                                                    loc.start_offset(),
+                                                                );
                                                             diagnostics.push(self.diagnostic(
                                                                 source,
                                                                 line,
@@ -98,7 +115,10 @@ impl Cop for BitwisePredicate {
                                                         }
                                                         if method_name == "==" && is_zero {
                                                             let loc = node.location();
-                                                            let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                                            let (line, column) = source
+                                                                .offset_to_line_col(
+                                                                    loc.start_offset(),
+                                                                );
                                                             diagnostics.push(self.diagnostic(
                                                                 source,
                                                                 line,
@@ -118,7 +138,6 @@ impl Cop for BitwisePredicate {
                 }
             }
         }
-
     }
 }
 

@@ -1,16 +1,14 @@
+use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, CALL_NODE};
 use crate::cop::util::as_method_chain;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, CALL_NODE};
 
 pub struct RedundantActiveRecordAllMethod;
 
 const REDUNDANT_AFTER_ALL: &[&[u8]] = &[
-    b"where", b"order", b"select", b"find", b"find_by",
-    b"first", b"last", b"count", b"pluck", b"sum",
-    b"maximum", b"minimum", b"average", b"exists?",
-    b"any?", b"none?", b"empty?",
+    b"where", b"order", b"select", b"find", b"find_by", b"first", b"last", b"count", b"pluck",
+    b"sum", b"maximum", b"minimum", b"average", b"exists?", b"any?", b"none?", b"empty?",
 ];
 
 /// Methods that could be Enumerable block methods instead of AR query methods.
@@ -38,8 +36,8 @@ impl Cop for RedundantActiveRecordAllMethod {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed_receivers = config.get_string_array("AllowedReceivers");
 
@@ -68,7 +66,11 @@ impl Cop for RedundantActiveRecordAllMethod {
             }
             // Also check for block pass: all.select(&:active?)
             if let Some(args) = outer_call.arguments() {
-                if args.arguments().iter().any(|a| a.as_block_argument_node().is_some()) {
+                if args
+                    .arguments()
+                    .iter()
+                    .any(|a| a.as_block_argument_node().is_some())
+                {
                     return;
                 }
             }
@@ -98,5 +100,8 @@ impl Cop for RedundantActiveRecordAllMethod {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(RedundantActiveRecordAllMethod, "cops/rails/redundant_active_record_all_method");
+    crate::cop_fixture_tests!(
+        RedundantActiveRecordAllMethod,
+        "cops/rails/redundant_active_record_all_method"
+    );
 }

@@ -1,16 +1,14 @@
+use crate::cop::node_type::{AND_NODE, CALL_NODE, OR_NODE};
 use crate::cop::util::indentation_of;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{AND_NODE, CALL_NODE, OR_NODE};
 
 pub struct MultilineOperationIndentation;
 
 const OPERATOR_METHODS: &[&[u8]] = &[
-    b"+", b"-", b"*", b"/", b"%", b"**",
-    b"==", b"!=", b"<", b">", b"<=", b">=", b"<=>",
-    b"&", b"|", b"^",
-    b"<<", b">>",
+    b"+", b"-", b"*", b"/", b"%", b"**", b"==", b"!=", b"<", b">", b"<=", b">=", b"<=>", b"&",
+    b"|", b"^", b"<<", b">>",
 ];
 
 impl Cop for MultilineOperationIndentation {
@@ -28,8 +26,8 @@ impl Cop for MultilineOperationIndentation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "aligned");
 
@@ -162,7 +160,6 @@ impl Cop for MultilineOperationIndentation {
             ));
             return;
         }
-
     }
 }
 
@@ -226,7 +223,10 @@ fn is_inside_parentheses(source: &SourceFile, node: &ruby_prism::Node<'_>) -> bo
 fn is_in_keyword_condition(source: &SourceFile, line: usize) -> bool {
     let line_bytes = source.lines().nth(line - 1).unwrap_or(b"");
     let trimmed: &[u8] = {
-        let start = line_bytes.iter().position(|&b| b != b' ' && b != b'\t').unwrap_or(line_bytes.len());
+        let start = line_bytes
+            .iter()
+            .position(|&b| b != b' ' && b != b'\t')
+            .unwrap_or(line_bytes.len());
         &line_bytes[start..]
     };
     trimmed.starts_with(b"if ")
@@ -352,14 +352,28 @@ mod tests {
     fn or_in_def_body_no_offense() {
         let src = b"def valid?(user)\n  user.foo ||\n    user.bar\nend\n";
         let diags = run_cop_full(&MultilineOperationIndentation, src);
-        assert!(diags.is_empty(), "correctly indented || continuation should not flag, got: {:?}", diags.iter().map(|d| &d.message).collect::<Vec<_>>());
+        assert!(
+            diags.is_empty(),
+            "correctly indented || continuation should not flag, got: {:?}",
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
     }
 
     #[test]
     fn or_in_def_body_with_rescue_no_offense() {
         let src = b"  def valid_otp_attempt?(user)\n    user.validate_and_consume_otp!(user_params[:otp_attempt]) ||\n      user.invalidate_otp_backup_code!(user_params[:otp_attempt])\n  rescue OpenSSL::Cipher::CipherError\n    false\n  end\n";
         let diags = run_cop_full(&MultilineOperationIndentation, src);
-        assert!(diags.is_empty(), "correctly indented || with rescue should not flag, got: {:?}", diags.iter().map(|d| format!("line {} col {} {}", d.location.line, d.location.column, d.message)).collect::<Vec<_>>());
+        assert!(
+            diags.is_empty(),
+            "correctly indented || with rescue should not flag, got: {:?}",
+            diags
+                .iter()
+                .map(|d| format!(
+                    "line {} col {} {}",
+                    d.location.line, d.location.column, d.message
+                ))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -369,34 +383,51 @@ mod tests {
         assert!(
             diags.is_empty(),
             "nested && inside || with aligned continuation should not flag, got: {:?}",
-            diags.iter().map(|d| format!("line {} col {} {}", d.location.line, d.location.column, d.message)).collect::<Vec<_>>()
+            diags
+                .iter()
+                .map(|d| format!(
+                    "line {} col {} {}",
+                    d.location.line, d.location.column, d.message
+                ))
+                .collect::<Vec<_>>()
         );
     }
 
     #[test]
     fn aligned_style() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("aligned".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("aligned".into()),
+            )]),
             ..CopConfig::default()
         };
         // Continuation aligned with the left operand
         let src = b"x = a &&\n    b\n";
         let diags = run_cop_full_with_config(&MultilineOperationIndentation, src, config.clone());
-        assert!(diags.is_empty(), "aligned style should accept operand-aligned continuation");
+        assert!(
+            diags.is_empty(),
+            "aligned style should accept operand-aligned continuation"
+        );
 
         // In "aligned" style, RuboCop accepts indented form in non-condition contexts.
         let src2 = b"x = a &&\n  b\n";
         let diags2 = run_cop_full_with_config(&MultilineOperationIndentation, src2, config.clone());
-        assert!(diags2.is_empty(), "aligned style should accept indented continuation in non-condition contexts");
+        assert!(
+            diags2.is_empty(),
+            "aligned style should accept indented continuation in non-condition contexts"
+        );
 
         // But wildly misaligned should still be flagged
         let src3 = b"x = a &&\n        b\n";
         let diags3 = run_cop_full_with_config(&MultilineOperationIndentation, src3, config);
-        assert_eq!(diags3.len(), 1, "aligned style should flag incorrectly indented continuation");
+        assert_eq!(
+            diags3.len(),
+            1,
+            "aligned style should flag incorrectly indented continuation"
+        );
     }
 }

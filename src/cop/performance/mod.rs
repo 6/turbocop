@@ -7,14 +7,17 @@ pub mod caller;
 pub mod case_when_splat;
 pub mod casecmp;
 pub mod chain_array_allocation;
+pub mod collection_literal_in_loop;
 pub mod compare_with_block;
 pub mod concurrent_monotonic_time;
+pub mod constant_regexp;
 pub mod count;
 pub mod delete_prefix;
 pub mod delete_suffix;
 pub mod detect;
 pub mod double_start_end_with;
 pub mod end_with;
+pub mod fixed_size;
 pub mod flat_map;
 pub mod inefficient_hash_search;
 pub mod io_readlines;
@@ -38,27 +41,30 @@ pub mod size;
 pub mod sort_reverse;
 pub mod squeeze;
 pub mod start_with;
-pub mod string_include;
+pub mod string_bytesize;
 pub mod string_identifier_argument;
+pub mod string_include;
 pub mod string_replacement;
 pub mod sum;
 pub mod times_map;
 pub mod unfreeze_string;
 pub mod uri_default_parser;
-pub mod collection_literal_in_loop;
-pub mod constant_regexp;
-pub mod fixed_size;
-pub mod string_bytesize;
 pub mod zip_without_block;
 
 use super::registry::CopRegistry;
 
 pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(ancestors_include::AncestorsInclude));
-    registry.register(Box::new(array_semi_infinite_range_slice::ArraySemiInfiniteRangeSlice));
-    registry.register(Box::new(big_decimal_with_numeric_argument::BigDecimalWithNumericArgument));
+    registry.register(Box::new(
+        array_semi_infinite_range_slice::ArraySemiInfiniteRangeSlice,
+    ));
+    registry.register(Box::new(
+        big_decimal_with_numeric_argument::BigDecimalWithNumericArgument,
+    ));
     registry.register(Box::new(bind_call::BindCall));
-    registry.register(Box::new(block_given_with_explicit_block::BlockGivenWithExplicitBlock));
+    registry.register(Box::new(
+        block_given_with_explicit_block::BlockGivenWithExplicitBlock,
+    ));
     registry.register(Box::new(caller::Caller));
     registry.register(Box::new(case_when_splat::CaseWhenSplat));
     registry.register(Box::new(casecmp::Casecmp));
@@ -80,11 +86,15 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(open_struct::OpenStruct));
     registry.register(Box::new(range_include::RangeInclude));
     registry.register(Box::new(redundant_block_call::RedundantBlockCall));
-    registry.register(Box::new(redundant_equality_comparison_block::RedundantEqualityComparisonBlock));
+    registry.register(Box::new(
+        redundant_equality_comparison_block::RedundantEqualityComparisonBlock,
+    ));
     registry.register(Box::new(redundant_match::RedundantMatch));
     registry.register(Box::new(redundant_merge::RedundantMerge));
     registry.register(Box::new(redundant_sort_block::RedundantSortBlock));
-    registry.register(Box::new(redundant_split_regexp_argument::RedundantSplitRegexpArgument));
+    registry.register(Box::new(
+        redundant_split_regexp_argument::RedundantSplitRegexpArgument,
+    ));
     registry.register(Box::new(redundant_string_chars::RedundantStringChars));
     registry.register(Box::new(regexp_match::RegexpMatch));
     registry.register(Box::new(reverse_each::ReverseEach));
@@ -94,14 +104,18 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(sort_reverse::SortReverse));
     registry.register(Box::new(squeeze::Squeeze));
     registry.register(Box::new(start_with::StartWith));
-    registry.register(Box::new(string_identifier_argument::StringIdentifierArgument));
+    registry.register(Box::new(
+        string_identifier_argument::StringIdentifierArgument,
+    ));
     registry.register(Box::new(string_include::StringInclude));
     registry.register(Box::new(string_replacement::StringReplacement));
     registry.register(Box::new(sum::Sum));
     registry.register(Box::new(times_map::TimesMap));
     registry.register(Box::new(unfreeze_string::UnfreezeString));
     registry.register(Box::new(uri_default_parser::UriDefaultParser));
-    registry.register(Box::new(collection_literal_in_loop::CollectionLiteralInLoop));
+    registry.register(Box::new(
+        collection_literal_in_loop::CollectionLiteralInLoop,
+    ));
     registry.register(Box::new(constant_regexp::ConstantRegexp));
     registry.register(Box::new(fixed_size::FixedSize));
     registry.register(Box::new(string_bytesize::StringBytesize));

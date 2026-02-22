@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, INTEGER_NODE, STRING_NODE};
 use crate::cop::rspec_rails::RSPEC_RAILS_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, INTEGER_NODE, STRING_NODE};
 
 pub struct HaveHttpStatus;
 
@@ -38,8 +38,8 @@ impl Cop for HaveHttpStatus {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Pattern: expect(response.status).to be(200)
         // AST: CallNode(receiver=CallNode(expect(CallNode(response.status))), name=to,
@@ -105,7 +105,12 @@ impl Cop for HaveHttpStatus {
         let response_method = std::str::from_utf8(response_recv.name().as_slice()).unwrap_or("");
         let response_methods = config
             .get_string_array("ResponseMethods")
-            .unwrap_or_else(|| DEFAULT_RESPONSE_METHODS.iter().map(|s| s.to_string()).collect());
+            .unwrap_or_else(|| {
+                DEFAULT_RESPONSE_METHODS
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            });
         if !response_methods.iter().any(|m| m == response_method) {
             return;
         }
@@ -168,11 +173,10 @@ impl Cop for HaveHttpStatus {
         let (line, column) = source.offset_to_line_col(loc.start_offset());
 
         let bad_code_start = loc.start_offset();
-        let bad_code_end = runner_call.location().start_offset() + runner_call.location().as_slice().len();
-        let bad_code = std::str::from_utf8(
-            &source.as_bytes()[bad_code_start..bad_code_end],
-        )
-        .unwrap_or("...");
+        let bad_code_end =
+            runner_call.location().start_offset() + runner_call.location().as_slice().len();
+        let bad_code =
+            std::str::from_utf8(&source.as_bytes()[bad_code_start..bad_code_end]).unwrap_or("...");
 
         diagnostics.push(self.diagnostic(
             source,

@@ -13,14 +13,23 @@ impl Cop for InitialIndentation {
         true
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, mut corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        _config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         // Find the first non-empty line
         for (i, line) in source.lines().enumerate() {
             if line.is_empty() {
                 continue;
             }
             if line[0] == b' ' || line[0] == b'\t' {
-                let ws_len = line.iter().take_while(|&&b| b == b' ' || b == b'\t').count();
+                let ws_len = line
+                    .iter()
+                    .take_while(|&&b| b == b' ' || b == b'\t')
+                    .count();
                 let mut diag = self.diagnostic(
                     source,
                     i + 1,
@@ -52,7 +61,8 @@ mod tests {
     use crate::parse::source::SourceFile;
 
     crate::cop_scenario_fixture_tests!(
-        InitialIndentation, "cops/layout/initial_indentation",
+        InitialIndentation,
+        "cops/layout/initial_indentation",
         space_indent = "space_indent.rb",
         tab_indent = "tab_indent.rb",
         deep_indent = "deep_indent.rb",
@@ -78,7 +88,8 @@ mod tests {
     #[test]
     fn autocorrect_remove_spaces() {
         let input = b"  x = 1\n";
-        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&InitialIndentation, input);
+        let (_diags, corrections) =
+            crate::testutil::run_cop_autocorrect(&InitialIndentation, input);
         assert!(!corrections.is_empty());
         let cs = crate::correction::CorrectionSet::from_vec(corrections);
         let corrected = cs.apply(input);
@@ -88,7 +99,8 @@ mod tests {
     #[test]
     fn autocorrect_remove_tabs() {
         let input = b"\tx = 1\n";
-        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&InitialIndentation, input);
+        let (_diags, corrections) =
+            crate::testutil::run_cop_autocorrect(&InitialIndentation, input);
         assert!(!corrections.is_empty());
         let cs = crate::correction::CorrectionSet::from_vec(corrections);
         let corrected = cs.apply(input);

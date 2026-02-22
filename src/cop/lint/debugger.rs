@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct Debugger;
 
@@ -121,8 +121,8 @@ impl Cop for Debugger {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -142,7 +142,9 @@ impl Cop for Debugger {
                         let custom_requires = config.get_flat_string_values("DebuggerRequires");
                         let matched = match &custom_requires {
                             Some(r) => r.iter().any(|r| r.as_bytes() == &*val),
-                            None => DEFAULT_DEBUGGER_REQUIRES.iter().any(|&r| r.as_bytes() == &*val),
+                            None => DEFAULT_DEBUGGER_REQUIRES
+                                .iter()
+                                .any(|&r| r.as_bytes() == &*val),
                         };
                         if matched {
                             let loc = call.location();
@@ -272,7 +274,12 @@ mod tests {
         use crate::testutil::run_cop_full;
         let source = b"binding.console\n";
         let diags = run_cop_full(&Debugger, source);
-        assert_eq!(diags.len(), 1, "binding.console should be detected: {:?}", diags);
+        assert_eq!(
+            diags.len(),
+            1,
+            "binding.console should be detected: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -280,7 +287,12 @@ mod tests {
         use crate::testutil::run_cop_full;
         let source = b"page.save_page\n";
         let diags = run_cop_full(&Debugger, source);
-        assert_eq!(diags.len(), 1, "page.save_page should be detected: {:?}", diags);
+        assert_eq!(
+            diags.len(),
+            1,
+            "page.save_page should be detected: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -294,19 +306,19 @@ mod tests {
         let config = CopConfig {
             options: HashMap::from([(
                 "DebuggerMethods".into(),
-                serde_yml::Value::Mapping(serde_yml::Mapping::from_iter([
-                    (
-                        serde_yml::Value::String("Custom".into()),
-                        serde_yml::Value::Sequence(vec![
-                            serde_yml::Value::String("pry".into()),
-                        ]),
-                    ),
-                ])),
+                serde_yml::Value::Mapping(serde_yml::Mapping::from_iter([(
+                    serde_yml::Value::String("Custom".into()),
+                    serde_yml::Value::Sequence(vec![serde_yml::Value::String("pry".into())]),
+                )])),
             )]),
             ..CopConfig::default()
         };
         let source = b"pry\n";
         let diags = run_cop_full_with_config(&Debugger, source, config);
-        assert_eq!(diags.len(), 1, "custom debugger method with known leaf should be detected");
+        assert_eq!(
+            diags.len(),
+            1,
+            "custom debugger method with known leaf should be detected"
+        );
     }
 }

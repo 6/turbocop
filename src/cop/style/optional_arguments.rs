@@ -17,8 +17,8 @@ impl Cop for OptionalArguments {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = OptionalArgumentsVisitor {
             cop: self,
@@ -50,12 +50,15 @@ impl<'pr> Visit<'pr> for OptionalArgumentsVisitor<'_> {
                     if let Some(opt_node) = opt.as_optional_parameter_node() {
                         let loc = opt_node.location();
                         let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-                        self.diagnostics.push(self.cop.diagnostic(
-                            self.source,
-                            line,
-                            column,
-                            "Optional arguments should appear at the end of the argument list.".to_string(),
-                        ));
+                        self.diagnostics.push(
+                            self.cop.diagnostic(
+                                self.source,
+                                line,
+                                column,
+                                "Optional arguments should appear at the end of the argument list."
+                                    .to_string(),
+                            ),
+                        );
                     }
                 }
             }

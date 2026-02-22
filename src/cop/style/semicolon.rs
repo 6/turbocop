@@ -16,8 +16,8 @@ impl Cop for Semicolon {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let bytes = source.as_bytes();
         let lines: Vec<&[u8]> = source.lines().collect();
@@ -64,13 +64,18 @@ impl Cop for Semicolon {
                 "Do not use semicolons to terminate expressions.".to_string(),
             ));
         }
-
     }
 }
 
 fn trim_bytes(b: &[u8]) -> &[u8] {
-    let start = b.iter().position(|&c| c != b' ' && c != b'\t').unwrap_or(b.len());
-    let end = b.iter().rposition(|&c| c != b' ' && c != b'\t' && c != b'\n' && c != b'\r').map_or(start, |e| e + 1);
+    let start = b
+        .iter()
+        .position(|&c| c != b' ' && c != b'\t')
+        .unwrap_or(b.len());
+    let end = b
+        .iter()
+        .rposition(|&c| c != b' ' && c != b'\t' && c != b'\n' && c != b'\r')
+        .map_or(start, |e| e + 1);
     if start >= end { &[] } else { &b[start..end] }
 }
 
@@ -140,7 +145,10 @@ fn find_keyword_before(before: &[u8], keyword: &[u8]) -> bool {
 }
 
 fn trim_bytes_start(b: &[u8]) -> &[u8] {
-    let start = b.iter().position(|&c| c != b' ' && c != b'\t').unwrap_or(b.len());
+    let start = b
+        .iter()
+        .position(|&c| c != b' ' && c != b'\t')
+        .unwrap_or(b.len());
     &b[start..]
 }
 

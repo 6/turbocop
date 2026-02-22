@@ -13,7 +13,13 @@ impl Cop for OrderedMagicComments {
         Severity::Warning
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        _config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         let mut encoding_line: Option<usize> = None;
         let mut frozen_string_line: Option<usize> = None;
 
@@ -48,7 +54,10 @@ impl Cop for OrderedMagicComments {
                 .unwrap_or(&[]);
 
             // Handle emacs-style: -*- coding: utf-8 -*-
-            let comment_lower: Vec<u8> = comment_trimmed.iter().map(|b| b.to_ascii_lowercase()).collect();
+            let comment_lower: Vec<u8> = comment_trimmed
+                .iter()
+                .map(|b| b.to_ascii_lowercase())
+                .collect();
 
             if is_encoding_comment(&comment_lower) && encoding_line.is_none() {
                 encoding_line = Some(line_num);
@@ -64,23 +73,23 @@ impl Cop for OrderedMagicComments {
         if let (Some(enc_line), Some(fsl_line)) = (encoding_line, frozen_string_line) {
             if enc_line > fsl_line {
                 // Encoding comment appears after frozen_string_literal
-                diagnostics.push(self.diagnostic(
-                    source,
-                    enc_line,
-                    0,
-                    "The encoding magic comment should precede all other magic comments."
-                        .to_string(),
-                ));
+                diagnostics.push(
+                    self.diagnostic(
+                        source,
+                        enc_line,
+                        0,
+                        "The encoding magic comment should precede all other magic comments."
+                            .to_string(),
+                    ),
+                );
             }
         }
-
     }
 }
 
 fn is_encoding_comment(lower: &[u8]) -> bool {
     // Match "encoding:" or "coding:" patterns (also emacs-style)
-    lower.windows(9).any(|w| w == b"encoding:")
-        || lower.windows(7).any(|w| w == b"coding:")
+    lower.windows(9).any(|w| w == b"encoding:") || lower.windows(7).any(|w| w == b"coding:")
 }
 
 fn is_frozen_string_comment(lower: &[u8]) -> bool {
@@ -92,7 +101,8 @@ fn is_frozen_string_comment(lower: &[u8]) -> bool {
 mod tests {
     use super::*;
     crate::cop_scenario_fixture_tests!(
-        OrderedMagicComments, "cops/lint/ordered_magic_comments",
+        OrderedMagicComments,
+        "cops/lint/ordered_magic_comments",
         basic = "basic.rb",
         with_coding = "with_coding.rb",
         with_shebang = "with_shebang.rb",

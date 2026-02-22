@@ -13,7 +13,13 @@ impl Cop for TrailingWhitespace {
         true
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, mut corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         let allow_in_heredoc = config.get_bool("AllowInHeredoc", false);
 
         // Track heredoc regions: when AllowInHeredoc is true, skip lines inside heredocs.
@@ -29,10 +35,14 @@ impl Cop for TrailingWhitespace {
 
             // Check if we're inside a heredoc
             if let Some(ref terminator) = heredoc_terminator {
-                let trimmed: Vec<u8> = line.iter().copied()
+                let trimmed: Vec<u8> = line
+                    .iter()
+                    .copied()
                     .skip_while(|&b| b == b' ' || b == b'\t')
                     .collect();
-                if trimmed == *terminator || trimmed.strip_suffix(&[b'\r']).unwrap_or(&trimmed) == terminator.as_slice() {
+                if trimmed == *terminator
+                    || trimmed.strip_suffix(&[b'\r']).unwrap_or(&trimmed) == terminator.as_slice()
+                {
                     heredoc_terminator = None;
                 } else if allow_in_heredoc {
                     continue; // Skip trailing whitespace check inside heredoc
@@ -60,7 +70,9 @@ impl Cop for TrailingWhitespace {
                         (after, false)
                     };
                     // Extract identifier
-                    let ident: Vec<u8> = after.iter().copied()
+                    let ident: Vec<u8> = after
+                        .iter()
+                        .copied()
                         .take_while(|&b| b.is_ascii_alphanumeric() || b == b'_')
                         .collect();
                     if !ident.is_empty() {
@@ -144,7 +156,10 @@ mod tests {
         );
         let mut diags = Vec::new();
         TrailingWhitespace.check_lines(&source, &CopConfig::default(), &mut diags, None);
-        assert!(diags.is_empty(), "Should not flag trailing whitespace after __END__");
+        assert!(
+            diags.is_empty(),
+            "Should not flag trailing whitespace after __END__"
+        );
     }
 
     #[test]
@@ -181,9 +196,7 @@ mod tests {
     fn allow_in_heredoc_skips_heredoc_whitespace() {
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("AllowInHeredoc".into(), serde_yml::Value::Bool(true)),
-            ]),
+            options: HashMap::from([("AllowInHeredoc".into(), serde_yml::Value::Bool(true))]),
             ..CopConfig::default()
         };
         let source = SourceFile::from_bytes(
@@ -192,18 +205,22 @@ mod tests {
         );
         let mut diags = Vec::new();
         TrailingWhitespace.check_lines(&source, &config, &mut diags, None);
-        assert!(diags.is_empty(), "AllowInHeredoc should skip trailing whitespace inside heredocs");
+        assert!(
+            diags.is_empty(),
+            "AllowInHeredoc should skip trailing whitespace inside heredocs"
+        );
     }
 
     #[test]
     fn default_flags_heredoc_whitespace() {
-        let source = SourceFile::from_bytes(
-            "test.rb",
-            b"x = <<~TEXT\n  hello  \nTEXT\n".to_vec(),
-        );
+        let source = SourceFile::from_bytes("test.rb", b"x = <<~TEXT\n  hello  \nTEXT\n".to_vec());
         let mut diags = Vec::new();
         TrailingWhitespace.check_lines(&source, &CopConfig::default(), &mut diags, None);
-        assert_eq!(diags.len(), 1, "Default should flag trailing whitespace inside heredocs");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Default should flag trailing whitespace inside heredocs"
+        );
     }
 
     #[test]

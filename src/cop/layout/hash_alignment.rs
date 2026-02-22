@@ -1,7 +1,7 @@
+use crate::cop::node_type::{HASH_NODE, KEYWORD_HASH_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{HASH_NODE, KEYWORD_HASH_NODE};
 
 pub struct HashAlignment;
 
@@ -44,7 +44,10 @@ impl Cop for HashAlignment {
         let (elements, hash_node_start) = if let Some(hash_node) = node.as_hash_node() {
             (hash_node.elements(), hash_node.location().start_offset())
         } else if let Some(kw_hash_node) = node.as_keyword_hash_node() {
-            (kw_hash_node.elements(), kw_hash_node.location().start_offset())
+            (
+                kw_hash_node.elements(),
+                kw_hash_node.location().start_offset(),
+            )
         } else {
             return;
         };
@@ -83,10 +86,8 @@ impl Cop for HashAlignment {
         // alignment on hashes that are arguments to a method call where the first
         // pair is on the same line as the method call selector.
         if fixed_indentation {
-            let first_begins_line = crate::cop::util::begins_its_line(
-                source,
-                first.location().start_offset(),
-            );
+            let first_begins_line =
+                crate::cop::util::begins_its_line(source, first.location().start_offset());
             if is_keyword_hash {
                 // KeywordHashNode is always inside a method call.
                 // If the first element does NOT begin its line, the method call
@@ -127,8 +128,7 @@ impl Cop for HashAlignment {
                     source,
                     elem_line,
                     elem_col,
-                    "Align the keys of a hash literal if they span more than one line."
-                        .to_string(),
+                    "Align the keys of a hash literal if they span more than one line.".to_string(),
                 ));
             }
         }
@@ -151,13 +151,19 @@ mod tests {
 
     #[test]
     fn config_options_are_read() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([
-                ("EnforcedHashRocketStyle".into(), serde_yml::Value::String("key".into())),
-                ("EnforcedColonStyle".into(), serde_yml::Value::String("key".into())),
+                (
+                    "EnforcedHashRocketStyle".into(),
+                    serde_yml::Value::String("key".into()),
+                ),
+                (
+                    "EnforcedColonStyle".into(),
+                    serde_yml::Value::String("key".into()),
+                ),
             ]),
             ..CopConfig::default()
         };
@@ -169,37 +175,46 @@ mod tests {
 
     #[test]
     fn fixed_indentation_skips_keyword_hash_on_same_line() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("ArgumentAlignmentStyle".into(), serde_yml::Value::String("with_fixed_indentation".into())),
-            ]),
+            options: HashMap::from([(
+                "ArgumentAlignmentStyle".into(),
+                serde_yml::Value::String("with_fixed_indentation".into()),
+            )]),
             ..CopConfig::default()
         };
         // Keyword hash args where first key is on same line as method call
         // should be skipped when ArgumentAlignment uses with_fixed_indentation
         let src = b"render html: \"hello\",\n  layout: \"application\"\n";
         let diags = run_cop_full_with_config(&HashAlignment, src, config);
-        assert!(diags.is_empty(), "keyword hash on same line as call should be skipped with fixed indentation");
+        assert!(
+            diags.is_empty(),
+            "keyword hash on same line as call should be skipped with fixed indentation"
+        );
     }
 
     #[test]
     fn fixed_indentation_still_checks_keyword_hash_on_own_line() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("ArgumentAlignmentStyle".into(), serde_yml::Value::String("with_fixed_indentation".into())),
-            ]),
+            options: HashMap::from([(
+                "ArgumentAlignmentStyle".into(),
+                serde_yml::Value::String("with_fixed_indentation".into()),
+            )]),
             ..CopConfig::default()
         };
         // Keyword hash args where first key begins its own line should still be checked
         let src = b"render(\n  html: \"hello\",\n    layout: \"application\"\n)\n";
         let diags = run_cop_full_with_config(&HashAlignment, src, config);
-        assert_eq!(diags.len(), 1, "keyword hash on own line should still be checked with fixed indentation");
+        assert_eq!(
+            diags.len(),
+            1,
+            "keyword hash on own line should still be checked with fixed indentation"
+        );
     }
 
     #[test]
@@ -207,38 +222,50 @@ mod tests {
         // Without with_fixed_indentation, keyword hash args are checked normally
         let src = b"render html: \"hello\",\n  layout: \"application\"\n";
         let diags = run_cop_full(&HashAlignment, src);
-        assert_eq!(diags.len(), 1, "keyword hash should be flagged without fixed indentation");
+        assert_eq!(
+            diags.len(),
+            1,
+            "keyword hash should be flagged without fixed indentation"
+        );
     }
 
     #[test]
     fn always_ignore_skips_keyword_hash() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedLastArgumentHashStyle".into(), serde_yml::Value::String("always_ignore".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedLastArgumentHashStyle".into(),
+                serde_yml::Value::String("always_ignore".into()),
+            )]),
             ..CopConfig::default()
         };
         let src = b"render html: \"hello\",\n  layout: \"application\"\n";
         let diags = run_cop_full_with_config(&HashAlignment, src, config);
-        assert!(diags.is_empty(), "always_ignore should skip keyword hash args");
+        assert!(
+            diags.is_empty(),
+            "always_ignore should skip keyword hash args"
+        );
     }
 
     #[test]
     fn ignore_implicit_skips_keyword_hash() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedLastArgumentHashStyle".into(), serde_yml::Value::String("ignore_implicit".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedLastArgumentHashStyle".into(),
+                serde_yml::Value::String("ignore_implicit".into()),
+            )]),
             ..CopConfig::default()
         };
         let src = b"render html: \"hello\",\n  layout: \"application\"\n";
         let diags = run_cop_full_with_config(&HashAlignment, src, config);
-        assert!(diags.is_empty(), "ignore_implicit should skip implicit keyword hash args");
+        assert!(
+            diags.is_empty(),
+            "ignore_implicit should skip implicit keyword hash args"
+        );
     }
 }

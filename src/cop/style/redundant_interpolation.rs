@@ -18,8 +18,8 @@ impl Cop for RedundantInterpolation {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = RedundantInterpVisitor {
             cop: self,
@@ -65,10 +65,7 @@ impl<'pr> Visit<'pr> for RedundantInterpVisitor<'_, '_> {
         self.in_percent_array = was_in_percent_array;
     }
 
-    fn visit_interpolated_string_node(
-        &mut self,
-        node: &ruby_prism::InterpolatedStringNode<'pr>,
-    ) {
+    fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
         let is_implicit_concat = node.opening_loc().is_none();
 
         if is_implicit_concat {

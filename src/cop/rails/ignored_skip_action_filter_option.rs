@@ -1,8 +1,8 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::util::keyword_arg_value;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct IgnoredSkipActionFilterOption;
 
@@ -36,8 +36,8 @@ impl Cop for IgnoredSkipActionFilterOption {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -73,19 +73,24 @@ impl Cop for IgnoredSkipActionFilterOption {
         if has_if && has_except {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                "`except` option will be ignored when `if` and `except` are used together.".to_string(),
-            ));
+            diagnostics.push(
+                self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "`except` option will be ignored when `if` and `except` are used together."
+                        .to_string(),
+                ),
+            );
         }
-
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(IgnoredSkipActionFilterOption, "cops/rails/ignored_skip_action_filter_option");
+    crate::cop_fixture_tests!(
+        IgnoredSkipActionFilterOption,
+        "cops/rails/ignored_skip_action_filter_option"
+    );
 }

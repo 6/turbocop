@@ -1,8 +1,10 @@
+use crate::cop::node_type::{
+    BLOCK_ARGUMENT_NODE, BLOCK_NODE, CALL_NODE, ELSE_NODE, IF_NODE, STATEMENTS_NODE, SYMBOL_NODE,
+};
 use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, BLOCK_NODE, CALL_NODE, ELSE_NODE, IF_NODE, STATEMENTS_NODE, SYMBOL_NODE};
 
 pub struct NonDeterministicRequireOrder;
 
@@ -16,7 +18,15 @@ impl Cop for NonDeterministicRequireOrder {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_ARGUMENT_NODE, BLOCK_NODE, CALL_NODE, ELSE_NODE, IF_NODE, STATEMENTS_NODE, SYMBOL_NODE]
+        &[
+            BLOCK_ARGUMENT_NODE,
+            BLOCK_NODE,
+            CALL_NODE,
+            ELSE_NODE,
+            IF_NODE,
+            STATEMENTS_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -25,8 +35,8 @@ impl Cop for NonDeterministicRequireOrder {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // RuboCop: maximum_target_ruby_version 2.7
         // Dir.glob and Dir[] return sorted results in Ruby 3.0+, making this cop
@@ -106,9 +116,8 @@ impl Cop for NonDeterministicRequireOrder {
             if call.block().is_none() {
                 // Check arguments for &method(:require) pattern
                 if let Some(args) = call.arguments() {
-                    let has_require_block_arg = args.arguments().iter().any(|a| {
-                        is_require_block_arg(&a)
-                    });
+                    let has_require_block_arg =
+                        args.arguments().iter().any(|a| is_require_block_arg(&a));
                     if has_require_block_arg {
                         let loc = call.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -140,7 +149,6 @@ impl Cop for NonDeterministicRequireOrder {
                 "Sort files before requiring them.".to_string(),
             ));
         }
-
     }
 }
 

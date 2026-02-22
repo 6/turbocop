@@ -1,7 +1,7 @@
+use crate::cop::node_type::{ARRAY_NODE, SPLAT_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ARRAY_NODE, SPLAT_NODE};
 
 pub struct ArrayCoercion;
 
@@ -20,8 +20,8 @@ impl Cop for ArrayCoercion {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Pattern 1: [*var] - splat into array with single element
         if let Some(array_node) = node.as_array_node() {
@@ -43,7 +43,6 @@ impl Cop for ArrayCoercion {
                 }
             }
         }
-
     }
 }
 

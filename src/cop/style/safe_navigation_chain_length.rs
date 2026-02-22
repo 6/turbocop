@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct SafeNavigationChainLength;
 
@@ -20,8 +20,8 @@ impl Cop for SafeNavigationChainLength {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let max = config.get_usize("Max", 2);
 
@@ -89,5 +89,8 @@ fn count_safe_nav_chain(node: &ruby_prism::Node<'_>) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(SafeNavigationChainLength, "cops/style/safe_navigation_chain_length");
+    crate::cop_fixture_tests!(
+        SafeNavigationChainLength,
+        "cops/style/safe_navigation_chain_length"
+    );
 }

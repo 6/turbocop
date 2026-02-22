@@ -1,9 +1,9 @@
 use ruby_prism::Visit;
 
+use crate::cop::node_type::{CALL_NODE, CLASS_NODE, DEF_NODE, MODULE_NODE, SINGLETON_CLASS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CLASS_NODE, DEF_NODE, MODULE_NODE, SINGLETON_CLASS_NODE};
 
 pub struct NestedMethodDefinition;
 
@@ -90,7 +90,13 @@ impl Cop for NestedMethodDefinition {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CLASS_NODE, DEF_NODE, MODULE_NODE, SINGLETON_CLASS_NODE]
+        &[
+            CALL_NODE,
+            CLASS_NODE,
+            DEF_NODE,
+            MODULE_NODE,
+            SINGLETON_CLASS_NODE,
+        ]
     }
 
     fn check_node(
@@ -99,8 +105,8 @@ impl Cop for NestedMethodDefinition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let def_node = match node.as_def_node() {
             Some(n) => n,
@@ -134,18 +140,15 @@ impl Cop for NestedMethodDefinition {
         };
         finder.visit(&body);
 
-        diagnostics.extend(finder
-            .found
-            .iter()
-            .map(|&offset| {
-                let (line, column) = source.offset_to_line_col(offset);
-                self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Method definitions must not be nested. Use `lambda` instead.".to_string(),
-                )
-            }));
+        diagnostics.extend(finder.found.iter().map(|&offset| {
+            let (line, column) = source.offset_to_line_col(offset);
+            self.diagnostic(
+                source,
+                line,
+                column,
+                "Method definitions must not be nested. Use `lambda` instead.".to_string(),
+            )
+        }));
     }
 }
 

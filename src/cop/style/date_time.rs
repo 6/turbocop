@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 
 pub struct DateTime;
 
@@ -20,8 +20,8 @@ impl Cop for DateTime {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_coercion = config.get_bool("AllowCoercion", false);
 
@@ -71,7 +71,6 @@ impl Cop for DateTime {
                 "Prefer `Time` over `DateTime`.".to_string(),
             ));
         }
-
     }
 }
 

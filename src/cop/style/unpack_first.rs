@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, INTEGER_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, INTEGER_NODE};
 
 pub struct UnpackFirst;
 
@@ -32,8 +32,8 @@ impl Cop for UnpackFirst {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -74,7 +74,8 @@ impl Cop for UnpackFirst {
                 if let Some(args) = unpack_call.arguments() {
                     let arg_list: Vec<_> = args.arguments().iter().collect();
                     if arg_list.len() == 1 {
-                        let format_src = std::str::from_utf8(arg_list[0].location().as_slice()).unwrap_or("...");
+                        let format_src =
+                            std::str::from_utf8(arg_list[0].location().as_slice()).unwrap_or("...");
                         let loc = node.location();
                         let current = std::str::from_utf8(loc.as_slice()).unwrap_or("");
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -88,7 +89,6 @@ impl Cop for UnpackFirst {
                 }
             }
         }
-
     }
 }
 

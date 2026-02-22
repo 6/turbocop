@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    CASE_NODE, ELSE_NODE, IF_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, WHEN_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CASE_NODE, ELSE_NODE, IF_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, WHEN_NODE};
 
 pub struct RedundantSelfAssignmentBranch;
 
@@ -11,7 +13,14 @@ impl Cop for RedundantSelfAssignmentBranch {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CASE_NODE, ELSE_NODE, IF_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, WHEN_NODE]
+        &[
+            CASE_NODE,
+            ELSE_NODE,
+            IF_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            LOCAL_VARIABLE_WRITE_NODE,
+            WHEN_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +29,8 @@ impl Cop for RedundantSelfAssignmentBranch {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for: x = if cond; expr; else; x; end
         // or: x = cond ? expr : x
@@ -42,7 +51,6 @@ impl Cop for RedundantSelfAssignmentBranch {
         if let Some(case_node) = value.as_case_node() {
             diagnostics.extend(self.check_case_branch(source, node, &case_node, var_name));
         }
-
     }
 }
 
@@ -158,5 +166,8 @@ fn is_same_var(node: &ruby_prism::Node<'_>, var_name: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(RedundantSelfAssignmentBranch, "cops/style/redundant_self_assignment_branch");
+    crate::cop_fixture_tests!(
+        RedundantSelfAssignmentBranch,
+        "cops/style/redundant_self_assignment_branch"
+    );
 }

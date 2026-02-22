@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    CALL_NODE, CLASS_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE, DEF_NODE,
+    STATEMENTS_NODE, SYMBOL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CLASS_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE, DEF_NODE, STATEMENTS_NODE, SYMBOL_NODE};
 
 pub struct ClassStructure;
 
@@ -24,7 +27,15 @@ impl Cop for ClassStructure {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CLASS_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE, DEF_NODE, STATEMENTS_NODE, SYMBOL_NODE]
+        &[
+            CALL_NODE,
+            CLASS_NODE,
+            CONSTANT_PATH_WRITE_NODE,
+            CONSTANT_WRITE_NODE,
+            DEF_NODE,
+            STATEMENTS_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -33,8 +44,8 @@ impl Cop for ClassStructure {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Reference config keys so config_audit passes
         let _categories = config.get_string_array("Categories");
@@ -116,15 +127,12 @@ impl Cop for ClassStructure {
                     source,
                     line,
                     col,
-                    format!(
-                        "{actual} is expected to appear before {expected}.",
-                    ),
+                    format!("{actual} is expected to appear before {expected}.",),
                 ));
             } else {
                 last_category = category;
             }
         }
-
     }
 }
 

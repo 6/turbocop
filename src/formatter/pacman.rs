@@ -48,7 +48,11 @@ impl Formatter for PacmanFormatter {
         let file_word = if file_count == 1 { "file" } else { "files" };
         let corrected_count = diagnostics.iter().filter(|d| d.corrected).count();
         if corrected_count > 0 {
-            let corrected_word = if corrected_count == 1 { "offense" } else { "offenses" };
+            let corrected_word = if corrected_count == 1 {
+                "offense"
+            } else {
+                "offenses"
+            };
             let _ = writeln!(
                 out,
                 "\n{file_count} {file_word} inspected, {} {offense_word} detected, {corrected_count} {corrected_word} corrected",
@@ -98,7 +102,11 @@ mod tests {
 
     #[test]
     fn offense_file_shows_ghost() {
-        let files = vec![PathBuf::from("a.rb"), PathBuf::from("b.rb"), PathBuf::from("c.rb")];
+        let files = vec![
+            PathBuf::from("a.rb"),
+            PathBuf::from("b.rb"),
+            PathBuf::from("c.rb"),
+        ];
         let diags = vec![make_diag("b.rb")];
         let out = render(&diags, &files);
         let first_line = out.lines().next().unwrap();

@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, MODULE_NODE, STATEMENTS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, MODULE_NODE, STATEMENTS_NODE};
 
 pub struct IndentationConsistency;
 
@@ -15,7 +17,10 @@ fn is_bare_access_modifier(node: &ruby_prism::Node<'_>) -> bool {
     if call.receiver().is_some() || call.arguments().is_some() || call.block().is_some() {
         return false;
     }
-    matches!(call.name().as_slice(), b"private" | b"protected" | b"public")
+    matches!(
+        call.name().as_slice(),
+        b"private" | b"protected" | b"public"
+    )
 }
 
 impl IndentationConsistency {
@@ -158,7 +163,14 @@ impl Cop for IndentationConsistency {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, MODULE_NODE, STATEMENTS_NODE]
+        &[
+            BLOCK_NODE,
+            CALL_NODE,
+            CLASS_NODE,
+            DEF_NODE,
+            MODULE_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -167,8 +179,8 @@ impl Cop for IndentationConsistency {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "normal");
         let indented = style == "indented_internal_methods";
@@ -212,7 +224,6 @@ impl Cop for IndentationConsistency {
             ));
             return;
         }
-
     }
 }
 
@@ -221,7 +232,10 @@ mod tests {
     use super::*;
     use crate::testutil::run_cop_full;
 
-    crate::cop_fixture_tests!(IndentationConsistency, "cops/layout/indentation_consistency");
+    crate::cop_fixture_tests!(
+        IndentationConsistency,
+        "cops/layout/indentation_consistency"
+    );
 
     #[test]
     fn single_statement_body() {
@@ -232,13 +246,14 @@ mod tests {
 
     #[test]
     fn enforced_style_is_read() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("indented_internal_methods".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("indented_internal_methods".into()),
+            )]),
             ..CopConfig::default()
         };
         // In indented_internal_methods, methods in the same section before any
@@ -246,39 +261,52 @@ mod tests {
         // in the same section are flagged.
         let src = b"class Foo\n  def bar; end\n    def baz; end\nend\n";
         let diags = run_cop_full_with_config(&IndentationConsistency, src, config);
-        assert!(!diags.is_empty(), "indented_internal_methods should still flag inconsistency within a section");
+        assert!(
+            !diags.is_empty(),
+            "indented_internal_methods should still flag inconsistency within a section"
+        );
     }
 
     #[test]
     fn indented_internal_methods_allows_extra_indent_after_private() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("indented_internal_methods".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("indented_internal_methods".into()),
+            )]),
             ..CopConfig::default()
         };
         let src = b"class Foo\n  def bar\n  end\n\n  private\n\n    def baz\n    end\n\n    def qux\n    end\nend\n";
         let diags = run_cop_full_with_config(&IndentationConsistency, src, config);
-        assert!(diags.is_empty(), "indented_internal_methods should allow extra indent after private: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "indented_internal_methods should allow extra indent after private: {:?}",
+            diags
+        );
     }
 
     #[test]
     fn indented_internal_methods_flags_inconsistency_within_private_section() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("indented_internal_methods".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("indented_internal_methods".into()),
+            )]),
             ..CopConfig::default()
         };
         // Two methods after private at different indentation levels
-        let src = b"class Foo\n  private\n\n    def bar\n    end\n\n      def baz\n      end\nend\n";
+        let src =
+            b"class Foo\n  private\n\n    def bar\n    end\n\n      def baz\n      end\nend\n";
         let diags = run_cop_full_with_config(&IndentationConsistency, src, config);
-        assert!(!diags.is_empty(), "should flag inconsistency within private section");
+        assert!(
+            !diags.is_empty(),
+            "should flag inconsistency within private section"
+        );
     }
 }

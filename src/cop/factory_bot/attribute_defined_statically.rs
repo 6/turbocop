@@ -1,8 +1,14 @@
-use crate::cop::factory_bot::{ATTRIBUTE_DEFINING_METHODS, FACTORY_BOT_DEFAULT_INCLUDE, RESERVED_METHODS};
+use crate::cop::factory_bot::{
+    ATTRIBUTE_DEFINING_METHODS, FACTORY_BOT_DEFAULT_INCLUDE, RESERVED_METHODS,
+};
+use crate::cop::node_type::{
+    ASSOC_NODE, BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE,
+    KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, SELF_NODE,
+    STATEMENTS_NODE, SYMBOL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, SELF_NODE, STATEMENTS_NODE, SYMBOL_NODE};
 
 pub struct AttributeDefinedStatically;
 
@@ -75,7 +81,20 @@ impl Cop for AttributeDefinedStatically {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ASSOC_NODE, BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, SELF_NODE, STATEMENTS_NODE, SYMBOL_NODE]
+        &[
+            ASSOC_NODE,
+            BLOCK_ARGUMENT_NODE,
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            CALL_NODE,
+            HASH_NODE,
+            KEYWORD_HASH_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            REQUIRED_PARAMETER_NODE,
+            SELF_NODE,
+            STATEMENTS_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -84,8 +103,8 @@ impl Cop for AttributeDefinedStatically {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Match on CallNode for attribute-defining methods (factory, trait, etc.)
         let outer_call = match node.as_call_node() {
@@ -119,7 +138,6 @@ impl Cop for AttributeDefinedStatically {
         } else {
             vec![body]
         };
-
 
         // Get the block's first parameter name (if any)
         let block_param_name = block_node
@@ -200,7 +218,6 @@ impl Cop for AttributeDefinedStatically {
                 "Use a block to declare attribute values.".to_string(),
             ));
         }
-
     }
 }
 

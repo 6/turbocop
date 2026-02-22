@@ -23,8 +23,8 @@ impl Cop for UnexpectedBlockArity {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Read configured methods
         let methods = get_methods(config);
@@ -51,10 +51,7 @@ fn get_methods(config: &CopConfig) -> Vec<(String, usize)> {
             .collect();
     }
     // Defaults
-    vec![
-        ("reduce".to_string(), 2),
-        ("inject".to_string(), 2),
-    ]
+    vec![("reduce".to_string(), 2), ("inject".to_string(), 2)]
 }
 
 struct ArityVisitor<'a, 'src> {
@@ -75,8 +72,7 @@ impl<'pr> Visit<'pr> for ArityVisitor<'_, '_> {
                         let actual = count_block_args(&block_node);
                         if actual < expected {
                             let loc = node.location();
-                            let (line, column) =
-                                self.source.offset_to_line_col(loc.start_offset());
+                            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                             self.diagnostics.push(self.cop.diagnostic(
                                 self.source,
                                 line,

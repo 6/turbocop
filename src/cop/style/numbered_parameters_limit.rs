@@ -1,9 +1,9 @@
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, NUMBERED_PARAMETERS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 use std::collections::HashSet;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, NUMBERED_PARAMETERS_NODE};
 
 pub struct NumberedParametersLimit;
 
@@ -54,8 +54,8 @@ impl Cop for NumberedParametersLimit {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let max = config.get_usize("Max", 1);
 
@@ -103,15 +103,19 @@ impl Cop for NumberedParametersLimit {
                 source,
                 line,
                 column,
-                format!("Avoid using more than {max} numbered parameters; {unique_count} detected."),
+                format!(
+                    "Avoid using more than {max} numbered parameters; {unique_count} detected."
+                ),
             ));
         }
-
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(NumberedParametersLimit, "cops/style/numbered_parameters_limit");
+    crate::cop_fixture_tests!(
+        NumberedParametersLimit,
+        "cops/style/numbered_parameters_limit"
+    );
 }

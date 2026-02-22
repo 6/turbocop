@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, OR_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, OR_NODE};
 
 pub struct Blank;
 
@@ -73,8 +73,8 @@ impl Cop for Blank {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let nil_or_empty = config.get_bool("NilOrEmpty", true);
         let not_present = config.get_bool("NotPresent", true);
@@ -93,10 +93,14 @@ impl Cop for Blank {
                             if let Some(empty_recv) = receiver_source(&right_call) {
                                 if nil_recv == empty_recv {
                                     let loc = node.location();
-                                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                    let recv_str = std::str::from_utf8(nil_recv).unwrap_or("object");
+                                    let (line, column) =
+                                        source.offset_to_line_col(loc.start_offset());
+                                    let recv_str =
+                                        std::str::from_utf8(nil_recv).unwrap_or("object");
                                     let left_str = std::str::from_utf8(left_src).unwrap_or("nil?");
-                                    let right_str = std::str::from_utf8(right.location().as_slice()).unwrap_or("empty?");
+                                    let right_str =
+                                        std::str::from_utf8(right.location().as_slice())
+                                            .unwrap_or("empty?");
                                     diagnostics.push(self.diagnostic(
                                         source,
                                         line,

@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, NIL_NODE, SYMBOL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, NIL_NODE, SYMBOL_NODE};
 
 pub struct WhereMissing;
 
@@ -11,8 +13,8 @@ struct ChainCallInfo {
     name: Vec<u8>,
     start_offset: usize,
     msg_offset: usize,
-    assoc_name: Option<Vec<u8>>,       // For left_joins(:assoc) calls
-    where_nil_assocs: Vec<Vec<u8>>,    // For where(assoc: { id: nil }) — which table names matched
+    assoc_name: Option<Vec<u8>>,    // For left_joins(:assoc) calls
+    where_nil_assocs: Vec<Vec<u8>>, // For where(assoc: { id: nil }) — which table names matched
 }
 
 /// Walk a method chain and collect info about each call.
@@ -30,7 +32,10 @@ fn collect_chain_info_inner(node: &ruby_prism::Node<'_>, infos: &mut Vec<ChainCa
 
     let name = call.name().as_slice().to_vec();
     let start_offset = call.location().start_offset();
-    let msg_offset = call.message_loc().map(|l| l.start_offset()).unwrap_or(start_offset);
+    let msg_offset = call
+        .message_loc()
+        .map(|l| l.start_offset())
+        .unwrap_or(start_offset);
 
     let assoc_name = left_joins_assoc(&call);
     let where_nil_assocs = if name == b"where" {
@@ -106,7 +111,6 @@ fn left_joins_assoc<'a>(call: &ruby_prism::CallNode<'a>) -> Option<Vec<u8>> {
     Some(sym.unescaped().to_vec())
 }
 
-
 fn hash_has_id_nil(hash: &ruby_prism::HashNode<'_>) -> bool {
     for elem in hash.elements().iter() {
         if let Some(assoc) = elem.as_assoc_node() {
@@ -133,7 +137,6 @@ fn keyword_hash_has_id_nil(hash: &ruby_prism::KeywordHashNode<'_>) -> bool {
     false
 }
 
-
 impl Cop for WhereMissing {
     fn name(&self) -> &'static str {
         "Rails/WhereMissing"
@@ -144,7 +147,14 @@ impl Cop for WhereMissing {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, NIL_NODE, SYMBOL_NODE]
+        &[
+            ASSOC_NODE,
+            CALL_NODE,
+            HASH_NODE,
+            KEYWORD_HASH_NODE,
+            NIL_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -153,8 +163,8 @@ impl Cop for WhereMissing {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // We look for a method chain that contains both:
         // 1. left_joins(:assoc) or left_outer_joins(:assoc)
@@ -184,7 +194,6 @@ impl Cop for WhereMissing {
             return;
         }
 
-
         for (lj_idx, assoc_name) in &left_joins_info {
             // Build both singular and plural table names for matching
             let mut plural = (*assoc_name).clone();
@@ -195,7 +204,9 @@ impl Cop for WhereMissing {
                     continue;
                 }
                 // Check if this is a where call with matching nil-id assoc
-                if !info.where_nil_assocs.iter().any(|a| a.as_slice() == assoc_name.as_slice() || a.as_slice() == plural.as_slice()) {
+                if !info.where_nil_assocs.iter().any(|a| {
+                    a.as_slice() == assoc_name.as_slice() || a.as_slice() == plural.as_slice()
+                }) {
                     continue;
                 }
                 // Only fire if the closer-to-root element of the pair is at index 0
@@ -226,7 +237,6 @@ impl Cop for WhereMissing {
                 }
             }
         }
-
     }
 }
 

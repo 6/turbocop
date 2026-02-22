@@ -10,12 +10,20 @@ pub struct CommentIndentation;
 /// When a comment precedes one of these, it can be indented to match either
 /// the keyword or the body it precedes (keyword indent + indentation_width).
 fn is_two_alternative_keyword(line: &[u8]) -> bool {
-    let trimmed: &[u8] = &line[line.iter().position(|&b| b != b' ' && b != b'\t').unwrap_or(line.len())..];
-    trimmed.starts_with(b"else\n") || trimmed.starts_with(b"else\r") || trimmed == b"else"
+    let trimmed: &[u8] = &line[line
+        .iter()
+        .position(|&b| b != b' ' && b != b'\t')
+        .unwrap_or(line.len())..];
+    trimmed.starts_with(b"else\n")
+        || trimmed.starts_with(b"else\r")
+        || trimmed == b"else"
         || trimmed.starts_with(b"else ")
-        || trimmed.starts_with(b"elsif ")  || trimmed.starts_with(b"elsif\n")
-        || trimmed.starts_with(b"when ")   || trimmed.starts_with(b"when\n")
-        || trimmed.starts_with(b"in ")     || trimmed.starts_with(b"in\n")
+        || trimmed.starts_with(b"elsif ")
+        || trimmed.starts_with(b"elsif\n")
+        || trimmed.starts_with(b"when ")
+        || trimmed.starts_with(b"when\n")
+        || trimmed.starts_with(b"in ")
+        || trimmed.starts_with(b"in\n")
         || trimmed.starts_with(b"rescue")
         || trimmed.starts_with(b"ensure")
 }
@@ -23,9 +31,15 @@ fn is_two_alternative_keyword(line: &[u8]) -> bool {
 /// Check if a line is "less indented" — `end`, `)`, `}`, `]`.
 /// Comments before these should align with the body, not the closing keyword.
 fn is_less_indented(line: &[u8]) -> bool {
-    let trimmed: &[u8] = &line[line.iter().position(|&b| b != b' ' && b != b'\t').unwrap_or(line.len())..];
-    trimmed.starts_with(b"end") && (trimmed.len() == 3 || !trimmed[3].is_ascii_alphanumeric() && trimmed[3] != b'_')
-        || trimmed.starts_with(b")") || trimmed.starts_with(b"}") || trimmed.starts_with(b"]")
+    let trimmed: &[u8] = &line[line
+        .iter()
+        .position(|&b| b != b' ' && b != b'\t')
+        .unwrap_or(line.len())..];
+    trimmed.starts_with(b"end")
+        && (trimmed.len() == 3 || !trimmed[3].is_ascii_alphanumeric() && trimmed[3] != b'_')
+        || trimmed.starts_with(b")")
+        || trimmed.starts_with(b"}")
+        || trimmed.starts_with(b"]")
 }
 
 impl Cop for CommentIndentation {
@@ -39,8 +53,8 @@ impl Cop for CommentIndentation {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_for_alignment = config.get_bool("AllowForAlignment", false);
         let indent_width = config.get_usize("IndentationWidth", 2);
@@ -167,7 +181,6 @@ impl Cop for CommentIndentation {
                 ));
             }
         }
-
     }
 }
 

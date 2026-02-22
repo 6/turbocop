@@ -103,7 +103,10 @@ fn has_matching_definition(source: &str, expected_namespace: &[String]) -> bool 
 
     for line in source.lines() {
         let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("class ").or_else(|| trimmed.strip_prefix("module ")) {
+        if let Some(rest) = trimmed
+            .strip_prefix("class ")
+            .or_else(|| trimmed.strip_prefix("module "))
+        {
             let def_name = rest
                 .split(|c: char| c == '<' || c == '(' || c.is_whitespace())
                 .next()
@@ -122,7 +125,13 @@ impl Cop for FileName {
         "Naming/FileName"
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         let expect_matching_definition = config.get_bool("ExpectMatchingDefinition", false);
         let check_def_path_hierarchy = config.get_bool("CheckDefinitionPathHierarchy", true);
         let check_def_path_roots = config.get_string_array("CheckDefinitionPathHierarchyRoots");
@@ -188,15 +197,15 @@ impl Cop for FileName {
 
         // RuboCop allows dots in filenames (e.g., show.html.haml_spec).
         // Check snake_case on each dot-separated segment individually.
-        let all_segments_snake = check_name.split('.').all(|seg| is_snake_case(seg.as_bytes()));
+        let all_segments_snake = check_name
+            .split('.')
+            .all(|seg| is_snake_case(seg.as_bytes()));
         if !all_segments_snake {
             diagnostics.push(self.diagnostic(
                 source,
                 1,
                 0,
-                format!(
-                    "The name of this source file (`{file_stem}`) should use snake_case."
-                ),
+                format!("The name of this source file (`{file_stem}`) should use snake_case."),
             ));
         }
 
@@ -222,7 +231,6 @@ impl Cop for FileName {
                 ));
             }
         }
-
     }
 }
 
@@ -232,7 +240,8 @@ mod tests {
     use crate::parse::source::SourceFile;
 
     crate::cop_scenario_fixture_tests!(
-        FileName, "cops/naming/file_name",
+        FileName,
+        "cops/naming/file_name",
         camel_case = "camel_case.rb",
         bad_name = "bad_name.rb",
         with_dash = "with_dash.rb",
@@ -282,10 +291,16 @@ mod tests {
 
     #[test]
     fn no_offense_vagrantfile() {
-        let source = SourceFile::from_bytes("Vagrantfile", b"Vagrant.configure('2') do |config|\nend\n".to_vec());
+        let source = SourceFile::from_bytes(
+            "Vagrantfile",
+            b"Vagrant.configure('2') do |config|\nend\n".to_vec(),
+        );
         let mut diags = Vec::new();
         FileName.check_lines(&source, &CopConfig::default(), &mut diags, None);
-        assert!(diags.is_empty(), "Vagrantfile should be in allowed CamelCase filenames");
+        assert!(
+            diags.is_empty(),
+            "Vagrantfile should be in allowed CamelCase filenames"
+        );
     }
 
     #[test]
@@ -298,50 +313,72 @@ mod tests {
 
     #[test]
     fn no_offense_gemspec() {
-        let source = SourceFile::from_bytes("my-gem.gemspec", b"Gem::Specification.new do |s|\n  s.name = 'my-gem'\nend\n".to_vec());
+        let source = SourceFile::from_bytes(
+            "my-gem.gemspec",
+            b"Gem::Specification.new do |s|\n  s.name = 'my-gem'\nend\n".to_vec(),
+        );
         let mut diags = Vec::new();
         FileName.check_lines(&source, &CopConfig::default(), &mut diags, None);
-        assert!(diags.is_empty(), "Should not flag .gemspec files (dashes are conventional)");
+        assert!(
+            diags.is_empty(),
+            "Should not flag .gemspec files (dashes are conventional)"
+        );
     }
 
     #[test]
     fn no_offense_gemspec_with_namespace() {
-        let source = SourceFile::from_bytes("rack-protection.gemspec", b"Gem::Specification.new do |s|\n  s.name = 'rack-protection'\nend\n".to_vec());
+        let source = SourceFile::from_bytes(
+            "rack-protection.gemspec",
+            b"Gem::Specification.new do |s|\n  s.name = 'rack-protection'\nend\n".to_vec(),
+        );
         let mut diags = Vec::new();
         FileName.check_lines(&source, &CopConfig::default(), &mut diags, None);
-        assert!(diags.is_empty(), "Should not flag namespaced .gemspec files");
+        assert!(
+            diags.is_empty(),
+            "Should not flag namespaced .gemspec files"
+        );
     }
 
     #[test]
     fn config_ignore_executable_scripts() {
-        let source = SourceFile::from_bytes("MyScript", b"#!/usr/bin/env ruby\nputs 'hi'\n".to_vec());
+        let source =
+            SourceFile::from_bytes("MyScript", b"#!/usr/bin/env ruby\nputs 'hi'\n".to_vec());
         let mut diags = Vec::new();
         FileName.check_lines(&source, &CopConfig::default(), &mut diags, None);
-        assert!(diags.is_empty(), "Should skip executable scripts with shebang");
+        assert!(
+            diags.is_empty(),
+            "Should skip executable scripts with shebang"
+        );
     }
 
     #[test]
     fn config_ignore_executable_scripts_false() {
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("IgnoreExecutableScripts".into(), serde_yml::Value::Bool(false)),
-            ]),
+            options: HashMap::from([(
+                "IgnoreExecutableScripts".into(),
+                serde_yml::Value::Bool(false),
+            )]),
             ..CopConfig::default()
         };
-        let source = SourceFile::from_bytes("MyScript.rb", b"#!/usr/bin/env ruby\nputs 'hi'\n".to_vec());
+        let source =
+            SourceFile::from_bytes("MyScript.rb", b"#!/usr/bin/env ruby\nputs 'hi'\n".to_vec());
         let mut diags = Vec::new();
         FileName.check_lines(&source, &config, &mut diags, None);
-        assert!(!diags.is_empty(), "Should flag non-snake_case even with shebang when IgnoreExecutableScripts:false");
+        assert!(
+            !diags.is_empty(),
+            "Should flag non-snake_case even with shebang when IgnoreExecutableScripts:false"
+        );
     }
 
     #[test]
     fn config_regex() {
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("Regex".into(), serde_yml::Value::String(r"\A[a-z_]+\z".into())),
-            ]),
+            options: HashMap::from([(
+                "Regex".into(),
+                serde_yml::Value::String(r"\A[a-z_]+\z".into()),
+            )]),
             ..CopConfig::default()
         };
         let source = SourceFile::from_bytes("good_file.rb", b"x = 1\n".to_vec());
@@ -354,11 +391,10 @@ mod tests {
     fn config_allowed_acronyms() {
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("AllowedAcronyms".into(), serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("HTML".into()),
-                ])),
-            ]),
+            options: HashMap::from([(
+                "AllowedAcronyms".into(),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("HTML".into())]),
+            )]),
             ..CopConfig::default()
         };
         let source = SourceFile::from_bytes("my_HTML_parser.rb", b"x = 1\n".to_vec());
@@ -371,15 +407,19 @@ mod tests {
     fn expect_matching_definition_flags_missing_class() {
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("ExpectMatchingDefinition".into(), serde_yml::Value::Bool(true)),
-            ]),
+            options: HashMap::from([(
+                "ExpectMatchingDefinition".into(),
+                serde_yml::Value::Bool(true),
+            )]),
             ..CopConfig::default()
         };
         let source = SourceFile::from_bytes("my_class.rb", b"x = 1\n".to_vec());
         let mut diags = Vec::new();
         FileName.check_lines(&source, &config, &mut diags, None);
-        assert!(!diags.is_empty(), "ExpectMatchingDefinition should flag file without matching class");
+        assert!(
+            !diags.is_empty(),
+            "ExpectMatchingDefinition should flag file without matching class"
+        );
         assert!(diags[0].message.contains("MyClass"));
     }
 
@@ -387,15 +427,19 @@ mod tests {
     fn expect_matching_definition_allows_matching_class() {
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("ExpectMatchingDefinition".into(), serde_yml::Value::Bool(true)),
-            ]),
+            options: HashMap::from([(
+                "ExpectMatchingDefinition".into(),
+                serde_yml::Value::Bool(true),
+            )]),
             ..CopConfig::default()
         };
         let source = SourceFile::from_bytes("my_class.rb", b"class MyClass\nend\n".to_vec());
         let mut diags = Vec::new();
         FileName.check_lines(&source, &config, &mut diags, None);
-        assert!(diags.is_empty(), "ExpectMatchingDefinition should accept matching class");
+        assert!(
+            diags.is_empty(),
+            "ExpectMatchingDefinition should accept matching class"
+        );
     }
 
     #[test]
@@ -403,8 +447,14 @@ mod tests {
         use std::collections::HashMap;
         let config = CopConfig {
             options: HashMap::from([
-                ("ExpectMatchingDefinition".into(), serde_yml::Value::Bool(true)),
-                ("CheckDefinitionPathHierarchy".into(), serde_yml::Value::Bool(true)),
+                (
+                    "ExpectMatchingDefinition".into(),
+                    serde_yml::Value::Bool(true),
+                ),
+                (
+                    "CheckDefinitionPathHierarchy".into(),
+                    serde_yml::Value::Bool(true),
+                ),
             ]),
             ..CopConfig::default()
         };
@@ -422,17 +472,24 @@ mod tests {
         use std::collections::HashMap;
         let config = CopConfig {
             options: HashMap::from([
-                ("ExpectMatchingDefinition".into(), serde_yml::Value::Bool(true)),
-                ("CheckDefinitionPathHierarchy".into(), serde_yml::Value::Bool(false)),
+                (
+                    "ExpectMatchingDefinition".into(),
+                    serde_yml::Value::Bool(true),
+                ),
+                (
+                    "CheckDefinitionPathHierarchy".into(),
+                    serde_yml::Value::Bool(false),
+                ),
             ]),
             ..CopConfig::default()
         };
-        let source = SourceFile::from_bytes(
-            "lib/my_gem/my_class.rb",
-            b"class MyClass\nend\n".to_vec(),
-        );
+        let source =
+            SourceFile::from_bytes("lib/my_gem/my_class.rb", b"class MyClass\nend\n".to_vec());
         let mut diags = Vec::new();
         FileName.check_lines(&source, &config, &mut diags, None);
-        assert!(diags.is_empty(), "Without hierarchy check, just the class name should match");
+        assert!(
+            diags.is_empty(),
+            "Without hierarchy check, just the class name should match"
+        );
     }
 }

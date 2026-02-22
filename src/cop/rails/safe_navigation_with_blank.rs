@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, IF_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, IF_NODE, UNLESS_NODE};
 
 pub struct SafeNavigationWithBlank;
 
@@ -59,8 +59,8 @@ impl Cop for SafeNavigationWithBlank {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check if nodes
         if let Some(if_node) = node.as_if_node() {
@@ -75,12 +75,14 @@ impl Cop for SafeNavigationWithBlank {
             diagnostics.extend(check_safe_blank_predicate(source, &predicate, self));
             return;
         }
-
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(SafeNavigationWithBlank, "cops/rails/safe_navigation_with_blank");
+    crate::cop_fixture_tests!(
+        SafeNavigationWithBlank,
+        "cops/rails/safe_navigation_with_blank"
+    );
 }

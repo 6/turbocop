@@ -1,17 +1,17 @@
 use ruby_prism::Visit;
 
+use crate::cop::node_type::{
+    ASSOC_NODE, BLOCK_ARGUMENT_NODE, BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, HASH_NODE,
+    KEYWORD_HASH_NODE, STATEMENTS_NODE, SYMBOL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, BLOCK_ARGUMENT_NODE, BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, HASH_NODE, KEYWORD_HASH_NODE, STATEMENTS_NODE, SYMBOL_NODE};
 
 pub struct ReversibleMigration;
 
 /// Methods that are always irreversible in a `change` method.
-const IRREVERSIBLE_METHODS: &[&[u8]] = &[
-    b"execute",
-    b"change_column",
-];
+const IRREVERSIBLE_METHODS: &[&[u8]] = &[b"execute", b"change_column"];
 
 /// Methods that are irreversible without certain conditions.
 const CONDITIONALLY_IRREVERSIBLE: &[(&[u8], IrreversibleCondition)] = &[
@@ -19,7 +19,10 @@ const CONDITIONALLY_IRREVERSIBLE: &[(&[u8], IrreversibleCondition)] = &[
     (b"remove_column", IrreversibleCondition::NeedsThreeArgs),
     (b"remove_columns", IrreversibleCondition::NeedsTypeOption),
     (b"remove_index", IrreversibleCondition::NeedsColumnOption),
-    (b"remove_foreign_key", IrreversibleCondition::NeedsTwoArgsOrToTable),
+    (
+        b"remove_foreign_key",
+        IrreversibleCondition::NeedsTwoArgsOrToTable,
+    ),
     (b"change_column_default", IrreversibleCondition::NeedsFromTo),
     (b"change_table_comment", IrreversibleCondition::NeedsFromTo),
     (b"change_column_comment", IrreversibleCondition::NeedsFromTo),
@@ -200,9 +203,7 @@ fn is_condition_met(call: &ruby_prism::CallNode<'_>, condition: IrreversibleCond
                 false
             }
         }
-        IrreversibleCondition::NeedsTypeOption => {
-            has_type_option(call)
-        }
+        IrreversibleCondition::NeedsTypeOption => has_type_option(call),
         IrreversibleCondition::NeedsColumnOption => {
             // remove_index needs :column option or 2 positional args
             if let Some(args) = call.arguments() {
@@ -210,7 +211,9 @@ fn is_condition_met(call: &ruby_prism::CallNode<'_>, condition: IrreversibleCond
                 // 2 positional args: remove_index(:table, :column)
                 if arg_list.len() >= 2 {
                     // Check second arg isn't just a hash with name:
-                    if arg_list[1].as_keyword_hash_node().is_none() && arg_list[1].as_hash_node().is_none() {
+                    if arg_list[1].as_keyword_hash_node().is_none()
+                        && arg_list[1].as_hash_node().is_none()
+                    {
                         return true;
                     }
                     // Check for column: keyword
@@ -237,9 +240,7 @@ fn is_condition_met(call: &ruby_prism::CallNode<'_>, condition: IrreversibleCond
                 false
             }
         }
-        IrreversibleCondition::NeedsFromTo => {
-            has_from_and_to_args(call)
-        }
+        IrreversibleCondition::NeedsFromTo => has_from_and_to_args(call),
     }
 }
 
@@ -308,7 +309,18 @@ impl Cop for ReversibleMigration {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ASSOC_NODE, BLOCK_ARGUMENT_NODE, BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, HASH_NODE, KEYWORD_HASH_NODE, STATEMENTS_NODE, SYMBOL_NODE]
+        &[
+            ASSOC_NODE,
+            BLOCK_ARGUMENT_NODE,
+            BLOCK_NODE,
+            CALL_NODE,
+            CLASS_NODE,
+            DEF_NODE,
+            HASH_NODE,
+            KEYWORD_HASH_NODE,
+            STATEMENTS_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -317,8 +329,8 @@ impl Cop for ReversibleMigration {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Only check class definitions that inherit from Migration
         let class_node = match node.as_class_node() {
@@ -346,7 +358,6 @@ impl Cop for ReversibleMigration {
             None => return,
         };
 
-
         for stmt in stmts.body().iter() {
             if let Some(def_node) = stmt.as_def_node() {
                 if def_node.name().as_slice() == b"change" {
@@ -367,7 +378,6 @@ impl Cop for ReversibleMigration {
                 }
             }
         }
-
     }
 }
 

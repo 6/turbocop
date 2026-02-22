@@ -1,8 +1,11 @@
+use crate::cop::node_type::{
+    ASSOC_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, KEYWORD_HASH_NODE, PROGRAM_NODE,
+    STRING_NODE, SYMBOL_NODE,
+};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, KEYWORD_HASH_NODE, PROGRAM_NODE, STRING_NODE, SYMBOL_NODE};
 
 /// RSpec/DescribeClass: The first argument to top-level describe should be
 /// the class or module being tested.
@@ -22,7 +25,16 @@ impl Cop for DescribeClass {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ASSOC_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, KEYWORD_HASH_NODE, PROGRAM_NODE, STRING_NODE, SYMBOL_NODE]
+        &[
+            ASSOC_NODE,
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            KEYWORD_HASH_NODE,
+            PROGRAM_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -31,8 +43,8 @@ impl Cop for DescribeClass {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let program = match node.as_program_node() {
             Some(p) => p,
@@ -44,7 +56,6 @@ impl Cop for DescribeClass {
         for stmt in stmts.body().iter() {
             check_top_level_describe(self, source, &stmt, diagnostics, config);
         }
-
     }
 }
 
@@ -212,15 +223,16 @@ mod tests {
         let config = CopConfig {
             options: HashMap::from([(
                 "IgnoredMetadata".into(),
-                serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("feature".into()),
-                ]),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("feature".into())]),
             )]),
             ..CopConfig::default()
         };
         let source = b"describe 'some feature', feature: true do\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&DescribeClass, source, config);
-        assert!(diags.is_empty(), "Should skip when IgnoredMetadata key is present");
+        assert!(
+            diags.is_empty(),
+            "Should skip when IgnoredMetadata key is present"
+        );
     }
 
     #[test]
@@ -231,9 +243,7 @@ mod tests {
         let config = CopConfig {
             options: HashMap::from([(
                 "IgnoredMetadata".into(),
-                serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("feature".into()),
-                ]),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("feature".into())]),
             )]),
             ..CopConfig::default()
         };

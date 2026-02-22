@@ -1,7 +1,7 @@
+use crate::cop::node_type::ARRAY_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::ARRAY_NODE;
 
 pub struct SpaceInsideArrayPercentLiteral;
 
@@ -24,8 +24,8 @@ impl Cop for SpaceInsideArrayPercentLiteral {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let array = match node.as_array_node() {
             Some(a) => a,
@@ -44,8 +44,10 @@ impl Cop for SpaceInsideArrayPercentLiteral {
 
         let open_slice = open_loc.as_slice();
         // Only percent array literals
-        if !open_slice.starts_with(b"%w") && !open_slice.starts_with(b"%W")
-            && !open_slice.starts_with(b"%i") && !open_slice.starts_with(b"%I")
+        if !open_slice.starts_with(b"%w")
+            && !open_slice.starts_with(b"%W")
+            && !open_slice.starts_with(b"%i")
+            && !open_slice.starts_with(b"%I")
         {
             return;
         }
@@ -85,14 +87,18 @@ impl Cop for SpaceInsideArrayPercentLiteral {
                         let offset = open_end + space_start;
                         let (line, col) = source.offset_to_line_col(offset);
                         let mut diag = self.diagnostic(
-                            source, line, col,
+                            source,
+                            line,
+                            col,
                             "Use only a single space inside array percent literal.".to_string(),
                         );
                         if let Some(ref mut corr) = corrections {
                             corr.push(crate::correction::Correction {
-                                start: offset, end: offset + space_len,
+                                start: offset,
+                                end: offset + space_len,
                                 replacement: " ".to_string(),
-                                cop_name: self.name(), cop_index: 0,
+                                cop_name: self.name(),
+                                cop_index: 0,
                             });
                             diag.corrected = true;
                         }
@@ -103,7 +109,6 @@ impl Cop for SpaceInsideArrayPercentLiteral {
                 i += 1;
             }
         }
-
     }
 }
 

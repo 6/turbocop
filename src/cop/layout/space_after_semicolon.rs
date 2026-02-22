@@ -20,8 +20,8 @@ impl Cop for SpaceAfterSemicolon {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let bytes = source.as_bytes();
         for (i, &byte) in bytes.iter().enumerate() {
@@ -62,7 +62,8 @@ mod tests {
     #[test]
     fn autocorrect_insert_space() {
         let input = b"x = 1;y = 2\n";
-        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&SpaceAfterSemicolon, input);
+        let (_diags, corrections) =
+            crate::testutil::run_cop_autocorrect(&SpaceAfterSemicolon, input);
         assert!(!corrections.is_empty());
         let cs = crate::correction::CorrectionSet::from_vec(corrections);
         let corrected = cs.apply(input);

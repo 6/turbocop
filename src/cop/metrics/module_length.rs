@@ -1,8 +1,8 @@
-use crate::cop::util::{count_body_lines_full, collect_foldable_ranges};
+use crate::cop::node_type::{CLASS_NODE, MODULE_NODE, STATEMENTS_NODE};
+use crate::cop::util::{collect_foldable_ranges, count_body_lines_full};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CLASS_NODE, MODULE_NODE, STATEMENTS_NODE};
 
 pub struct ModuleLength;
 
@@ -66,8 +66,8 @@ impl Cop for ModuleLength {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let module_node = match node.as_module_node() {
             Some(m) => m,
@@ -102,7 +102,14 @@ impl Cop for ModuleLength {
             inner_ranges = inner_classlike_ranges(source, &body);
         }
 
-        let count = count_body_lines_full(source, start_offset, end_offset, count_comments, &foldable_ranges, &inner_ranges);
+        let count = count_body_lines_full(
+            source,
+            start_offset,
+            end_offset,
+            count_comments,
+            &foldable_ranges,
+            &inner_ranges,
+        );
 
         if count > max {
             let (line, column) = source.offset_to_line_col(start_offset);
@@ -113,7 +120,6 @@ impl Cop for ModuleLength {
                 format!("Module has too many lines. [{count}/{max}]"),
             ));
         }
-
     }
 }
 
@@ -124,8 +130,8 @@ mod tests {
 
     #[test]
     fn config_custom_max() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([("Max".into(), serde_yml::Value::Number(3.into()))]),
@@ -140,21 +146,25 @@ mod tests {
 
     #[test]
     fn config_count_as_one_array() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([
                 ("Max".into(), serde_yml::Value::Number(3.into())),
-                ("CountAsOne".into(), serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("array".into()),
-                ])),
+                (
+                    "CountAsOne".into(),
+                    serde_yml::Value::Sequence(vec![serde_yml::Value::String("array".into())]),
+                ),
             ]),
             ..CopConfig::default()
         };
         // Body: a, b, [\n1,\n2\n] = 2 + 1 folded = 3 lines
         let source = b"module Foo\n  a = 1\n  b = 2\n  ARR = [\n    1,\n    2\n  ]\nend\n";
         let diags = run_cop_full_with_config(&ModuleLength, source, config);
-        assert!(diags.is_empty(), "Should not fire when array is folded (3/3)");
+        assert!(
+            diags.is_empty(),
+            "Should not fire when array is folded (3/3)"
+        );
     }
 }

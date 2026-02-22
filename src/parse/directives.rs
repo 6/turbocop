@@ -132,10 +132,7 @@ impl DisabledRanges {
                     for &cop in &cop_names {
                         if let Some((start_line, _col, directive_idx)) = open_disables.remove(cop) {
                             let range = (start_line, line);
-                            ranges
-                                .entry(cop.to_string())
-                                .or_default()
-                                .push(range);
+                            ranges.entry(cop.to_string()).or_default().push(range);
                             // Update the directive's range
                             if directive_idx < directives.len() {
                                 directives[directive_idx].range = range;
@@ -216,10 +213,7 @@ impl DisabledRanges {
     /// Mark all directives with the given key that cover the given line as used.
     fn mark_directives_used(&mut self, key: &str, line: usize) {
         for directive in &mut self.directives {
-            if directive.cop_name == key
-                && line >= directive.range.0
-                && line <= directive.range.1
-            {
+            if directive.cop_name == key && line >= directive.range.0 && line <= directive.range.1 {
                 directive.used = true;
             }
         }
@@ -303,8 +297,7 @@ mod tests {
 
     #[test]
     fn department_disable() {
-        let src =
-            "# rubocop:disable Metrics\nx = 1\n# rubocop:enable Metrics\ny = 2\n";
+        let src = "# rubocop:disable Metrics\nx = 1\n# rubocop:enable Metrics\ny = 2\n";
         let dr = disabled_ranges(src);
         assert!(dr.is_disabled("Metrics/MethodLength", 2));
         assert!(dr.is_disabled("Metrics/AbcSize", 2));
@@ -428,19 +421,19 @@ mod tests {
 
     #[test]
     fn department_disable_marked_used() {
-        let mut dr = disabled_ranges(
-            "# rubocop:disable Metrics\nx = 1\n# rubocop:enable Metrics\ny = 2\n",
-        );
+        let mut dr =
+            disabled_ranges("# rubocop:disable Metrics\nx = 1\n# rubocop:enable Metrics\ny = 2\n");
         assert!(dr.check_and_mark_used("Metrics/MethodLength", 2));
         let unused: Vec<_> = dr.unused_directives().collect();
-        assert!(unused.is_empty(), "department directive should be marked used");
+        assert!(
+            unused.is_empty(),
+            "department directive should be marked used"
+        );
     }
 
     #[test]
     fn all_disable_marked_used() {
-        let mut dr = disabled_ranges(
-            "# rubocop:disable all\nx = 1\n# rubocop:enable all\ny = 2\n",
-        );
+        let mut dr = disabled_ranges("# rubocop:disable all\nx = 1\n# rubocop:enable all\ny = 2\n");
         assert!(dr.check_and_mark_used("Style/Foo", 2));
         let unused: Vec<_> = dr.unused_directives().collect();
         assert!(unused.is_empty(), "all directive should be marked used");
@@ -488,7 +481,12 @@ mod tests {
                 "Layout", "Style", "Lint", "Metrics", "Naming", "Rails", "RSpec",
             ]);
             let cops = prop::sample::select(vec![
-                "Foo", "Bar", "Baz", "LineLength", "MethodLength", "AbcSize",
+                "Foo",
+                "Bar",
+                "Baz",
+                "LineLength",
+                "MethodLength",
+                "AbcSize",
             ]);
             (depts, cops).prop_map(|(d, c)| format!("{d}/{c}"))
         }

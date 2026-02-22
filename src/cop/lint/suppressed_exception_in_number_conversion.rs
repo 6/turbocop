@@ -25,8 +25,8 @@ impl Cop for SuppressedExceptionInNumberConversion {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = NumConvVisitor {
             cop: self,
@@ -123,13 +123,13 @@ fn is_numeric_constructor(node: &ruby_prism::Node<'_>) -> bool {
 }
 
 fn build_preferred(call: &ruby_prism::CallNode<'_>, source: &SourceFile) -> String {
-    let method_name =
-        std::str::from_utf8(call.name().as_slice()).unwrap_or("Integer");
+    let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("Integer");
     let mut args_parts: Vec<String> = Vec::new();
 
     if let Some(args) = call.arguments() {
         for arg in args.arguments().iter() {
-            let src = &source.as_bytes()[arg.location().start_offset()..arg.location().end_offset()];
+            let src =
+                &source.as_bytes()[arg.location().start_offset()..arg.location().end_offset()];
             args_parts.push(std::str::from_utf8(src).unwrap_or("arg").to_string());
         }
     }

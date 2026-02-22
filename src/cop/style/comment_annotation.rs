@@ -9,7 +9,12 @@ const DEFAULT_KEYWORDS: &[&str] = &["TODO", "FIXME", "OPTIMIZE", "HACK", "REVIEW
 /// RuboCop's `just_keyword_of_sentence?`: if the keyword is exactly Capitalized
 /// (e.g., `Note`, `Fixme`), has no colon, and has a space+note, it's just a word
 /// in a sentence, not an annotation.
-fn just_keyword_of_sentence(keyword_text: &str, has_colon: bool, has_space: bool, has_note: bool) -> bool {
+fn just_keyword_of_sentence(
+    keyword_text: &str,
+    has_colon: bool,
+    has_space: bool,
+    has_note: bool,
+) -> bool {
     if has_colon || !has_space || !has_note {
         return false;
     }
@@ -33,14 +38,13 @@ impl Cop for CommentAnnotation {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let require_colon = config.get_bool("RequireColon", true);
         let keywords_opt = config.get_string_array("Keywords");
-        let keywords: Vec<String> = keywords_opt.unwrap_or_else(|| {
-            DEFAULT_KEYWORDS.iter().map(|s| s.to_string()).collect()
-        });
+        let keywords: Vec<String> = keywords_opt
+            .unwrap_or_else(|| DEFAULT_KEYWORDS.iter().map(|s| s.to_string()).collect());
 
         let bytes = source.as_bytes();
         let comments: Vec<_> = parse_result.comments().collect();
@@ -49,10 +53,11 @@ impl Cop for CommentAnnotation {
             let loc = comment.location();
             let comment_start_offset = loc.start_offset();
             let comment_end_offset = loc.end_offset();
-            let comment_text = match std::str::from_utf8(&bytes[comment_start_offset..comment_end_offset]) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
+            let comment_text =
+                match std::str::from_utf8(&bytes[comment_start_offset..comment_end_offset]) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
 
             // RuboCop only checks the first line of a contiguous comment block,
             // or inline comments (comments on lines with code).
@@ -115,7 +120,10 @@ impl Cop for CommentAnnotation {
                 let kw_upper = keyword.to_uppercase();
 
                 // Check if the comment starts with this keyword (case-insensitive)
-                if !trimmed.get(..keyword.len()).is_some_and(|s| s.eq_ignore_ascii_case(&kw_upper)) {
+                if !trimmed
+                    .get(..keyword.len())
+                    .is_some_and(|s| s.eq_ignore_ascii_case(&kw_upper))
+                {
                     continue;
                 }
 
@@ -173,19 +181,19 @@ impl Cop for CommentAnnotation {
                 // RuboCop's correct? = keyword && space && note && keyword==UPPER &&
                 //   (colon.nil? == !require_colon)
                 let is_keyword_upper = keyword_text == kw_upper;
-                let is_correct = is_keyword_upper && has_space && has_note
-                    && (has_colon == require_colon);
+                let is_correct =
+                    is_keyword_upper && has_space && has_note && (has_colon == require_colon);
                 if is_correct {
                     continue;
                 }
 
                 // Check if this is actually an annotation keyword (followed by colon, space, or end-of-line)
-                if after_kw.is_empty()
-                    || after_kw.starts_with(':')
-                    || after_kw.starts_with(' ')
-                {
+                if after_kw.is_empty() || after_kw.starts_with(':') || after_kw.starts_with(' ') {
                     let msg = if after_kw.is_empty() {
-                        format!("Annotation comment, with keyword `{}`, is missing a note.", kw_upper)
+                        format!(
+                            "Annotation comment, with keyword `{}`, is missing a note.",
+                            kw_upper
+                        )
                     } else if require_colon {
                         format!(
                             "Annotation keywords like `{}` should be all upper case, followed by a colon, and a space, then a note describing the problem.",
@@ -201,17 +209,11 @@ impl Cop for CommentAnnotation {
                     // Column of the keyword within the comment
                     let (_, comment_col) = source.offset_to_line_col(comment_start_offset);
                     let kw_col = comment_col + 1 + margin_len;
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        comment_line,
-                        kw_col,
-                        msg,
-                    ));
+                    diagnostics.push(self.diagnostic(source, comment_line, kw_col, msg));
                     break;
                 }
             }
         }
-
     }
 }
 

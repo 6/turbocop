@@ -1,7 +1,7 @@
+use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE};
 
 pub struct RedundantWithIndex;
 
@@ -24,8 +24,8 @@ impl Cop for RedundantWithIndex {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -54,8 +54,7 @@ impl Cop for RedundantWithIndex {
             Some(p) => {
                 if let Some(bp) = p.as_block_parameters_node() {
                     if let Some(params_node) = bp.parameters() {
-                        params_node.requireds().len()
-                            + params_node.optionals().len()
+                        params_node.requireds().len() + params_node.optionals().len()
                     } else {
                         0
                     }
@@ -76,7 +75,6 @@ impl Cop for RedundantWithIndex {
                 "Redundant `with_index`.".to_string(),
             ));
         }
-
     }
 }
 

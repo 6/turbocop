@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    CALL_NODE, CLASS_NODE, MODULE_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CLASS_NODE, MODULE_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE};
 
 pub struct AccessorGrouping;
 
@@ -13,7 +15,13 @@ impl Cop for AccessorGrouping {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CLASS_NODE, MODULE_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE]
+        &[
+            CALL_NODE,
+            CLASS_NODE,
+            MODULE_NODE,
+            SINGLETON_CLASS_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -22,8 +30,8 @@ impl Cop for AccessorGrouping {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "grouped");
 
@@ -52,7 +60,6 @@ impl Cop for AccessorGrouping {
             diagnostics.extend(check_grouped(self, source, &stmts));
             return;
         }
-
     }
 }
 
@@ -79,8 +86,17 @@ fn check_grouped(
             let name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
 
             // Bare access modifier resets the group
-            if matches!(name, "private" | "protected" | "public") && call.arguments().is_none() && call.block().is_none() {
-                report_grouped_offenses(cop, source, &accessor_counts, &stmt_list, &mut diagnostics);
+            if matches!(name, "private" | "protected" | "public")
+                && call.arguments().is_none()
+                && call.block().is_none()
+            {
+                report_grouped_offenses(
+                    cop,
+                    source,
+                    &accessor_counts,
+                    &stmt_list,
+                    &mut diagnostics,
+                );
                 accessor_counts.clear();
                 last_was_accessor = false;
                 continue;
@@ -104,7 +120,13 @@ fn check_grouped(
                 };
 
                 if has_gap && !accessor_counts.is_empty() {
-                    report_grouped_offenses(cop, source, &accessor_counts, &stmt_list, &mut diagnostics);
+                    report_grouped_offenses(
+                        cop,
+                        source,
+                        &accessor_counts,
+                        &stmt_list,
+                        &mut diagnostics,
+                    );
                     accessor_counts.clear();
                 }
                 accessor_counts

@@ -13,7 +13,13 @@ impl Cop for LeadingEmptyLines {
         true
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, mut corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        _config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         let bytes = source.as_bytes();
         if bytes.is_empty() {
             return;
@@ -27,7 +33,10 @@ impl Cop for LeadingEmptyLines {
                 "Unnecessary blank line at the beginning of the source.".to_string(),
             );
             if let Some(ref mut corr) = corrections {
-                let end = bytes.iter().position(|&b| b != b'\n').unwrap_or(bytes.len());
+                let end = bytes
+                    .iter()
+                    .position(|&b| b != b'\n')
+                    .unwrap_or(bytes.len());
                 corr.push(crate::correction::Correction {
                     start: 0,
                     end,
@@ -47,7 +56,8 @@ mod tests {
     use super::*;
 
     crate::cop_scenario_fixture_tests!(
-        LeadingEmptyLines, "cops/layout/leading_empty_lines",
+        LeadingEmptyLines,
+        "cops/layout/leading_empty_lines",
         single_blank = "single_blank.rb",
         two_blanks = "two_blanks.rb",
         three_blanks = "three_blanks.rb",

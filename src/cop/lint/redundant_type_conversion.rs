@@ -1,8 +1,12 @@
+use crate::cop::node_type::{
+    ARRAY_NODE, CALL_NODE, FLOAT_NODE, HASH_NODE, IMAGINARY_NODE, INTEGER_NODE,
+    INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, KEYWORD_HASH_NODE, RATIONAL_NODE,
+    STRING_NODE, SYMBOL_NODE,
+};
 use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ARRAY_NODE, CALL_NODE, FLOAT_NODE, HASH_NODE, IMAGINARY_NODE, INTEGER_NODE, INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, KEYWORD_HASH_NODE, RATIONAL_NODE, STRING_NODE, SYMBOL_NODE};
 
 /// Checks for redundant type conversions like `"text".to_s`, `:sym.to_sym`,
 /// `42.to_i`, `[].to_a`, etc.
@@ -18,7 +22,20 @@ impl Cop for RedundantTypeConversion {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ARRAY_NODE, CALL_NODE, FLOAT_NODE, HASH_NODE, IMAGINARY_NODE, INTEGER_NODE, INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, KEYWORD_HASH_NODE, RATIONAL_NODE, STRING_NODE, SYMBOL_NODE]
+        &[
+            ARRAY_NODE,
+            CALL_NODE,
+            FLOAT_NODE,
+            HASH_NODE,
+            IMAGINARY_NODE,
+            INTEGER_NODE,
+            INTERPOLATED_STRING_NODE,
+            INTERPOLATED_SYMBOL_NODE,
+            KEYWORD_HASH_NODE,
+            RATIONAL_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -27,8 +44,8 @@ impl Cop for RedundantTypeConversion {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -161,5 +178,8 @@ fn is_kernel_method(node: &ruby_prism::Node<'_>, method: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(RedundantTypeConversion, "cops/lint/redundant_type_conversion");
+    crate::cop_fixture_tests!(
+        RedundantTypeConversion,
+        "cops/lint/redundant_type_conversion"
+    );
 }

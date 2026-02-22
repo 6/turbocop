@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    ARRAY_NODE, CALL_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE, HASH_NODE,
+    INTERPOLATED_STRING_NODE, KEYWORD_HASH_NODE, STRING_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ARRAY_NODE, CALL_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE, HASH_NODE, INTERPOLATED_STRING_NODE, KEYWORD_HASH_NODE, STRING_NODE};
 
 pub struct MutableConstant;
 
@@ -89,7 +92,16 @@ impl Cop for MutableConstant {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ARRAY_NODE, CALL_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE, HASH_NODE, INTERPOLATED_STRING_NODE, KEYWORD_HASH_NODE, STRING_NODE]
+        &[
+            ARRAY_NODE,
+            CALL_NODE,
+            CONSTANT_PATH_WRITE_NODE,
+            CONSTANT_WRITE_NODE,
+            HASH_NODE,
+            INTERPOLATED_STRING_NODE,
+            KEYWORD_HASH_NODE,
+            STRING_NODE,
+        ]
     }
 
     fn check_node(
@@ -98,8 +110,8 @@ impl Cop for MutableConstant {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _enforced_style = config.get_str("EnforcedStyle", "literals");
 
@@ -108,25 +120,16 @@ impl Cop for MutableConstant {
         // Check ConstantWriteNode (CONST = value)
         if let Some(cw) = node.as_constant_write_node() {
             let value = cw.value();
-            diagnostics.extend(self.check_value(
-                source,
-                &value,
-                frozen_strings,
-            ));
+            diagnostics.extend(self.check_value(source, &value, frozen_strings));
             return;
         }
 
         // Check ConstantPathWriteNode (Module::CONST = value)
         if let Some(cpw) = node.as_constant_path_write_node() {
             let value = cpw.value();
-            diagnostics.extend(self.check_value(
-                source,
-                &value,
-                frozen_strings,
-            ));
+            diagnostics.extend(self.check_value(source, &value, frozen_strings));
             return;
         }
-
     }
 }
 

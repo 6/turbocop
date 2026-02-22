@@ -1,7 +1,7 @@
+use crate::cop::node_type::{BEGIN_NODE, BLOCK_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BEGIN_NODE, BLOCK_NODE};
 
 pub struct MultilineBlockLayout;
 
@@ -48,44 +48,47 @@ impl Cop for MultilineBlockLayout {
             {
                 // Implicit params — no visible block argument expression
             } else {
-            let params_loc = params.location();
-            let (params_end_line, _) = source.offset_to_line_col(params_loc.end_offset().saturating_sub(1));
-            if params_end_line != open_line {
-                // Block params NOT on the same line as `do` or `{`.
-                // But if fitting all args on one line would exceed max line length,
-                // the line break is necessary and acceptable (RuboCop's
-                // line_break_necessary_in_args? check).
-                let max_len = get_max_line_length(config);
+                let params_loc = params.location();
+                let (params_end_line, _) =
+                    source.offset_to_line_col(params_loc.end_offset().saturating_sub(1));
+                if params_end_line != open_line {
+                    // Block params NOT on the same line as `do` or `{`.
+                    // But if fitting all args on one line would exceed max line length,
+                    // the line break is necessary and acceptable (RuboCop's
+                    // line_break_necessary_in_args? check).
+                    let max_len = get_max_line_length(config);
 
-                let line_break_necessary = if let Some(max_len) = max_len {
-                    let bytes = source.as_bytes();
-                    // Find start of the line containing the block opening
-                    let mut line_start = opening_loc.start_offset();
-                    while line_start > 0 && bytes[line_start - 1] != b'\n' {
-                        line_start -= 1;
-                    }
-                    // Get the first line content (before params)
-                    let first_line_len = opening_loc.end_offset() - line_start;
-                    // Get params source and flatten to single line
-                    let params_source = &bytes[params_loc.start_offset()..params_loc.end_offset()];
-                    let flat_params = flatten_to_single_line(params_source);
-                    // Total: first_line + space + | + flat_params + |
-                    let needed = first_line_len + 1 + 1 + flat_params.len() + 1;
-                    needed > max_len
-                } else {
-                    false
-                };
+                    let line_break_necessary = if let Some(max_len) = max_len {
+                        let bytes = source.as_bytes();
+                        // Find start of the line containing the block opening
+                        let mut line_start = opening_loc.start_offset();
+                        while line_start > 0 && bytes[line_start - 1] != b'\n' {
+                            line_start -= 1;
+                        }
+                        // Get the first line content (before params)
+                        let first_line_len = opening_loc.end_offset() - line_start;
+                        // Get params source and flatten to single line
+                        let params_source =
+                            &bytes[params_loc.start_offset()..params_loc.end_offset()];
+                        let flat_params = flatten_to_single_line(params_source);
+                        // Total: first_line + space + | + flat_params + |
+                        let needed = first_line_len + 1 + 1 + flat_params.len() + 1;
+                        needed > max_len
+                    } else {
+                        false
+                    };
 
-                if !line_break_necessary {
-                    let (params_line, params_col) = source.offset_to_line_col(params_loc.start_offset());
-                    diagnostics.push(self.diagnostic(
+                    if !line_break_necessary {
+                        let (params_line, params_col) =
+                            source.offset_to_line_col(params_loc.start_offset());
+                        diagnostics.push(self.diagnostic(
                         source,
                         params_line,
                         params_col,
                         "Block argument expression is not on the same line as the block start.".to_string(),
                     ));
+                    }
                 }
-            }
             } // close else for implicit params check
         }
 
@@ -100,7 +103,9 @@ impl Cop for MultilineBlockLayout {
                     children.first().map(|n| n.location().start_offset())
                 } else {
                     // No statements before rescue/ensure — use rescue clause location
-                    begin_node.rescue_clause().map(|r| r.location().start_offset())
+                    begin_node
+                        .rescue_clause()
+                        .map(|r| r.location().start_offset())
                 }
             } else {
                 Some(body.location().start_offset())
@@ -118,7 +123,6 @@ impl Cop for MultilineBlockLayout {
                 }
             }
         }
-
     }
 }
 

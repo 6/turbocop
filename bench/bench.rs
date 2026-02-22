@@ -1,3 +1,10 @@
+#![allow(
+    clippy::manual_clamp,
+    clippy::single_element_loop,
+    clippy::manual_flatten,
+    clippy::unnecessary_filter_map,
+    clippy::redundant_closure
+)]
 //! Benchmark turbocop vs rubocop on real-world codebases.
 //!
 //! Usage:
@@ -226,7 +233,11 @@ fn needs_mise(repo_dir: &Path) -> bool {
 fn bundle_exec_command(repo_dir: &Path, tool: &str, extra_args: &[&str]) -> Command {
     if needs_mise(repo_dir) {
         let mut cmd = Command::new("mise");
-        cmd.arg("exec").arg("--").arg("bundle").arg("exec").arg(tool);
+        cmd.arg("exec")
+            .arg("--")
+            .arg("bundle")
+            .arg("exec")
+            .arg(tool);
         cmd.args(extra_args);
         cmd.current_dir(repo_dir);
         cmd
@@ -505,10 +516,7 @@ fn init_lockfiles(repos: &[RepoRef]) {
             .expect("failed to run turbocop --init");
 
         if output.status.success() {
-            eprintln!(
-                "  OK ({:.1}s)",
-                start.elapsed().as_secs_f64()
-            );
+            eprintln!("  OK ({:.1}s)", start.elapsed().as_secs_f64());
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
             eprintln!("  Failed: {}", stderr.trim());
@@ -556,9 +564,7 @@ fn preflight_check(name: &str, cmd: &str, repo_name: &str) -> bool {
             if code > 1 {
                 let stderr = String::from_utf8_lossy(&o.stderr);
                 let first_line = stderr.lines().next().unwrap_or("(no output)");
-                eprintln!(
-                    "  SKIP {repo_name}: {name} exited with code {code}: {first_line}"
-                );
+                eprintln!("  SKIP {repo_name}: {name} exited with code {code}: {first_line}");
                 false
             } else {
                 true
@@ -591,14 +597,13 @@ fn run_bench(args: &Args, repos: &[RepoRef]) -> HashMap<String, BenchResult> {
         }
 
         let rb_count = count_rb_files(&repo.dir);
-        eprintln!("\n=== Benchmarking {} ({} .rb files) ===", repo.name, rb_count);
+        eprintln!(
+            "\n=== Benchmarking {} ({} .rb files) ===",
+            repo.name, rb_count
+        );
 
         // Pre-flight: verify both tools run without fatal errors before benchmarking
-        let turbocop_cmd_str = format!(
-            "{} {} --no-color",
-            turbocop.display(),
-            repo.dir.display()
-        );
+        let turbocop_cmd_str = format!("{} {} --no-color", turbocop.display(), repo.dir.display());
         let rubocop_cmd_str = if needs_mise(&repo.dir) {
             format!(
                 "cd {} && mise exec -- bundle exec rubocop --no-color",
@@ -834,10 +839,26 @@ fn run_quick_bench(args: &Args) {
     let nocache: HyperfineOutput =
         serde_json::from_str(&fs::read_to_string(&nocache_json).unwrap()).unwrap();
 
-    let partial_tc = partial.results.iter().find(|r| r.command == "turbocop").unwrap();
-    let partial_rc = partial.results.iter().find(|r| r.command == "rubocop").unwrap();
-    let nocache_tc = nocache.results.iter().find(|r| r.command == "turbocop").unwrap();
-    let nocache_rc = nocache.results.iter().find(|r| r.command == "rubocop").unwrap();
+    let partial_tc = partial
+        .results
+        .iter()
+        .find(|r| r.command == "turbocop")
+        .unwrap();
+    let partial_rc = partial
+        .results
+        .iter()
+        .find(|r| r.command == "rubocop")
+        .unwrap();
+    let nocache_tc = nocache
+        .results
+        .iter()
+        .find(|r| r.command == "turbocop")
+        .unwrap();
+    let nocache_rc = nocache
+        .results
+        .iter()
+        .find(|r| r.command == "rubocop")
+        .unwrap();
 
     // Generate report
     let date = shell_output("date", &["-u", "+%Y-%m-%d %H:%M UTC"]);
@@ -853,7 +874,11 @@ fn run_quick_bench(args: &Args) {
     .unwrap();
     writeln!(md, "> Last updated: {date} on `{platform}`").unwrap();
     writeln!(md).unwrap();
-    writeln!(md, "**Repo:** {repo_name} ({rb_count} .rb files, {touched_count} mtime-invalidated per run)").unwrap();
+    writeln!(
+        md,
+        "**Repo:** {repo_name} ({rb_count} .rb files, {touched_count} mtime-invalidated per run)"
+    )
+    .unwrap();
     writeln!(md, "**Benchmark config:** {runs} runs").unwrap();
     writeln!(
         md,
@@ -1005,9 +1030,7 @@ fn per_repo_excluded_cops(repo_dir: &Path) -> HashSet<String> {
     let mut excluded = HashSet::new();
     if let Some(ver) = detect_target_ruby_version(repo_dir) {
         if ver < 3.0 {
-            eprintln!(
-                "  TargetRubyVersion={ver} (< 3.0) — excluding Lint/Syntax from conformance"
-            );
+            eprintln!("  TargetRubyVersion={ver} (< 3.0) — excluding Lint/Syntax from conformance");
             excluded.insert("Lint/Syntax".to_string());
         }
     }
@@ -1195,11 +1218,7 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
         eprintln!("\n=== Conformance: {} ===", repo.name);
 
         // Pre-flight: verify turbocop runs without fatal errors
-        let preflight_cmd = format!(
-            "{} {} --no-color",
-            turbocop.display(),
-            repo.dir.display()
-        );
+        let preflight_cmd = format!("{} {} --no-color", turbocop.display(), repo.dir.display());
         if !preflight_check("turbocop", &preflight_cmd, &repo.name) {
             continue;
         }
@@ -1209,12 +1228,7 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
         let turbocop_json_file = results_path.join(format!("{}-turbocop.json", repo.name));
         let start = Instant::now();
         let turbocop_out = Command::new(turbocop.as_os_str())
-            .args([
-                repo.dir.to_str().unwrap(),
-                "--format",
-                "json",
-                "--no-color",
-            ])
+            .args([repo.dir.to_str().unwrap(), "--format", "json", "--no-color"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
@@ -1223,7 +1237,10 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
         if turbocop_exit > 1 {
             let stderr = String::from_utf8_lossy(&turbocop_out.stderr);
             let first_line = stderr.lines().next().unwrap_or("(no output)");
-            eprintln!("  SKIP {}: turbocop failed (exit {}): {}", repo.name, turbocop_exit, first_line);
+            eprintln!(
+                "  SKIP {}: turbocop failed (exit {}): {}",
+                repo.name, turbocop_exit, first_line
+            );
             continue;
         }
         fs::write(&turbocop_json_file, &turbocop_out.stdout).unwrap();
@@ -1232,15 +1249,23 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
 
         // Run rubocop (or standardrb for pure-standardrb projects) in JSON mode
         let use_standardrb = is_standardrb_only(&repo.dir);
-        let reference_tool = if use_standardrb { "standardrb" } else { "rubocop" };
+        let reference_tool = if use_standardrb {
+            "standardrb"
+        } else {
+            "rubocop"
+        };
         eprintln!("  Running {reference_tool}...");
         let rubocop_json_file = results_path.join(format!("{}-rubocop.json", repo.name));
         let start = Instant::now();
-        let rubocop_out = bundle_exec_command(&repo.dir, reference_tool, &["--format", "json", "--no-color"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output()
-            .unwrap_or_else(|_| panic!("failed to run {reference_tool}"));
+        let rubocop_out = bundle_exec_command(
+            &repo.dir,
+            reference_tool,
+            &["--format", "json", "--no-color"],
+        )
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .unwrap_or_else(|_| panic!("failed to run {reference_tool}"));
         fs::write(&rubocop_json_file, &rubocop_out.stdout).unwrap();
         let rubocop_secs = start.elapsed().as_secs_f64();
         eprintln!("  {reference_tool} done in {rubocop_secs:.1}s");
@@ -1248,14 +1273,13 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
         // Parse and compare
         let repo_prefix = format!("{}/", repo.dir.display());
 
-        let turbocop_data: TurboCopOutput =
-            match serde_json::from_slice(&turbocop_out.stdout) {
-                Ok(d) => d,
-                Err(e) => {
-                    eprintln!("  Failed to parse turbocop JSON: {e}");
-                    continue;
-                }
-            };
+        let turbocop_data: TurboCopOutput = match serde_json::from_slice(&turbocop_out.stdout) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("  Failed to parse turbocop JSON: {e}");
+                continue;
+            }
+        };
 
         let rubocop_data: RubocopOutput = match serde_json::from_slice(&rubocop_out.stdout) {
             Ok(d) => d,
@@ -1433,7 +1457,10 @@ fn run_autocorrect_conform(repos: &[RepoRef]) -> HashMap<String, AutocorrectConf
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .output();
-        eprintln!("  turbocop -A done in {:.1}s", start.elapsed().as_secs_f64());
+        eprintln!(
+            "  turbocop -A done in {:.1}s",
+            start.elapsed().as_secs_f64()
+        );
 
         // --- Compare corrected files ---
         let mut files_corrected_rubocop = 0;
@@ -1666,20 +1693,25 @@ fn run_autocorrect_validate(repos: &[RepoRef]) -> HashMap<String, AutocorrectVal
                 }
             }
 
-            let uses_standardrb = !repo.dir.join(".rubocop.yml").exists()
-                && repo.dir.join(".standard.yml").exists();
-            let linter_name = if uses_standardrb { "standardrb" } else { "rubocop" };
+            let uses_standardrb =
+                !repo.dir.join(".rubocop.yml").exists() && repo.dir.join(".standard.yml").exists();
+            let linter_name = if uses_standardrb {
+                "standardrb"
+            } else {
+                "rubocop"
+            };
             let only_arg = corrected_cops.join(",");
             eprintln!("  Running {} --only {}...", linter_name, only_arg);
             let start = Instant::now();
-            let rb_output = bundle_exec_command(&repo.dir, linter_name, &[
-                "--only", &only_arg,
-                "--format", "json", "--no-color",
-            ])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .output()
-                .unwrap_or_else(|_| panic!("failed to run {}", linter_name));
+            let rb_output = bundle_exec_command(
+                &repo.dir,
+                linter_name,
+                &["--only", &only_arg, "--format", "json", "--no-color"],
+            )
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .unwrap_or_else(|_| panic!("failed to run {}", linter_name));
 
             // Restore original files
             for (rel, bytes) in &originals {
@@ -1708,10 +1740,16 @@ fn run_autocorrect_validate(repos: &[RepoRef]) -> HashMap<String, AutocorrectVal
                 let stderr = String::from_utf8_lossy(&rb_output.stderr);
                 let stderr = stderr.trim();
                 if stderr.is_empty() {
-                    let stdout_preview: String = String::from_utf8_lossy(&rb_output.stdout).chars().take(200).collect();
+                    let stdout_preview: String = String::from_utf8_lossy(&rb_output.stdout)
+                        .chars()
+                        .take(200)
+                        .collect();
                     eprintln!("  Failed to parse rubocop JSON output: {}", stdout_preview);
                 } else {
-                    eprintln!("  Failed to parse rubocop JSON output: {}", stderr.lines().next().unwrap_or(""));
+                    eprintln!(
+                        "  Failed to parse rubocop JSON output: {}",
+                        stderr.lines().next().unwrap_or("")
+                    );
                 }
             }
         }
@@ -1737,7 +1775,11 @@ fn run_autocorrect_validate(repos: &[RepoRef]) -> HashMap<String, AutocorrectVal
 
         // Print per-cop details
         for (cop, stats) in &per_cop {
-            let status = if stats.rubocop_remaining == 0 { "PASS" } else { "FAIL" };
+            let status = if stats.rubocop_remaining == 0 {
+                "PASS"
+            } else {
+                "FAIL"
+            };
             eprintln!(
                 "    {} — corrected: {}, remaining: {} [{}]",
                 cop, stats.turbocop_corrected, stats.rubocop_remaining, status
@@ -1812,7 +1854,10 @@ fn generate_autocorrect_validate_report(
                 cop, stats.turbocop_corrected, stats.rubocop_remaining, status
             );
         }
-        let passing = validated.values().filter(|s| s.rubocop_remaining == 0).count();
+        let passing = validated
+            .values()
+            .filter(|s| s.rubocop_remaining == 0)
+            .count();
         let _ = writeln!(
             md,
             "\n**{}/{} cops passing** (0 remaining offenses after correction)\n",
@@ -1856,7 +1901,6 @@ fn generate_autocorrect_validate_report(
             }
             let _ = writeln!(md);
         }
-
     }
 
     md
@@ -2006,7 +2050,6 @@ fn generate_report(
         }
 
         writeln!(md).unwrap();
-
     }
 
     // --- Conformance table ---
@@ -2212,7 +2255,12 @@ fn main() {
                 for repo in &repos {
                     if repo.dir.exists() {
                         let rb_count = count_rb_files(&repo.dir);
-                        eprintln!("  OK: {} ({} .rb files) at {}", repo.name, rb_count, repo.dir.display());
+                        eprintln!(
+                            "  OK: {} ({} .rb files) at {}",
+                            repo.name,
+                            rb_count,
+                            repo.dir.display()
+                        );
                     } else {
                         eprintln!("  MISSING: {} at {}", repo.name, repo.dir.display());
                     }
@@ -2286,7 +2334,11 @@ fn main() {
             let json_path = json_output_path("autocorrect_conform.json", is_private_run);
             let json = serde_json::to_string_pretty(&ac_results).unwrap();
             fs::write(&json_path, &json).unwrap();
-            eprintln!("\nWrote {} ({:.0}s)", json_path.display(), start.elapsed().as_secs_f64());
+            eprintln!(
+                "\nWrote {} ({:.0}s)",
+                json_path.display(),
+                start.elapsed().as_secs_f64()
+            );
         }
         "autocorrect-validate" => {
             let start = Instant::now();
@@ -2306,10 +2358,16 @@ fn main() {
                 project_root().join("bench/autocorrect_validate.md")
             };
             fs::write(&md_path, &md).unwrap();
-            eprintln!("Wrote {} ({:.0}s)", md_path.display(), start.elapsed().as_secs_f64());
+            eprintln!(
+                "Wrote {} ({:.0}s)",
+                md_path.display(),
+                start.elapsed().as_secs_f64()
+            );
         }
         other => {
-            eprintln!("Unknown mode: {other}. Use: setup, bench, conform, report, quick, autocorrect-conform, autocorrect-validate, or all.");
+            eprintln!(
+                "Unknown mode: {other}. Use: setup, bench, conform, report, quick, autocorrect-conform, autocorrect-validate, or all."
+            );
             std::process::exit(1);
         }
     }

@@ -1,8 +1,11 @@
+use crate::cop::node_type::{
+    BLOCK_NODE, BLOCK_PARAMETERS_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE,
+    REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
-use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE};
 
 pub struct UnusedBlockArgument;
 
@@ -16,7 +19,14 @@ impl Cop for UnusedBlockArgument {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE]
+        &[
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            OPTIONAL_KEYWORD_PARAMETER_NODE,
+            OPTIONAL_PARAMETER_NODE,
+            REQUIRED_KEYWORD_PARAMETER_NODE,
+            REQUIRED_PARAMETER_NODE,
+        ]
     }
 
     fn check_node(
@@ -25,8 +35,8 @@ impl Cop for UnusedBlockArgument {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let block_node = match node.as_block_node() {
             Some(b) => b,
@@ -107,11 +117,8 @@ impl Cop for UnusedBlockArgument {
         }
 
         // Find all local variable reads in the body
-        let mut finder = VarReadFinder {
-            names: Vec::new(),
-        };
+        let mut finder = VarReadFinder { names: Vec::new() };
         finder.visit(&body);
-
 
         for (name, offset, _is_keyword) in &param_info {
             // Skip arguments prefixed with _
@@ -136,7 +143,6 @@ impl Cop for UnusedBlockArgument {
                 ));
             }
         }
-
     }
 }
 

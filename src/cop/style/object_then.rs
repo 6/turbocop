@@ -1,7 +1,7 @@
+use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, CALL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, CALL_NODE};
 
 pub struct ObjectThen;
 
@@ -20,8 +20,8 @@ impl Cop for ObjectThen {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "then");
 
@@ -41,7 +41,9 @@ impl Cop for ObjectThen {
         // Must have a block or a block_pass argument
         let has_block = call.block().is_some();
         let has_block_pass = if let Some(args) = call.arguments() {
-            args.arguments().iter().any(|a| a.as_block_argument_node().is_some())
+            args.arguments()
+                .iter()
+                .any(|a| a.as_block_argument_node().is_some())
         } else {
             false
         };
@@ -75,7 +77,6 @@ impl Cop for ObjectThen {
                 "Prefer `yield_self` over `then`.".to_string(),
             ));
         }
-
     }
 }
 

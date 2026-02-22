@@ -21,8 +21,8 @@ impl Cop for TopLevelReturnWithArgument {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = TopLevelReturnVisitor {
             cop: self,
@@ -66,5 +66,8 @@ impl<'pr> Visit<'pr> for TopLevelReturnVisitor<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(TopLevelReturnWithArgument, "cops/lint/top_level_return_with_argument");
+    crate::cop_fixture_tests!(
+        TopLevelReturnWithArgument,
+        "cops/lint/top_level_return_with_argument"
+    );
 }

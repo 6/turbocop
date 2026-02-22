@@ -1,16 +1,14 @@
+use crate::cop::node_type::{
+    CLASS_VARIABLE_WRITE_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE,
+    GLOBAL_VARIABLE_WRITE_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CLASS_VARIABLE_WRITE_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE};
 
 pub struct AmbiguousAssignment;
 
-const MISTAKES: &[(&[u8], &str)] = &[
-    (b"=-", "-="),
-    (b"=+", "+="),
-    (b"=*", "*="),
-    (b"=!", "!="),
-];
+const MISTAKES: &[(&[u8], &str)] = &[(b"=-", "-="), (b"=+", "+="), (b"=*", "*="), (b"=!", "!=")];
 
 impl Cop for AmbiguousAssignment {
     fn name(&self) -> &'static str {
@@ -22,7 +20,14 @@ impl Cop for AmbiguousAssignment {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CLASS_VARIABLE_WRITE_NODE, CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE]
+        &[
+            CLASS_VARIABLE_WRITE_NODE,
+            CONSTANT_PATH_WRITE_NODE,
+            CONSTANT_WRITE_NODE,
+            GLOBAL_VARIABLE_WRITE_NODE,
+            INSTANCE_VARIABLE_WRITE_NODE,
+            LOCAL_VARIABLE_WRITE_NODE,
+        ]
     }
 
     fn check_node(
@@ -31,8 +36,8 @@ impl Cop for AmbiguousAssignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check variable assignment node types
         let (operator_loc, value) = if let Some(n) = node.as_local_variable_write_node() {
@@ -90,7 +95,6 @@ impl Cop for AmbiguousAssignment {
                 ));
             }
         }
-
     }
 }
 

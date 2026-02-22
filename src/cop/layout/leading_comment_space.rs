@@ -19,8 +19,8 @@ impl Cop for LeadingCommentSpace {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _allow_doxygen = config.get_bool("AllowDoxygenCommentStyle", false);
         let _allow_gemfile_ruby = config.get_bool("AllowGemfileRubyComment", false);
@@ -58,7 +58,10 @@ impl Cop for LeadingCommentSpace {
                 }
 
                 // Skip RDoc toggle comments: #++ and #--
-                if text.len() > 2 && (after_hash == b'+' || after_hash == b'-') && text[2] == after_hash {
+                if text.len() > 2
+                    && (after_hash == b'+' || after_hash == b'-')
+                    && text[2] == after_hash
+                {
                     continue;
                 }
 
@@ -67,12 +70,8 @@ impl Cop for LeadingCommentSpace {
                     continue;
                 }
                 let (line, column) = source.offset_to_line_col(start);
-                let mut diag = self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Missing space after `#`.".to_string(),
-                );
+                let mut diag =
+                    self.diagnostic(source, line, column, "Missing space after `#`.".to_string());
                 if let Some(ref mut corr) = corrections {
                     corr.push(crate::correction::Correction {
                         start: start + 1,
@@ -86,7 +85,6 @@ impl Cop for LeadingCommentSpace {
                 diagnostics.push(diag);
             }
         }
-
     }
 }
 
@@ -100,7 +98,8 @@ mod tests {
     #[test]
     fn autocorrect_insert_space() {
         let input = b"#comment\n";
-        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&LeadingCommentSpace, input);
+        let (_diags, corrections) =
+            crate::testutil::run_cop_autocorrect(&LeadingCommentSpace, input);
         assert!(!corrections.is_empty());
         let cs = crate::correction::CorrectionSet::from_vec(corrections);
         let corrected = cs.apply(input);

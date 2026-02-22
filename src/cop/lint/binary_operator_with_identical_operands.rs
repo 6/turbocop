@@ -1,7 +1,7 @@
+use crate::cop::node_type::{AND_NODE, CALL_NODE, OR_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{AND_NODE, CALL_NODE, OR_NODE};
 
 pub struct BinaryOperatorWithIdenticalOperands;
 
@@ -24,8 +24,8 @@ impl Cop for BinaryOperatorWithIdenticalOperands {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Handle `&&` and `||` (AndNode / OrNode)
         if let Some(and_node) = node.as_and_node() {
@@ -73,7 +73,18 @@ impl Cop for BinaryOperatorWithIdenticalOperands {
         let method = call.name().as_slice();
         let is_binary_op = matches!(
             method,
-            b"==" | b"!=" | b"===" | b"<=>" | b"=~" | b">" | b">=" | b"<" | b"<=" | b"|" | b"^" | b"&"
+            b"=="
+                | b"!="
+                | b"==="
+                | b"<=>"
+                | b"=~"
+                | b">"
+                | b">="
+                | b"<"
+                | b"<="
+                | b"|"
+                | b"^"
+                | b"&"
         );
         if !is_binary_op {
             return;
@@ -111,12 +122,14 @@ impl Cop for BinaryOperatorWithIdenticalOperands {
                 format!("Binary operator `{op_str}` has identical operands."),
             ));
         }
-
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(BinaryOperatorWithIdenticalOperands, "cops/lint/binary_operator_with_identical_operands");
+    crate::cop_fixture_tests!(
+        BinaryOperatorWithIdenticalOperands,
+        "cops/lint/binary_operator_with_identical_operands"
+    );
 }

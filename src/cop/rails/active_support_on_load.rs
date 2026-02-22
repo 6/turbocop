@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct ActiveSupportOnLoad;
 
@@ -10,7 +10,11 @@ const FRAMEWORK_CLASSES: &[(&[u8], &[u8], &str)] = &[
     (b"ActiveRecord", b"Base", "active_record"),
     (b"ActionController", b"Base", "action_controller"),
     (b"ActionController", b"API", "action_controller"),
-    (b"ActionController", b"TestCase", "action_controller_test_case"),
+    (
+        b"ActionController",
+        b"TestCase",
+        "action_controller_test_case",
+    ),
     (b"ActionView", b"Base", "action_view"),
     (b"ActionMailer", b"Base", "action_mailer"),
     (b"ActiveJob", b"Base", "active_job"),
@@ -64,8 +68,8 @@ impl Cop for ActiveSupportOnLoad {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -94,10 +98,9 @@ impl Cop for ActiveSupportOnLoad {
 
         let method_str = std::str::from_utf8(method_name).unwrap_or("include");
         let recv_loc = receiver.location();
-        let recv_text = std::str::from_utf8(
-            &source.as_bytes()[recv_loc.start_offset()..recv_loc.end_offset()],
-        )
-        .unwrap_or("FrameworkClass");
+        let recv_text =
+            std::str::from_utf8(&source.as_bytes()[recv_loc.start_offset()..recv_loc.end_offset()])
+                .unwrap_or("FrameworkClass");
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());

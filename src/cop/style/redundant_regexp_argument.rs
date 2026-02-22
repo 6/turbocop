@@ -1,20 +1,24 @@
+use crate::cop::node_type::{CALL_NODE, REGULAR_EXPRESSION_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, REGULAR_EXPRESSION_NODE};
 
 pub struct RedundantRegexpArgument;
 
 /// Methods where a regexp argument can be replaced with a string.
 /// Must match vendor RuboCop's RESTRICT_ON_SEND list.
 const TARGET_METHODS: &[&[u8]] = &[
-    b"byteindex", b"byterindex",
-    b"gsub", b"gsub!",
-    b"partition", b"rpartition",
+    b"byteindex",
+    b"byterindex",
+    b"gsub",
+    b"gsub!",
+    b"partition",
+    b"rpartition",
     b"scan",
     b"split",
     b"start_with?",
-    b"sub", b"sub!",
+    b"sub",
+    b"sub!",
 ];
 
 impl Cop for RedundantRegexpArgument {
@@ -32,8 +36,8 @@ impl Cop for RedundantRegexpArgument {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -96,8 +100,8 @@ fn is_deterministic_regexp(content: &[u8]) -> bool {
     // Check if regexp content is a simple literal string with no special chars
     for &b in content {
         match b {
-            b'.' | b'*' | b'+' | b'?' | b'(' | b')' | b'[' | b']'
-            | b'{' | b'}' | b'^' | b'$' | b'|' | b'\\' => return false,
+            b'.' | b'*' | b'+' | b'?' | b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'^' | b'$'
+            | b'|' | b'\\' => return false,
             _ => {}
         }
     }
@@ -107,5 +111,8 @@ fn is_deterministic_regexp(content: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(RedundantRegexpArgument, "cops/style/redundant_regexp_argument");
+    crate::cop_fixture_tests!(
+        RedundantRegexpArgument,
+        "cops/style/redundant_regexp_argument"
+    );
 }

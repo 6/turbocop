@@ -1,8 +1,10 @@
+use crate::cop::node_type::{
+    CALL_NODE, CLASS_NODE, MODULE_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE,
+};
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CLASS_NODE, MODULE_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE};
 
 pub struct AccessModifierIndentation;
 
@@ -14,7 +16,13 @@ impl Cop for AccessModifierIndentation {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CLASS_NODE, MODULE_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE]
+        &[
+            CALL_NODE,
+            CLASS_NODE,
+            MODULE_NODE,
+            SINGLETON_CLASS_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -23,8 +31,8 @@ impl Cop for AccessModifierIndentation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "indent");
         let _indent_width = config.get_usize("IndentationWidth", 2);
@@ -60,7 +68,6 @@ impl Cop for AccessModifierIndentation {
             Some(s) => s,
             None => return,
         };
-
 
         for stmt in stmts.body().iter() {
             let call = match stmt.as_call_node() {
@@ -100,7 +107,11 @@ impl Cop for AccessModifierIndentation {
             };
 
             if mod_col != expected_col {
-                let style_word = if style == "outdent" { "Outdent" } else { "Indent" };
+                let style_word = if style == "outdent" {
+                    "Outdent"
+                } else {
+                    "Indent"
+                };
                 let modifier_name = std::str::from_utf8(method_name).unwrap_or("private");
                 diagnostics.push(self.diagnostic(
                     source,
@@ -110,7 +121,6 @@ impl Cop for AccessModifierIndentation {
                 ));
             }
         }
-
     }
 }
 
@@ -118,5 +128,8 @@ impl Cop for AccessModifierIndentation {
 mod tests {
     use super::*;
 
-    crate::cop_fixture_tests!(AccessModifierIndentation, "cops/layout/access_modifier_indentation");
+    crate::cop_fixture_tests!(
+        AccessModifierIndentation,
+        "cops/layout/access_modifier_indentation"
+    );
 }

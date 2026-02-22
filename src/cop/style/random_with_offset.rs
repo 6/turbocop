@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTEGER_NODE, RANGE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTEGER_NODE, RANGE_NODE};
 
 pub struct RandomWithOffset;
 
@@ -11,7 +13,13 @@ impl Cop for RandomWithOffset {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTEGER_NODE, RANGE_NODE]
+        &[
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            INTEGER_NODE,
+            RANGE_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +28,8 @@ impl Cop for RandomWithOffset {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -40,7 +48,6 @@ impl Cop for RandomWithOffset {
         if method_bytes == b"succ" || method_bytes == b"next" || method_bytes == b"pred" {
             diagnostics.extend(self.check_succ_pred(source, node, &call));
         }
-
     }
 }
 
@@ -74,7 +81,8 @@ impl RandomWithOffset {
                     }
                     if let Some(range) = arg.as_range_node() {
                         let left_int = range.left().is_some_and(|l| l.as_integer_node().is_some());
-                        let right_int = range.right().is_some_and(|r| r.as_integer_node().is_some());
+                        let right_int =
+                            range.right().is_some_and(|r| r.as_integer_node().is_some());
                         return left_int && right_int;
                     }
                 }

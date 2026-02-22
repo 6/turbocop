@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, INTEGER_NODE, PARENTHESES_NODE, RANGE_NODE,
+    STATEMENTS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, INTEGER_NODE, PARENTHESES_NODE, RANGE_NODE, STATEMENTS_NODE};
 
 pub struct EachForSimpleLoop;
 
@@ -11,7 +14,15 @@ impl Cop for EachForSimpleLoop {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, INTEGER_NODE, PARENTHESES_NODE, RANGE_NODE, STATEMENTS_NODE]
+        &[
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            CALL_NODE,
+            INTEGER_NODE,
+            PARENTHESES_NODE,
+            RANGE_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +31,8 @@ impl Cop for EachForSimpleLoop {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for CallNode with .each and a block
         let call_node = match node.as_call_node() {
@@ -122,13 +133,15 @@ impl Cop for EachForSimpleLoop {
         // Check if left is 0 (for inclusive range) or args are empty
         // We flag all cases with integer ranges and empty block params
         let (line, column) = source.offset_to_line_col(receiver.location().start_offset());
-        diagnostics.push(self.diagnostic(
-            source,
-            line,
-            column,
-            "Use `Integer#times` for a simple loop which iterates a fixed number of times."
-                .to_string(),
-        ));
+        diagnostics.push(
+            self.diagnostic(
+                source,
+                line,
+                column,
+                "Use `Integer#times` for a simple loop which iterates a fixed number of times."
+                    .to_string(),
+            ),
+        );
     }
 }
 

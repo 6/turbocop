@@ -1,7 +1,7 @@
+use crate::cop::node_type::{DEF_NODE, FORWARDING_SUPER_NODE, STATEMENTS_NODE, SUPER_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{DEF_NODE, FORWARDING_SUPER_NODE, STATEMENTS_NODE, SUPER_NODE};
 
 pub struct RedundantInitialize;
 
@@ -20,8 +20,8 @@ impl Cop for RedundantInitialize {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_comments = config.get_bool("AllowComments", true);
 
@@ -110,9 +110,21 @@ impl Cop for RedundantInitialize {
         if is_explicit_super {
             if let Some(super_node) = body_nodes[0].as_super_node() {
                 let super_has_args = super_node.arguments().is_some()
-                    && super_node.arguments().unwrap().arguments().iter().next().is_some();
+                    && super_node
+                        .arguments()
+                        .unwrap()
+                        .arguments()
+                        .iter()
+                        .next()
+                        .is_some();
                 let def_has_params = def_node.parameters().is_some()
-                    && def_node.parameters().unwrap().requireds().iter().next().is_some();
+                    && def_node
+                        .parameters()
+                        .unwrap()
+                        .requireds()
+                        .iter()
+                        .next()
+                        .is_some();
                 // super() is only redundant if the def also has no params
                 if super_has_args || def_has_params {
                     return;

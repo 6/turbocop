@@ -6,15 +6,15 @@
 pub enum Token {
     LParen,
     RParen,
-    LBrace,           // {
-    RBrace,           // }
-    LBracket,         // [
-    RBracket,         // ]
-    Capture,          // $
-    Wildcard,         // _
-    Rest,             // ...
-    Negation,         // !
-    Pipe,             // | inside alternatives
+    LBrace,                // {
+    RBrace,                // }
+    LBracket,              // [
+    RBracket,              // ]
+    Capture,               // $
+    Wildcard,              // _
+    Rest,                  // ...
+    Negation,              // !
+    Pipe,                  // | inside alternatives
     HelperCall(String),    // #method_name or #method_name?
     SymbolLiteral(String), // :sym
     IntLiteral(i64),
@@ -156,10 +156,7 @@ impl<'a> Lexer<'a> {
                         // Ruby symbols can be operator method names: :==, :===, :!=,
                         // :<=>, :<=, :>=, :<<, :>>, :+, :-, :*, :/, :%, :!, :[],
                         // :[]=, :!~, :=~, :&, :|, :^, :~, :**
-                        let name = if self
-                            .peek()
-                            .is_some_and(|c| b"=<>!~+*&|^/%-.".contains(&c))
-                        {
+                        let name = if self.peek().is_some_and(|c| b"=<>!~+*&|^/%-.".contains(&c)) {
                             self.read_while(|c| b"=<>!~+*&|^/%-.[]".contains(&c))
                         } else {
                             self.read_while(|c| Self::is_ident_char(c) || c == b'?')
@@ -194,8 +191,7 @@ impl<'a> Lexer<'a> {
                             .get(self.pos + 1)
                             .is_some_and(|c| c.is_ascii_digit())) =>
                 {
-                    let num_str =
-                        self.read_while(|c| c.is_ascii_digit() || c == b'-' || c == b'.');
+                    let num_str = self.read_while(|c| c.is_ascii_digit() || c == b'-' || c == b'.');
                     if num_str.contains('.') {
                         tokens.push(Token::FloatLiteral(num_str));
                     } else if let Ok(n) = num_str.parse::<i64>() {
@@ -376,8 +372,7 @@ mod tests {
 
     #[test]
     fn test_lexer_complex_pattern() {
-        let mut lexer =
-            Lexer::new("(send (send nil? :expect ...) :to (send nil? :receive ...))");
+        let mut lexer = Lexer::new("(send (send nil? :expect ...) :to (send nil? :receive ...))");
         let tokens = lexer.tokenize();
         assert_eq!(tokens[0], Token::LParen);
         assert_eq!(tokens[1], Token::Ident("send".to_string()));

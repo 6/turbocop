@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTERPOLATED_STRING_NODE, STRING_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTERPOLATED_STRING_NODE, STRING_NODE};
 
 pub struct FormatString;
 
@@ -11,7 +13,13 @@ impl Cop for FormatString {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTERPOLATED_STRING_NODE, STRING_NODE]
+        &[
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            INTERPOLATED_STRING_NODE,
+            STRING_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +28,8 @@ impl Cop for FormatString {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -51,7 +59,11 @@ impl Cop for FormatString {
                 // RuboCop points at the % operator (node.loc.selector), not the whole expression
                 let loc = call.message_loc().unwrap_or_else(|| call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                let preferred = if style == "format" { "format" } else { "sprintf" };
+                let preferred = if style == "format" {
+                    "format"
+                } else {
+                    "sprintf"
+                };
                 diagnostics.push(self.diagnostic(
                     source,
                     line,
@@ -73,7 +85,11 @@ impl Cop for FormatString {
                 // RuboCop points at the method name (node.loc.selector), not the whole expression
                 let loc = call.message_loc().unwrap_or_else(|| call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                let preferred = if style == "sprintf" { "sprintf" } else { "String#%" };
+                let preferred = if style == "sprintf" {
+                    "sprintf"
+                } else {
+                    "String#%"
+                };
                 diagnostics.push(self.diagnostic(
                     source,
                     line,
@@ -95,7 +111,11 @@ impl Cop for FormatString {
                 // RuboCop points at the method name (node.loc.selector), not the whole expression
                 let loc = call.message_loc().unwrap_or_else(|| call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                let preferred = if style == "format" { "format" } else { "String#%" };
+                let preferred = if style == "format" {
+                    "format"
+                } else {
+                    "String#%"
+                };
                 diagnostics.push(self.diagnostic(
                     source,
                     line,
@@ -105,7 +125,6 @@ impl Cop for FormatString {
             }
             _ => {}
         }
-
     }
 }
 

@@ -1,7 +1,7 @@
+use crate::cop::node_type::REGULAR_EXPRESSION_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::REGULAR_EXPRESSION_NODE;
 
 /// Checks for duplicate elements in Regexp character classes.
 /// For example, `/[xyx]/` has a duplicate `x`.
@@ -26,8 +26,8 @@ impl Cop for DuplicateRegexpCharacterClassElement {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let regexp = match node.as_regular_expression_node() {
             Some(r) => r,
@@ -58,7 +58,8 @@ impl Cop for DuplicateRegexpCharacterClassElement {
 
                     // Skip character classes that use && (intersection) — too complex
                     // to analyze for duplicates (matches RuboCop behavior).
-                    let has_intersection = class_content.windows(2).any(|w| w[0] == '&' && w[1] == '&');
+                    let has_intersection =
+                        class_content.windows(2).any(|w| w[0] == '&' && w[1] == '&');
                     if !has_intersection {
                         check_class_for_duplicates(
                             self,
@@ -79,7 +80,6 @@ impl Cop for DuplicateRegexpCharacterClassElement {
                 i += 1;
             }
         }
-
     }
 }
 
@@ -158,7 +158,15 @@ fn check_class_for_duplicates(
             }
             let posix_class: String = class_content[k..p].iter().collect();
             if !seen.insert(posix_class) {
-                emit_duplicate(cop, source, all_chars, class_start_in_all + k, content_start, bytes, diagnostics);
+                emit_duplicate(
+                    cop,
+                    source,
+                    all_chars,
+                    class_start_in_all + k,
+                    content_start,
+                    bytes,
+                    diagnostics,
+                );
             }
             k = p;
         } else if class_content[k] == '[' {
@@ -167,7 +175,15 @@ fn check_class_for_duplicates(
             if let Some(end) = find_char_class_end(&nested_chars, 0) {
                 let entity: String = nested_chars[..=end].iter().collect();
                 if !seen.insert(entity) {
-                    emit_duplicate(cop, source, all_chars, class_start_in_all + k, content_start, bytes, diagnostics);
+                    emit_duplicate(
+                        cop,
+                        source,
+                        all_chars,
+                        class_start_in_all + k,
+                        content_start,
+                        bytes,
+                        diagnostics,
+                    );
                 }
                 k += end + 1;
             } else {
@@ -185,19 +201,39 @@ fn check_class_for_duplicates(
             {
                 // Range where the start is an escape sequence (e.g. \x00-\x1F)
                 let range_end_start = after_esc + 1;
-                let range_end_len = if class_content[range_end_start] == '\\' && range_end_start + 1 < class_content.len() {
+                let range_end_len = if class_content[range_end_start] == '\\'
+                    && range_end_start + 1 < class_content.len()
+                {
                     escape_sequence_len(class_content, range_end_start)
                 } else {
                     1
                 };
-                let range_str: String = class_content[k..range_end_start + range_end_len].iter().collect();
+                let range_str: String = class_content[k..range_end_start + range_end_len]
+                    .iter()
+                    .collect();
                 if !seen.insert(range_str) {
-                    emit_duplicate(cop, source, all_chars, class_start_in_all + k, content_start, bytes, diagnostics);
+                    emit_duplicate(
+                        cop,
+                        source,
+                        all_chars,
+                        class_start_in_all + k,
+                        content_start,
+                        bytes,
+                        diagnostics,
+                    );
                 }
                 k = range_end_start + range_end_len;
             } else {
                 if !seen.insert(entity) {
-                    emit_duplicate(cop, source, all_chars, class_start_in_all + k, content_start, bytes, diagnostics);
+                    emit_duplicate(
+                        cop,
+                        source,
+                        all_chars,
+                        class_start_in_all + k,
+                        content_start,
+                        bytes,
+                        diagnostics,
+                    );
                 }
                 k += esc_len;
             }
@@ -207,21 +243,41 @@ fn check_class_for_duplicates(
         {
             // Range like a-z — the end might be an escape sequence
             let range_end_start = k + 2;
-            let range_end_len = if class_content[range_end_start] == '\\' && range_end_start + 1 < class_content.len() {
+            let range_end_len = if class_content[range_end_start] == '\\'
+                && range_end_start + 1 < class_content.len()
+            {
                 escape_sequence_len(class_content, range_end_start)
             } else {
                 1
             };
-            let range: String = class_content[k..range_end_start + range_end_len].iter().collect();
+            let range: String = class_content[k..range_end_start + range_end_len]
+                .iter()
+                .collect();
             if !seen.insert(range) {
-                emit_duplicate(cop, source, all_chars, class_start_in_all + k, content_start, bytes, diagnostics);
+                emit_duplicate(
+                    cop,
+                    source,
+                    all_chars,
+                    class_start_in_all + k,
+                    content_start,
+                    bytes,
+                    diagnostics,
+                );
             }
             k = range_end_start + range_end_len;
         } else {
             // Single character
             let ch = class_content[k].to_string();
             if !seen.insert(ch) {
-                emit_duplicate(cop, source, all_chars, class_start_in_all + k, content_start, bytes, diagnostics);
+                emit_duplicate(
+                    cop,
+                    source,
+                    all_chars,
+                    class_start_in_all + k,
+                    content_start,
+                    bytes,
+                    diagnostics,
+                );
             }
             k += 1;
         }
@@ -278,22 +334,14 @@ fn escape_sequence_len(chars: &[char], start: usize) -> usize {
                 while p < len && chars[p] != '}' {
                     p += 1;
                 }
-                if p < len {
-                    p + 1 - start
-                } else {
-                    p - start
-                }
+                if p < len { p + 1 - start } else { p - start }
             } else {
                 2
             }
         }
         'c' => {
             // \cX — control character
-            if start + 2 < len {
-                3
-            } else {
-                2
-            }
+            if start + 2 < len { 3 } else { 2 }
         }
         '0'..='7' => {
             // Octal escape: \0, \00, \000, \1, \12, \123, etc.

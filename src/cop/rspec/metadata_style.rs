@@ -1,8 +1,8 @@
-use crate::cop::util::{self, is_rspec_example, is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE, TRUE_NODE};
+use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE, TRUE_NODE};
 
 pub struct MetadataStyle;
 
@@ -21,7 +21,13 @@ impl Cop for MetadataStyle {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ASSOC_NODE, CALL_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE, TRUE_NODE]
+        &[
+            ASSOC_NODE,
+            CALL_NODE,
+            KEYWORD_HASH_NODE,
+            SYMBOL_NODE,
+            TRUE_NODE,
+        ]
     }
 
     fn check_node(
@@ -30,8 +36,8 @@ impl Cop for MetadataStyle {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -98,7 +104,6 @@ impl Cop for MetadataStyle {
                 }
             }
         }
-
     }
 }
 

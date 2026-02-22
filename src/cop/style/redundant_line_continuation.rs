@@ -15,8 +15,8 @@ impl Cop for RedundantLineContinuation {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let lines: Vec<&[u8]> = source.lines().collect();
 
@@ -70,7 +70,6 @@ impl Cop for RedundantLineContinuation {
                 ));
             }
         }
-
     }
 }
 
@@ -93,13 +92,29 @@ fn is_redundant_continuation(before_backslash: &[u8], _line_idx: usize, _lines: 
     // After operators and opening brackets, continuation is redundant
     matches!(
         last_byte,
-        b',' | b'(' | b'[' | b'{' | b'+' | b'-' | b'*' | b'/' | b'|' | b'&' | b'.'
-        | b'=' | b'>' | b'<' | b'\\' | b':'
+        b',' | b'('
+            | b'['
+            | b'{'
+            | b'+'
+            | b'-'
+            | b'*'
+            | b'/'
+            | b'|'
+            | b'&'
+            | b'.'
+            | b'='
+            | b'>'
+            | b'<'
+            | b'\\'
+            | b':'
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(RedundantLineContinuation, "cops/style/redundant_line_continuation");
+    crate::cop_fixture_tests!(
+        RedundantLineContinuation,
+        "cops/style/redundant_line_continuation"
+    );
 }

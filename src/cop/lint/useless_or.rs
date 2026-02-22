@@ -1,14 +1,26 @@
+use crate::cop::node_type::{CALL_NODE, OR_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, OR_NODE};
 
 /// Checks for useless OR expressions where the left side always returns a truthy value.
 pub struct UselessOr;
 
 const TRUTHY_METHODS: &[&[u8]] = &[
-    b"to_a", b"to_c", b"to_d", b"to_i", b"to_f", b"to_h", b"to_r", b"to_s", b"to_sym",
-    b"intern", b"inspect", b"hash", b"object_id", b"__id__",
+    b"to_a",
+    b"to_c",
+    b"to_d",
+    b"to_i",
+    b"to_f",
+    b"to_h",
+    b"to_r",
+    b"to_s",
+    b"to_sym",
+    b"intern",
+    b"inspect",
+    b"hash",
+    b"object_id",
+    b"__id__",
 ];
 
 impl Cop for UselessOr {
@@ -30,8 +42,8 @@ impl Cop for UselessOr {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let or_node = match node.as_or_node() {
             Some(n) => n,
@@ -54,7 +66,6 @@ impl Cop for UselessOr {
                 ),
             ));
         }
-
     }
 }
 

@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct DeprecatedActiveModelErrorsMethods;
 
@@ -32,8 +32,8 @@ impl Cop for DeprecatedActiveModelErrorsMethods {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Pattern 1: errors[:field] << 'msg'  /  errors[:field].clear  /  errors[:field] = []
         // Pattern 2: errors.messages[:field] << 'msg'  /  etc.
@@ -76,7 +76,6 @@ impl Cop for DeprecatedActiveModelErrorsMethods {
 
         // Pattern: errors[:name] = [] (Prism represents as `[]=` call)
         // Already handled above with `[]=` check
-
     }
 }
 

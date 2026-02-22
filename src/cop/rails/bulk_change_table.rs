@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    ASSOC_NODE, BLOCK_NODE, CALL_NODE, DEF_NODE, HASH_NODE, IF_NODE, KEYWORD_HASH_NODE,
+    STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE, UNLESS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, BLOCK_NODE, CALL_NODE, DEF_NODE, HASH_NODE, IF_NODE, KEYWORD_HASH_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE, UNLESS_NODE};
 
 pub struct BulkChangeTable;
 
@@ -160,7 +163,19 @@ impl Cop for BulkChangeTable {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ASSOC_NODE, BLOCK_NODE, CALL_NODE, DEF_NODE, HASH_NODE, IF_NODE, KEYWORD_HASH_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE, UNLESS_NODE]
+        &[
+            ASSOC_NODE,
+            BLOCK_NODE,
+            CALL_NODE,
+            DEF_NODE,
+            HASH_NODE,
+            IF_NODE,
+            KEYWORD_HASH_NODE,
+            STATEMENTS_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+            UNLESS_NODE,
+        ]
     }
 
     fn check_node(
@@ -169,8 +184,8 @@ impl Cop for BulkChangeTable {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // RuboCop only fires when the database adapter is known to support bulk ALTER.
         // The `Database` config key can be "mysql" or "postgresql". When not set, rubocop
@@ -201,7 +216,6 @@ impl Cop for BulkChangeTable {
             Some(s) => s,
             None => return,
         };
-
 
         // Check for change_table without bulk: true that has multiple transformations
         for stmt in stmts.body().iter() {
@@ -255,8 +269,7 @@ impl Cop for BulkChangeTable {
                             false
                         };
                         if !appended {
-                            table_runs
-                                .push((table, vec![call.location().start_offset()]));
+                            table_runs.push((table, vec![call.location().start_offset()]));
                         }
                         continue;
                     }
@@ -283,7 +296,6 @@ impl Cop for BulkChangeTable {
                 ));
             }
         }
-
     }
 }
 
@@ -332,6 +344,9 @@ mod tests {
             CopConfig::default(),
             "db/migrate/001_test.rb",
         );
-        assert!(diagnostics.is_empty(), "Should not fire when Database is not set");
+        assert!(
+            diagnostics.is_empty(),
+            "Should not fire when Database is not set"
+        );
     }
 }

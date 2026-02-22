@@ -15,10 +15,9 @@ impl Cop for TopLevelMethodDefinition {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-
         let root = parse_result.node();
         if let Some(program) = root.as_program_node() {
             let stmts = program.statements();
@@ -35,12 +34,14 @@ impl Cop for TopLevelMethodDefinition {
                 }
             }
         }
-
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(TopLevelMethodDefinition, "cops/style/top_level_method_definition");
+    crate::cop_fixture_tests!(
+        TopLevelMethodDefinition,
+        "cops/style/top_level_method_definition"
+    );
 }

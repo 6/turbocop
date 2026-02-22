@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, EMBEDDED_STATEMENTS_NODE, INTERPOLATED_STRING_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, EMBEDDED_STATEMENTS_NODE, INTERPOLATED_STRING_NODE};
 
 pub struct RedundantStringCoercion;
 
@@ -15,7 +15,11 @@ impl Cop for RedundantStringCoercion {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, EMBEDDED_STATEMENTS_NODE, INTERPOLATED_STRING_NODE]
+        &[
+            CALL_NODE,
+            EMBEDDED_STATEMENTS_NODE,
+            INTERPOLATED_STRING_NODE,
+        ]
     }
 
     fn check_node(
@@ -24,8 +28,8 @@ impl Cop for RedundantStringCoercion {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let interp = match node.as_interpolated_string_node() {
             Some(n) => n,
@@ -80,12 +84,14 @@ impl Cop for RedundantStringCoercion {
                 "Redundant use of `Object#to_s` in interpolation.".to_string(),
             ));
         }
-
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(RedundantStringCoercion, "cops/lint/redundant_string_coercion");
+    crate::cop_fixture_tests!(
+        RedundantStringCoercion,
+        "cops/lint/redundant_string_coercion"
+    );
 }

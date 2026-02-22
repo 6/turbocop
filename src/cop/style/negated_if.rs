@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, IF_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, IF_NODE};
 
 pub struct NegatedIf;
 
@@ -20,8 +20,8 @@ impl Cop for NegatedIf {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "both");
         let if_node = match node.as_if_node() {
@@ -61,10 +61,14 @@ impl Cop for NegatedIf {
         if let Some(call) = predicate.as_call_node() {
             if call.name().as_slice() == b"!" {
                 let (line, column) = source.offset_to_line_col(if_kw_loc.start_offset());
-                diagnostics.push(self.diagnostic(source, line, column, "Favor `unless` over `if` for negative conditions.".to_string()));
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Favor `unless` over `if` for negative conditions.".to_string(),
+                ));
             }
         }
-
     }
 }
 
@@ -80,15 +84,19 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("prefix".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("prefix".into()),
+            )]),
             ..CopConfig::default()
         };
         // Postfix (modifier) form should be ignored with "prefix" style
         let source = b"do_something if !condition\n";
         let diags = run_cop_full_with_config(&NegatedIf, source, config);
-        assert!(diags.is_empty(), "Should ignore modifier form with prefix style");
+        assert!(
+            diags.is_empty(),
+            "Should ignore modifier form with prefix style"
+        );
     }
 
     #[test]
@@ -96,9 +104,10 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("prefix".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("prefix".into()),
+            )]),
             ..CopConfig::default()
         };
         // Prefix form should still be flagged
@@ -112,15 +121,19 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("postfix".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("postfix".into()),
+            )]),
             ..CopConfig::default()
         };
         // Prefix form should be ignored with "postfix" style
         let source = b"if !condition\n  do_something\nend\n";
         let diags = run_cop_full_with_config(&NegatedIf, source, config);
-        assert!(diags.is_empty(), "Should ignore prefix form with postfix style");
+        assert!(
+            diags.is_empty(),
+            "Should ignore prefix form with postfix style"
+        );
     }
 
     #[test]
@@ -128,13 +141,18 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("postfix".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("postfix".into()),
+            )]),
             ..CopConfig::default()
         };
         let source = b"do_something if !condition\n";
         let diags = run_cop_full_with_config(&NegatedIf, source, config);
-        assert_eq!(diags.len(), 1, "Should flag modifier form with postfix style");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag modifier form with postfix style"
+        );
     }
 }

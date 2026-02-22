@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTERPOLATED_STRING_NODE,
+    INTERPOLATED_X_STRING_NODE, STRING_NODE, X_STRING_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTERPOLATED_STRING_NODE, INTERPOLATED_X_STRING_NODE, STRING_NODE, X_STRING_NODE};
 
 pub struct EvalWithLocation;
 
@@ -47,7 +50,15 @@ impl Cop for EvalWithLocation {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTERPOLATED_STRING_NODE, INTERPOLATED_X_STRING_NODE, STRING_NODE, X_STRING_NODE]
+        &[
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            INTERPOLATED_STRING_NODE,
+            INTERPOLATED_X_STRING_NODE,
+            STRING_NODE,
+            X_STRING_NODE,
+        ]
     }
 
     fn check_node(
@@ -56,8 +67,8 @@ impl Cop for EvalWithLocation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -81,11 +92,11 @@ impl Cop for EvalWithLocation {
         // For `eval`, only allow no receiver, Kernel, or ::Kernel
         if method_bytes == b"eval" {
             if let Some(ref recv) = receiver {
-                let is_kernel = recv.as_constant_read_node()
+                let is_kernel = recv
+                    .as_constant_read_node()
                     .map_or(false, |c| c.name().as_slice() == b"Kernel");
                 let is_scoped_kernel = recv.as_constant_path_node().map_or(false, |cp| {
-                    cp.parent().is_none()
-                        && cp.name().map_or(false, |n| n.as_slice() == b"Kernel")
+                    cp.parent().is_none() && cp.name().map_or(false, |n| n.as_slice() == b"Kernel")
                 });
                 if !is_kernel && !is_scoped_kernel {
                     return;
@@ -102,7 +113,10 @@ impl Cop for EvalWithLocation {
                 let needs_binding = Self::requires_binding(method_bytes);
                 let method_str = std::str::from_utf8(method_bytes).unwrap_or("eval");
                 let msg = if needs_binding {
-                    format!("Pass a binding, `__FILE__`, and `__LINE__` to `{}`.", method_str)
+                    format!(
+                        "Pass a binding, `__FILE__`, and `__LINE__` to `{}`.",
+                        method_str
+                    )
                 } else {
                     format!("Pass `__FILE__` and `__LINE__` to `{}`.", method_str)
                 };
@@ -136,13 +150,15 @@ impl Cop for EvalWithLocation {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             let msg = if needs_binding {
-                format!("Pass a binding, `__FILE__`, and `__LINE__` to `{}`.", method_str)
+                format!(
+                    "Pass a binding, `__FILE__`, and `__LINE__` to `{}`.",
+                    method_str
+                )
             } else {
                 format!("Pass `__FILE__` and `__LINE__` to `{}`.", method_str)
             };
             diagnostics.push(self.diagnostic(source, line, column, msg));
         }
-
     }
 }
 

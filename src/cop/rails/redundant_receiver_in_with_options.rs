@@ -1,7 +1,11 @@
+use crate::cop::node_type::{
+    BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CALL_OR_WRITE_NODE,
+    INSTANCE_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_READ_NODE,
+    REQUIRED_PARAMETER_NODE, STATEMENTS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CALL_OR_WRITE_NODE, INSTANCE_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE};
 
 pub struct RedundantReceiverInWithOptions;
 
@@ -15,7 +19,17 @@ impl Cop for RedundantReceiverInWithOptions {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CALL_OR_WRITE_NODE, INSTANCE_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_OR_WRITE_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE]
+        &[
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            CALL_NODE,
+            CALL_OR_WRITE_NODE,
+            INSTANCE_VARIABLE_OR_WRITE_NODE,
+            LOCAL_VARIABLE_OR_WRITE_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            REQUIRED_PARAMETER_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -24,8 +38,8 @@ impl Cop for RedundantReceiverInWithOptions {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -113,14 +127,8 @@ impl Cop for RedundantReceiverInWithOptions {
 
         // Second pass: collect offenses for all statements with redundant receiver
         for stmt in &body_stmts {
-            self.check_stmt_for_redundant_receiver(
-                source,
-                stmt,
-                &param_bytes,
-                diagnostics,
-            );
+            self.check_stmt_for_redundant_receiver(source, stmt, &param_bytes, diagnostics);
         }
-
     }
 }
 

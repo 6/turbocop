@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, DEF_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, DEF_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 
 pub struct ClosingParenthesisIndentation;
 
@@ -21,16 +21,21 @@ impl Cop for ClosingParenthesisIndentation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Handle method calls with parentheses
         if let Some(call) = node.as_call_node() {
-            if let (Some(open_loc), Some(close_loc)) =
-                (call.opening_loc(), call.closing_loc())
-            {
+            if let (Some(open_loc), Some(close_loc)) = (call.opening_loc(), call.closing_loc()) {
                 if close_loc.as_slice() == b")" {
-                    diagnostics.extend(check_parens(source, self, open_loc, close_loc, call.arguments(), config));
+                    diagnostics.extend(check_parens(
+                        source,
+                        self,
+                        open_loc,
+                        close_loc,
+                        call.arguments(),
+                        config,
+                    ));
                     return;
                 }
             }
@@ -44,13 +49,14 @@ impl Cop for ClosingParenthesisIndentation {
                 let lparen = def_node.lparen_loc();
                 let rparen = def_node.rparen_loc();
                 if let (Some(open_loc), Some(close_loc)) = (lparen, rparen) {
-                    diagnostics.extend(check_def_parens(source, self, open_loc, close_loc, params, config));
+                    diagnostics.extend(check_def_parens(
+                        source, self, open_loc, close_loc, params, config,
+                    ));
                     return;
                 }
             }
             return;
         }
-
     }
 }
 
@@ -85,7 +91,8 @@ fn check_parens(
         None => return Vec::new(),
     };
 
-    let (first_arg_line, _first_arg_col) = source.offset_to_line_col(first_arg.location().start_offset());
+    let (first_arg_line, _first_arg_col) =
+        source.offset_to_line_col(first_arg.location().start_offset());
 
     let indent_width = config.get_usize("IndentationWidth", 2);
 
@@ -108,27 +115,33 @@ fn check_parens(
         // Scenario 2: First param is on same line as opening paren
         // When first element is a hash, check alignment of its children (pairs)
         let first_arg = args.arguments().iter().next().unwrap();
-        let element_columns: Vec<usize> = if first_arg.as_keyword_hash_node().is_some()
-            || first_arg.as_hash_node().is_some()
-        {
-            // Expand hash/keyword_hash into its pair columns
-            let pairs: Vec<ruby_prism::Node<'_>> = if let Some(kh) = first_arg.as_keyword_hash_node() {
-                kh.elements().iter().collect()
-            } else if let Some(h) = first_arg.as_hash_node() {
-                h.elements().iter().collect()
+        let element_columns: Vec<usize> =
+            if first_arg.as_keyword_hash_node().is_some() || first_arg.as_hash_node().is_some() {
+                // Expand hash/keyword_hash into its pair columns
+                let pairs: Vec<ruby_prism::Node<'_>> =
+                    if let Some(kh) = first_arg.as_keyword_hash_node() {
+                        kh.elements().iter().collect()
+                    } else if let Some(h) = first_arg.as_hash_node() {
+                        h.elements().iter().collect()
+                    } else {
+                        vec![]
+                    };
+                pairs
+                    .iter()
+                    .map(|p| {
+                        let (_, col) = source.offset_to_line_col(p.location().start_offset());
+                        col
+                    })
+                    .collect()
             } else {
-                vec![]
+                args.arguments()
+                    .iter()
+                    .map(|a| {
+                        let (_, col) = source.offset_to_line_col(a.location().start_offset());
+                        col
+                    })
+                    .collect()
             };
-            pairs.iter().map(|p| {
-                let (_, col) = source.offset_to_line_col(p.location().start_offset());
-                col
-            }).collect()
-        } else {
-            args.arguments().iter().map(|a| {
-                let (_, col) = source.offset_to_line_col(a.location().start_offset());
-                col
-            }).collect()
-        };
 
         let all_aligned = element_columns.iter().all(|&c| c == element_columns[0]);
 
@@ -157,7 +170,10 @@ fn check_parens(
                     source,
                     close_line,
                     close_col,
-                    format!("Indent `)` to column {} (not {}).", open_line_indent, close_col),
+                    format!(
+                        "Indent `)` to column {} (not {}).",
+                        open_line_indent, close_col
+                    ),
                 )];
             }
         }
@@ -186,7 +202,10 @@ fn check_def_parens(
     }
 
     // Get first parameter
-    let first_param = params.requireds().iter().next()
+    let first_param = params
+        .requireds()
+        .iter()
+        .next()
         .or_else(|| params.optionals().iter().next().map(ruby_prism::Node::from));
 
     let first_param = match first_param {

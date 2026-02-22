@@ -1,7 +1,7 @@
+use crate::cop::node_type::LAMBDA_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::LAMBDA_NODE;
 
 pub struct StabbyLambdaParentheses;
 
@@ -20,8 +20,8 @@ impl Cop for StabbyLambdaParentheses {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let lambda_node = match node.as_lambda_node() {
             Some(l) => l,
@@ -76,7 +76,6 @@ impl Cop for StabbyLambdaParentheses {
             }
             _ => {}
         }
-
     }
 }
 
@@ -85,7 +84,10 @@ mod tests {
     use super::*;
     use crate::testutil::run_cop_full_with_config;
 
-    crate::cop_fixture_tests!(StabbyLambdaParentheses, "cops/style/stabby_lambda_parentheses");
+    crate::cop_fixture_tests!(
+        StabbyLambdaParentheses,
+        "cops/style/stabby_lambda_parentheses"
+    );
 
     #[test]
     fn config_require_no_parentheses() {

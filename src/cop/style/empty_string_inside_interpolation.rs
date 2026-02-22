@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    ELSE_NODE, EMBEDDED_STATEMENTS_NODE, IF_NODE, INTERPOLATED_STRING_NODE, NIL_NODE, STRING_NODE,
+    UNLESS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ELSE_NODE, EMBEDDED_STATEMENTS_NODE, IF_NODE, INTERPOLATED_STRING_NODE, NIL_NODE, STRING_NODE, UNLESS_NODE};
 
 pub struct EmptyStringInsideInterpolation;
 
@@ -11,7 +14,15 @@ impl Cop for EmptyStringInsideInterpolation {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ELSE_NODE, EMBEDDED_STATEMENTS_NODE, IF_NODE, INTERPOLATED_STRING_NODE, NIL_NODE, STRING_NODE, UNLESS_NODE]
+        &[
+            ELSE_NODE,
+            EMBEDDED_STATEMENTS_NODE,
+            IF_NODE,
+            INTERPOLATED_STRING_NODE,
+            NIL_NODE,
+            STRING_NODE,
+            UNLESS_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +31,8 @@ impl Cop for EmptyStringInsideInterpolation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "trailing_conditional");
 
@@ -31,7 +42,6 @@ impl Cop for EmptyStringInsideInterpolation {
         } else {
             return;
         };
-
 
         for part in interp_string.parts().iter() {
             if let Some(embedded) = part.as_embedded_statements_node() {
@@ -75,13 +85,17 @@ impl Cop for EmptyStringInsideInterpolation {
 
                                 if if_is_empty || else_is_empty {
                                     let loc = embedded.location();
-                                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                    diagnostics.push(self.diagnostic(
-                                        source,
-                                        line,
-                                        column,
-                                        "Do not return empty strings in string interpolation.".to_string(),
-                                    ));
+                                    let (line, column) =
+                                        source.offset_to_line_col(loc.start_offset());
+                                    diagnostics.push(
+                                        self.diagnostic(
+                                            source,
+                                            line,
+                                            column,
+                                            "Do not return empty strings in string interpolation."
+                                                .to_string(),
+                                        ),
+                                    );
                                 }
                             }
                         }
@@ -91,7 +105,8 @@ impl Cop for EmptyStringInsideInterpolation {
                                 // Check if this is a modifier if (no else, single branch)
                                 if if_mod.subsequent().is_none() {
                                     let loc = embedded.location();
-                                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                    let (line, column) =
+                                        source.offset_to_line_col(loc.start_offset());
                                     diagnostics.push(self.diagnostic(
                                         source,
                                         line,
@@ -103,12 +118,15 @@ impl Cop for EmptyStringInsideInterpolation {
                             if let Some(_unless_mod) = stmt_list[0].as_unless_node() {
                                 let loc = embedded.location();
                                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                diagnostics.push(self.diagnostic(
-                                    source,
-                                    line,
-                                    column,
-                                    "Do not use trailing conditionals in string interpolation.".to_string(),
-                                ));
+                                diagnostics.push(
+                                    self.diagnostic(
+                                        source,
+                                        line,
+                                        column,
+                                        "Do not use trailing conditionals in string interpolation."
+                                            .to_string(),
+                                    ),
+                                );
                             }
                         }
                         _ => {}
@@ -116,7 +134,6 @@ impl Cop for EmptyStringInsideInterpolation {
                 }
             }
         }
-
     }
 }
 

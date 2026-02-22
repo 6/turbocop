@@ -1,7 +1,7 @@
+use crate::cop::node_type::{INTERPOLATED_STRING_NODE, STRING_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{INTERPOLATED_STRING_NODE, STRING_NODE};
 
 pub struct HeredocDelimiterNaming;
 
@@ -33,8 +33,8 @@ impl Cop for HeredocDelimiterNaming {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _forbidden_delimiters = config.get_string_array("ForbiddenDelimiters");
 
@@ -100,8 +100,16 @@ impl Cop for HeredocDelimiterNaming {
                 Some(loc) => loc.start_offset(),
                 None => {
                     // Fallback to opening delimiter position
-                    opening_loc.start_offset() + opening.len() - delimiter.len()
-                        - if opening.ends_with(b"'") || opening.ends_with(b"\"") || opening.ends_with(b"`") { 1 } else { 0 }
+                    opening_loc.start_offset() + opening.len()
+                        - delimiter.len()
+                        - if opening.ends_with(b"'")
+                            || opening.ends_with(b"\"")
+                            || opening.ends_with(b"`")
+                        {
+                            1
+                        } else {
+                            0
+                        }
                 }
             };
             let (line, column) = source.offset_to_line_col(offset);
@@ -112,7 +120,6 @@ impl Cop for HeredocDelimiterNaming {
                 "Use meaningful heredoc delimiters.".to_string(),
             ));
         }
-
     }
 }
 

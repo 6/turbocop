@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, SYMBOL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, SYMBOL_NODE};
 
 pub struct AccessModifierDeclarations;
 
@@ -22,8 +22,8 @@ impl Cop for AccessModifierDeclarations {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "group");
         let allow_modifiers_on_symbols = config.get_bool("AllowModifiersOnSymbols", true);
@@ -67,7 +67,10 @@ impl Cop for AccessModifierDeclarations {
         if allow_modifiers_on_attrs {
             if let Some(inner_call) = first_arg.as_call_node() {
                 let inner_name = std::str::from_utf8(inner_call.name().as_slice()).unwrap_or("");
-                if matches!(inner_name, "attr_reader" | "attr_writer" | "attr_accessor" | "attr") {
+                if matches!(
+                    inner_name,
+                    "attr_reader" | "attr_writer" | "attr_accessor" | "attr"
+                ) {
                     return;
                 }
             }
@@ -88,8 +91,8 @@ impl Cop for AccessModifierDeclarations {
         // - Visibility-change call with symbol: `private :foo` — already handled above (AllowModifiersOnSymbols)
         // - Visibility-change call with method/variable: `public target`, `private method_var` — NOT an offense
         //   These change visibility of an already-defined method, not inline declarations.
-        let is_inline_modifier = first_arg.as_def_node().is_some()
-            || first_arg.as_symbol_node().is_some();
+        let is_inline_modifier =
+            first_arg.as_def_node().is_some() || first_arg.as_symbol_node().is_some();
 
         match enforced_style {
             "inline" => {
@@ -97,7 +100,6 @@ impl Cop for AccessModifierDeclarations {
                 // If we see a bare modifier without args inside a class, it's group style
                 // This is only triggered for group-style, which is bare modifier without args
                 // Since we already checked args exist, this is inline-style with args = OK
-
             }
             "group" => {
                 // Group style: access modifiers should not be inlined with method definitions

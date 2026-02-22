@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    CALL_NODE, EMBEDDED_STATEMENTS_NODE, INTERPOLATED_STRING_NODE, STRING_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, EMBEDDED_STATEMENTS_NODE, INTERPOLATED_STRING_NODE, STRING_NODE};
 
 pub struct DocumentDynamicEvalDefinition;
 
@@ -20,7 +22,12 @@ impl Cop for DocumentDynamicEvalDefinition {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, EMBEDDED_STATEMENTS_NODE, INTERPOLATED_STRING_NODE, STRING_NODE]
+        &[
+            CALL_NODE,
+            EMBEDDED_STATEMENTS_NODE,
+            INTERPOLATED_STRING_NODE,
+            STRING_NODE,
+        ]
     }
 
     fn check_node(
@@ -61,7 +68,10 @@ impl Cop for DocumentDynamicEvalDefinition {
             None => return,
         };
 
-        let has_interpolation = interp.parts().iter().any(|p| p.as_embedded_statements_node().is_some());
+        let has_interpolation = interp
+            .parts()
+            .iter()
+            .any(|p| p.as_embedded_statements_node().is_some());
 
         if !has_interpolation {
             return;

@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 /// Map of refute_* method names to their assert_not_* counterparts,
 /// matching the explicit list in RuboCop's Rails/RefuteMethods cop.
@@ -43,8 +43,8 @@ impl Cop for RefuteMethods {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "assert_not");
 
@@ -64,7 +64,10 @@ impl Cop for RefuteMethods {
             "refute" => {
                 // Flag assert_not_* methods, suggest refute_*
                 // Use the reverse mapping from CORRECTIONS.
-                if let Some((refute_name, _)) = CORRECTIONS.iter().find(|(_, assert_name)| *assert_name == name_str) {
+                if let Some((refute_name, _)) = CORRECTIONS
+                    .iter()
+                    .find(|(_, assert_name)| *assert_name == name_str)
+                {
                     (true, format!("Prefer `{refute_name}` over `{name_str}`."))
                 } else {
                     (false, String::new())
@@ -73,7 +76,10 @@ impl Cop for RefuteMethods {
             _ => {
                 // "assert_not" (default): flag refute_* methods
                 // Only flag methods in the explicit CORRECTIONS list.
-                if let Some((_, assert_name)) = CORRECTIONS.iter().find(|(refute_name, _)| *refute_name == name_str) {
+                if let Some((_, assert_name)) = CORRECTIONS
+                    .iter()
+                    .find(|(refute_name, _)| *refute_name == name_str)
+                {
                     (true, format!("Prefer `{assert_name}` over `{name_str}`."))
                 } else {
                     (false, String::new())

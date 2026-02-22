@@ -37,8 +37,8 @@ impl Cop for EmptyLinesAfterModuleInclusion {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = InclusionVisitor {
             cop: self,
@@ -92,7 +92,9 @@ impl InclusionVisitor<'_> {
         }
 
         let loc = call.location();
-        let (last_line, _) = self.source.offset_to_line_col(loc.end_offset().saturating_sub(1));
+        let (last_line, _) = self
+            .source
+            .offset_to_line_col(loc.end_offset().saturating_sub(1));
         let lines: Vec<&[u8]> = self.source.lines().collect();
 
         // Check if the next line exists
@@ -154,7 +156,9 @@ impl InclusionVisitor<'_> {
         }
 
         // If next line is a rubocop:enable directive comment, check the line after
-        if next_trimmed.starts_with(b"# rubocop:enable") || next_trimmed.starts_with(b"#rubocop:enable") {
+        if next_trimmed.starts_with(b"# rubocop:enable")
+            || next_trimmed.starts_with(b"#rubocop:enable")
+        {
             // Check the line after the enable directive
             if last_line + 1 < lines.len() {
                 let line_after = lines[last_line + 1];

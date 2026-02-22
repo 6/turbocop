@@ -299,13 +299,21 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(empty_method::EmptyMethod));
     registry.register(Box::new(negated_if::NegatedIf));
     registry.register(Box::new(negated_while::NegatedWhile));
-    registry.register(Box::new(parentheses_around_condition::ParenthesesAroundCondition));
+    registry.register(Box::new(
+        parentheses_around_condition::ParenthesesAroundCondition,
+    ));
     registry.register(Box::new(if_unless_modifier::IfUnlessModifier));
     registry.register(Box::new(word_array::WordArray));
     registry.register(Box::new(symbol_array::SymbolArray));
-    registry.register(Box::new(trailing_comma_in_arguments::TrailingCommaInArguments));
-    registry.register(Box::new(trailing_comma_in_array_literal::TrailingCommaInArrayLiteral));
-    registry.register(Box::new(trailing_comma_in_hash_literal::TrailingCommaInHashLiteral));
+    registry.register(Box::new(
+        trailing_comma_in_arguments::TrailingCommaInArguments,
+    ));
+    registry.register(Box::new(
+        trailing_comma_in_array_literal::TrailingCommaInArrayLiteral,
+    ));
+    registry.register(Box::new(
+        trailing_comma_in_hash_literal::TrailingCommaInHashLiteral,
+    ));
     registry.register(Box::new(class_and_module_children::ClassAndModuleChildren));
     registry.register(Box::new(ternary_parentheses::TernaryParentheses));
     registry.register(Box::new(documentation::Documentation));
@@ -320,7 +328,9 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(stabby_lambda_parentheses::StabbyLambdaParentheses));
     registry.register(Box::new(yoda_condition::YodaCondition));
     registry.register(Box::new(hash_syntax::HashSyntax));
-    registry.register(Box::new(method_call_with_args_parentheses::MethodCallWithArgsParentheses));
+    registry.register(Box::new(
+        method_call_with_args_parentheses::MethodCallWithArgsParentheses,
+    ));
     registry.register(Box::new(and_or::AndOr));
     registry.register(Box::new(class_vars::ClassVars));
     registry.register(Box::new(method_def_parentheses::MethodDefParentheses));
@@ -366,17 +376,25 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(string_concatenation::StringConcatenation));
     registry.register(Box::new(single_argument_dig::SingleArgumentDig));
     registry.register(Box::new(select_by_regexp::SelectByRegexp));
-    registry.register(Box::new(redundant_file_extension_in_require::RedundantFileExtensionInRequire));
+    registry.register(Box::new(
+        redundant_file_extension_in_require::RedundantFileExtensionInRequire,
+    ));
     registry.register(Box::new(guard_clause::GuardClause));
-    registry.register(Box::new(optional_boolean_parameter::OptionalBooleanParameter));
+    registry.register(Box::new(
+        optional_boolean_parameter::OptionalBooleanParameter,
+    ));
     registry.register(Box::new(commented_keyword::CommentedKeyword));
     registry.register(Box::new(encoding::Encoding));
     registry.register(Box::new(multiline_if_then::MultilineIfThen));
     registry.register(Box::new(multiline_when_then::MultilineWhenThen));
     registry.register(Box::new(multiline_if_modifier::MultilineIfModifier));
     registry.register(Box::new(empty_case_condition::EmptyCaseCondition));
-    registry.register(Box::new(missing_respond_to_missing::MissingRespondToMissing));
-    registry.register(Box::new(if_with_boolean_literal_branches::IfWithBooleanLiteralBranches));
+    registry.register(Box::new(
+        missing_respond_to_missing::MissingRespondToMissing,
+    ));
+    registry.register(Box::new(
+        if_with_boolean_literal_branches::IfWithBooleanLiteralBranches,
+    ));
     registry.register(Box::new(expand_path_arguments::ExpandPathArguments));
     registry.register(Box::new(multiline_memoization::MultilineMemoization));
     // Previously unregistered cops
@@ -409,7 +427,9 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(string_chars::StringChars));
     registry.register(Box::new(nested_ternary_operator::NestedTernaryOperator));
     registry.register(Box::new(while_until_do::WhileUntilDo));
-    registry.register(Box::new(multiline_ternary_operator::MultilineTernaryOperator));
+    registry.register(Box::new(
+        multiline_ternary_operator::MultilineTernaryOperator,
+    ));
     registry.register(Box::new(global_std_stream::GlobalStdStream));
     registry.register(Box::new(struct_inheritance::StructInheritance));
     registry.register(Box::new(data_inheritance::DataInheritance));
@@ -418,28 +438,46 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(redundant_sort_by::RedundantSortBy));
     registry.register(Box::new(trailing_body_on_class::TrailingBodyOnClass));
     registry.register(Box::new(trailing_body_on_module::TrailingBodyOnModule));
-    registry.register(Box::new(trailing_body_on_method_definition::TrailingBodyOnMethodDefinition));
-    registry.register(Box::new(trailing_method_end_statement::TrailingMethodEndStatement));
+    registry.register(Box::new(
+        trailing_body_on_method_definition::TrailingBodyOnMethodDefinition,
+    ));
+    registry.register(Box::new(
+        trailing_method_end_statement::TrailingMethodEndStatement,
+    ));
     registry.register(Box::new(one_line_conditional::OneLineConditional));
-    registry.register(Box::new(if_unless_modifier_of_if_unless::IfUnlessModifierOfIfUnless));
-    registry.register(Box::new(multiline_method_signature::MultilineMethodSignature));
+    registry.register(Box::new(
+        if_unless_modifier_of_if_unless::IfUnlessModifierOfIfUnless,
+    ));
+    registry.register(Box::new(
+        multiline_method_signature::MultilineMethodSignature,
+    ));
     registry.register(Box::new(multiline_block_chain::MultilineBlockChain));
-    registry.register(Box::new(method_called_on_do_end_block::MethodCalledOnDoEndBlock));
+    registry.register(Box::new(
+        method_called_on_do_end_block::MethodCalledOnDoEndBlock,
+    ));
     registry.register(Box::new(env_home::EnvHome));
-    registry.register(Box::new(redundant_current_directory_in_path::RedundantCurrentDirectoryInPath));
+    registry.register(Box::new(
+        redundant_current_directory_in_path::RedundantCurrentDirectoryInPath,
+    ));
     registry.register(Box::new(nested_modifier::NestedModifier));
     registry.register(Box::new(self::send::Send));
     registry.register(Box::new(nested_file_dirname::NestedFileDirname));
     registry.register(Box::new(min_max::MinMax));
     // New Style cops (batch)
-    registry.register(Box::new(access_modifier_declarations::AccessModifierDeclarations));
+    registry.register(Box::new(
+        access_modifier_declarations::AccessModifierDeclarations,
+    ));
     registry.register(Box::new(accessor_grouping::AccessorGrouping));
-    registry.register(Box::new(ambiguous_endless_method_definition::AmbiguousEndlessMethodDefinition));
+    registry.register(Box::new(
+        ambiguous_endless_method_definition::AmbiguousEndlessMethodDefinition,
+    ));
     registry.register(Box::new(arguments_forwarding::ArgumentsForwarding));
     registry.register(Box::new(array_coercion::ArrayCoercion));
     registry.register(Box::new(array_first_last::ArrayFirstLast));
     registry.register(Box::new(array_intersect::ArrayIntersect));
-    registry.register(Box::new(array_intersect_with_single_element::ArrayIntersectWithSingleElement));
+    registry.register(Box::new(
+        array_intersect_with_single_element::ArrayIntersectWithSingleElement,
+    ));
     registry.register(Box::new(ascii_comments::AsciiComments));
     registry.register(Box::new(auto_resource_cleanup::AutoResourceCleanup));
     registry.register(Box::new(bisected_attr_accessor::BisectedAttrAccessor));
@@ -461,14 +499,22 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(dig_chain::DigChain));
     registry.register(Box::new(self::dir::Dir));
     registry.register(Box::new(dir_empty::DirEmpty));
-    registry.register(Box::new(disable_cops_within_source_code_directive::DisableCopsWithinSourceCodeDirective));
-    registry.register(Box::new(document_dynamic_eval_definition::DocumentDynamicEvalDefinition));
+    registry.register(Box::new(
+        disable_cops_within_source_code_directive::DisableCopsWithinSourceCodeDirective,
+    ));
+    registry.register(Box::new(
+        document_dynamic_eval_definition::DocumentDynamicEvalDefinition,
+    ));
     registry.register(Box::new(documentation_method::DocumentationMethod));
-    registry.register(Box::new(double_cop_disable_directive::DoubleCopDisableDirective));
+    registry.register(Box::new(
+        double_cop_disable_directive::DoubleCopDisableDirective,
+    ));
     registry.register(Box::new(each_with_object::EachWithObject));
     registry.register(Box::new(empty_class_definition::EmptyClassDefinition));
     registry.register(Box::new(empty_heredoc::EmptyHeredoc));
-    registry.register(Box::new(empty_string_inside_interpolation::EmptyStringInsideInterpolation));
+    registry.register(Box::new(
+        empty_string_inside_interpolation::EmptyStringInsideInterpolation,
+    ));
     registry.register(Box::new(endless_method::EndlessMethod));
     registry.register(Box::new(eval_with_location::EvalWithLocation));
     registry.register(Box::new(exact_regexp_match::ExactRegexpMatch));
@@ -490,13 +536,17 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(hash_like_case::HashLikeCase));
     registry.register(Box::new(hash_lookup_method::HashLookupMethod));
     registry.register(Box::new(hash_slice::HashSlice));
-    registry.register(Box::new(identical_conditional_branches::IdenticalConditionalBranches));
+    registry.register(Box::new(
+        identical_conditional_branches::IdenticalConditionalBranches,
+    ));
     registry.register(Box::new(if_inside_else::IfInsideElse));
     registry.register(Box::new(implicit_runtime_error::ImplicitRuntimeError));
     registry.register(Box::new(in_pattern_then::InPatternThen));
     registry.register(Box::new(inline_comment::InlineComment));
     registry.register(Box::new(inverse_methods::InverseMethods));
-    registry.register(Box::new(invertible_unless_condition::InvertibleUnlessCondition));
+    registry.register(Box::new(
+        invertible_unless_condition::InvertibleUnlessCondition,
+    ));
     registry.register(Box::new(ip_addresses::IpAddresses));
     registry.register(Box::new(it_assignment::ItAssignment));
     registry.register(Box::new(it_block_parameter::ItBlockParameter));
@@ -504,22 +554,30 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(keyword_parameters_order::KeywordParametersOrder));
     registry.register(Box::new(line_end_concatenation::LineEndConcatenation));
     registry.register(Box::new(magic_comment_format::MagicCommentFormat));
-    registry.register(Box::new(map_compact_with_conditional_block::MapCompactWithConditionalBlock));
+    registry.register(Box::new(
+        map_compact_with_conditional_block::MapCompactWithConditionalBlock,
+    ));
     registry.register(Box::new(map_into_array::MapIntoArray));
     registry.register(Box::new(map_to_hash::MapToHash));
     registry.register(Box::new(map_to_set::MapToSet));
-    registry.register(Box::new(method_call_without_args_parentheses::MethodCallWithoutArgsParentheses));
+    registry.register(Box::new(
+        method_call_without_args_parentheses::MethodCallWithoutArgsParentheses,
+    ));
     registry.register(Box::new(min_max_comparison::MinMaxComparison));
     registry.register(Box::new(missing_else::MissingElse));
     registry.register(Box::new(mixin_grouping::MixinGrouping));
     registry.register(Box::new(mixin_usage::MixinUsage));
     registry.register(Box::new(self::module_function::ModuleFunction));
-    registry.register(Box::new(module_member_existence_check::ModuleMemberExistenceCheck));
+    registry.register(Box::new(
+        module_member_existence_check::ModuleMemberExistenceCheck,
+    ));
     registry.register(Box::new(multiline_in_pattern_then::MultilineInPatternThen));
     registry.register(Box::new(multiple_comparison::MultipleComparison));
     registry.register(Box::new(negated_if_else_condition::NegatedIfElseCondition));
     registry.register(Box::new(negative_array_index::NegativeArrayIndex));
-    registry.register(Box::new(nested_parenthesized_calls::NestedParenthesizedCalls));
+    registry.register(Box::new(
+        nested_parenthesized_calls::NestedParenthesizedCalls,
+    ));
     registry.register(Box::new(self::next::Next));
     registry.register(Box::new(numbered_parameters::NumberedParameters));
     registry.register(Box::new(numbered_parameters_limit::NumberedParametersLimit));
@@ -527,55 +585,89 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(option_hash::OptionHash));
     registry.register(Box::new(optional_arguments::OptionalArguments));
     registry.register(Box::new(parallel_assignment::ParallelAssignment));
-    registry.register(Box::new(percent_literal_delimiters::PercentLiteralDelimiters));
+    registry.register(Box::new(
+        percent_literal_delimiters::PercentLiteralDelimiters,
+    ));
     registry.register(Box::new(percent_q_literals::PercentQLiterals));
     registry.register(Box::new(perl_backrefs::PerlBackrefs));
     registry.register(Box::new(quoted_symbols::QuotedSymbols));
     registry.register(Box::new(random_with_offset::RandomWithOffset));
     registry.register(Box::new(redundant_argument::RedundantArgument));
-    registry.register(Box::new(redundant_array_constructor::RedundantArrayConstructor));
+    registry.register(Box::new(
+        redundant_array_constructor::RedundantArrayConstructor,
+    ));
     registry.register(Box::new(redundant_array_flatten::RedundantArrayFlatten));
     registry.register(Box::new(redundant_assignment::RedundantAssignment));
     registry.register(Box::new(redundant_capital_w::RedundantCapitalW));
     registry.register(Box::new(redundant_constant_base::RedundantConstantBase));
-    registry.register(Box::new(redundant_double_splat_hash_braces::RedundantDoubleSplatHashBraces));
+    registry.register(Box::new(
+        redundant_double_splat_hash_braces::RedundantDoubleSplatHashBraces,
+    ));
     registry.register(Box::new(redundant_each::RedundantEach));
     registry.register(Box::new(redundant_fetch_block::RedundantFetchBlock));
     registry.register(Box::new(redundant_filter_chain::RedundantFilterChain));
     registry.register(Box::new(redundant_format::RedundantFormat));
-    registry.register(Box::new(redundant_heredoc_delimiter_quotes::RedundantHeredocDelimiterQuotes));
+    registry.register(Box::new(
+        redundant_heredoc_delimiter_quotes::RedundantHeredocDelimiterQuotes,
+    ));
     registry.register(Box::new(redundant_initialize::RedundantInitialize));
-    registry.register(Box::new(redundant_interpolation_unfreeze::RedundantInterpolationUnfreeze));
-    registry.register(Box::new(redundant_line_continuation::RedundantLineContinuation));
+    registry.register(Box::new(
+        redundant_interpolation_unfreeze::RedundantInterpolationUnfreeze,
+    ));
+    registry.register(Box::new(
+        redundant_line_continuation::RedundantLineContinuation,
+    ));
     registry.register(Box::new(redundant_parentheses::RedundantParentheses));
     registry.register(Box::new(redundant_regexp_argument::RedundantRegexpArgument));
-    registry.register(Box::new(redundant_regexp_character_class::RedundantRegexpCharacterClass));
-    registry.register(Box::new(redundant_regexp_constructor::RedundantRegexpConstructor));
+    registry.register(Box::new(
+        redundant_regexp_character_class::RedundantRegexpCharacterClass,
+    ));
+    registry.register(Box::new(
+        redundant_regexp_constructor::RedundantRegexpConstructor,
+    ));
     registry.register(Box::new(redundant_regexp_escape::RedundantRegexpEscape));
     registry.register(Box::new(redundant_self_assignment::RedundantSelfAssignment));
-    registry.register(Box::new(redundant_self_assignment_branch::RedundantSelfAssignmentBranch));
+    registry.register(Box::new(
+        redundant_self_assignment_branch::RedundantSelfAssignmentBranch,
+    ));
     registry.register(Box::new(redundant_string_escape::RedundantStringEscape));
     registry.register(Box::new(regexp_literal::RegexpLiteral));
     registry.register(Box::new(require_order::RequireOrder));
     registry.register(Box::new(return_nil::ReturnNil));
-    registry.register(Box::new(return_nil_in_predicate_method_definition::ReturnNilInPredicateMethodDefinition));
+    registry.register(Box::new(
+        return_nil_in_predicate_method_definition::ReturnNilInPredicateMethodDefinition,
+    ));
     registry.register(Box::new(reverse_find::ReverseFind));
-    registry.register(Box::new(safe_navigation_chain_length::SafeNavigationChainLength));
-    registry.register(Box::new(send_with_literal_method_name::SendWithLiteralMethodName));
+    registry.register(Box::new(
+        safe_navigation_chain_length::SafeNavigationChainLength,
+    ));
+    registry.register(Box::new(
+        send_with_literal_method_name::SendWithLiteralMethodName,
+    ));
     registry.register(Box::new(single_line_block_params::SingleLineBlockParams));
     registry.register(Box::new(single_line_do_end_block::SingleLineDoEndBlock));
     registry.register(Box::new(sole_nested_conditional::SoleNestedConditional));
     registry.register(Box::new(static_class::StaticClass));
     registry.register(Box::new(string_hash_keys::StringHashKeys));
-    registry.register(Box::new(string_literals_in_interpolation::StringLiteralsInInterpolation));
+    registry.register(Box::new(
+        string_literals_in_interpolation::StringLiteralsInInterpolation,
+    ));
     registry.register(Box::new(string_methods::StringMethods));
     registry.register(Box::new(super_arguments::SuperArguments));
-    registry.register(Box::new(super_with_args_parentheses::SuperWithArgsParentheses));
+    registry.register(Box::new(
+        super_with_args_parentheses::SuperWithArgsParentheses,
+    ));
     registry.register(Box::new(swap_values::SwapValues));
     registry.register(Box::new(symbol_proc::SymbolProc));
-    registry.register(Box::new(top_level_method_definition::TopLevelMethodDefinition));
-    registry.register(Box::new(trailing_comma_in_block_args::TrailingCommaInBlockArgs));
-    registry.register(Box::new(trailing_underscore_variable::TrailingUnderscoreVariable));
+    registry.register(Box::new(
+        top_level_method_definition::TopLevelMethodDefinition,
+    ));
+    registry.register(Box::new(
+        trailing_comma_in_block_args::TrailingCommaInBlockArgs,
+    ));
+    registry.register(Box::new(
+        trailing_underscore_variable::TrailingUnderscoreVariable,
+    ));
     registry.register(Box::new(unless_logical_operators::UnlessLogicalOperators));
     registry.register(Box::new(variable_interpolation::VariableInterpolation));
     registry.register(Box::new(while_until_modifier::WhileUntilModifier));

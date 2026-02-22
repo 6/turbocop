@@ -1,7 +1,7 @@
+use crate::cop::node_type::{INTERPOLATED_STRING_NODE, STRING_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{INTERPOLATED_STRING_NODE, STRING_NODE};
 
 pub struct RedundantHeredocDelimiterQuotes;
 
@@ -92,7 +92,10 @@ impl Cop for RedundantHeredocDelimiterQuotes {
                 &[] as &[u8]
             };
             // Check for interpolation patterns: #{, #@, #@@, #$
-            if body_bytes.windows(2).any(|w| w == b"#{" || w == b"#@" || w == b"#$") {
+            if body_bytes
+                .windows(2)
+                .any(|w| w == b"#{" || w == b"#@" || w == b"#$")
+            {
                 return;
             }
             // Check for backslash escapes — in single-quoted heredocs, backslashes
@@ -123,5 +126,8 @@ impl Cop for RedundantHeredocDelimiterQuotes {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(RedundantHeredocDelimiterQuotes, "cops/style/redundant_heredoc_delimiter_quotes");
+    crate::cop_fixture_tests!(
+        RedundantHeredocDelimiterQuotes,
+        "cops/style/redundant_heredoc_delimiter_quotes"
+    );
 }

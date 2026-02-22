@@ -1,7 +1,7 @@
+use crate::cop::node_type::{AND_NODE, CALL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{AND_NODE, CALL_NODE};
 
 pub struct ComparableBetween;
 
@@ -20,15 +20,19 @@ impl Cop for ComparableBetween {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check for `x >= min && x <= max` pattern
         if let Some(and_node) = node.as_and_node() {
-            diagnostics.extend(check_between(self, source, &and_node.left(), &and_node.right()));
+            diagnostics.extend(check_between(
+                self,
+                source,
+                &and_node.left(),
+                &and_node.right(),
+            ));
             return;
         }
-
     }
 }
 
@@ -121,7 +125,8 @@ fn parse_comparison(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<
     .to_string();
 
     let right_text = std::str::from_utf8(
-        &source.as_bytes()[arg_list[0].location().start_offset()..arg_list[0].location().end_offset()],
+        &source.as_bytes()
+            [arg_list[0].location().start_offset()..arg_list[0].location().end_offset()],
     )
     .ok()?
     .to_string();

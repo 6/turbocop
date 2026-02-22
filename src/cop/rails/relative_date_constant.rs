@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
-use crate::cop::node_type::{CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE};
 
 pub struct RelativeDateConstant;
 
@@ -39,8 +39,8 @@ impl Cop for RelativeDateConstant {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let value = if let Some(cw) = node.as_constant_write_node() {
             cw.value()
@@ -66,7 +66,6 @@ impl Cop for RelativeDateConstant {
                 "Do not assign relative dates to constants.".to_string(),
             ));
         }
-
     }
 }
 

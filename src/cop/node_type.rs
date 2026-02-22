@@ -478,4 +478,3 @@ pub fn tag_from_method_name(name: &str) -> Option<u8> {
         _ => None,
     }
 }
-

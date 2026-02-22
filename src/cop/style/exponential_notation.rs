@@ -1,7 +1,7 @@
+use crate::cop::node_type::FLOAT_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::FLOAT_NODE;
 
 pub struct ExponentialNotation;
 
@@ -20,8 +20,8 @@ impl Cop for ExponentialNotation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let float_node = match node.as_float_node() {
             Some(f) => f,
@@ -42,7 +42,11 @@ impl Cop for ExponentialNotation {
         }
 
         // Strip leading minus for mantissa analysis
-        let working = if lower.starts_with('-') { &lower[1..] } else { &lower };
+        let working = if lower.starts_with('-') {
+            &lower[1..]
+        } else {
+            &lower
+        };
 
         let parts: Vec<&str> = working.splitn(2, 'e').collect();
         if parts.len() != 2 {
@@ -83,12 +87,15 @@ impl Cop for ExponentialNotation {
                 // Exponent must be divisible by 3, mantissa >= 0.1 and < 1000
                 let abs_mantissa = mantissa.abs();
                 if exponent % 3 != 0 || abs_mantissa < 0.1 || abs_mantissa >= 1000.0 {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Use an exponent divisible by 3 and a mantissa >= 0.1 and < 1000.".to_string(),
-                    ));
+                    diagnostics.push(
+                        self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Use an exponent divisible by 3 and a mantissa >= 0.1 and < 1000."
+                                .to_string(),
+                        ),
+                    );
                 }
             }
             "integral" => {
@@ -119,7 +126,6 @@ impl Cop for ExponentialNotation {
             }
             _ => {}
         }
-
     }
 }
 

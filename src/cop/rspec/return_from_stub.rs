@@ -1,8 +1,12 @@
+use crate::cop::node_type::{
+    ARRAY_NODE, ASSOC_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, FALSE_NODE, FLOAT_NODE,
+    HASH_NODE, INTEGER_NODE, INTERPOLATED_STRING_NODE, NIL_NODE, STATEMENTS_NODE, STRING_NODE,
+    SYMBOL_NODE, TRUE_NODE,
+};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ARRAY_NODE, ASSOC_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, FALSE_NODE, FLOAT_NODE, HASH_NODE, INTEGER_NODE, INTERPOLATED_STRING_NODE, NIL_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE};
 
 pub struct ReturnFromStub;
 
@@ -22,7 +26,23 @@ impl Cop for ReturnFromStub {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ARRAY_NODE, ASSOC_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, FALSE_NODE, FLOAT_NODE, HASH_NODE, INTEGER_NODE, INTERPOLATED_STRING_NODE, NIL_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE]
+        &[
+            ARRAY_NODE,
+            ASSOC_NODE,
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            CALL_NODE,
+            FALSE_NODE,
+            FLOAT_NODE,
+            HASH_NODE,
+            INTEGER_NODE,
+            INTERPOLATED_STRING_NODE,
+            NIL_NODE,
+            STATEMENTS_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+            TRUE_NODE,
+        ]
     }
 
     fn check_node(
@@ -31,8 +51,8 @@ impl Cop for ReturnFromStub {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: EnforcedStyle — "and_return" (default) or "block"
         let enforced_style = config.get_str("EnforcedStyle", "and_return");

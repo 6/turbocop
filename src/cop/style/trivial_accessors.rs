@@ -49,8 +49,8 @@ impl Cop for TrivialAccessors {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let exact_name_match = config.get_bool("ExactNameMatch", true);
         let allow_predicates = config.get_bool("AllowPredicates", true);
@@ -220,8 +220,10 @@ impl<'a> TrivialAccessorsVisitor<'a> {
             let def_loc = def_node.def_keyword_loc();
             let (line, column) = self.source.offset_to_line_col(def_loc.start_offset());
             let msg = "Use `attr_writer` to define trivial writer methods.";
-            self.diagnostics
-                .push(self.cop.diagnostic(self.source, line, column, msg.to_string()));
+            self.diagnostics.push(
+                self.cop
+                    .diagnostic(self.source, line, column, msg.to_string()),
+            );
         }
     }
 }

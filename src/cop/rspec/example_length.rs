@@ -1,8 +1,11 @@
-use crate::cop::util::{self, is_rspec_example, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{
+    ARRAY_NODE, BLOCK_NODE, CALL_NODE, HASH_NODE, INTERPOLATED_STRING_NODE, STATEMENTS_NODE,
+    STRING_NODE,
+};
+use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ARRAY_NODE, BLOCK_NODE, CALL_NODE, HASH_NODE, INTERPOLATED_STRING_NODE, STATEMENTS_NODE, STRING_NODE};
 
 pub struct ExampleLength;
 
@@ -20,7 +23,15 @@ impl Cop for ExampleLength {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ARRAY_NODE, BLOCK_NODE, CALL_NODE, HASH_NODE, INTERPOLATED_STRING_NODE, STATEMENTS_NODE, STRING_NODE]
+        &[
+            ARRAY_NODE,
+            BLOCK_NODE,
+            CALL_NODE,
+            HASH_NODE,
+            INTERPOLATED_STRING_NODE,
+            STATEMENTS_NODE,
+            STRING_NODE,
+        ]
     }
 
     fn check_node(
@@ -29,8 +40,8 @@ impl Cop for ExampleLength {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -61,14 +72,15 @@ impl Cop for ExampleLength {
         let count = util::count_body_lines(
             source,
             block_loc.start_offset(),
-            block_loc.end_offset().saturating_sub(1).max(block_loc.start_offset()),
+            block_loc
+                .end_offset()
+                .saturating_sub(1)
+                .max(block_loc.start_offset()),
             count_comments,
         );
 
         // Adjust for CountAsOne: multi-line arrays/hashes/heredocs count as 1 line
-        let count_as_one = config
-            .get_string_array("CountAsOne")
-            .unwrap_or_default();
+        let count_as_one = config.get_string_array("CountAsOne").unwrap_or_default();
         let adjusted = if !count_as_one.is_empty() {
             let reduction = count_multiline_reductions(source, &block, &count_as_one);
             count.saturating_sub(reduction)
@@ -85,7 +97,6 @@ impl Cop for ExampleLength {
                 column,
                 format!("Example has too many lines. [{adjusted}/{max}]"),
             ));
-
         }
     }
 }

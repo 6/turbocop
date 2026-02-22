@@ -1,10 +1,10 @@
 use ruby_prism::Visit;
 
 use crate::cop::factory_bot::FACTORY_BOT_DEFAULT_INCLUDE;
+use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, STATEMENTS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, STATEMENTS_NODE};
 
 pub struct FactoryAssociationWithStrategy;
 
@@ -24,7 +24,12 @@ impl Cop for FactoryAssociationWithStrategy {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, STATEMENTS_NODE]
+        &[
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            CALL_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -33,8 +38,8 @@ impl Cop for FactoryAssociationWithStrategy {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Match on CallNode for `factory` or `trait`
         let outer_call = match node.as_call_node() {
@@ -100,12 +105,11 @@ impl<'pr> Visit<'pr> for StrategyFinder<'_> {
 
                     if !has_params {
                         if let Some(body) = block_node.body() {
-                            let children: Vec<_> =
-                                if let Some(stmts) = body.as_statements_node() {
-                                    stmts.body().iter().collect()
-                                } else {
-                                    vec![body]
-                                };
+                            let children: Vec<_> = if let Some(stmts) = body.as_statements_node() {
+                                stmts.body().iter().collect()
+                            } else {
+                                vec![body]
+                            };
 
                             for child in &children {
                                 if let Some(inner_call) = child.as_call_node() {
@@ -113,9 +117,8 @@ impl<'pr> Visit<'pr> for StrategyFinder<'_> {
                                         let name = inner_call.name().as_slice();
                                         if HARDCODED_STRATEGIES.contains(&name) {
                                             let loc = inner_call.location();
-                                            let (line, column) = self
-                                                .source
-                                                .offset_to_line_col(loc.start_offset());
+                                            let (line, column) =
+                                                self.source.offset_to_line_col(loc.start_offset());
                                             self.diagnostics.push(Diagnostic {
                                                 path: self.source.path_str().to_string(),
                                                 location: crate::diagnostic::Location {

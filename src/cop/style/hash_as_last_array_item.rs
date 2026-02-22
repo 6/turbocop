@@ -1,7 +1,7 @@
+use crate::cop::node_type::{ARRAY_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ARRAY_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 
 pub struct HashAsLastArrayItem;
 
@@ -20,8 +20,8 @@ impl Cop for HashAsLastArrayItem {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let array = match node.as_array_node() {
             Some(a) => a,
@@ -56,7 +56,9 @@ impl Cop for HashAsLastArrayItem {
                     // Don't flag if second-to-last element is also a hash
                     if elements.len() >= 2 {
                         let second_last = &elements[elements.len() - 2];
-                        if second_last.as_keyword_hash_node().is_some() || second_last.as_hash_node().is_some() {
+                        if second_last.as_keyword_hash_node().is_some()
+                            || second_last.as_hash_node().is_some()
+                        {
                             return;
                         }
                     }
@@ -104,7 +106,6 @@ impl Cop for HashAsLastArrayItem {
             }
             _ => {}
         }
-
     }
 }
 

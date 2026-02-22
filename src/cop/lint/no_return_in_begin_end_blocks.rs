@@ -20,8 +20,8 @@ impl Cop for NoReturnInBeginEndBlocks {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = NoReturnVisitor {
             cop: self,
@@ -67,10 +67,7 @@ impl<'pr> Visit<'pr> for NoReturnVisitor<'_, '_> {
         self.check_assignment_value(&node.value());
     }
 
-    fn visit_class_variable_write_node(
-        &mut self,
-        node: &ruby_prism::ClassVariableWriteNode<'pr>,
-    ) {
+    fn visit_class_variable_write_node(&mut self, node: &ruby_prism::ClassVariableWriteNode<'pr>) {
         self.check_assignment_value(&node.value());
     }
 
@@ -85,10 +82,7 @@ impl<'pr> Visit<'pr> for NoReturnVisitor<'_, '_> {
         self.check_assignment_value(&node.value());
     }
 
-    fn visit_constant_path_write_node(
-        &mut self,
-        node: &ruby_prism::ConstantPathWriteNode<'pr>,
-    ) {
+    fn visit_constant_path_write_node(&mut self, node: &ruby_prism::ConstantPathWriteNode<'pr>) {
         self.check_assignment_value(&node.value().into());
     }
 

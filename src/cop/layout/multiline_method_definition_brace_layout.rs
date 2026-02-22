@@ -1,7 +1,7 @@
+use crate::cop::node_type::DEF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::DEF_NODE;
 
 pub struct MultilineMethodDefinitionBraceLayout;
 
@@ -20,8 +20,8 @@ impl Cop for MultilineMethodDefinitionBraceLayout {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "symmetrical");
 
@@ -71,8 +71,7 @@ impl Cop for MultilineMethodDefinitionBraceLayout {
         }
 
         // Optionals
-        let optionals: Vec<ruby_prism::Node<'_>> =
-            params.optionals().iter().collect();
+        let optionals: Vec<ruby_prism::Node<'_>> = params.optionals().iter().collect();
         for p in &optionals {
             let start = p.location().start_offset();
             let end = p.location().end_offset();
@@ -204,7 +203,6 @@ impl Cop for MultilineMethodDefinitionBraceLayout {
             }
             _ => {}
         }
-
     }
 }
 

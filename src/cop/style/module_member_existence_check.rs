@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct ModuleMemberExistenceCheck;
 
@@ -31,8 +31,8 @@ impl Cop for ModuleMemberExistenceCheck {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed_methods = config.get_string_array("AllowedMethods");
 
@@ -80,7 +80,9 @@ impl Cop for ModuleMemberExistenceCheck {
             }
         }
 
-        let msg_loc = recv_call.message_loc().unwrap_or_else(|| recv_call.location());
+        let msg_loc = recv_call
+            .message_loc()
+            .unwrap_or_else(|| recv_call.location());
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,
@@ -94,5 +96,8 @@ impl Cop for ModuleMemberExistenceCheck {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ModuleMemberExistenceCheck, "cops/style/module_member_existence_check");
+    crate::cop_fixture_tests!(
+        ModuleMemberExistenceCheck,
+        "cops/style/module_member_existence_check"
+    );
 }

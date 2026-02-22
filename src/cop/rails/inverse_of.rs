@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CLASS_NODE, LAMBDA_NODE};
 use crate::cop::util::{class_body_calls, has_keyword_arg, is_dsl_call};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CLASS_NODE, LAMBDA_NODE};
 
 pub struct InverseOf;
 
@@ -25,8 +25,8 @@ impl Cop for InverseOf {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let ignore_scopes = config.get_bool("IgnoreScopes", false);
 
@@ -48,7 +48,9 @@ impl Cop for InverseOf {
 
             // Check if the call has a scope (lambda argument)
             let has_scope = call.arguments().is_some_and(|args| {
-                args.arguments().iter().any(|a| a.as_lambda_node().is_some())
+                args.arguments()
+                    .iter()
+                    .any(|a| a.as_lambda_node().is_some())
             });
 
             // Skip associations with :through or :polymorphic — these don't
@@ -77,7 +79,6 @@ impl Cop for InverseOf {
                 ));
             }
         }
-
     }
 }
 
@@ -93,13 +94,11 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([(
-                "IgnoreScopes".to_string(),
-                serde_yml::Value::Bool(true),
-            )]),
+            options: HashMap::from([("IgnoreScopes".to_string(), serde_yml::Value::Bool(true))]),
             ..CopConfig::default()
         };
-        let source = b"class Blog < ApplicationRecord\n  has_many :posts, -> { order(:name) }\nend\n";
+        let source =
+            b"class Blog < ApplicationRecord\n  has_many :posts, -> { order(:name) }\nend\n";
         assert_cop_no_offenses_full_with_config(&InverseOf, source, config);
     }
 
@@ -109,8 +108,12 @@ mod tests {
         use crate::testutil::run_cop_full_with_config;
 
         let config = CopConfig::default();
-        let source = b"class Blog < ApplicationRecord\n  has_many :posts, -> { order(:name) }\nend\n";
+        let source =
+            b"class Blog < ApplicationRecord\n  has_many :posts, -> { order(:name) }\nend\n";
         let diags = run_cop_full_with_config(&InverseOf, source, config);
-        assert!(!diags.is_empty(), "IgnoreScopes:false should flag scope without inverse_of");
+        assert!(
+            !diags.is_empty(),
+            "IgnoreScopes:false should flag scope without inverse_of"
+        );
     }
 }

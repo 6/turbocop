@@ -1,10 +1,10 @@
 use ruby_prism::Visit;
 
-use crate::cop::util::{self, is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE};
+use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE};
 
 pub struct NestedGroups;
 
@@ -31,8 +31,8 @@ impl Cop for NestedGroups {
         node: &ruby_prism::Node<'_>,
         parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Only trigger on top-level RSpec.describe or top-level describe
         let call = match node.as_call_node() {
@@ -44,7 +44,8 @@ impl Cop for NestedGroups {
 
         // Check for RSpec.describe / ::RSpec.describe or bare describe at top level
         let is_top_level = if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).map_or(false, |n| n == b"RSpec") && method_name == b"describe"
+            util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
+                && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name)
         };
@@ -78,7 +79,6 @@ impl Cop for NestedGroups {
             };
             visitor.visit(&body);
         }
-
     }
 }
 
@@ -98,7 +98,10 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_, 'pr> {
         let method_name = node.name().as_slice();
 
         // Only count receiverless example group calls as nesting
-        let is_allowed = self.allowed_groups.iter().any(|g| g.as_bytes() == method_name);
+        let is_allowed = self
+            .allowed_groups
+            .iter()
+            .any(|g| g.as_bytes() == method_name);
         if node.receiver().is_none() && is_rspec_example_group(method_name) && !is_allowed {
             let new_depth = self.depth + 1;
 
@@ -148,16 +151,24 @@ mod tests {
 
         let config = CopConfig {
             options: HashMap::from([
-                ("Max".into(), serde_yml::Value::Number(serde_yml::Number::from(1))),
-                ("AllowedGroups".into(), serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("context".into()),
-                ])),
+                (
+                    "Max".into(),
+                    serde_yml::Value::Number(serde_yml::Number::from(1)),
+                ),
+                (
+                    "AllowedGroups".into(),
+                    serde_yml::Value::Sequence(vec![serde_yml::Value::String("context".into())]),
+                ),
             ]),
             ..CopConfig::default()
         };
         // describe > context (allowed, not counted) — depth stays 1
-        let source = b"describe Foo do\n  context 'bar' do\n    it 'works' do\n    end\n  end\nend\n";
+        let source =
+            b"describe Foo do\n  context 'bar' do\n    it 'works' do\n    end\n  end\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&NestedGroups, source, config);
-        assert!(diags.is_empty(), "AllowedGroups should not count matching groups");
+        assert!(
+            diags.is_empty(),
+            "AllowedGroups should not count matching groups"
+        );
     }
 }

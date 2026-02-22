@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, SOURCE_FILE_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, SOURCE_FILE_NODE};
 
 pub struct Dir;
 
@@ -30,7 +30,12 @@ impl Cop for Dir {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, SOURCE_FILE_NODE]
+        &[
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            SOURCE_FILE_NODE,
+        ]
     }
 
     fn check_node(
@@ -39,8 +44,8 @@ impl Cop for Dir {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -64,15 +69,20 @@ impl Cop for Dir {
                 let arg_list: Vec<_> = args.arguments().iter().collect();
                 if arg_list.len() == 1 {
                     if let Some(inner_call) = arg_list[0].as_call_node() {
-                        let inner_method = std::str::from_utf8(inner_call.name().as_slice()).unwrap_or("");
+                        let inner_method =
+                            std::str::from_utf8(inner_call.name().as_slice()).unwrap_or("");
                         if inner_method == "dirname" {
                             if let Some(inner_recv) = inner_call.receiver() {
                                 if is_file_const(&inner_recv) {
                                     if let Some(inner_args) = inner_call.arguments() {
-                                        let inner_arg_list: Vec<_> = inner_args.arguments().iter().collect();
-                                        if inner_arg_list.len() == 1 && is_file_keyword(&inner_arg_list[0]) {
+                                        let inner_arg_list: Vec<_> =
+                                            inner_args.arguments().iter().collect();
+                                        if inner_arg_list.len() == 1
+                                            && is_file_keyword(&inner_arg_list[0])
+                                        {
                                             let loc = node.location();
-                                            let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                            let (line, column) =
+                                                source.offset_to_line_col(loc.start_offset());
                                             diagnostics.push(self.diagnostic(
                                                 source,
                                                 line,
@@ -95,15 +105,20 @@ impl Cop for Dir {
                 let arg_list: Vec<_> = args.arguments().iter().collect();
                 if arg_list.len() == 1 {
                     if let Some(inner_call) = arg_list[0].as_call_node() {
-                        let inner_method = std::str::from_utf8(inner_call.name().as_slice()).unwrap_or("");
+                        let inner_method =
+                            std::str::from_utf8(inner_call.name().as_slice()).unwrap_or("");
                         if inner_method == "realpath" {
                             if let Some(inner_recv) = inner_call.receiver() {
                                 if is_file_const(&inner_recv) {
                                     if let Some(inner_args) = inner_call.arguments() {
-                                        let inner_arg_list: Vec<_> = inner_args.arguments().iter().collect();
-                                        if inner_arg_list.len() == 1 && is_file_keyword(&inner_arg_list[0]) {
+                                        let inner_arg_list: Vec<_> =
+                                            inner_args.arguments().iter().collect();
+                                        if inner_arg_list.len() == 1
+                                            && is_file_keyword(&inner_arg_list[0])
+                                        {
                                             let loc = node.location();
-                                            let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                            let (line, column) =
+                                                source.offset_to_line_col(loc.start_offset());
                                             diagnostics.push(self.diagnostic(
                                                 source,
                                                 line,
@@ -119,7 +134,6 @@ impl Cop for Dir {
                 }
             }
         }
-
     }
 }
 

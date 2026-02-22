@@ -1,7 +1,7 @@
+use crate::cop::node_type::DEF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::DEF_NODE;
 
 pub struct FirstMethodParameterLineBreak;
 
@@ -20,8 +20,8 @@ impl Cop for FirstMethodParameterLineBreak {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _allow_multiline_final = config.get_bool("AllowMultilineFinalElement", false);
 
@@ -54,8 +54,7 @@ impl Cop for FirstMethodParameterLineBreak {
 
         // Find the first parameter
         let requireds: Vec<ruby_prism::Node<'_>> = params.requireds().iter().collect();
-        let optionals: Vec<ruby_prism::Node<'_>> =
-            params.optionals().iter().collect();
+        let optionals: Vec<ruby_prism::Node<'_>> = params.optionals().iter().collect();
 
         let first_offset = if !requireds.is_empty() {
             requireds[0].location().start_offset()
@@ -77,7 +76,6 @@ impl Cop for FirstMethodParameterLineBreak {
                 "Add a line break before the first parameter of a multi-line method parameter definition.".to_string(),
             ));
         }
-
     }
 }
 

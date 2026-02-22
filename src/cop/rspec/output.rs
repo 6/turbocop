@@ -1,8 +1,11 @@
+use crate::cop::node_type::{
+    BLOCK_ARGUMENT_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE,
+    GLOBAL_VARIABLE_READ_NODE, KEYWORD_HASH_NODE,
+};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, GLOBAL_VARIABLE_READ_NODE, KEYWORD_HASH_NODE};
 
 pub struct Output;
 
@@ -32,7 +35,14 @@ impl Cop for Output {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_ARGUMENT_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, GLOBAL_VARIABLE_READ_NODE, KEYWORD_HASH_NODE]
+        &[
+            BLOCK_ARGUMENT_NODE,
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            GLOBAL_VARIABLE_READ_NODE,
+            KEYWORD_HASH_NODE,
+        ]
     }
 
     fn check_node(
@@ -41,8 +51,8 @@ impl Cop for Output {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -87,19 +97,18 @@ impl Cop for Output {
         // Case 2: $stdout.write, $stderr.syswrite, STDOUT.write, STDERR.write, etc.
         if IO_WRITE_METHODS.contains(&method) {
             if let Some(recv) = call.receiver() {
-                let is_io_target =
-                    if let Some(gv) = recv.as_global_variable_read_node() {
-                        GLOBAL_VARS.contains(&gv.name().as_slice())
-                    } else if let Some(c) = recv.as_constant_read_node() {
-                        CONST_NAMES.contains(&c.name().as_slice())
-                    } else if let Some(cp) = recv.as_constant_path_node() {
-                        // ::STDOUT, ::STDERR
-                        cp.parent().is_none()
-                            && cp.name().is_some()
-                            && CONST_NAMES.contains(&cp.name().unwrap().as_slice())
-                    } else {
-                        false
-                    };
+                let is_io_target = if let Some(gv) = recv.as_global_variable_read_node() {
+                    GLOBAL_VARS.contains(&gv.name().as_slice())
+                } else if let Some(c) = recv.as_constant_read_node() {
+                    CONST_NAMES.contains(&c.name().as_slice())
+                } else if let Some(cp) = recv.as_constant_path_node() {
+                    // ::STDOUT, ::STDERR
+                    cp.parent().is_none()
+                        && cp.name().is_some()
+                        && CONST_NAMES.contains(&cp.name().unwrap().as_slice())
+                } else {
+                    false
+                };
 
                 if is_io_target {
                     // Skip if it has a block (write { ... })
@@ -118,7 +127,6 @@ impl Cop for Output {
                 }
             }
         }
-
     }
 }
 

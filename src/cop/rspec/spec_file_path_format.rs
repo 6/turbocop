@@ -1,8 +1,11 @@
-use crate::cop::util::{is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{
+    ASSOC_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, KEYWORD_HASH_NODE, PROGRAM_NODE,
+    STRING_NODE, SYMBOL_NODE,
+};
+use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, KEYWORD_HASH_NODE, PROGRAM_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct SpecFilePathFormat;
 
@@ -20,7 +23,16 @@ impl Cop for SpecFilePathFormat {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ASSOC_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, KEYWORD_HASH_NODE, PROGRAM_NODE, STRING_NODE, SYMBOL_NODE]
+        &[
+            ASSOC_NODE,
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            KEYWORD_HASH_NODE,
+            PROGRAM_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -29,11 +41,13 @@ impl Cop for SpecFilePathFormat {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: CustomTransform — hash of class name to file path overrides (complex; pass-through)
-        let custom_transform = config.get_string_hash("CustomTransform").unwrap_or_default();
+        let custom_transform = config
+            .get_string_hash("CustomTransform")
+            .unwrap_or_default();
         // Config: IgnoreMethods — when true, skip method description part in path matching
         let ignore_methods = config.get_bool("IgnoreMethods", false);
         // Config: IgnoreMetadata — metadata keys whose values should be ignored in path matching
@@ -61,7 +75,10 @@ impl Cop for SpecFilePathFormat {
                     continue;
                 }
                 // Skip shared examples
-                if name == b"shared_examples" || name == b"shared_examples_for" || name == b"shared_context" {
+                if name == b"shared_examples"
+                    || name == b"shared_examples_for"
+                    || name == b"shared_context"
+                {
                     continue;
                 }
                 describes.push(call);
@@ -87,7 +104,9 @@ impl Cop for SpecFilePathFormat {
         // First arg must be a constant (class name)
         let first_arg = &arg_list[0];
         let class_name = if let Some(cr) = first_arg.as_constant_read_node() {
-            std::str::from_utf8(cr.name().as_slice()).unwrap_or("").to_string()
+            std::str::from_utf8(cr.name().as_slice())
+                .unwrap_or("")
+                .to_string()
         } else if let Some(cp) = first_arg.as_constant_path_node() {
             let loc = cp.location();
             let text = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
@@ -104,13 +123,16 @@ impl Cop for SpecFilePathFormat {
         } else {
             // Apply CustomTransform to individual parts of namespaced classes
             let parts: Vec<&str> = class_name.split("::").collect();
-            let snake_parts: Vec<String> = parts.iter().map(|p| {
-                if let Some(custom) = custom_transform.get(*p) {
-                    custom.clone()
-                } else {
-                    camel_to_snake(p)
-                }
-            }).collect();
+            let snake_parts: Vec<String> = parts
+                .iter()
+                .map(|p| {
+                    if let Some(custom) = custom_transform.get(*p) {
+                        custom.clone()
+                    } else {
+                        camel_to_snake(p)
+                    }
+                })
+                .collect();
             snake_parts.join("/")
         };
 
@@ -126,10 +148,16 @@ impl Cop for SpecFilePathFormat {
                                 let key_str = std::str::from_utf8(sym.unescaped()).unwrap_or("");
                                 if let Some(expected_value) = ignore_metadata.get(key_str) {
                                     // Extract the actual metadata value
-                                    let actual_value = if let Some(val_sym) = assoc.value().as_symbol_node() {
-                                        std::str::from_utf8(val_sym.unescaped()).unwrap_or("").to_string()
+                                    let actual_value = if let Some(val_sym) =
+                                        assoc.value().as_symbol_node()
+                                    {
+                                        std::str::from_utf8(val_sym.unescaped())
+                                            .unwrap_or("")
+                                            .to_string()
                                     } else if let Some(val_str) = assoc.value().as_string_node() {
-                                        std::str::from_utf8(val_str.unescaped()).unwrap_or("").to_string()
+                                        std::str::from_utf8(val_str.unescaped())
+                                            .unwrap_or("")
+                                            .to_string()
                                     } else {
                                         String::new()
                                     };
@@ -156,11 +184,22 @@ impl Cop for SpecFilePathFormat {
             if let Some(s) = arg_list[1].as_string_node() {
                 let val = std::str::from_utf8(s.unescaped()).unwrap_or("");
                 // Convert to path-friendly form
-                let cleaned: String = val.chars()
-                    .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+                let cleaned: String = val
+                    .chars()
+                    .map(|c| {
+                        if c.is_alphanumeric() || c == '_' {
+                            c
+                        } else {
+                            '_'
+                        }
+                    })
                     .collect();
                 let cleaned = cleaned.trim_matches('_').to_string();
-                if cleaned.is_empty() { None } else { Some(cleaned) }
+                if cleaned.is_empty() {
+                    None
+                } else {
+                    Some(cleaned)
+                }
             } else {
                 None
             }
@@ -187,7 +226,6 @@ impl Cop for SpecFilePathFormat {
                 format!("Spec path should end with `{expected_suffix}`."),
             ));
         }
-
     }
 }
 
@@ -226,7 +264,8 @@ mod tests {
     use super::*;
 
     crate::cop_scenario_fixture_tests!(
-        SpecFilePathFormat, "cops/rspec/spec_file_path_format",
+        SpecFilePathFormat,
+        "cops/rspec/spec_file_path_format",
         scenario_wrong_class = "wrong_class.rb",
         scenario_wrong_method = "wrong_method.rb",
         scenario_wrong_path = "wrong_path.rb",
@@ -252,9 +291,14 @@ mod tests {
         // Without CustomTransform, MyClass maps to my_class — with it, maps to custom_dir
         // The test.rb filename won't match either way, but the expected path in the message differs
         let source = b"describe MyClass do\nend\n";
-        let diags = crate::testutil::run_cop_full_with_config(&SpecFilePathFormat, source, config.clone());
+        let diags =
+            crate::testutil::run_cop_full_with_config(&SpecFilePathFormat, source, config.clone());
         assert!(!diags.is_empty(), "Should still flag with wrong filename");
-        assert!(diags[0].message.contains("custom_dir"), "Expected path should use custom_dir from CustomTransform, got: {}", diags[0].message);
+        assert!(
+            diags[0].message.contains("custom_dir"),
+            "Expected path should use custom_dir from CustomTransform, got: {}",
+            diags[0].message
+        );
     }
 
     #[test]
@@ -277,7 +321,10 @@ mod tests {
         // describe with metadata value matching the ignored value
         let source = b"describe MyClass, type: :routing do\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&SpecFilePathFormat, source, config);
-        assert!(diags.is_empty(), "IgnoreMetadata should skip path check when metadata value matches");
+        assert!(
+            diags.is_empty(),
+            "IgnoreMetadata should skip path check when metadata value matches"
+        );
     }
 
     #[test]
@@ -300,7 +347,10 @@ mod tests {
         // describe with metadata value NOT matching the ignored value
         let source = b"describe MyClass, type: :controller do\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&SpecFilePathFormat, source, config);
-        assert!(!diags.is_empty(), "IgnoreMetadata should NOT skip when metadata value differs");
+        assert!(
+            !diags.is_empty(),
+            "IgnoreMetadata should NOT skip when metadata value differs"
+        );
     }
 
     #[test]
@@ -320,10 +370,7 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([(
-                "IgnoreMethods".into(),
-                serde_yml::Value::Bool(true),
-            )]),
+            options: HashMap::from([("IgnoreMethods".into(), serde_yml::Value::Bool(true))]),
             ..CopConfig::default()
         };
         // Source describes MyClass with method "#create", but file doesn't have method in path

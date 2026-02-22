@@ -1,7 +1,7 @@
+use crate::cop::node_type::STRING_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::STRING_NODE;
 
 pub struct RedundantPercentQ;
 
@@ -20,8 +20,8 @@ impl Cop for RedundantPercentQ {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let string_node = match node.as_string_node() {
             Some(s) => s,
@@ -52,13 +52,15 @@ impl Cop for RedundantPercentQ {
 
             let loc = string_node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                "Use `%q` only for strings that contain both single quotes and double quotes."
-                    .to_string(),
-            ));
+            diagnostics.push(
+                self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use `%q` only for strings that contain both single quotes and double quotes."
+                        .to_string(),
+                ),
+            );
         }
 
         if opening.starts_with(b"%Q") {
@@ -80,7 +82,6 @@ impl Cop for RedundantPercentQ {
                     .to_string(),
             ));
         }
-
     }
 }
 

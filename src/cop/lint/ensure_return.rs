@@ -1,9 +1,9 @@
 use ruby_prism::Visit;
 
+use crate::cop::node_type::{BEGIN_NODE, RETURN_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BEGIN_NODE, RETURN_NODE};
 
 pub struct EnsureReturn;
 
@@ -44,8 +44,8 @@ impl Cop for EnsureReturn {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // EnsureNode is visited via visit_begin_node's specific method,
         // not via the generic visit() dispatch. So we match BeginNode
@@ -70,18 +70,15 @@ impl Cop for EnsureReturn {
             finder.visit(&stmt);
         }
 
-        diagnostics.extend(finder
-            .found
-            .iter()
-            .map(|&offset| {
-                let (line, column) = source.offset_to_line_col(offset);
-                self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Do not return from an `ensure` block.".to_string(),
-                )
-            }));
+        diagnostics.extend(finder.found.iter().map(|&offset| {
+            let (line, column) = source.offset_to_line_col(offset);
+            self.diagnostic(
+                source,
+                line,
+                column,
+                "Do not return from an `ensure` block.".to_string(),
+            )
+        }));
     }
 }
 

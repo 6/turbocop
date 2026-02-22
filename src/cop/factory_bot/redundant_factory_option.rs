@@ -1,8 +1,10 @@
 use crate::cop::factory_bot::FACTORY_BOT_SPEC_INCLUDE;
+use crate::cop::node_type::{
+    ARRAY_NODE, ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ARRAY_NODE, ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE};
 
 pub struct RedundantFactoryOption;
 
@@ -20,7 +22,14 @@ impl Cop for RedundantFactoryOption {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ARRAY_NODE, ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE]
+        &[
+            ARRAY_NODE,
+            ASSOC_NODE,
+            CALL_NODE,
+            HASH_NODE,
+            KEYWORD_HASH_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -29,8 +38,8 @@ impl Cop for RedundantFactoryOption {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -95,9 +104,7 @@ impl Cop for RedundantFactoryOption {
                 } else if let Some(arr) = pair.value().as_array_node() {
                     let elems: Vec<_> = arr.elements().iter().collect();
                     if elems.len() == 1 {
-                        elems[0]
-                            .as_symbol_node()
-                            .map(|s| s.unescaped().to_vec())
+                        elems[0].as_symbol_node().map(|s| s.unescaped().to_vec())
                     } else {
                         None
                     }
@@ -119,7 +126,6 @@ impl Cop for RedundantFactoryOption {
                 }
             }
         }
-
     }
 }
 

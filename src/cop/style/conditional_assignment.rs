@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    ELSE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ELSE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE};
 
 pub struct ConditionalAssignment;
 
@@ -11,7 +13,12 @@ impl Cop for ConditionalAssignment {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ELSE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE]
+        &[
+            ELSE_NODE,
+            IF_NODE,
+            INSTANCE_VARIABLE_WRITE_NODE,
+            LOCAL_VARIABLE_WRITE_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +27,8 @@ impl Cop for ConditionalAssignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "assign_to_condition");
         let _single_line_only = config.get_bool("SingleLineConditionsOnly", true);
@@ -93,7 +100,6 @@ impl Cop for ConditionalAssignment {
                 }
             }
         }
-
     }
 }
 

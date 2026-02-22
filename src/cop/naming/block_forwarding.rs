@@ -1,9 +1,9 @@
 use ruby_prism::Visit;
 
+use crate::cop::node_type::{DEF_NODE, LOCAL_VARIABLE_READ_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{DEF_NODE, LOCAL_VARIABLE_READ_NODE};
 
 pub struct BlockForwarding;
 
@@ -22,8 +22,8 @@ impl Cop for BlockForwarding {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Anonymous block forwarding requires Ruby 3.1+
         // Default TargetRubyVersion is 3.4 (matching RuboCop's behavior when unset)
@@ -95,7 +95,6 @@ impl Cop for BlockForwarding {
                 "Use anonymous block forwarding.".to_string(),
             ));
         }
-
     }
 }
 
@@ -118,10 +117,7 @@ impl<'pr> Visit<'pr> for BlockUsageChecker<'_> {
         }
     }
 
-    fn visit_local_variable_read_node(
-        &mut self,
-        node: &ruby_prism::LocalVariableReadNode<'pr>,
-    ) {
+    fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
         if node.name().as_slice() == self.block_name {
             // block variable used in non-forwarding context
             self.only_forwarded = false;

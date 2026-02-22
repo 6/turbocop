@@ -65,9 +65,31 @@ fn walk_directory(dir: &Path, config: &ResolvedConfig) -> Result<Vec<PathBuf>> {
 
 /// RuboCop-compatible Ruby file extensions (from AllCops.Include defaults).
 const RUBY_EXTENSIONS: &[&str] = &[
-    "rb", "arb", "axlsx", "builder", "fcgi", "gemfile", "gemspec", "god", "jb", "jbuilder",
-    "mspec", "opal", "pluginspec", "podspec", "rabl", "rake", "rbuild", "rbw", "rbx", "ru",
-    "ruby", "schema", "spec", "thor", "watchr",
+    "rb",
+    "arb",
+    "axlsx",
+    "builder",
+    "fcgi",
+    "gemfile",
+    "gemspec",
+    "god",
+    "jb",
+    "jbuilder",
+    "mspec",
+    "opal",
+    "pluginspec",
+    "podspec",
+    "rabl",
+    "rake",
+    "rbuild",
+    "rbw",
+    "rbx",
+    "ru",
+    "ruby",
+    "schema",
+    "spec",
+    "thor",
+    "watchr",
 ];
 
 /// Extensionless filenames that RuboCop treats as Ruby (from AllCops.Include defaults).
@@ -168,7 +190,12 @@ mod tests {
         let discovered = discover_files(&[dir.clone()], &config).unwrap();
 
         assert_eq!(discovered.files.len(), 2);
-        assert!(discovered.files.iter().all(|f| f.extension().unwrap() == "rb"));
+        assert!(
+            discovered
+                .files
+                .iter()
+                .all(|f| f.extension().unwrap() == "rb")
+        );
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -203,7 +230,8 @@ mod tests {
         let config = load_config(Some(Path::new("/nonexistent")), None, None).unwrap();
         let discovered = discover_files(&[dir.clone()], &config).unwrap();
 
-        let names: Vec<_> = discovered.files
+        let names: Vec<_> = discovered
+            .files
             .iter()
             .map(|f| f.file_name().unwrap().to_str().unwrap().to_string())
             .collect();
@@ -224,8 +252,13 @@ mod tests {
         let config = load_config(Some(Path::new("/nonexistent")), None, None).unwrap();
         let discovered = discover_files(&[dir.clone()], &config).unwrap();
 
-        assert_eq!(discovered.files.len(), 3, "Should find app.rb + 2 ruby shebang scripts");
-        let names: Vec<_> = discovered.files
+        assert_eq!(
+            discovered.files.len(),
+            3,
+            "Should find app.rb + 2 ruby shebang scripts"
+        );
+        let names: Vec<_> = discovered
+            .files
             .iter()
             .map(|f| f.file_name().unwrap().to_str().unwrap().to_string())
             .collect();
@@ -240,8 +273,7 @@ mod tests {
     fn debug_doorkeeper_bin_console() {
         use ignore::WalkBuilder;
 
-        let doorkeeper_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("bench/repos/doorkeeper");
+        let doorkeeper_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("bench/repos/doorkeeper");
         if !doorkeeper_dir.exists() {
             eprintln!("Skipping: doorkeeper not cloned");
             return;
@@ -249,8 +281,14 @@ mod tests {
 
         let bin_console = doorkeeper_dir.join("bin/console");
         assert!(bin_console.exists(), "bin/console must exist");
-        assert!(has_ruby_shebang(&bin_console), "bin/console must have ruby shebang");
-        assert!(is_ruby_file(&bin_console), "bin/console must be detected as ruby file");
+        assert!(
+            has_ruby_shebang(&bin_console),
+            "bin/console must have ruby shebang"
+        );
+        assert!(
+            is_ruby_file(&bin_console),
+            "bin/console must be detected as ruby file"
+        );
 
         // Walk with same settings as walk_directory
         let mut builder = WalkBuilder::new(&doorkeeper_dir);
@@ -282,7 +320,10 @@ mod tests {
                 found_without_global = true;
             }
         }
-        eprintln!("Found bin/console without git_global: {}", found_without_global);
+        eprintln!(
+            "Found bin/console without git_global: {}",
+            found_without_global
+        );
 
         // Try without git_ignore too
         let mut builder3 = WalkBuilder::new(&doorkeeper_dir);
@@ -295,11 +336,18 @@ mod tests {
                 found_without_gitignore = true;
             }
         }
-        eprintln!("Found bin/console without any git ignoring: {}", found_without_gitignore);
+        eprintln!(
+            "Found bin/console without any git ignoring: {}",
+            found_without_gitignore
+        );
 
         // Try without parents
         let mut builder4 = WalkBuilder::new(&doorkeeper_dir);
-        builder4.hidden(true).git_ignore(true).git_global(true).parents(false);
+        builder4
+            .hidden(true)
+            .git_ignore(true)
+            .git_global(true)
+            .parents(false);
 
         let mut found_without_parents = false;
         for entry in builder4.build() {
@@ -308,7 +356,10 @@ mod tests {
                 found_without_parents = true;
             }
         }
-        eprintln!("Found bin/console without parents: {}", found_without_parents);
+        eprintln!(
+            "Found bin/console without parents: {}",
+            found_without_parents
+        );
 
         assert!(found_bin_console, "Walker must yield bin/console");
     }

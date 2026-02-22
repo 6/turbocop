@@ -1,7 +1,7 @@
+use crate::cop::node_type::IT_LOCAL_VARIABLE_READ_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::IT_LOCAL_VARIABLE_READ_NODE;
 
 /// Checks for `it` calls without arguments inside blocks without parameters.
 /// In Ruby 3.4, `it` refers to the first block parameter, so this warns about
@@ -27,8 +27,8 @@ impl Cop for ItWithoutArgumentsInBlock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // RuboCop: maximum_target_ruby_version 3.3
         // In Ruby 3.4+, `it` is the official anonymous block parameter, so this
@@ -54,12 +54,14 @@ impl Cop for ItWithoutArgumentsInBlock {
                 "`it` calls without arguments will refer to the first block param in Ruby 3.4; use `it()` or `self.it`.".to_string(),
             ));
         }
-
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ItWithoutArgumentsInBlock, "cops/lint/it_without_arguments_in_block");
+    crate::cop_fixture_tests!(
+        ItWithoutArgumentsInBlock,
+        "cops/lint/it_without_arguments_in_block"
+    );
 }

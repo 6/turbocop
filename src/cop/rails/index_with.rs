@@ -1,8 +1,11 @@
+use crate::cop::node_type::{
+    ARRAY_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE,
+    LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE,
+};
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ARRAY_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE};
 
 pub struct IndexWith;
 
@@ -201,7 +204,17 @@ impl Cop for IndexWith {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ARRAY_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE]
+        &[
+            ARRAY_NODE,
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            CALL_NODE,
+            HASH_NODE,
+            KEYWORD_HASH_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            REQUIRED_PARAMETER_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -210,8 +223,8 @@ impl Cop for IndexWith {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Pattern 1: items.map { |e| [e, value] }.to_h
         if let Some(chain) = util::as_method_chain(node) {
@@ -290,7 +303,8 @@ impl Cop for IndexWith {
                                         if let Some(block_node) = block.as_block_node() {
                                             if is_index_with_block(&block_node) {
                                                 let loc = node.location();
-                                                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                                let (line, column) =
+                                                    source.offset_to_line_col(loc.start_offset());
                                                 diagnostics.push(self.diagnostic(
                                                     source,
                                                     line,
@@ -307,7 +321,6 @@ impl Cop for IndexWith {
                 }
             }
         }
-
     }
 }
 

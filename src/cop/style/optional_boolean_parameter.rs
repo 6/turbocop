@@ -1,7 +1,7 @@
+use crate::cop::node_type::{DEF_NODE, FALSE_NODE, OPTIONAL_PARAMETER_NODE, TRUE_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{DEF_NODE, FALSE_NODE, OPTIONAL_PARAMETER_NODE, TRUE_NODE};
 
 pub struct OptionalBooleanParameter;
 
@@ -23,8 +23,8 @@ impl Cop for OptionalBooleanParameter {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -32,8 +32,7 @@ impl Cop for OptionalBooleanParameter {
         };
 
         let method_name = def_node.name();
-        let method_name_str =
-            std::str::from_utf8(method_name.as_slice()).unwrap_or("");
+        let method_name_str = std::str::from_utf8(method_name.as_slice()).unwrap_or("");
 
         // Check allowed methods
         let allowed_methods: Vec<String> = config
@@ -54,7 +53,6 @@ impl Cop for OptionalBooleanParameter {
             None => return,
         };
 
-
         for opt in params.optionals().iter() {
             if let Some(opt_param) = opt.as_optional_parameter_node() {
                 let value = opt_param.value();
@@ -62,8 +60,8 @@ impl Cop for OptionalBooleanParameter {
 
                 if is_boolean {
                     let param_loc = opt_param.location();
-                    let param_src = &source.as_bytes()
-                        [param_loc.start_offset()..param_loc.end_offset()];
+                    let param_src =
+                        &source.as_bytes()[param_loc.start_offset()..param_loc.end_offset()];
                     let param_src_str = String::from_utf8_lossy(param_src);
 
                     let param_name =
@@ -75,8 +73,7 @@ impl Cop for OptionalBooleanParameter {
                     };
                     let replacement = format!("{}: {}", param_name, value_src);
 
-                    let (line, column) =
-                        source.offset_to_line_col(param_loc.start_offset());
+                    let (line, column) = source.offset_to_line_col(param_loc.start_offset());
                     diagnostics.push(self.diagnostic(
                         source,
                         line,
@@ -89,12 +86,14 @@ impl Cop for OptionalBooleanParameter {
                 }
             }
         }
-
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(OptionalBooleanParameter, "cops/style/optional_boolean_parameter");
+    crate::cop_fixture_tests!(
+        OptionalBooleanParameter,
+        "cops/style/optional_boolean_parameter"
+    );
 }

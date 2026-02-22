@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, INTERPOLATED_STRING_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, INTERPOLATED_STRING_NODE};
 
 pub struct RedundantInterpolationUnfreeze;
 
@@ -20,8 +20,8 @@ impl Cop for RedundantInterpolationUnfreeze {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // minimum_target_ruby_version 3.0 — only applies for Ruby 3.0+
         let ruby_version = config
@@ -92,5 +92,8 @@ impl Cop for RedundantInterpolationUnfreeze {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(RedundantInterpolationUnfreeze, "cops/style/redundant_interpolation_unfreeze");
+    crate::cop_fixture_tests!(
+        RedundantInterpolationUnfreeze,
+        "cops/style/redundant_interpolation_unfreeze"
+    );
 }

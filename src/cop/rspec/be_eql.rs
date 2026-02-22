@@ -1,8 +1,10 @@
+use crate::cop::node_type::{
+    CALL_NODE, FALSE_NODE, FLOAT_NODE, INTEGER_NODE, NIL_NODE, SYMBOL_NODE, TRUE_NODE,
+};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, FALSE_NODE, FLOAT_NODE, INTEGER_NODE, NIL_NODE, SYMBOL_NODE, TRUE_NODE};
 
 pub struct BeEql;
 
@@ -20,7 +22,15 @@ impl Cop for BeEql {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, FALSE_NODE, FLOAT_NODE, INTEGER_NODE, NIL_NODE, SYMBOL_NODE, TRUE_NODE]
+        &[
+            CALL_NODE,
+            FALSE_NODE,
+            FLOAT_NODE,
+            INTEGER_NODE,
+            NIL_NODE,
+            SYMBOL_NODE,
+            TRUE_NODE,
+        ]
     }
 
     fn check_node(
@@ -29,8 +39,8 @@ impl Cop for BeEql {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Detect eql(true), eql(false), eql(nil), eql(integer), eql(float), eql(:symbol)
         // Suggest using `be` instead. Only flags positive expectations (`.to`).

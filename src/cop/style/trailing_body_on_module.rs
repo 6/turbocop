@@ -1,7 +1,7 @@
+use crate::cop::node_type::MODULE_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::MODULE_NODE;
 
 pub struct TrailingBodyOnModule;
 
@@ -20,8 +20,8 @@ impl Cop for TrailingBodyOnModule {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let module_node = match node.as_module_node() {
             Some(m) => m,
@@ -55,7 +55,6 @@ impl Cop for TrailingBodyOnModule {
                 "Place the first line of module body on its own line.".to_string(),
             ));
         }
-
     }
 }
 

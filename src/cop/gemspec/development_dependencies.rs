@@ -13,11 +13,15 @@ impl Cop for DevelopmentDependencies {
         &["**/*.gemspec"]
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         let style = config.get_str("EnforcedStyle", "Gemfile");
-        let allowed_gems = config
-            .get_string_array("AllowedGems")
-            .unwrap_or_default();
+        let allowed_gems = config.get_string_array("AllowedGems").unwrap_or_default();
 
         // When style is "gemspec", development dependencies belong in gemspec, so no offense
         if style == "gemspec" {
@@ -36,8 +40,7 @@ impl Cop for DevelopmentDependencies {
             }
             if let Some(pos) = line_str.find(".add_development_dependency") {
                 // Check if the gem is in the allowed list
-                let after_method =
-                    &line_str[pos + ".add_development_dependency".len()..];
+                let after_method = &line_str[pos + ".add_development_dependency".len()..];
                 if is_gem_allowed(after_method, &allowed_gems) {
                     continue;
                 }
@@ -45,9 +48,7 @@ impl Cop for DevelopmentDependencies {
                     source,
                     line_idx + 1,
                     pos + 1, // skip the dot
-                    format!(
-                        "Specify development dependencies in `{style}` instead of gemspec."
-                    ),
+                    format!("Specify development dependencies in `{style}` instead of gemspec."),
                 ));
             }
         }

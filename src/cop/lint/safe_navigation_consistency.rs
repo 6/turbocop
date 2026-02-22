@@ -1,7 +1,7 @@
+use crate::cop::node_type::{AND_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE, OR_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{AND_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE, OR_NODE};
 
 const DEFAULT_ALLOWED_METHODS: &[&str] = &["present?", "blank?", "presence", "try", "try!"];
 
@@ -26,30 +26,42 @@ impl Cop for SafeNavigationConsistency {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed_methods = config
             .get_string_array("AllowedMethods")
-            .unwrap_or_else(|| DEFAULT_ALLOWED_METHODS.iter().map(|s| s.to_string()).collect());
+            .unwrap_or_else(|| {
+                DEFAULT_ALLOWED_METHODS
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            });
 
         // Check for `&&` and `||` operators (AndNode and OrNode)
         if let Some(and_node) = node.as_and_node() {
             diagnostics.extend(check_logical_op(
-                self, source, &and_node.left(), &and_node.right(),
-                true, &allowed_methods,
+                self,
+                source,
+                &and_node.left(),
+                &and_node.right(),
+                true,
+                &allowed_methods,
             ));
             return;
         }
 
         if let Some(or_node) = node.as_or_node() {
             diagnostics.extend(check_logical_op(
-                self, source, &or_node.left(), &or_node.right(),
-                false, &allowed_methods,
+                self,
+                source,
+                &or_node.left(),
+                &or_node.right(),
+                false,
+                &allowed_methods,
             ));
             return;
         }
-
     }
 }
 
@@ -68,12 +80,20 @@ fn check_logical_op(
     let right_info = extract_call_info(right);
 
     let (left_recv, left_is_safe, left_method) = match &left_info {
-        Some(info) => (info.receiver_name.as_str(), info.is_safe_nav, info.method_name.as_str()),
+        Some(info) => (
+            info.receiver_name.as_str(),
+            info.is_safe_nav,
+            info.method_name.as_str(),
+        ),
         None => return diagnostics,
     };
 
     let (right_recv, right_is_safe, right_method) = match &right_info {
-        Some(info) => (info.receiver_name.as_str(), info.is_safe_nav, info.method_name.as_str()),
+        Some(info) => (
+            info.receiver_name.as_str(),
+            info.is_safe_nav,
+            info.method_name.as_str(),
+        ),
         None => return diagnostics,
     };
 
@@ -190,10 +210,7 @@ fn extract_call_info(node: &ruby_prism::Node<'_>) -> Option<CallInfo> {
         })
         .unwrap_or(false);
 
-    let call_operator_offset = call_op
-        .as_ref()
-        .map(|loc| loc.start_offset())
-        .unwrap_or(0);
+    let call_operator_offset = call_op.as_ref().map(|loc| loc.start_offset()).unwrap_or(0);
 
     let dot_offset = call_op
         .as_ref()
@@ -236,11 +253,17 @@ fn get_simple_receiver_name(node: &ruby_prism::Node<'_>) -> Option<String> {
 }
 
 fn is_comparison_method(method: &str) -> bool {
-    matches!(method, "==" | "!=" | "===" | "<=>" | "<" | ">" | "<=" | ">=")
+    matches!(
+        method,
+        "==" | "!=" | "===" | "<=>" | "<" | ">" | "<=" | ">="
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(SafeNavigationConsistency, "cops/lint/safe_navigation_consistency");
+    crate::cop_fixture_tests!(
+        SafeNavigationConsistency,
+        "cops/lint/safe_navigation_consistency"
+    );
 }

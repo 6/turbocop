@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CASE_NODE, ELSE_NODE, IF_NODE, NIL_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CASE_NODE, ELSE_NODE, IF_NODE, NIL_NODE, UNLESS_NODE};
 
 pub struct EmptyElse;
 
@@ -20,8 +20,8 @@ impl Cop for EmptyElse {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "both");
         let _allow_comments = config.get_bool("AllowComments", false);
@@ -41,23 +41,37 @@ impl Cop for EmptyElse {
             }
 
             // Walk the chain to find the else
-            diagnostics.extend(self.check_if_chain_for_else(source, &if_node, check_empty, check_nil));
+            diagnostics.extend(self.check_if_chain_for_else(
+                source,
+                &if_node,
+                check_empty,
+                check_nil,
+            ));
         }
 
         if let Some(unless_node) = node.as_unless_node() {
             if let Some(else_clause) = unless_node.else_clause() {
-                diagnostics.extend(self.check_else_node(source, &else_clause, check_empty, check_nil));
+                diagnostics.extend(self.check_else_node(
+                    source,
+                    &else_clause,
+                    check_empty,
+                    check_nil,
+                ));
             }
             return;
         }
 
         if let Some(case_node) = node.as_case_node() {
             if let Some(else_clause) = case_node.else_clause() {
-                diagnostics.extend(self.check_else_node(source, &else_clause, check_empty, check_nil));
+                diagnostics.extend(self.check_else_node(
+                    source,
+                    &else_clause,
+                    check_empty,
+                    check_nil,
+                ));
             }
             return;
         }
-
     }
 }
 

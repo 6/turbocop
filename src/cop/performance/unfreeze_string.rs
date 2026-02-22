@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, STRING_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, STRING_NODE};
 
 pub struct UnfreezeString;
 
@@ -15,7 +15,12 @@ impl Cop for UnfreezeString {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, STRING_NODE]
+        &[
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            STRING_NODE,
+        ]
     }
 
     fn check_node(
@@ -24,8 +29,8 @@ impl Cop for UnfreezeString {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -47,8 +52,7 @@ impl Cop for UnfreezeString {
             cr.name().as_slice() == b"String"
         } else if let Some(cp) = receiver.as_constant_path_node() {
             // ::String (rooted constant path with no parent)
-            cp.parent().is_none()
-                && cp.name().map(|n| n.as_slice()) == Some(b"String")
+            cp.parent().is_none() && cp.name().map(|n| n.as_slice()) == Some(b"String")
         } else {
             false
         };
@@ -83,7 +87,12 @@ impl Cop for UnfreezeString {
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(source, line, column, "Use unary plus to get an unfrozen string literal.".to_string()));
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            "Use unary plus to get an unfrozen string literal.".to_string(),
+        ));
     }
 }
 

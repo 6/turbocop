@@ -23,8 +23,8 @@ impl Cop for RefinementImportMethods {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = RefineVisitor {
             cop: self,
@@ -121,5 +121,8 @@ impl<'pr> Visit<'pr> for RefineVisitor<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(RefinementImportMethods, "cops/lint/refinement_import_methods");
+    crate::cop_fixture_tests!(
+        RefinementImportMethods,
+        "cops/lint/refinement_import_methods"
+    );
 }

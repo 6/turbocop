@@ -202,28 +202,19 @@ pub fn build_mapping_table() -> HashMap<&'static str, &'static NodeMapping> {
             parser_type: "when",
             prism_type: "WhenNode",
             cast_method: "as_when_node",
-            child_accessors: &[
-                ("conds", "conditions()"),
-                ("body", "statements()"),
-            ],
+            child_accessors: &[("conds", "conditions()"), ("body", "statements()")],
         },
         NodeMapping {
             parser_type: "while",
             prism_type: "WhileNode",
             cast_method: "as_while_node",
-            child_accessors: &[
-                ("cond", "predicate()"),
-                ("body", "statements()"),
-            ],
+            child_accessors: &[("cond", "predicate()"), ("body", "statements()")],
         },
         NodeMapping {
             parser_type: "until",
             prism_type: "UntilNode",
             cast_method: "as_until_node",
-            child_accessors: &[
-                ("cond", "predicate()"),
-                ("body", "statements()"),
-            ],
+            child_accessors: &[("cond", "predicate()"), ("body", "statements()")],
         },
         NodeMapping {
             parser_type: "for",
@@ -279,10 +270,7 @@ pub fn build_mapping_table() -> HashMap<&'static str, &'static NodeMapping> {
             parser_type: "module",
             prism_type: "ModuleNode",
             cast_method: "as_module_node",
-            child_accessors: &[
-                ("name", "constant_path()"),
-                ("body", "body()"),
-            ],
+            child_accessors: &[("name", "constant_path()"), ("body", "body()")],
         },
         NodeMapping {
             parser_type: "lvasgn",
@@ -324,10 +312,7 @@ pub fn build_mapping_table() -> HashMap<&'static str, &'static NodeMapping> {
             parser_type: "lambda",
             prism_type: "LambdaNode",
             cast_method: "as_lambda_node",
-            child_accessors: &[
-                ("params", "parameters()"),
-                ("body", "body()"),
-            ],
+            child_accessors: &[("params", "parameters()"), ("body", "body()")],
         },
         NodeMapping {
             parser_type: "dstr",
@@ -394,11 +379,11 @@ mod tests {
     fn test_mapping_table_completeness() {
         let table = build_mapping_table();
         for expected in &[
-            "send", "csend", "block", "def", "defs", "const", "begin", "pair",
-            "hash", "lvar", "ivar", "sym", "str", "int", "float", "true", "false",
-            "nil", "self", "array", "if", "case", "when", "while", "until", "for",
-            "return", "yield", "and", "or", "regexp", "class", "module", "lvasgn",
-            "ivasgn", "casgn", "splat", "super", "zsuper", "lambda", "dstr", "dsym",
+            "send", "csend", "block", "def", "defs", "const", "begin", "pair", "hash", "lvar",
+            "ivar", "sym", "str", "int", "float", "true", "false", "nil", "self", "array", "if",
+            "case", "when", "while", "until", "for", "return", "yield", "and", "or", "regexp",
+            "class", "module", "lvasgn", "ivasgn", "casgn", "splat", "super", "zsuper", "lambda",
+            "dstr", "dsym",
         ] {
             assert!(
                 table.contains_key(expected),

@@ -13,7 +13,13 @@ impl Cop for RequireMfa {
         &["**/*.gemspec"]
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        _config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         let mut found_mfa = false;
 
         for line in source.lines() {
@@ -39,7 +45,8 @@ impl Cop for RequireMfa {
 
             // Also check for hash-style metadata:
             // 'rubygems_mfa_required' => 'true'  (inside .metadata = { ... })
-            if (trimmed.contains("'rubygems_mfa_required'") || trimmed.contains("\"rubygems_mfa_required\""))
+            if (trimmed.contains("'rubygems_mfa_required'")
+                || trimmed.contains("\"rubygems_mfa_required\""))
                 && trimmed.contains("=>")
             {
                 if trimmed.contains("'true'") || trimmed.contains("\"true\"") {
@@ -56,7 +63,6 @@ impl Cop for RequireMfa {
                 0,
                 "`rubygems_mfa_required` must be set to `'true'` in gemspec metadata.".to_string(),
             ));
-
         }
     }
 }
@@ -65,7 +71,8 @@ impl Cop for RequireMfa {
 mod tests {
     use super::*;
     crate::cop_scenario_fixture_tests!(
-        RequireMfa, "cops/gemspec/require_mfa",
+        RequireMfa,
+        "cops/gemspec/require_mfa",
         missing_metadata = "missing_metadata.rb",
         wrong_value = "wrong_value.rb",
         no_metadata_at_all = "no_metadata_at_all.rb",

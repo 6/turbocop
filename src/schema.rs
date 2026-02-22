@@ -221,8 +221,7 @@ impl<'a> Visit<'a> for SchemaVisitor {
                     let arg_list: Vec<_> = args.arguments().iter().collect();
                     if let Some(first) = arg_list.first() {
                         if let Some(table_name) = extract_string_value(first) {
-                            self.current_table =
-                                Some((table_name, Vec::new(), Vec::new()));
+                            self.current_table = Some((table_name, Vec::new(), Vec::new()));
                         }
                     }
                 }
@@ -292,12 +291,12 @@ impl<'a> Visit<'a> for SchemaVisitor {
                 // Column type methods: t.string, t.integer, t.text, etc.
                 "string" | "text" | "integer" | "bigint" | "float" | "decimal" | "numeric"
                 | "datetime" | "timestamp" | "time" | "date" | "binary" | "blob" | "boolean"
-                | "json" | "jsonb" | "uuid" | "inet" | "cidr" | "macaddr" | "hstore"
-                | "ltree" | "tsvector" | "tsquery" | "point" | "line" | "lseg" | "box"
-                | "path" | "polygon" | "circle" | "bit" | "bit_varying" | "money"
-                | "interval" | "int4range" | "int8range" | "numrange" | "tsrange"
-                | "tstzrange" | "daterange" | "enum" | "serial" | "bigserial"
-                | "virtual" | "column" | "references" => {
+                | "json" | "jsonb" | "uuid" | "inet" | "cidr" | "macaddr" | "hstore" | "ltree"
+                | "tsvector" | "tsquery" | "point" | "line" | "lseg" | "box" | "path"
+                | "polygon" | "circle" | "bit" | "bit_varying" | "money" | "interval"
+                | "int4range" | "int8range" | "numrange" | "tsrange" | "tstzrange"
+                | "daterange" | "enum" | "serial" | "bigserial" | "virtual" | "column"
+                | "references" => {
                     if let Some(args) = node.arguments() {
                         let arg_list: Vec<_> = args.arguments().iter().collect();
                         if let Some(first) = arg_list.first() {
@@ -313,8 +312,12 @@ impl<'a> Visit<'a> for SchemaVisitor {
                 // t.timestamps adds created_at and updated_at
                 "timestamps" => {
                     if let Some((_, ref mut columns, _)) = self.current_table {
-                        columns.push(Column { name: "created_at".to_string() });
-                        columns.push(Column { name: "updated_at".to_string() });
+                        columns.push(Column {
+                            name: "created_at".to_string(),
+                        });
+                        columns.push(Column {
+                            name: "updated_at".to_string(),
+                        });
                     }
                     return;
                 }
@@ -352,7 +355,10 @@ fn extract_index_columns(node: &ruby_prism::Node<'_>) -> (Vec<String>, Option<St
             (vec![value], None)
         }
     } else if let Some(s) = node.as_symbol_node() {
-        (vec![String::from_utf8_lossy(s.unescaped()).to_string()], None)
+        (
+            vec![String::from_utf8_lossy(s.unescaped()).to_string()],
+            None,
+        )
     } else {
         (Vec::new(), None)
     }
@@ -423,8 +429,19 @@ pub fn pluralize(s: &str) -> String {
     }
 
     let uncountable = [
-        "equipment", "information", "rice", "money", "species", "series", "fish", "sheep", "jeans",
-        "police", "news", "data", "media",
+        "equipment",
+        "information",
+        "rice",
+        "money",
+        "species",
+        "series",
+        "fish",
+        "sheep",
+        "jeans",
+        "police",
+        "news",
+        "data",
+        "media",
     ];
     let lower = s.to_lowercase();
     if uncountable.contains(&lower.as_str()) {
@@ -464,8 +481,12 @@ pub fn pluralize(s: &str) -> String {
         }
     }
 
-    if lower.ends_with("ies") || lower.ends_with("ses") || lower.ends_with("xes")
-        || lower.ends_with("zes") || lower.ends_with("ches") || lower.ends_with("shes")
+    if lower.ends_with("ies")
+        || lower.ends_with("ses")
+        || lower.ends_with("xes")
+        || lower.ends_with("zes")
+        || lower.ends_with("ches")
+        || lower.ends_with("shes")
     {
         return s.to_string();
     }
@@ -478,8 +499,11 @@ pub fn pluralize(s: &str) -> String {
         return format!("{}i", &s[..s.len() - 2]);
     }
 
-    if lower.ends_with("ss") || lower.ends_with("sh") || lower.ends_with("ch")
-        || lower.ends_with('x') || lower.ends_with('z')
+    if lower.ends_with("ss")
+        || lower.ends_with("sh")
+        || lower.ends_with("ch")
+        || lower.ends_with('x')
+        || lower.ends_with('z')
     {
         return format!("{s}es");
     }
@@ -633,7 +657,10 @@ mod tests {
             "users"
         );
         assert_eq!(
-            table_name_from_source(b"class UserProfile < ApplicationRecord\nend\n", "UserProfile"),
+            table_name_from_source(
+                b"class UserProfile < ApplicationRecord\nend\n",
+                "UserProfile"
+            ),
             "user_profiles"
         );
     }

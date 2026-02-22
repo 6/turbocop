@@ -22,8 +22,8 @@ impl Cop for FixedSize {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = FixedSizeVisitor {
             cop: self,
@@ -53,10 +53,7 @@ impl<'pr> Visit<'pr> for FixedSizeVisitor<'_, '_> {
         self.in_constant_assignment = prev;
     }
 
-    fn visit_constant_path_write_node(
-        &mut self,
-        node: &ruby_prism::ConstantPathWriteNode<'pr>,
-    ) {
+    fn visit_constant_path_write_node(&mut self, node: &ruby_prism::ConstantPathWriteNode<'pr>) {
         let prev = self.in_constant_assignment;
         self.in_constant_assignment = true;
         ruby_prism::visit_constant_path_write_node(self, node);
@@ -124,8 +121,10 @@ impl FixedSizeVisitor<'_, '_> {
 
         let loc = call.location();
         let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-        self.diagnostics
-            .push(self.cop.diagnostic(self.source, line, column, MSG.to_string()));
+        self.diagnostics.push(
+            self.cop
+                .diagnostic(self.source, line, column, MSG.to_string()),
+        );
     }
 }
 

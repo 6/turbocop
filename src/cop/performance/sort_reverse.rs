@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct SortReverse;
 
@@ -24,8 +24,8 @@ impl Cop for SortReverse {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // This cop detects `sort { |a, b| b <=> a }` and suggests `.sort.reverse`.
         // Look for a `sort` call with a block that has exactly `b <=> a` (reversed
@@ -120,7 +120,12 @@ impl Cop for SortReverse {
         if recv_name == param_b && arg_name == param_a {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(source, line, column, "Use `sort.reverse` instead of `sort { |a, b| b <=> a }`.".to_string()));
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                "Use `sort.reverse` instead of `sort { |a, b| b <=> a }`.".to_string(),
+            ));
         }
     }
 }

@@ -51,7 +51,11 @@ impl Formatter for ProgressFormatter {
         let file_word = if file_count == 1 { "file" } else { "files" };
         let corrected_count = diagnostics.iter().filter(|d| d.corrected).count();
         if corrected_count > 0 {
-            let corrected_word = if corrected_count == 1 { "offense" } else { "offenses" };
+            let corrected_word = if corrected_count == 1 {
+                "offense"
+            } else {
+                "offenses"
+            };
             let _ = writeln!(
                 out,
                 "\n{file_count} {file_word} inspected, {} {offense_word} detected, {corrected_count} {corrected_word} corrected",
@@ -92,7 +96,11 @@ mod tests {
 
     #[test]
     fn all_clean_files_show_dots() {
-        let files = vec![PathBuf::from("a.rb"), PathBuf::from("b.rb"), PathBuf::from("c.rb")];
+        let files = vec![
+            PathBuf::from("a.rb"),
+            PathBuf::from("b.rb"),
+            PathBuf::from("c.rb"),
+        ];
         let out = render(&[], &files);
         assert!(out.starts_with("...\n"));
         assert!(out.contains("3 files inspected, 0 offenses detected"));
@@ -100,7 +108,11 @@ mod tests {
 
     #[test]
     fn offense_file_shows_severity_letter() {
-        let files = vec![PathBuf::from("a.rb"), PathBuf::from("b.rb"), PathBuf::from("c.rb")];
+        let files = vec![
+            PathBuf::from("a.rb"),
+            PathBuf::from("b.rb"),
+            PathBuf::from("c.rb"),
+        ];
         let diags = vec![make_diag("b.rb", Severity::Convention)];
         let out = render(&diags, &files);
         assert!(out.starts_with(".C.\n"));

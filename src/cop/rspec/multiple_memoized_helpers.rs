@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::cop::util::{self, is_rspec_example_group, is_rspec_let, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_let};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -27,8 +27,8 @@ impl Cop for MultipleMemoizedHelpers {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let max = config.get_usize("Max", 5);
         let allow_subject = config.get_bool("AllowSubject", true);
@@ -99,8 +99,7 @@ impl<'a> MemoizedHelperVisitor<'a> {
     fn is_example_group_call(&self, call: &ruby_prism::CallNode<'_>) -> bool {
         let method_name = call.name().as_slice();
         if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
-                && method_name == b"describe"
+            util::constant_name(&recv).is_some_and(|n| n == b"RSpec") && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name)
         }
@@ -199,7 +198,10 @@ impl<'pr> Visit<'pr> for MemoizedHelperVisitor<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(MultipleMemoizedHelpers, "cops/rspec/multiple_memoized_helpers");
+    crate::cop_fixture_tests!(
+        MultipleMemoizedHelpers,
+        "cops/rspec/multiple_memoized_helpers"
+    );
 
     #[test]
     fn allow_subject_false_counts_subject() {
@@ -209,13 +211,18 @@ mod tests {
         let config = CopConfig {
             options: HashMap::from([
                 ("AllowSubject".into(), serde_yml::Value::Bool(false)),
-                ("Max".into(), serde_yml::Value::Number(serde_yml::Number::from(2))),
+                (
+                    "Max".into(),
+                    serde_yml::Value::Number(serde_yml::Number::from(2)),
+                ),
             ]),
             ..CopConfig::default()
         };
         // 2 lets + 1 subject = 3 helpers, max is 2
-        let source = b"describe Foo do\n  subject(:bar) { 1 }\n  let(:a) { 1 }\n  let(:b) { 2 }\nend\n";
-        let diags = crate::testutil::run_cop_full_with_config(&MultipleMemoizedHelpers, source, config);
+        let source =
+            b"describe Foo do\n  subject(:bar) { 1 }\n  let(:a) { 1 }\n  let(:b) { 2 }\nend\n";
+        let diags =
+            crate::testutil::run_cop_full_with_config(&MultipleMemoizedHelpers, source, config);
         assert_eq!(diags.len(), 1);
     }
 
@@ -227,13 +234,18 @@ mod tests {
         let config = CopConfig {
             options: HashMap::from([
                 ("AllowSubject".into(), serde_yml::Value::Bool(true)),
-                ("Max".into(), serde_yml::Value::Number(serde_yml::Number::from(2))),
+                (
+                    "Max".into(),
+                    serde_yml::Value::Number(serde_yml::Number::from(2)),
+                ),
             ]),
             ..CopConfig::default()
         };
         // 2 lets + 1 subject = 2 counted helpers (subject excluded), max is 2
-        let source = b"describe Foo do\n  subject(:bar) { 1 }\n  let(:a) { 1 }\n  let(:b) { 2 }\nend\n";
-        let diags = crate::testutil::run_cop_full_with_config(&MultipleMemoizedHelpers, source, config);
+        let source =
+            b"describe Foo do\n  subject(:bar) { 1 }\n  let(:a) { 1 }\n  let(:b) { 2 }\nend\n";
+        let diags =
+            crate::testutil::run_cop_full_with_config(&MultipleMemoizedHelpers, source, config);
         assert!(diags.is_empty());
     }
 
@@ -244,7 +256,11 @@ mod tests {
         let diags = crate::testutil::run_cop_full(&MultipleMemoizedHelpers, source);
         // The nested context should fire because 4 + 2 = 6 > 5
         // The parent describe should NOT fire (4 <= 5)
-        assert_eq!(diags.len(), 1, "Should fire on nested context with 6 total helpers");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should fire on nested context with 6 total helpers"
+        );
         assert!(diags[0].message.contains("[6/5]"));
     }
 
@@ -254,6 +270,10 @@ mod tests {
         // Total unique names = 5 (not 7), so no offense.
         let source = b"describe Foo do\n  let(:a) { 1 }\n  let(:b) { 2 }\n  let(:c) { 3 }\n  let(:d) { 4 }\n  let(:e) { 5 }\n\n  context 'overrides' do\n    let(:a) { 10 }\n    let(:b) { 20 }\n    it { expect(a).to eq(10) }\n  end\nend\n";
         let diags = crate::testutil::run_cop_full(&MultipleMemoizedHelpers, source);
-        assert!(diags.is_empty(), "Overriding lets should not increase count: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "Overriding lets should not increase count: {:?}",
+            diags
+        );
     }
 }

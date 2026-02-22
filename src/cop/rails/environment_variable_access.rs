@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, STRING_NODE};
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, STRING_NODE};
 
 pub struct EnvironmentVariableAccess;
 
@@ -25,8 +25,8 @@ impl Cop for EnvironmentVariableAccess {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_reads = config.get_bool("AllowReads", false);
         let allow_writes = config.get_bool("AllowWrites", false);
@@ -93,5 +93,8 @@ impl Cop for EnvironmentVariableAccess {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(EnvironmentVariableAccess, "cops/rails/environment_variable_access");
+    crate::cop_fixture_tests!(
+        EnvironmentVariableAccess,
+        "cops/rails/environment_variable_access"
+    );
 }

@@ -1,7 +1,7 @@
+use crate::cop::node_type::ARRAY_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::ARRAY_NODE;
 
 pub struct SpaceInsidePercentLiteralDelimiters;
 
@@ -24,8 +24,8 @@ impl Cop for SpaceInsidePercentLiteralDelimiters {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check array nodes that are %w or %i style
         let array = match node.as_array_node() {
@@ -45,8 +45,10 @@ impl Cop for SpaceInsidePercentLiteralDelimiters {
 
         let open_slice = open_loc.as_slice();
         // Check if this is a percent literal (%w, %W, %i, %I)
-        if !open_slice.starts_with(b"%w") && !open_slice.starts_with(b"%W")
-            && !open_slice.starts_with(b"%i") && !open_slice.starts_with(b"%I")
+        if !open_slice.starts_with(b"%w")
+            && !open_slice.starts_with(b"%W")
+            && !open_slice.starts_with(b"%i")
+            && !open_slice.starts_with(b"%I")
         {
             return;
         }
@@ -72,15 +74,20 @@ impl Cop for SpaceInsidePercentLiteralDelimiters {
         if !content.is_empty() && content[0] == b' ' {
             let (line, col) = source.offset_to_line_col(open_end);
             let mut diag = self.diagnostic(
-                source, line, col,
+                source,
+                line,
+                col,
                 "Do not use spaces inside percent literal delimiters.".to_string(),
             );
             if let Some(ref mut corr) = corrections {
                 // Count leading spaces
                 let leading_count = content.iter().take_while(|&&b| b == b' ').count();
                 corr.push(crate::correction::Correction {
-                    start: open_end, end: open_end + leading_count, replacement: String::new(),
-                    cop_name: self.name(), cop_index: 0,
+                    start: open_end,
+                    end: open_end + leading_count,
+                    replacement: String::new(),
+                    cop_name: self.name(),
+                    cop_index: 0,
                 });
                 diag.corrected = true;
             }
@@ -93,19 +100,23 @@ impl Cop for SpaceInsidePercentLiteralDelimiters {
             let trailing_start = close_start - trailing_count;
             let (line, col) = source.offset_to_line_col(close_start - 1);
             let mut diag = self.diagnostic(
-                source, line, col,
+                source,
+                line,
+                col,
                 "Do not use spaces inside percent literal delimiters.".to_string(),
             );
             if let Some(ref mut corr) = corrections {
                 corr.push(crate::correction::Correction {
-                    start: trailing_start, end: close_start, replacement: String::new(),
-                    cop_name: self.name(), cop_index: 0,
+                    start: trailing_start,
+                    end: close_start,
+                    replacement: String::new(),
+                    cop_name: self.name(),
+                    cop_index: 0,
                 });
                 diag.corrected = true;
             }
             diagnostics.push(diag);
         }
-
     }
 }
 

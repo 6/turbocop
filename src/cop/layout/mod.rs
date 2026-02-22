@@ -126,9 +126,7 @@ pub fn register_all(registry: &mut CopRegistry) {
     ));
     registry.register(Box::new(space_before_block_braces::SpaceBeforeBlockBraces));
     // M5 cops
-    registry.register(Box::new(
-        empty_line_between_defs::EmptyLineBetweenDefs,
-    ));
+    registry.register(Box::new(empty_line_between_defs::EmptyLineBetweenDefs));
     registry.register(Box::new(
         empty_lines_around_class_body::EmptyLinesAroundClassBody,
     ));
@@ -150,13 +148,9 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(def_end_alignment::DefEndAlignment));
     registry.register(Box::new(else_alignment::ElseAlignment));
     registry.register(Box::new(end_alignment::EndAlignment));
-    registry.register(Box::new(
-        rescue_ensure_alignment::RescueEnsureAlignment,
-    ));
+    registry.register(Box::new(rescue_ensure_alignment::RescueEnsureAlignment));
     registry.register(Box::new(indentation_width::IndentationWidth));
-    registry.register(Box::new(
-        indentation_consistency::IndentationConsistency,
-    ));
+    registry.register(Box::new(indentation_consistency::IndentationConsistency));
     registry.register(Box::new(
         first_argument_indentation::FirstArgumentIndentation,
     ));
@@ -166,33 +160,19 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(
         first_hash_element_indentation::FirstHashElementIndentation,
     ));
-    registry.register(Box::new(
-        assignment_indentation::AssignmentIndentation,
-    ));
+    registry.register(Box::new(assignment_indentation::AssignmentIndentation));
     registry.register(Box::new(
         multiline_method_call_indentation::MultilineMethodCallIndentation,
     ));
     registry.register(Box::new(
         multiline_operation_indentation::MultilineOperationIndentation,
     ));
-    registry.register(Box::new(
-        space_around_operators::SpaceAroundOperators,
-    ));
-    registry.register(Box::new(
-        space_around_keyword::SpaceAroundKeyword,
-    ));
-    registry.register(Box::new(
-        space_before_comment::SpaceBeforeComment,
-    ));
-    registry.register(Box::new(
-        space_before_first_arg::SpaceBeforeFirstArg,
-    ));
-    registry.register(Box::new(
-        leading_comment_space::LeadingCommentSpace,
-    ));
-    registry.register(Box::new(
-        comment_indentation::CommentIndentation,
-    ));
+    registry.register(Box::new(space_around_operators::SpaceAroundOperators));
+    registry.register(Box::new(space_around_keyword::SpaceAroundKeyword));
+    registry.register(Box::new(space_before_comment::SpaceBeforeComment));
+    registry.register(Box::new(space_before_first_arg::SpaceBeforeFirstArg));
+    registry.register(Box::new(leading_comment_space::LeadingCommentSpace));
+    registry.register(Box::new(comment_indentation::CommentIndentation));
     registry.register(Box::new(
         empty_line_after_magic_comment::EmptyLineAfterMagicComment,
     ));
@@ -266,9 +246,7 @@ pub fn register_all(registry: &mut CopRegistry) {
         multiline_hash_brace_layout::MultilineHashBraceLayout,
     ));
     // Batch: 17 existing cops
-    registry.register(Box::new(
-        begin_end_alignment::BeginEndAlignment,
-    ));
+    registry.register(Box::new(begin_end_alignment::BeginEndAlignment));
     registry.register(Box::new(class_structure::ClassStructure));
     registry.register(Box::new(
         empty_line_after_multiline_condition::EmptyLineAfterMultilineCondition,
@@ -294,9 +272,7 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(
         heredoc_argument_closing_parenthesis::HeredocArgumentClosingParenthesis,
     ));
-    registry.register(Box::new(
-        line_continuation_spacing::LineContinuationSpacing,
-    ));
+    registry.register(Box::new(line_continuation_spacing::LineContinuationSpacing));
     registry.register(Box::new(
         line_end_string_concatenation_indentation::LineEndStringConcatenationIndentation,
     ));
@@ -325,10 +301,6 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(
         multiline_method_definition_brace_layout::MultilineMethodDefinitionBraceLayout,
     ));
-    registry.register(Box::new(
-        redundant_line_break::RedundantLineBreak,
-    ));
-    registry.register(Box::new(
-        single_line_block_chain::SingleLineBlockChain,
-    ));
+    registry.register(Box::new(redundant_line_break::RedundantLineBreak));
+    registry.register(Box::new(single_line_block_chain::SingleLineBlockChain));
 }

@@ -20,8 +20,8 @@ impl Cop for TripleQuotes {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut byte_offset: usize = 0;
 
@@ -62,7 +62,6 @@ impl Cop for TripleQuotes {
 
             byte_offset += line_len;
         }
-
     }
 }
 
@@ -75,6 +74,9 @@ mod tests {
     fn skip_in_heredoc() {
         let source = b"x = <<~RUBY\n  \"\"\"\n  foo\n  \"\"\"\nRUBY\n";
         let diags = crate::testutil::run_cop_full(&TripleQuotes, source);
-        assert!(diags.is_empty(), "Should not fire on triple quotes inside heredoc");
+        assert!(
+            diags.is_empty(),
+            "Should not fire on triple quotes inside heredoc"
+        );
     }
 }

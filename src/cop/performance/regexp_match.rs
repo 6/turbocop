@@ -20,8 +20,8 @@ impl Cop for RegexpMatch {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = ConditionVisitor {
             cop: self,
@@ -42,7 +42,13 @@ struct ConditionVisitor<'a, 'src> {
 impl<'pr> Visit<'pr> for ConditionVisitor<'_, '_> {
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
         let body_range = body_range_of_if(node);
-        check_condition(self.cop, self.source, &node.predicate(), body_range, &mut self.diagnostics);
+        check_condition(
+            self.cop,
+            self.source,
+            &node.predicate(),
+            body_range,
+            &mut self.diagnostics,
+        );
         ruby_prism::visit_if_node(self, node);
     }
 
@@ -51,7 +57,13 @@ impl<'pr> Visit<'pr> for ConditionVisitor<'_, '_> {
             let loc = s.location();
             (loc.start_offset(), loc.end_offset())
         });
-        check_condition(self.cop, self.source, &node.predicate(), body_range, &mut self.diagnostics);
+        check_condition(
+            self.cop,
+            self.source,
+            &node.predicate(),
+            body_range,
+            &mut self.diagnostics,
+        );
         ruby_prism::visit_unless_node(self, node);
     }
 
@@ -60,7 +72,13 @@ impl<'pr> Visit<'pr> for ConditionVisitor<'_, '_> {
             let loc = s.location();
             (loc.start_offset(), loc.end_offset())
         });
-        check_condition(self.cop, self.source, &node.predicate(), body_range, &mut self.diagnostics);
+        check_condition(
+            self.cop,
+            self.source,
+            &node.predicate(),
+            body_range,
+            &mut self.diagnostics,
+        );
         ruby_prism::visit_while_node(self, node);
     }
 
@@ -69,7 +87,13 @@ impl<'pr> Visit<'pr> for ConditionVisitor<'_, '_> {
             let loc = s.location();
             (loc.start_offset(), loc.end_offset())
         });
-        check_condition(self.cop, self.source, &node.predicate(), body_range, &mut self.diagnostics);
+        check_condition(
+            self.cop,
+            self.source,
+            &node.predicate(),
+            body_range,
+            &mut self.diagnostics,
+        );
         ruby_prism::visit_until_node(self, node);
     }
 }
@@ -138,7 +162,10 @@ fn last_match_used_in_range(source: &SourceFile, start: usize, end: usize) -> bo
     let body = &bytes[start..end];
 
     // Check for Regexp.last_match
-    if body.windows(b"Regexp.last_match".len()).any(|w| w == b"Regexp.last_match") {
+    if body
+        .windows(b"Regexp.last_match".len())
+        .any(|w| w == b"Regexp.last_match")
+    {
         return true;
     }
 
@@ -147,7 +174,10 @@ fn last_match_used_in_range(source: &SourceFile, start: usize, end: usize) -> bo
     while i < body.len() {
         if body[i] == b'$' && i + 1 < body.len() {
             let next = body[i + 1];
-            if next == b'~' || next == b'&' || next == b'`' || next == b'\''
+            if next == b'~'
+                || next == b'&'
+                || next == b'`'
+                || next == b'\''
                 || next.is_ascii_digit()
             {
                 return true;

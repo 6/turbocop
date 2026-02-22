@@ -1,7 +1,7 @@
+use crate::cop::node_type::{BEGIN_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BEGIN_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 
 pub struct RescueException;
 
@@ -24,8 +24,8 @@ impl Cop for RescueException {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Match BeginNode to get rescue_clause
         let begin_node = match node.as_begin_node() {
@@ -65,7 +65,6 @@ impl Cop for RescueException {
             }
             rescue_opt = rescue_node.subsequent();
         }
-
     }
 }
 

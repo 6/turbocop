@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct CollectionMethods;
 
@@ -20,22 +20,26 @@ impl Cop for CollectionMethods {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let preferred_methods = config.get_string_hash("PreferredMethods").unwrap_or_else(|| {
-            // Default preferred methods per RuboCop's default.yml
-            let mut m = std::collections::HashMap::new();
-            m.insert("collect".to_string(), "map".to_string());
-            m.insert("collect!".to_string(), "map!".to_string());
-            m.insert("collect_concat".to_string(), "flat_map".to_string());
-            m.insert("inject".to_string(), "reduce".to_string());
-            m.insert("detect".to_string(), "find".to_string());
-            m.insert("find_all".to_string(), "select".to_string());
-            m.insert("member?".to_string(), "include?".to_string());
-            m
-        });
-        let _methods_accepting_symbol = config.get_string_array("MethodsAcceptingSymbol").unwrap_or_default();
+        let preferred_methods = config
+            .get_string_hash("PreferredMethods")
+            .unwrap_or_else(|| {
+                // Default preferred methods per RuboCop's default.yml
+                let mut m = std::collections::HashMap::new();
+                m.insert("collect".to_string(), "map".to_string());
+                m.insert("collect!".to_string(), "map!".to_string());
+                m.insert("collect_concat".to_string(), "flat_map".to_string());
+                m.insert("inject".to_string(), "reduce".to_string());
+                m.insert("detect".to_string(), "find".to_string());
+                m.insert("find_all".to_string(), "select".to_string());
+                m.insert("member?".to_string(), "include?".to_string());
+                m
+            });
+        let _methods_accepting_symbol = config
+            .get_string_array("MethodsAcceptingSymbol")
+            .unwrap_or_default();
 
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -59,7 +63,6 @@ impl Cop for CollectionMethods {
                 format!("Prefer `{}` over `{}`.", preferred, method_name),
             ));
         }
-
     }
 }
 

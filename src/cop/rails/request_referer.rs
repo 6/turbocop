@@ -20,8 +20,8 @@ impl Cop for RequestReferer {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "referer");
 
@@ -76,7 +76,10 @@ mod tests {
         };
         let source = b"request.referer\n";
         let diags = run_cop_full_with_config(&RequestReferer, source, config);
-        assert!(!diags.is_empty(), "referrer style should flag request.referer");
+        assert!(
+            !diags.is_empty(),
+            "referrer style should flag request.referer"
+        );
         assert!(diags[0].message.contains("referrer"));
     }
 

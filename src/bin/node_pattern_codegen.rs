@@ -1,3 +1,4 @@
+#![allow(clippy::redundant_closure)]
 //! NodePattern codegen — experimental prototype.
 //!
 //! Status: NOT used in CI or the standard cop-writing workflow. Kept in-tree
@@ -30,8 +31,8 @@ use std::io::{self, Write};
 use std::process;
 
 use turbocop::node_pattern::{
-    build_mapping_table, extract_patterns, pattern_summary, walk_vendor_patterns,
-    ExtractedPattern, Lexer, NodeMapping, Parser, PatternKind, PatternNode,
+    ExtractedPattern, Lexer, NodeMapping, Parser, PatternKind, PatternNode, build_mapping_table,
+    extract_patterns, pattern_summary, walk_vendor_patterns,
 };
 
 // ---------------------------------------------------------------------------
@@ -82,9 +83,7 @@ impl CodeGenerator {
                     .max()
                     .unwrap_or(0)
             }
-            PatternNode::Conjunction(items) => {
-                items.iter().map(|c| Self::count_captures(c)).sum()
-            }
+            PatternNode::Conjunction(items) => items.iter().map(|c| Self::count_captures(c)).sum(),
             PatternNode::Negation(inner) => Self::count_captures(inner),
             PatternNode::ParentRef(inner) => Self::count_captures(inner),
             PatternNode::DescendRef(inner) => Self::count_captures(inner),
@@ -92,11 +91,7 @@ impl CodeGenerator {
         }
     }
 
-    fn generate_pattern(
-        &mut self,
-        extracted: &ExtractedPattern,
-        pattern: &PatternNode,
-    ) -> String {
+    fn generate_pattern(&mut self, extracted: &ExtractedPattern, pattern: &PatternNode) -> String {
         self.output.clear();
         self.capture_count = 0;
         self.helper_stubs.clear();
@@ -104,10 +99,7 @@ impl CodeGenerator {
         let num_captures = Self::count_captures(pattern);
         self.has_captures = num_captures > 0;
 
-        let fn_name = extracted
-            .method_name
-            .trim_end_matches('?')
-            .to_string();
+        let fn_name = extracted.method_name.trim_end_matches('?').to_string();
 
         // Generate function signature
         if self.has_captures {
@@ -140,10 +132,7 @@ impl CodeGenerator {
         if self.has_captures {
             let _ = writeln!(full_output, "// Capture result from {fn_name}");
             if num_captures == 1 {
-                let _ = writeln!(
-                    full_output,
-                    "type MatchCapture<'a> = ruby_prism::Node<'a>;"
-                );
+                let _ = writeln!(full_output, "type MatchCapture<'a> = ruby_prism::Node<'a>;");
             } else {
                 let fields: Vec<String> = (0..num_captures)
                     .map(|_| "ruby_prism::Node<'a>".to_string())
@@ -162,18 +151,12 @@ impl CodeGenerator {
         // Add helper stubs
         for stub in &self.helper_stubs {
             let _ = writeln!(full_output);
-            let _ = writeln!(
-                full_output,
-                "// Generated stub — cop must implement this"
-            );
+            let _ = writeln!(full_output, "// Generated stub — cop must implement this");
             let _ = writeln!(
                 full_output,
                 "fn {stub}(node: &ruby_prism::Node<'_>) -> bool {{"
             );
-            let _ = writeln!(
-                full_output,
-                "    todo!(\"implement #{stub} helper\")"
-            );
+            let _ = writeln!(full_output, "    todo!(\"implement #{stub} helper\")");
             let _ = writeln!(full_output, "}}");
         }
 
@@ -197,13 +180,9 @@ impl CodeGenerator {
             PatternNode::NilPredicate => {
                 // nil? means receiver is None
                 if self.has_captures {
-                    self.writeln(&format!(
-                        "if {var}.is_some() {{ return None; }}"
-                    ));
+                    self.writeln(&format!("if {var}.is_some() {{ return None; }}"));
                 } else {
-                    self.writeln(&format!(
-                        "if {var}.is_some() {{ return false; }}"
-                    ));
+                    self.writeln(&format!("if {var}.is_some() {{ return false; }}"));
                 }
             }
             PatternNode::NilLiteral => {
@@ -227,28 +206,20 @@ impl CodeGenerator {
             PatternNode::SymbolLiteral(name) => {
                 let fail = if self.has_captures { "None" } else { "false" };
                 self.writeln(&format!("// Check symbol :{name}"));
-                self.writeln(&format!(
-                    "if {var} != b\"{name}\" {{ return {fail}; }}"
-                ));
+                self.writeln(&format!("if {var} != b\"{name}\" {{ return {fail}; }}"));
             }
             PatternNode::IntLiteral(n) => {
                 let fail = if self.has_captures { "None" } else { "false" };
-                self.writeln(&format!(
-                    "if {var} != {n} {{ return {fail}; }}"
-                ));
+                self.writeln(&format!("if {var} != {n} {{ return {fail}; }}"));
             }
             PatternNode::StringLiteral(s) => {
                 let fail = if self.has_captures { "None" } else { "false" };
-                self.writeln(&format!(
-                    "if {var} != b\"{s}\" {{ return {fail}; }}"
-                ));
+                self.writeln(&format!("if {var} != b\"{s}\" {{ return {fail}; }}"));
             }
             PatternNode::HelperCall(name) => {
                 let fail = if self.has_captures { "None" } else { "false" };
                 let fn_name = name.trim_end_matches('?');
-                self.writeln(&format!(
-                    "if !{fn_name}(&{var}) {{ return {fail}; }}"
-                ));
+                self.writeln(&format!("if !{fn_name}(&{var}) {{ return {fail}; }}"));
                 if !self.helper_stubs.contains(&fn_name.to_string()) {
                     self.helper_stubs.push(fn_name.to_string());
                 }
@@ -285,13 +256,9 @@ impl CodeGenerator {
                     .get(typ.as_str())
                     .map(|m| m.cast_method.to_string());
                 if let Some(cast) = cast {
-                    self.writeln(&format!(
-                        "if {var}.{cast}().is_none() {{ return {fail}; }}"
-                    ));
+                    self.writeln(&format!("if {var}.{cast}().is_none() {{ return {fail}; }}"));
                 } else {
-                    self.writeln(&format!(
-                        "// Unknown type predicate: {typ}?"
-                    ));
+                    self.writeln(&format!("// Unknown type predicate: {typ}?"));
                 }
             }
             PatternNode::ParamRef(param) => {
@@ -303,10 +270,7 @@ impl CodeGenerator {
             }
             PatternNode::ParentRef(inner) => {
                 self.writeln("// TODO: parent node reference (^)");
-                self.writeln(&format!(
-                    "// Check parent: {:?}",
-                    pattern_summary(inner)
-                ));
+                self.writeln(&format!("// Check parent: {:?}", pattern_summary(inner)));
             }
             PatternNode::DescendRef(inner) => {
                 self.writeln("// TODO: descend operator (`)");
@@ -323,9 +287,7 @@ impl CodeGenerator {
                     .get(name.as_str())
                     .map(|m| m.cast_method.to_string());
                 if let Some(cast) = cast {
-                    self.writeln(&format!(
-                        "if {var}.{cast}().is_none() {{ return {fail}; }}"
-                    ));
+                    self.writeln(&format!("if {var}.{cast}().is_none() {{ return {fail}; }}"));
                 } else {
                     self.writeln(&format!("// Unknown identifier: {name}"));
                 }
@@ -333,9 +295,7 @@ impl CodeGenerator {
             PatternNode::FloatLiteral(s) => {
                 let fail = if self.has_captures { "None" } else { "false" };
                 self.writeln(&format!("// Float check: {s}"));
-                self.writeln(&format!(
-                    "// if {var}.value() != {s} {{ return {fail}; }}"
-                ));
+                self.writeln(&format!("// if {var}.value() != {s} {{ return {fail}; }}"));
             }
         }
     }
@@ -355,10 +315,7 @@ impl CodeGenerator {
         if node_type == "_complex" {
             self.writeln("// Complex pattern — manual review needed");
             for (i, child) in children.iter().enumerate() {
-                self.writeln(&format!(
-                    "// child[{i}]: {:?}",
-                    pattern_summary(child)
-                ));
+                self.writeln(&format!("// child[{i}]: {:?}", pattern_summary(child)));
             }
             return;
         }
@@ -461,9 +418,7 @@ impl CodeGenerator {
                     self.writeln(&format!(
                         "// Check for symbol :{name} in {parent_type} child {child_idx}"
                     ));
-                    self.writeln(&format!(
-                        "let {child_var} = {parent_var}.{accessor};"
-                    ));
+                    self.writeln(&format!("let {child_var} = {parent_var}.{accessor};"));
                     self.writeln(&format!(
                         "// TODO: extract symbol value and compare to \"{name}\""
                     ));
@@ -492,9 +447,7 @@ impl CodeGenerator {
                         ));
                     }
                 } else {
-                    self.writeln(&format!(
-                        "let {child_var} = {parent_var}.{accessor};"
-                    ));
+                    self.writeln(&format!("let {child_var} = {parent_var}.{accessor};"));
                 }
                 self.generate_node_match(node_type, children, child_var, false);
             }
@@ -509,47 +462,33 @@ impl CodeGenerator {
                 if accessor.contains("name") {
                     self.generate_name_alternatives(parent_var, accessor, alts);
                 } else {
-                    self.writeln(&format!(
-                        "let {child_var} = {parent_var}.{accessor};"
-                    ));
+                    self.writeln(&format!("let {child_var} = {parent_var}.{accessor};"));
                     self.generate_alternatives(alts, child_var);
                 }
             }
             PatternNode::Capture(inner) => {
                 let cap_idx = self.capture_count;
                 self.capture_count += 1;
-                self.writeln(&format!(
-                    "let capture_{cap_idx} = {parent_var}.{accessor};"
-                ));
+                self.writeln(&format!("let capture_{cap_idx} = {parent_var}.{accessor};"));
                 // Still validate the inner pattern
                 let temp_var = format!("{child_var}_cap");
-                self.writeln(&format!(
-                    "let {temp_var} = {parent_var}.{accessor};"
-                ));
+                self.writeln(&format!("let {temp_var} = {parent_var}.{accessor};"));
                 self.generate_node_check(inner, &temp_var, false);
             }
             PatternNode::HelperCall(name) => {
                 let fn_name = name.trim_end_matches('?');
-                self.writeln(&format!(
-                    "let {child_var} = {parent_var}.{accessor};"
-                ));
-                self.writeln(&format!(
-                    "if !{fn_name}(&{child_var}) {{ return {fail}; }}"
-                ));
+                self.writeln(&format!("let {child_var} = {parent_var}.{accessor};"));
+                self.writeln(&format!("if !{fn_name}(&{child_var}) {{ return {fail}; }}"));
                 if !self.helper_stubs.contains(&fn_name.to_string()) {
                     self.helper_stubs.push(fn_name.to_string());
                 }
             }
             PatternNode::Negation(inner) => {
-                self.writeln(&format!(
-                    "let {child_var} = {parent_var}.{accessor};"
-                ));
+                self.writeln(&format!("let {child_var} = {parent_var}.{accessor};"));
                 self.generate_negation(inner, child_var);
             }
             PatternNode::Conjunction(items) => {
-                self.writeln(&format!(
-                    "let {child_var} = {parent_var}.{accessor};"
-                ));
+                self.writeln(&format!("let {child_var} = {parent_var}.{accessor};"));
                 for item in items {
                     self.generate_node_check(item, child_var, false);
                 }
@@ -565,9 +504,7 @@ impl CodeGenerator {
                         "if {parent_var}.{accessor}.{cast}().is_none() {{ return {fail}; }}"
                     ));
                 } else {
-                    self.writeln(&format!(
-                        "// Identifier in child position: {name}"
-                    ));
+                    self.writeln(&format!("// Identifier in child position: {name}"));
                 }
             }
             PatternNode::IntLiteral(n) => {
@@ -590,9 +527,7 @@ impl CodeGenerator {
                         "if {parent_var}.{accessor}.{cast}().is_none() {{ return {fail}; }}"
                     ));
                 } else {
-                    self.writeln(&format!(
-                        "// Unknown type predicate: {typ}?"
-                    ));
+                    self.writeln(&format!("// Unknown type predicate: {typ}?"));
                 }
             }
             _ => {
@@ -620,28 +555,24 @@ impl CodeGenerator {
                     _ => None,
                 })
                 .collect();
-            let conditions: Vec<String> = names
-                .iter()
-                .map(|n| format!("{var} == b\"{n}\""))
-                .collect();
+            let conditions: Vec<String> =
+                names.iter().map(|n| format!("{var} == b\"{n}\"")).collect();
             self.writeln(&format!("if !({})", conditions.join(" || ")));
             self.writeln(&format!("{{ return {fail}; }}"));
             return;
         }
 
         // Simple case: all alternatives are identifiers (node types)
-        let all_idents = alts
-            .iter()
-            .all(|a| matches!(a, PatternNode::Ident(_)));
+        let all_idents = alts.iter().all(|a| matches!(a, PatternNode::Ident(_)));
 
         if all_idents {
             let mapping = &self.mapping;
             let checks: Vec<String> = alts
                 .iter()
                 .filter_map(|a| match a {
-                    PatternNode::Ident(name) => mapping.get(name.as_str()).map(|m| {
-                        format!("{var}.{}().is_some()", m.cast_method)
-                    }),
+                    PatternNode::Ident(name) => mapping
+                        .get(name.as_str())
+                        .map(|m| format!("{var}.{}().is_some()", m.cast_method)),
                     _ => None,
                 })
                 .collect();
@@ -664,9 +595,7 @@ impl CodeGenerator {
                 PatternNode::NodeMatch { node_type, .. } => {
                     if let Some(mapping) = self.mapping.get(node_type.as_str()) {
                         let cast = mapping.cast_method.to_string();
-                        self.writeln(&format!(
-                            "if let Some(_alt) = {var}.{cast}() {{"
-                        ));
+                        self.writeln(&format!("if let Some(_alt) = {var}.{cast}() {{"));
                         self.indent += 1;
                         self.writeln("matched = true;");
                         self.indent -= 1;
@@ -675,17 +604,13 @@ impl CodeGenerator {
                 }
                 PatternNode::HelperCall(name) => {
                     let fn_name = name.trim_end_matches('?');
-                    self.writeln(&format!(
-                        "if {fn_name}(&{var}) {{ matched = true; }}"
-                    ));
+                    self.writeln(&format!("if {fn_name}(&{var}) {{ matched = true; }}"));
                     if !self.helper_stubs.contains(&fn_name.to_string()) {
                         self.helper_stubs.push(fn_name.to_string());
                     }
                 }
                 PatternNode::NilPredicate => {
-                    self.writeln(&format!(
-                        "if {var}.is_none() {{ matched = true; }}"
-                    ));
+                    self.writeln(&format!("if {var}.is_none() {{ matched = true; }}"));
                 }
                 PatternNode::Ident(name) => {
                     let cast = self
@@ -699,10 +624,7 @@ impl CodeGenerator {
                     }
                 }
                 _ => {
-                    self.writeln(&format!(
-                        "// TODO: alternative {:?}",
-                        pattern_summary(alt)
-                    ));
+                    self.writeln(&format!("// TODO: alternative {:?}", pattern_summary(alt)));
                 }
             }
         }
@@ -753,20 +675,14 @@ impl CodeGenerator {
                     .get(node_type.as_str())
                     .map(|m| m.cast_method.to_string());
                 if let Some(cast) = cast {
-                    self.writeln(&format!(
-                        "if {var}.{cast}().is_some() {{ return {fail}; }}"
-                    ));
+                    self.writeln(&format!("if {var}.{cast}().is_some() {{ return {fail}; }}"));
                 } else {
-                    self.writeln(&format!(
-                        "// Negation of unmapped type: {node_type}"
-                    ));
+                    self.writeln(&format!("// Negation of unmapped type: {node_type}"));
                 }
             }
             PatternNode::HelperCall(name) => {
                 let fn_name = name.trim_end_matches('?');
-                self.writeln(&format!(
-                    "if {fn_name}(&{var}) {{ return {fail}; }}"
-                ));
+                self.writeln(&format!("if {fn_name}(&{var}) {{ return {fail}; }}"));
                 if !self.helper_stubs.contains(&fn_name.to_string()) {
                     self.helper_stubs.push(fn_name.to_string());
                 }
@@ -786,17 +702,11 @@ impl CodeGenerator {
 // ---------------------------------------------------------------------------
 
 fn print_usage() {
-    eprintln!(
-        "Usage: node_pattern_codegen <command> [args]"
-    );
+    eprintln!("Usage: node_pattern_codegen <command> [args]");
     eprintln!();
     eprintln!("Commands:");
-    eprintln!(
-        "  generate <ruby_file>              Parse Ruby cop file, output Rust matchers"
-    );
-    eprintln!(
-        "  verify <ruby_file> <rust_file>     Compare generated vs existing Rust code"
-    );
+    eprintln!("  generate <ruby_file>              Parse Ruby cop file, output Rust matchers");
+    eprintln!("  verify <ruby_file> <rust_file>     Compare generated vs existing Rust code");
     eprintln!(
         "  dump-patterns [--stats]            Walk vendor dirs, print patterns + parse status"
     );
@@ -807,9 +717,7 @@ fn cmd_generate(ruby_path: &str) -> io::Result<()> {
     let patterns = extract_patterns(&source);
 
     if patterns.is_empty() {
-        eprintln!(
-            "No def_node_matcher or def_node_search patterns found in {ruby_path}"
-        );
+        eprintln!("No def_node_matcher or def_node_search patterns found in {ruby_path}");
         return Ok(());
     }
 
@@ -836,16 +744,8 @@ fn cmd_generate(ruby_path: &str) -> io::Result<()> {
             PatternKind::Search => "def_node_search",
         };
 
-        writeln!(
-            out,
-            "// --- {kind_label} :{} ---",
-            extracted.method_name
-        )?;
-        writeln!(
-            out,
-            "// Pattern: {}",
-            extracted.pattern.replace('\n', " ")
-        )?;
+        writeln!(out, "// --- {kind_label} :{} ---", extracted.method_name)?;
+        writeln!(out, "// Pattern: {}", extracted.pattern.replace('\n', " "))?;
 
         // Lex
         let mut lexer = Lexer::new(&extracted.pattern);
@@ -915,11 +815,7 @@ fn cmd_dump_patterns(stats_only: bool) {
     for (cop_name, extracted) in &patterns {
         total += 1;
 
-        let dept = cop_name
-            .split('/')
-            .next()
-            .unwrap_or("Unknown")
-            .to_string();
+        let dept = cop_name.split('/').next().unwrap_or("Unknown").to_string();
 
         // Infer gem from department
         let gem = match dept.as_str() {
@@ -956,8 +852,12 @@ fn cmd_dump_patterns(stats_only: bool) {
                 PatternKind::Search => "search",
             };
             let status = if parsed { "OK" } else { "FAIL" };
-            let pattern_preview: String =
-                extracted.pattern.replace('\n', " ").chars().take(80).collect();
+            let pattern_preview: String = extracted
+                .pattern
+                .replace('\n', " ")
+                .chars()
+                .take(80)
+                .collect();
             println!(
                 "{status:4}  {cop_name}::{} [{kind_label}] {pattern_preview}",
                 extracted.method_name,
@@ -1162,10 +1062,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         let code = codegen.generate_pattern(&extracted, &ast);
 
-        assert!(
-            code.contains("as_block_node"),
-            "Should cast to BlockNode"
-        );
+        assert!(code.contains("as_block_node"), "Should cast to BlockNode");
     }
 
     #[test]
@@ -1184,10 +1081,7 @@ mod tests {
         let code = codegen.generate_pattern(&extracted, &ast);
 
         assert!(code.contains("as_def_node"), "Should cast to DefNode");
-        assert!(
-            code.contains("b\"initialize\""),
-            "Should check method name"
-        );
+        assert!(code.contains("b\"initialize\""), "Should check method name");
     }
 
     #[test]
@@ -1195,8 +1089,7 @@ mod tests {
         let extracted = ExtractedPattern {
             kind: PatternKind::Matcher,
             method_name: "accessor?".to_string(),
-            pattern: "(send nil? {:attr_reader :attr_writer :attr_accessor} ...)"
-                .to_string(),
+            pattern: "(send nil? {:attr_reader :attr_writer :attr_accessor} ...)".to_string(),
         };
         let mut lexer = Lexer::new(&extracted.pattern);
         let tokens = lexer.tokenize();
@@ -1236,10 +1129,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         let code = codegen.generate_pattern(&extracted, &ast);
 
-        assert!(
-            code.contains("as_call_node"),
-            "Should cast to CallNode"
-        );
+        assert!(code.contains("as_call_node"), "Should cast to CallNode");
         assert!(
             code.contains("lazy"),
             "Should reference the helper in negation"
@@ -1261,10 +1151,7 @@ mod tests {
         let mut codegen = CodeGenerator::new();
         let code = codegen.generate_pattern(&extracted, &ast);
 
-        assert!(
-            code.contains("as_block_node"),
-            "Should cast to BlockNode"
-        );
+        assert!(code.contains("as_block_node"), "Should cast to BlockNode");
         assert!(
             code.contains("as_call_node"),
             "Should reference CallNode for negated send"
@@ -1343,9 +1230,7 @@ mod tests {
             node_type: "send".to_string(),
             children: vec![
                 PatternNode::Wildcard,
-                PatternNode::Capture(Box::new(PatternNode::SymbolLiteral(
-                    "foo".to_string(),
-                ))),
+                PatternNode::Capture(Box::new(PatternNode::SymbolLiteral("foo".to_string()))),
                 PatternNode::Rest,
             ],
         };
@@ -1367,9 +1252,7 @@ mod tests {
             node_type: "send".to_string(),
             children: vec![
                 PatternNode::Capture(Box::new(PatternNode::Wildcard)),
-                PatternNode::Capture(Box::new(PatternNode::SymbolLiteral(
-                    "x".to_string(),
-                ))),
+                PatternNode::Capture(Box::new(PatternNode::SymbolLiteral("x".to_string()))),
             ],
         };
         assert_eq!(CodeGenerator::count_captures(&ast), 2);

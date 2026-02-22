@@ -1,7 +1,7 @@
+use crate::cop::node_type::REGULAR_EXPRESSION_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::REGULAR_EXPRESSION_NODE;
 
 pub struct MixedRegexpCaptureTypes;
 
@@ -42,8 +42,8 @@ impl Cop for MixedRegexpCaptureTypes {
 
         // Skip regexps with interpolation (they have EmbeddedStatementsNode children)
         // We check the raw source for `#{` to detect interpolation
-        let raw_src = &source.as_bytes()
-            [regexp.location().start_offset()..regexp.location().end_offset()];
+        let raw_src =
+            &source.as_bytes()[regexp.location().start_offset()..regexp.location().end_offset()];
         if raw_src.windows(2).any(|w| w == b"#{") {
             return;
         }
@@ -59,7 +59,6 @@ impl Cop for MixedRegexpCaptureTypes {
             ));
             return;
         }
-
     }
 }
 
@@ -144,5 +143,8 @@ fn has_mixed_captures(pattern: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(MixedRegexpCaptureTypes, "cops/lint/mixed_regexp_capture_types");
+    crate::cop_fixture_tests!(
+        MixedRegexpCaptureTypes,
+        "cops/lint/mixed_regexp_capture_types"
+    );
 }

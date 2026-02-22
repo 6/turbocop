@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    ASSOC_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE, HASH_NODE,
+    KEYWORD_HASH_NODE, SYMBOL_NODE, TRUE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE, HASH_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE, TRUE_NODE};
 
 pub struct SkipsModelValidations;
 
@@ -35,7 +38,17 @@ impl Cop for SkipsModelValidations {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ASSOC_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE, HASH_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE, TRUE_NODE]
+        &[
+            ASSOC_NODE,
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            FALSE_NODE,
+            HASH_NODE,
+            KEYWORD_HASH_NODE,
+            SYMBOL_NODE,
+            TRUE_NODE,
+        ]
     }
 
     fn check_node(
@@ -44,8 +57,8 @@ impl Cop for SkipsModelValidations {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let forbidden = config.get_string_array("ForbiddenMethods");
         let allowed = config.get_string_array("AllowedMethods");
@@ -82,10 +95,22 @@ impl Cop for SkipsModelValidations {
         // RuboCop: METHODS_WITH_ARGUMENTS — skip if the method is in this list
         // and has no arguments (e.g. `model.touch` with no args).
         let methods_with_args: &[&[u8]] = &[
-            b"decrement!", b"decrement_counter", b"increment!", b"increment_counter",
-            b"insert", b"insert!", b"insert_all", b"insert_all!",
-            b"toggle!", b"update_all", b"update_attribute", b"update_column",
-            b"update_columns", b"update_counters", b"upsert", b"upsert_all",
+            b"decrement!",
+            b"decrement_counter",
+            b"increment!",
+            b"increment_counter",
+            b"insert",
+            b"insert!",
+            b"insert_all",
+            b"insert_all!",
+            b"toggle!",
+            b"update_all",
+            b"update_attribute",
+            b"update_column",
+            b"update_columns",
+            b"update_counters",
+            b"upsert",
+            b"upsert_all",
         ];
         if methods_with_args.contains(&method_name) && call.arguments().is_none() {
             return;

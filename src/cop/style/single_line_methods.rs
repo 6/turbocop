@@ -1,7 +1,7 @@
+use crate::cop::node_type::{DEF_NODE, STATEMENTS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{DEF_NODE, STATEMENTS_NODE};
 
 pub struct SingleLineMethods;
 
@@ -20,8 +20,8 @@ impl Cop for SingleLineMethods {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_empty = config.get_bool("AllowIfMethodIsEmpty", true);
         let def_node = match node.as_def_node() {
@@ -58,9 +58,13 @@ impl Cop for SingleLineMethods {
 
         if def_line == end_line {
             let (line, column) = source.offset_to_line_col(def_loc.start_offset());
-            diagnostics.push(self.diagnostic(source, line, column, "Avoid single-line method definitions.".to_string()));
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                "Avoid single-line method definitions.".to_string(),
+            ));
         }
-
     }
 }
 
@@ -90,14 +94,19 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("AllowIfMethodIsEmpty".into(), serde_yml::Value::Bool(false)),
-            ]),
+            options: HashMap::from([(
+                "AllowIfMethodIsEmpty".into(),
+                serde_yml::Value::Bool(false),
+            )]),
             ..CopConfig::default()
         };
         // Empty single-line `def foo; end` should be flagged when AllowIfMethodIsEmpty is false
         let source = b"def foo; end\n";
         let diags = run_cop_full_with_config(&SingleLineMethods, source, config);
-        assert_eq!(diags.len(), 1, "Should flag empty single-line method when AllowIfMethodIsEmpty is false");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag empty single-line method when AllowIfMethodIsEmpty is false"
+        );
     }
 }

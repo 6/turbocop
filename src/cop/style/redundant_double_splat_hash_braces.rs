@@ -1,7 +1,7 @@
+use crate::cop::node_type::{ASSOC_NODE, ASSOC_SPLAT_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, ASSOC_SPLAT_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 
 pub struct RedundantDoubleSplatHashBraces;
 
@@ -20,8 +20,8 @@ impl Cop for RedundantDoubleSplatHashBraces {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for **{key: val, ...} in keyword arguments (KeywordHashNode in method calls)
         // Only check KeywordHashNode (method call keyword args), not plain HashNode
@@ -83,5 +83,8 @@ impl RedundantDoubleSplatHashBraces {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(RedundantDoubleSplatHashBraces, "cops/style/redundant_double_splat_hash_braces");
+    crate::cop_fixture_tests!(
+        RedundantDoubleSplatHashBraces,
+        "cops/style/redundant_double_splat_hash_braces"
+    );
 }

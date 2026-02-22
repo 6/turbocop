@@ -1,8 +1,8 @@
+use crate::cop::node_type::ARRAY_NODE;
 use crate::cop::util::indentation_of;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::ARRAY_NODE;
 
 pub struct FirstArrayElementIndentation;
 
@@ -97,7 +97,8 @@ fn find_hash_pair_key_col(line_bytes: &[u8], bracket_col: usize) -> Option<usize
         // Key identifier: word chars
         let mut key_start = key_end;
         while key_start > 0
-            && (line_bytes[key_start - 1].is_ascii_alphanumeric() || line_bytes[key_start - 1] == b'_')
+            && (line_bytes[key_start - 1].is_ascii_alphanumeric()
+                || line_bytes[key_start - 1] == b'_')
         {
             key_start -= 1;
         }
@@ -250,7 +251,10 @@ impl Cop for FirstArrayElementIndentation {
                     // like `[...].join()` or `[...] + other`), indent relative
                     // to the position after `(`.
                     if is_direct_argument(source.as_bytes(), closing_end) {
-                        (paren_col + 1, IndentBaseType::FirstColumnAfterLeftParenthesis)
+                        (
+                            paren_col + 1,
+                            IndentBaseType::FirstColumnAfterLeftParenthesis,
+                        )
                     } else {
                         (open_line_indent, IndentBaseType::StartOfLine)
                     }
@@ -335,29 +339,43 @@ mod tests {
 
     #[test]
     fn align_brackets_style() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("align_brackets".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("align_brackets".into()),
+            )]),
             ..CopConfig::default()
         };
         // Element at bracket_col + width (4 + 2 = 6), bracket at bracket_col (4) => good
         let src = b"x = [\n      1\n    ]\n";
         let diags = run_cop_full_with_config(&FirstArrayElementIndentation, src, config.clone());
-        assert!(diags.is_empty(), "align_brackets should accept element at bracket_col + width: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "align_brackets should accept element at bracket_col + width: {:?}",
+            diags
+        );
 
         // Element indented normally (2 from line start) should be flagged
         let src2 = b"x = [\n  1\n]\n";
         let diags2 = run_cop_full_with_config(&FirstArrayElementIndentation, src2, config.clone());
-        assert!(diags2.len() >= 1, "align_brackets should flag element not at bracket_col + width: {:?}", diags2);
+        assert!(
+            diags2.len() >= 1,
+            "align_brackets should flag element not at bracket_col + width: {:?}",
+            diags2
+        );
 
         // Bracket not aligned with opening bracket should be flagged
         let src3 = b"x = [\n      1\n]\n";
         let diags3 = run_cop_full_with_config(&FirstArrayElementIndentation, src3, config);
-        assert_eq!(diags3.len(), 1, "align_brackets should flag bracket not at opening bracket column: {:?}", diags3);
+        assert_eq!(
+            diags3.len(),
+            1,
+            "align_brackets should flag bracket not at opening bracket column: {:?}",
+            diags3
+        );
     }
 
     #[test]
@@ -366,15 +384,22 @@ mod tests {
         // foo( is at col 3, so expected = 3 + 1 + 2 = 6
         let src = b"foo([\n      :bar,\n      :baz\n    ])\n";
         let diags = run_cop_full(&FirstArrayElementIndentation, src);
-        assert!(diags.is_empty(), "array arg with [ on same line as ( should not be flagged");
+        assert!(
+            diags.is_empty(),
+            "array arg with [ on same line as ( should not be flagged"
+        );
     }
 
     #[test]
     fn special_inside_parentheses_nested_call() {
         // expect(cli.run([ -- the ( of run( is at col 14, expected = 14 + 1 + 2 = 17
-        let src = b"expect(cli.run([\n                 :a,\n                 :b\n               ]))\n";
+        let src =
+            b"expect(cli.run([\n                 :a,\n                 :b\n               ]))\n";
         let diags = run_cop_full(&FirstArrayElementIndentation, src);
-        assert!(diags.is_empty(), "nested call array arg should use innermost paren");
+        assert!(
+            diags.is_empty(),
+            "nested call array arg should use innermost paren"
+        );
     }
 
     #[test]
@@ -382,7 +407,10 @@ mod tests {
         // [].join() -- array followed by .join() should use line-relative indent
         let src = b"expect(x).to eq([\n  'hello',\n  'world'\n].join(\"\\n\"))\n";
         let diags = run_cop_full(&FirstArrayElementIndentation, src);
-        assert!(diags.is_empty(), "array with .join chain should use line-relative indent");
+        assert!(
+            diags.is_empty(),
+            "array with .join chain should use line-relative indent"
+        );
     }
 
     #[test]
@@ -390,7 +418,10 @@ mod tests {
         // (%i[...] + other) -- grouping paren, array followed by + operator
         let src = b"X = (%i[\n  a\n  b\n] + other).freeze\n";
         let diags = run_cop_full(&FirstArrayElementIndentation, src);
-        assert!(diags.is_empty(), "array in grouping paren with + operator should use line-relative indent");
+        assert!(
+            diags.is_empty(),
+            "array in grouping paren with + operator should use line-relative indent"
+        );
     }
 
     #[test]
@@ -399,7 +430,11 @@ mod tests {
         // eq( is at col 0-2, ( at col 2, so expected = 2 + 1 + 2 = 5
         let src = b"eq(%i[\n     :a,\n     :b\n   ])\n";
         let diags = run_cop_full(&FirstArrayElementIndentation, src);
-        assert!(diags.is_empty(), "%i[ inside method call paren should use paren-relative indent: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "%i[ inside method call paren should use paren-relative indent: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -409,7 +444,12 @@ mod tests {
         // Expected bracket = 2 + 1 = 3, but ] is at col 0
         let src = b"eq(%i[\n  :a,\n  :b\n])\n";
         let diags = run_cop_full(&FirstArrayElementIndentation, src);
-        assert_eq!(diags.len(), 2, "%i[ inside method call paren with wrong indent should flag element and bracket: {:?}", diags);
+        assert_eq!(
+            diags.len(),
+            2,
+            "%i[ inside method call paren with wrong indent should flag element and bracket: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -418,14 +458,28 @@ mod tests {
         // inside method call parens. eq( has ( at col 39.
         // indent_base = 39 + 1 = 40. Expected ] at col 40. Actual ] at col 4.
         // Also the first element at col 6 is wrong (expected 42).
-        let src = b"    expect(validation_attributes).to eq(%i[\n      client_id\n      client\n    ])\n";
+        let src =
+            b"    expect(validation_attributes).to eq(%i[\n      client_id\n      client\n    ])\n";
         let diags = run_cop_full(&FirstArrayElementIndentation, src);
         // Should flag both element (col 6 instead of 42) and bracket (col 4 instead of 40)
-        assert_eq!(diags.len(), 2, "should flag both element and bracket in method call: {:?}", diags);
+        assert_eq!(
+            diags.len(),
+            2,
+            "should flag both element and bracket in method call: {:?}",
+            diags
+        );
         // Verify the bracket diagnostic
-        let bracket_diag = diags.iter().find(|d| d.message.contains("right bracket")).unwrap();
-        assert!(bracket_diag.message.contains("first position after the preceding left parenthesis"),
-            "bracket message should reference left parenthesis: {}", bracket_diag.message);
+        let bracket_diag = diags
+            .iter()
+            .find(|d| d.message.contains("right bracket"))
+            .unwrap();
+        assert!(
+            bracket_diag
+                .message
+                .contains("first position after the preceding left parenthesis"),
+            "bracket message should reference left parenthesis: {}",
+            bracket_diag.message
+        );
     }
 
     #[test]
@@ -433,7 +487,11 @@ mod tests {
         // When ] is on the same line as the last element, don't check bracket indent
         let src = b"x = [\n  1,\n  2]\n";
         let diags = run_cop_full(&FirstArrayElementIndentation, src);
-        assert!(diags.is_empty(), "bracket on same line as last element should not be flagged: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "bracket on same line as last element should not be flagged: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -441,7 +499,11 @@ mod tests {
         // ] at same indentation as the line with [ (indent_base = 0)
         let src = b"x = [\n  1,\n  2\n]\n";
         let diags = run_cop_full(&FirstArrayElementIndentation, src);
-        assert!(diags.is_empty(), "bracket at line indent should not be flagged: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "bracket at line indent should not be flagged: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -449,7 +511,16 @@ mod tests {
         // ] at wrong indentation (should be at 0 but is at 2)
         let src = b"x = [\n  1,\n  2\n  ]\n";
         let diags = run_cop_full(&FirstArrayElementIndentation, src);
-        assert_eq!(diags.len(), 1, "bracket at wrong indent should be flagged: {:?}", diags);
-        assert!(diags[0].message.contains("right bracket"), "should be a bracket message: {}", diags[0].message);
+        assert_eq!(
+            diags.len(),
+            1,
+            "bracket at wrong indent should be flagged: {:?}",
+            diags
+        );
+        assert!(
+            diags[0].message.contains("right bracket"),
+            "should be a bracket message: {}",
+            diags[0].message
+        );
     }
 }

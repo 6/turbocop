@@ -50,7 +50,10 @@ mod tests {
             corrected: false,
         };
         let out = render(&[d]);
-        assert_eq!(out, "::warning file=foo.rb,line=3,col=5::Style/Foo: bad style\n");
+        assert_eq!(
+            out,
+            "::warning file=foo.rb,line=3,col=5::Style/Foo: bad style\n"
+        );
     }
 
     #[test]
@@ -72,7 +75,10 @@ mod tests {
     fn error_uses_error_level() {
         let d = Diagnostic {
             path: "baz.rb".to_string(),
-            location: Location { line: 10, column: 2 },
+            location: Location {
+                line: 10,
+                column: 2,
+            },
             severity: Severity::Error,
             cop_name: "Lint/Y".to_string(),
             message: "err".to_string(),

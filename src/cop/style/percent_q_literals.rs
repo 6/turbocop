@@ -1,7 +1,7 @@
+use crate::cop::node_type::{INTERPOLATED_STRING_NODE, STRING_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{INTERPOLATED_STRING_NODE, STRING_NODE};
 
 pub struct PercentQLiterals;
 
@@ -20,8 +20,8 @@ impl Cop for PercentQLiterals {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "lower_case_q");
 
@@ -68,7 +68,6 @@ impl Cop for PercentQLiterals {
                 ));
             }
         }
-
     }
 }
 

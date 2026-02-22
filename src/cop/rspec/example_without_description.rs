@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, KEYWORD_HASH_NODE, STRING_NODE};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, KEYWORD_HASH_NODE, STRING_NODE};
 
 pub struct ExampleWithoutDescription;
 
@@ -32,8 +32,8 @@ impl Cop for ExampleWithoutDescription {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -85,7 +85,6 @@ impl Cop for ExampleWithoutDescription {
         match style {
             "always_allow" => {
                 // No description is always OK
-
             }
             "disallow" => {
                 // All examples must have descriptions,
@@ -93,8 +92,7 @@ impl Cop for ExampleWithoutDescription {
                 if method_name == b"specify" {
                     let block = call.block().unwrap();
                     let block_loc = block.location();
-                    let (start_line, _) =
-                        source.offset_to_line_col(block_loc.start_offset());
+                    let (start_line, _) = source.offset_to_line_col(block_loc.start_offset());
                     let end_off = block_loc
                         .end_offset()
                         .saturating_sub(1)
@@ -117,8 +115,7 @@ impl Cop for ExampleWithoutDescription {
                 // "single_line_only": single-line OK, multi-line flagged
                 let block = call.block().unwrap();
                 let block_loc = block.location();
-                let (start_line, _) =
-                    source.offset_to_line_col(block_loc.start_offset());
+                let (start_line, _) = source.offset_to_line_col(block_loc.start_offset());
                 let end_off = block_loc
                     .end_offset()
                     .saturating_sub(1)
@@ -141,7 +138,6 @@ impl Cop for ExampleWithoutDescription {
                         "Add a description.".to_string(),
                     ));
                 }
-
             }
         }
     }
@@ -150,5 +146,8 @@ impl Cop for ExampleWithoutDescription {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ExampleWithoutDescription, "cops/rspec/example_without_description");
+    crate::cop_fixture_tests!(
+        ExampleWithoutDescription,
+        "cops/rspec/example_without_description"
+    );
 }

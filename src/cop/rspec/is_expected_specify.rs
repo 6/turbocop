@@ -1,8 +1,8 @@
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, KEYWORD_HASH_NODE, STATEMENTS_NODE};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, KEYWORD_HASH_NODE, STATEMENTS_NODE};
 
 pub struct IsExpectedSpecify;
 
@@ -29,8 +29,8 @@ impl Cop for IsExpectedSpecify {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -68,7 +68,10 @@ impl Cop for IsExpectedSpecify {
         // Check if it's a single-line block
         let block_loc = block.location();
         let (start_line, _) = source.offset_to_line_col(block_loc.start_offset());
-        let end_off = block_loc.end_offset().saturating_sub(1).max(block_loc.start_offset());
+        let end_off = block_loc
+            .end_offset()
+            .saturating_sub(1)
+            .max(block_loc.start_offset());
         let (end_line, _) = source.offset_to_line_col(end_off);
 
         if start_line != end_line {
@@ -91,7 +94,6 @@ impl Cop for IsExpectedSpecify {
                 "Use `it` instead of `specify`.".to_string(),
             ));
         }
-
     }
 }
 

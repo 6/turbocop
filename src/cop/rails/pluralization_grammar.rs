@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, FLOAT_NODE, INTEGER_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, FLOAT_NODE, INTEGER_NODE};
 
 pub struct PluralizationGrammar;
 
@@ -81,8 +81,8 @@ impl Cop for PluralizationGrammar {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -115,13 +115,11 @@ impl Cop for PluralizationGrammar {
             let clean: String = text_str.chars().filter(|c| *c != '_').collect();
             // Only treat as integer if the float is a whole number (e.g. 1.0, -1.0)
             // Fractional values like 1.5 are not singular or plural in the integer sense
-            clean.parse::<f64>().ok().and_then(|f| {
-                if f == f.trunc() {
-                    Some(f as i64)
-                } else {
-                    None
-                }
-            })
+            clean.parse::<f64>().ok().and_then(
+                |f| {
+                    if f == f.trunc() { Some(f as i64) } else { None }
+                },
+            )
         } else {
             return;
         };
@@ -135,8 +133,8 @@ impl Cop for PluralizationGrammar {
         let is_plural_method = is_plural(method_name);
 
         // Offense: singular number with plural method, or plural number with singular method
-        let should_flag = (is_singular_number && is_plural_method)
-            || (!is_singular_number && !is_plural_method);
+        let should_flag =
+            (is_singular_number && is_plural_method) || (!is_singular_number && !is_plural_method);
 
         if !should_flag {
             return;

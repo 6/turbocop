@@ -20,8 +20,8 @@ impl Cop for SpaceBeforeComment {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let bytes = source.as_bytes();
 
@@ -69,7 +69,6 @@ impl Cop for SpaceBeforeComment {
                 diagnostics.push(diag);
             }
         }
-
     }
 }
 
@@ -83,7 +82,8 @@ mod tests {
     #[test]
     fn autocorrect_insert_space() {
         let input = b"x = 1# comment\n";
-        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&SpaceBeforeComment, input);
+        let (_diags, corrections) =
+            crate::testutil::run_cop_autocorrect(&SpaceBeforeComment, input);
         assert!(!corrections.is_empty());
         let cs = crate::correction::CorrectionSet::from_vec(corrections);
         let corrected = cs.apply(input);

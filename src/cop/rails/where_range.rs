@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, STRING_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, STRING_NODE};
 
 pub struct WhereRange;
 
@@ -24,8 +24,8 @@ impl Cop for WhereRange {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -147,7 +147,9 @@ fn matches_named_pattern(s: &str, op: &str) -> bool {
         && parts[1] == op
         && parts[2].starts_with(':')
         && parts[2].len() > 1
-        && parts[2][1..].chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && parts[2][1..]
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// Match pattern: `column >= ? AND column <[=] ?`
@@ -196,7 +198,8 @@ fn is_column_identifier(s: &str) -> bool {
     if dot_count > 1 {
         return false;
     }
-    s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+    s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
 }
 
 #[cfg(test)]
@@ -216,9 +219,6 @@ mod tests {
     #[test]
     fn does_not_flag_non_comparison() {
         use crate::testutil::assert_cop_no_offenses;
-        assert_cop_no_offenses(
-            &WhereRange,
-            b"User.where('name = ?', name)\n",
-        );
+        assert_cop_no_offenses(&WhereRange, b"User.where('name = ?', name)\n");
     }
 }

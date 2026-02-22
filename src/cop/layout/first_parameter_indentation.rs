@@ -1,7 +1,7 @@
+use crate::cop::node_type::DEF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::DEF_NODE;
 
 pub struct FirstParameterIndentation;
 
@@ -20,8 +20,8 @@ impl Cop for FirstParameterIndentation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "consistent");
         let _indent_width = config.get_usize("IndentationWidth", 2);
@@ -55,8 +55,7 @@ impl Cop for FirstParameterIndentation {
 
         // Find the first parameter
         let requireds: Vec<ruby_prism::Node<'_>> = params.requireds().iter().collect();
-        let optionals: Vec<ruby_prism::Node<'_>> =
-            params.optionals().iter().collect();
+        let optionals: Vec<ruby_prism::Node<'_>> = params.optionals().iter().collect();
 
         let first_offset = if !requireds.is_empty() {
             requireds[0].location().start_offset()
@@ -103,12 +102,10 @@ impl Cop for FirstParameterIndentation {
                 first_col,
                 format!(
                     "Use {} (not {}) spaces for indentation.",
-                    expected,
-                    first_col
+                    expected, first_col
                 ),
             ));
         }
-
     }
 }
 

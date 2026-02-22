@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    DEFINED_NODE, INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, STRING_NODE, SYMBOL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{DEFINED_NODE, INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, STRING_NODE, SYMBOL_NODE};
 
 /// Checks for calls to `defined?` with strings or symbols as the argument.
 /// Such calls will always return `'expression'`.
@@ -17,7 +19,13 @@ impl Cop for UselessDefined {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[DEFINED_NODE, INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, STRING_NODE, SYMBOL_NODE]
+        &[
+            DEFINED_NODE,
+            INTERPOLATED_STRING_NODE,
+            INTERPOLATED_SYMBOL_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -26,8 +34,8 @@ impl Cop for UselessDefined {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let defined_node = match node.as_defined_node() {
             Some(n) => n,
@@ -36,9 +44,12 @@ impl Cop for UselessDefined {
 
         let value = defined_node.value();
 
-        let type_name = if value.as_string_node().is_some() || value.as_interpolated_string_node().is_some() {
+        let type_name = if value.as_string_node().is_some()
+            || value.as_interpolated_string_node().is_some()
+        {
             "string"
-        } else if value.as_symbol_node().is_some() || value.as_interpolated_symbol_node().is_some() {
+        } else if value.as_symbol_node().is_some() || value.as_interpolated_symbol_node().is_some()
+        {
             "symbol"
         } else {
             return;

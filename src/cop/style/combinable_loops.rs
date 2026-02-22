@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, PROGRAM_NODE, STATEMENTS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, PROGRAM_NODE, STATEMENTS_NODE};
 
 pub struct CombinableLoops;
 
@@ -20,8 +20,8 @@ impl Cop for CombinableLoops {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check in class/module/method bodies for consecutive loops
         // Note: ProgramNode's StatementsNode is visited via visit_statements_node
@@ -36,15 +36,13 @@ impl Cop for CombinableLoops {
                 return;
             };
 
-
         for i in 1..stmt_list.len() {
             let prev = &stmt_list[i - 1];
             let curr = &stmt_list[i];
 
-            if let (Some(prev_info), Some(curr_info)) = (
-                get_loop_info(source, prev),
-                get_loop_info(source, curr),
-            ) {
+            if let (Some(prev_info), Some(curr_info)) =
+                (get_loop_info(source, prev), get_loop_info(source, curr))
+            {
                 // Check that loops are truly consecutive (no blank lines between them)
                 let prev_end_line = source.offset_to_line_col(prev.location().end_offset()).0;
                 let curr_start_line = source.offset_to_line_col(curr.location().start_offset()).0;
@@ -52,8 +50,7 @@ impl Cop for CombinableLoops {
                     continue; // There's a gap (blank line) between them
                 }
 
-                if prev_info.receiver == curr_info.receiver
-                    && prev_info.method == curr_info.method
+                if prev_info.receiver == curr_info.receiver && prev_info.method == curr_info.method
                 {
                     let loc = curr.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -66,7 +63,6 @@ impl Cop for CombinableLoops {
                 }
             }
         }
-
     }
 }
 
@@ -82,8 +78,15 @@ fn get_loop_info(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<Loo
     // Only check looping methods
     if !matches!(
         method_name,
-        "each" | "each_with_index" | "each_with_object" | "reverse_each"
-            | "map" | "flat_map" | "select" | "reject" | "collect"
+        "each"
+            | "each_with_index"
+            | "each_with_object"
+            | "reverse_each"
+            | "map"
+            | "flat_map"
+            | "select"
+            | "reject"
+            | "collect"
     ) {
         return None;
     }

@@ -11,9 +11,9 @@ pub mod parser;
 pub mod pattern_db;
 
 pub use extract::{
-    cop_name_from_path, extract_patterns, walk_vendor_patterns, ExtractedPattern, PatternKind,
+    ExtractedPattern, PatternKind, cop_name_from_path, extract_patterns, walk_vendor_patterns,
 };
 pub use interpreter::interpret_pattern;
 pub use lexer::{Lexer, Token};
-pub use mapping::{build_mapping_table, NodeMapping};
-pub use parser::{pattern_summary, Parser, PatternNode};
+pub use mapping::{NodeMapping, build_mapping_table};
+pub use parser::{Parser, PatternNode, pattern_summary};

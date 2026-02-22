@@ -1,7 +1,7 @@
+use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
 
 pub struct MultilineIfModifier;
 
@@ -20,8 +20,8 @@ impl Cop for MultilineIfModifier {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check `if` modifier form
         if let Some(if_node) = node.as_if_node() {
@@ -46,7 +46,9 @@ impl Cop for MultilineIfModifier {
                     return;
                 }
 
-                let body_start_line = source.offset_to_line_col(body_nodes[0].location().start_offset()).0;
+                let body_start_line = source
+                    .offset_to_line_col(body_nodes[0].location().start_offset())
+                    .0;
                 let if_kw_line = source.offset_to_line_col(if_kw_loc.start_offset()).0;
 
                 if body_start_line < if_kw_line {
@@ -85,7 +87,9 @@ impl Cop for MultilineIfModifier {
                     return;
                 }
 
-                let body_start_line = source.offset_to_line_col(body_nodes[0].location().start_offset()).0;
+                let body_start_line = source
+                    .offset_to_line_col(body_nodes[0].location().start_offset())
+                    .0;
                 let kw_line = source.offset_to_line_col(kw_loc.start_offset()).0;
 
                 if body_start_line < kw_line {
@@ -100,7 +104,6 @@ impl Cop for MultilineIfModifier {
                 }
             }
         }
-
     }
 }
 

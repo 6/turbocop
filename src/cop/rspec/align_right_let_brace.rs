@@ -18,16 +18,20 @@ impl Cop for AlignRightLetBrace {
         RSPEC_DEFAULT_INCLUDE
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        _config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         let lines: Vec<&[u8]> = source.lines().collect();
 
         // Step 1: Collect all single-line let positions (1-indexed line, close_brace_col)
         let lets: Vec<(usize, usize)> = lines
             .iter()
             .enumerate()
-            .filter_map(|(i, line)| {
-                single_line_let_close_brace_col(line).map(|col| (i + 1, col))
-            })
+            .filter_map(|(i, line)| single_line_let_close_brace_col(line).map(|col| (i + 1, col)))
             .collect();
 
         // Step 2: Group by strictly consecutive line numbers, replicating RuboCop's
@@ -50,7 +54,6 @@ impl Cop for AlignRightLetBrace {
                 }
             }
         }
-
     }
 }
 

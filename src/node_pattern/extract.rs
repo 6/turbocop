@@ -72,10 +72,7 @@ pub fn extract_patterns(source: &str) -> Vec<ExtractedPattern> {
                         // Heredoc form — read until the delimiter
                         let raw_delim = after_comma.trim_start_matches("<<~");
                         let raw_delim = strip_heredoc_trailing_comment(raw_delim);
-                        let delimiter = raw_delim
-                            .trim()
-                            .trim_matches('\'')
-                            .trim_matches('"');
+                        let delimiter = raw_delim.trim().trim_matches('\'').trim_matches('"');
                         let mut pattern_lines = Vec::new();
                         i += 1;
                         while i < lines.len() {
@@ -92,9 +89,7 @@ pub fn extract_patterns(source: &str) -> Vec<ExtractedPattern> {
                             method_name,
                             pattern,
                         });
-                    } else if after_comma.starts_with('\'')
-                        || after_comma.starts_with('"')
-                    {
+                    } else if after_comma.starts_with('\'') || after_comma.starts_with('"') {
                         // Inline string form
                         let quote = after_comma.as_bytes()[0] as char;
                         let inner = &after_comma[1..];
@@ -291,8 +286,7 @@ mod tests {
 
     #[test]
     fn test_extract_heredoc_with_single_quotes() {
-        let source =
-            "def_node_matcher :my_matcher?, <<~'PATTERN'\n  (send _ :bar)\nPATTERN";
+        let source = "def_node_matcher :my_matcher?, <<~'PATTERN'\n  (send _ :bar)\nPATTERN";
         let patterns = extract_patterns(source);
         assert_eq!(patterns.len(), 1);
         assert_eq!(patterns[0].method_name, "my_matcher?");
@@ -344,8 +338,7 @@ mod tests {
 
     #[test]
     fn test_extract_self_method_name_inline() {
-        let source =
-            r#"def_node_matcher 'self.my_check', '(send nil? :foo)'"#;
+        let source = r#"def_node_matcher 'self.my_check', '(send nil? :foo)'"#;
         let patterns = extract_patterns(source);
         assert_eq!(patterns.len(), 1);
         assert_eq!(patterns[0].method_name, "self.my_check");
@@ -354,7 +347,10 @@ mod tests {
     #[test]
     fn test_cop_name_from_path_style() {
         let path = Path::new("vendor/rubocop/lib/rubocop/cop/style/nil_comparison.rb");
-        assert_eq!(cop_name_from_path(path), Some("Style/NilComparison".to_string()));
+        assert_eq!(
+            cop_name_from_path(path),
+            Some("Style/NilComparison".to_string())
+        );
     }
 
     #[test]
@@ -365,9 +361,11 @@ mod tests {
 
     #[test]
     fn test_cop_name_from_path_rspec() {
-        let path =
-            Path::new("vendor/rubocop-rspec/lib/rubocop/cop/rspec/expect_change.rb");
-        assert_eq!(cop_name_from_path(path), Some("RSpec/ExpectChange".to_string()));
+        let path = Path::new("vendor/rubocop-rspec/lib/rubocop/cop/rspec/expect_change.rb");
+        assert_eq!(
+            cop_name_from_path(path),
+            Some("RSpec/ExpectChange".to_string())
+        );
     }
 
     #[test]
@@ -409,6 +407,9 @@ mod tests {
             "PATTERN"
         );
         assert_eq!(strip_heredoc_trailing_comment("PATTERN"), "PATTERN");
-        assert_eq!(strip_heredoc_trailing_comment("MATCHER # comment"), "MATCHER");
+        assert_eq!(
+            strip_heredoc_trailing_comment("MATCHER # comment"),
+            "MATCHER"
+        );
     }
 }

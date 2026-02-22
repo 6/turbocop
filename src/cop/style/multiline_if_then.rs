@@ -1,7 +1,7 @@
+use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
 
 pub struct MultilineIfThen;
 
@@ -20,8 +20,8 @@ impl Cop for MultilineIfThen {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Handle `if ... then` (multi-line)
         if let Some(if_node) = node.as_if_node() {
@@ -56,7 +56,9 @@ impl Cop for MultilineIfThen {
             if let Some(stmts) = if_node.statements() {
                 let body_nodes: Vec<_> = stmts.body().into_iter().collect();
                 if !body_nodes.is_empty() {
-                    let first_body_line = source.offset_to_line_col(body_nodes[0].location().start_offset()).0;
+                    let first_body_line = source
+                        .offset_to_line_col(body_nodes[0].location().start_offset())
+                        .0;
                     if first_body_line == then_line {
                         // Table style: `if cond then body` all on same line
                         return;
@@ -106,7 +108,9 @@ impl Cop for MultilineIfThen {
             if let Some(stmts) = unless_node.statements() {
                 let body_nodes: Vec<_> = stmts.body().into_iter().collect();
                 if !body_nodes.is_empty() {
-                    let first_body_line = source.offset_to_line_col(body_nodes[0].location().start_offset()).0;
+                    let first_body_line = source
+                        .offset_to_line_col(body_nodes[0].location().start_offset())
+                        .0;
                     if first_body_line == then_line {
                         return;
                     }
@@ -128,7 +132,6 @@ impl Cop for MultilineIfThen {
                 "Do not use `then` for multi-line `unless`.".to_string(),
             ));
         }
-
     }
 }
 

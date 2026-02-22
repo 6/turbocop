@@ -1,9 +1,9 @@
 use ruby_prism::Visit;
 
+use crate::cop::node_type::{AND_NODE, OR_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{AND_NODE, OR_NODE, UNLESS_NODE};
 
 pub struct UnlessLogicalOperators;
 
@@ -22,8 +22,8 @@ impl Cop for UnlessLogicalOperators {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "forbid_mixed_logical_operators");
 
@@ -38,7 +38,8 @@ impl Cop for UnlessLogicalOperators {
             "forbid_logical_operators" => {
                 // Flag any logical operators in unless conditions
                 if contains_logical_operator(&predicate) {
-                    let (line, column) = source.offset_to_line_col(unless_node.keyword_loc().start_offset());
+                    let (line, column) =
+                        source.offset_to_line_col(unless_node.keyword_loc().start_offset());
                     diagnostics.push(self.diagnostic(
                         source,
                         line,
@@ -50,7 +51,8 @@ impl Cop for UnlessLogicalOperators {
             "forbid_mixed_logical_operators" | _ => {
                 // Flag mixed logical operators (both && and ||)
                 if contains_mixed_logical_operators(&predicate) {
-                    let (line, column) = source.offset_to_line_col(unless_node.keyword_loc().start_offset());
+                    let (line, column) =
+                        source.offset_to_line_col(unless_node.keyword_loc().start_offset());
                     diagnostics.push(self.diagnostic(
                         source,
                         line,
@@ -60,7 +62,6 @@ impl Cop for UnlessLogicalOperators {
                 }
             }
         }
-
     }
 }
 
@@ -97,5 +98,8 @@ impl<'pr> Visit<'pr> for LogicalOpFinder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(UnlessLogicalOperators, "cops/style/unless_logical_operators");
+    crate::cop_fixture_tests!(
+        UnlessLogicalOperators,
+        "cops/style/unless_logical_operators"
+    );
 }

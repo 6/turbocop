@@ -1,8 +1,8 @@
+use crate::cop::node_type::LOCAL_VARIABLE_WRITE_NODE;
 use crate::cop::util::is_snake_case;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::LOCAL_VARIABLE_WRITE_NODE;
 
 pub struct VariableName;
 
@@ -21,8 +21,8 @@ impl Cop for VariableName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let write_node = match node.as_local_variable_write_node() {
             Some(n) => n,
@@ -67,7 +67,9 @@ impl Cop for VariableName {
                             source,
                             line,
                             column,
-                            format!("`{var_name_str}` is forbidden, use another variable name instead."),
+                            format!(
+                                "`{var_name_str}` is forbidden, use another variable name instead."
+                            ),
                         ));
                     }
                 }
@@ -138,70 +140,82 @@ mod tests {
 
     #[test]
     fn config_enforced_style_camel_case() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("camelCase".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("camelCase".into()),
+            )]),
             ..CopConfig::default()
         };
         let source = b"myVar = 1\n";
         let diags = run_cop_full_with_config(&VariableName, source, config);
-        assert!(diags.is_empty(), "camelCase variable should not be flagged in camelCase mode");
+        assert!(
+            diags.is_empty(),
+            "camelCase variable should not be flagged in camelCase mode"
+        );
     }
 
     #[test]
     fn config_enforced_style_camel_case_flags_snake() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("camelCase".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("camelCase".into()),
+            )]),
             ..CopConfig::default()
         };
         let source = b"my_var = 1\n";
         let diags = run_cop_full_with_config(&VariableName, source, config);
-        assert!(!diags.is_empty(), "snake_case variable should be flagged in camelCase mode");
+        assert!(
+            !diags.is_empty(),
+            "snake_case variable should be flagged in camelCase mode"
+        );
     }
 
     #[test]
     fn config_forbidden_identifiers() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("ForbiddenIdentifiers".into(), serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("data".into()),
-                ])),
-            ]),
+            options: HashMap::from([(
+                "ForbiddenIdentifiers".into(),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("data".into())]),
+            )]),
             ..CopConfig::default()
         };
         let source = b"data = 1\n";
         let diags = run_cop_full_with_config(&VariableName, source, config);
-        assert!(!diags.is_empty(), "Forbidden variable name should be flagged");
+        assert!(
+            !diags.is_empty(),
+            "Forbidden variable name should be flagged"
+        );
         assert!(diags[0].message.contains("forbidden"));
     }
 
     #[test]
     fn config_forbidden_patterns() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("ForbiddenPatterns".into(), serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("_tmp\\z".into()),
-                ])),
-            ]),
+            options: HashMap::from([(
+                "ForbiddenPatterns".into(),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("_tmp\\z".into())]),
+            )]),
             ..CopConfig::default()
         };
         let source = b"data_tmp = 1\n";
         let diags = run_cop_full_with_config(&VariableName, source, config);
-        assert!(!diags.is_empty(), "Variable matching forbidden pattern should be flagged");
+        assert!(
+            !diags.is_empty(),
+            "Variable matching forbidden pattern should be flagged"
+        );
     }
 }

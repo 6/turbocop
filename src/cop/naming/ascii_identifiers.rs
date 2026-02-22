@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CONSTANT_WRITE_NODE, DEF_NODE, LOCAL_VARIABLE_WRITE_NODE};
 use crate::cop::util::is_ascii_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CONSTANT_WRITE_NODE, DEF_NODE, LOCAL_VARIABLE_WRITE_NODE};
 
 pub struct AsciiIdentifiers;
 
@@ -21,8 +21,8 @@ impl Cop for AsciiIdentifiers {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // AsciiConstants: when true (default), also flag non-ASCII constants
         let ascii_constants = config.get_bool("AsciiConstants", true);
@@ -71,7 +71,6 @@ impl Cop for AsciiIdentifiers {
                 }
             }
         }
-
     }
 }
 
@@ -82,33 +81,35 @@ mod tests {
 
     #[test]
     fn config_ascii_constants_true_flags_non_ascii_constant() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("AsciiConstants".into(), serde_yml::Value::Bool(true)),
-            ]),
+            options: HashMap::from([("AsciiConstants".into(), serde_yml::Value::Bool(true))]),
             ..CopConfig::default()
         };
         let source = "Caf\u{00e9} = 1\n".as_bytes();
         let diags = run_cop_full_with_config(&AsciiIdentifiers, source, config);
-        assert!(!diags.is_empty(), "Should flag non-ASCII constant when AsciiConstants:true");
+        assert!(
+            !diags.is_empty(),
+            "Should flag non-ASCII constant when AsciiConstants:true"
+        );
     }
 
     #[test]
     fn config_ascii_constants_false_allows_non_ascii_constant() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("AsciiConstants".into(), serde_yml::Value::Bool(false)),
-            ]),
+            options: HashMap::from([("AsciiConstants".into(), serde_yml::Value::Bool(false))]),
             ..CopConfig::default()
         };
         let source = "Caf\u{00e9} = 1\n".as_bytes();
         let diags = run_cop_full_with_config(&AsciiIdentifiers, source, config);
-        assert!(diags.is_empty(), "Should not flag non-ASCII constant when AsciiConstants:false");
+        assert!(
+            diags.is_empty(),
+            "Should not flag non-ASCII constant when AsciiConstants:false"
+        );
     }
 }

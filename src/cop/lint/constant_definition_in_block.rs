@@ -21,8 +21,8 @@ impl Cop for ConstantDefinitionInBlock {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed_methods = config
             .get_string_array("AllowedMethods")
@@ -181,10 +181,7 @@ impl<'pr> Visit<'pr> for BlockConstVisitor<'_, '_> {
         ruby_prism::visit_constant_write_node(self, node);
     }
 
-    fn visit_constant_path_write_node(
-        &mut self,
-        node: &ruby_prism::ConstantPathWriteNode<'pr>,
-    ) {
+    fn visit_constant_path_write_node(&mut self, node: &ruby_prism::ConstantPathWriteNode<'pr>) {
         // RuboCop only flags bare constant assignments (FOO = 1) in blocks,
         // not namespaced ones (::FOO = 1 or Mod::FOO = 1). The RuboCop
         // pattern uses `nil?` for the namespace, which excludes all
@@ -236,5 +233,8 @@ impl<'pr> Visit<'pr> for BlockConstVisitor<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ConstantDefinitionInBlock, "cops/lint/constant_definition_in_block");
+    crate::cop_fixture_tests!(
+        ConstantDefinitionInBlock,
+        "cops/lint/constant_definition_in_block"
+    );
 }

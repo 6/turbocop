@@ -1,8 +1,11 @@
+use crate::cop::node_type::{
+    AND_NODE, BEGIN_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, OR_NODE,
+    PARENTHESES_NODE, STATEMENTS_NODE, UNLESS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use std::collections::HashMap;
-use crate::cop::node_type::{AND_NODE, BEGIN_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, OR_NODE, PARENTHESES_NODE, STATEMENTS_NODE, UNLESS_NODE};
 
 pub struct InvertibleUnlessCondition;
 
@@ -43,7 +46,10 @@ impl InvertibleUnlessCondition {
 
     /// Check if every method call in a condition tree is invertible.
     /// Returns true only if the entire condition can be inverted.
-    fn is_fully_invertible(node: &ruby_prism::Node<'_>, inverse_map: &HashMap<Vec<u8>, String>) -> bool {
+    fn is_fully_invertible(
+        node: &ruby_prism::Node<'_>,
+        inverse_map: &HashMap<Vec<u8>, String>,
+    ) -> bool {
         // Negation: `!expr` — always invertible (just remove the `!`)
         if let Some(call) = node.as_call_node() {
             if call.name().as_slice() == b"!" {
@@ -52,7 +58,10 @@ impl InvertibleUnlessCondition {
 
             // Safe-navigation calls (`&.method`) are not invertible — RuboCop only
             // handles `:send` nodes, not `:csend` (safe-navigation) nodes.
-            if call.call_operator_loc().is_some_and(|op: ruby_prism::Location<'_>| op.as_slice() == b"&.") {
+            if call
+                .call_operator_loc()
+                .is_some_and(|op: ruby_prism::Location<'_>| op.as_slice() == b"&.")
+            {
                 return false;
             }
 
@@ -121,7 +130,17 @@ impl Cop for InvertibleUnlessCondition {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[AND_NODE, BEGIN_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, OR_NODE, PARENTHESES_NODE, STATEMENTS_NODE, UNLESS_NODE]
+        &[
+            AND_NODE,
+            BEGIN_NODE,
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            OR_NODE,
+            PARENTHESES_NODE,
+            STATEMENTS_NODE,
+            UNLESS_NODE,
+        ]
     }
 
     fn check_node(
@@ -130,8 +149,8 @@ impl Cop for InvertibleUnlessCondition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let unless_node = match node.as_unless_node() {
             Some(u) => u,
@@ -155,7 +174,8 @@ impl Cop for InvertibleUnlessCondition {
         // Build a descriptive message
         let method_str = if let Some(call) = predicate.as_call_node() {
             if call.name().as_slice() == b"!" {
-                let receiver_src = call.receiver()
+                let receiver_src = call
+                    .receiver()
                     .map(|r| String::from_utf8_lossy(r.location().as_slice()).to_string())
                     .unwrap_or_default();
                 let cond_src = String::from_utf8_lossy(predicate.location().as_slice());
@@ -170,7 +190,10 @@ impl Cop for InvertibleUnlessCondition {
             }
             let name_bytes = call.name().as_slice();
             let name = std::str::from_utf8(name_bytes).unwrap_or("method");
-            let inv = inverse_map.get(name_bytes).map(|s| s.as_str()).unwrap_or("?");
+            let inv = inverse_map
+                .get(name_bytes)
+                .map(|s| s.as_str())
+                .unwrap_or("?");
             (name.to_string(), inv.to_string())
         } else {
             return;
@@ -182,7 +205,10 @@ impl Cop for InvertibleUnlessCondition {
             source,
             line,
             column,
-            format!("Use `if` with `{}` instead of `unless` with `{}`.", method_str.1, method_str.0),
+            format!(
+                "Use `if` with `{}` instead of `unless` with `{}`.",
+                method_str.1, method_str.0
+            ),
         ));
     }
 }
@@ -190,5 +216,8 @@ impl Cop for InvertibleUnlessCondition {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(InvertibleUnlessCondition, "cops/style/invertible_unless_condition");
+    crate::cop_fixture_tests!(
+        InvertibleUnlessCondition,
+        "cops/style/invertible_unless_condition"
+    );
 }

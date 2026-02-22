@@ -25,8 +25,8 @@ impl Cop for ActionControllerFlashBeforeRender {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = FlashVisitor {
             cop: self,
@@ -66,7 +66,6 @@ impl<'pr> Visit<'pr> for FlashVisitor<'_> {
 }
 
 impl FlashVisitor<'_> {
-
     fn check_def(&mut self, def_node: &ruby_prism::DefNode<'_>) {
         let body = match def_node.body() {
             Some(b) => b,
@@ -208,14 +207,20 @@ fn get_flash_assignment(node: &ruby_prism::Node<'_>) -> Option<usize> {
 
 /// Check if a node contains a `render` call
 fn contains_render(node: &ruby_prism::Node<'_>) -> bool {
-    let mut finder = CallFinder { method: b"render", found: false };
+    let mut finder = CallFinder {
+        method: b"render",
+        found: false,
+    };
     finder.visit(node);
     finder.found
 }
 
 /// Check if a node contains a `redirect_to` call
 fn contains_redirect(node: &ruby_prism::Node<'_>) -> bool {
-    let mut finder = CallFinder { method: b"redirect_to", found: false };
+    let mut finder = CallFinder {
+        method: b"redirect_to",
+        found: false,
+    };
     finder.visit(node);
     finder.found
 }

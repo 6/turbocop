@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct MultilineMethodArgumentLineBreaks;
 
@@ -20,8 +20,8 @@ impl Cop for MultilineMethodArgumentLineBreaks {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _allow_multiline_final = config.get_bool("AllowMultilineFinalElement", false);
 
@@ -61,27 +61,26 @@ impl Cop for MultilineMethodArgumentLineBreaks {
             return;
         }
 
-
         for i in 1..arg_list.len() {
             let prev = &arg_list[i - 1];
             let curr = &arg_list[i];
 
-            let (prev_line, _) = source.offset_to_line_col(
-                prev.location().end_offset().saturating_sub(1),
-            );
+            let (prev_line, _) =
+                source.offset_to_line_col(prev.location().end_offset().saturating_sub(1));
             let (curr_line, curr_col) = source.offset_to_line_col(curr.location().start_offset());
 
             if prev_line == curr_line {
-                diagnostics.push(self.diagnostic(
-                    source,
-                    curr_line,
-                    curr_col,
-                    "Each argument in a multi-line method call must start on a separate line."
-                        .to_string(),
-                ));
+                diagnostics.push(
+                    self.diagnostic(
+                        source,
+                        curr_line,
+                        curr_col,
+                        "Each argument in a multi-line method call must start on a separate line."
+                            .to_string(),
+                    ),
+                );
             }
         }
-
     }
 }
 

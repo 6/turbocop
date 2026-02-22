@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 
 pub struct UniqBeforePluck;
 
@@ -25,8 +25,8 @@ impl Cop for UniqBeforePluck {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let chain = match util::as_method_chain(node) {
             Some(c) => c,
@@ -44,7 +44,9 @@ impl Cop for UniqBeforePluck {
         if style == "conservative" {
             let pluck_receiver = chain.inner_call.receiver();
             let is_const = match pluck_receiver {
-                Some(ref r) => r.as_constant_read_node().is_some() || r.as_constant_path_node().is_some(),
+                Some(ref r) => {
+                    r.as_constant_read_node().is_some() || r.as_constant_path_node().is_some()
+                }
                 None => false,
             };
             if !is_const {

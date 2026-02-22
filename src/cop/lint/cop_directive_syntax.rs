@@ -24,10 +24,9 @@ impl Cop for CopDirectiveSyntax {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-
         let mut byte_offset = 0usize;
         for (i, line) in source.lines().enumerate() {
             let line_str = match std::str::from_utf8(line) {
@@ -61,12 +60,15 @@ impl Cop for CopDirectiveSyntax {
 
                 // Check if mode name is missing
                 if after_rubocop_colon.is_empty() || after_rubocop_colon.trim().is_empty() {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        i + 1,
-                        hash_pos,
-                        "Malformed directive comment detected. The mode name is missing.".to_string(),
-                    ));
+                    diagnostics.push(
+                        self.diagnostic(
+                            source,
+                            i + 1,
+                            hash_pos,
+                            "Malformed directive comment detected. The mode name is missing."
+                                .to_string(),
+                        ),
+                    );
                 } else {
                     // Extract mode name (first word after `rubocop:`)
                     let mode_end = after_rubocop_colon
@@ -108,7 +110,6 @@ impl Cop for CopDirectiveSyntax {
 
             byte_offset += line.len() + 1;
         }
-
     }
 }
 

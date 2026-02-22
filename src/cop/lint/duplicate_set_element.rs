@@ -1,9 +1,13 @@
+use crate::cop::node_type::{
+    ARRAY_NODE, CALL_NODE, CLASS_VARIABLE_READ_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE,
+    FALSE_NODE, FLOAT_NODE, GLOBAL_VARIABLE_READ_NODE, INSTANCE_VARIABLE_READ_NODE, INTEGER_NODE,
+    LOCAL_VARIABLE_READ_NODE, NIL_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE,
+};
 use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use std::collections::HashSet;
-use crate::cop::node_type::{ARRAY_NODE, CALL_NODE, CLASS_VARIABLE_READ_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE, FLOAT_NODE, GLOBAL_VARIABLE_READ_NODE, INSTANCE_VARIABLE_READ_NODE, INTEGER_NODE, LOCAL_VARIABLE_READ_NODE, NIL_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE};
 
 /// Checks for duplicate literal, constant, or variable elements in Set.
 pub struct DuplicateSetElement;
@@ -18,7 +22,23 @@ impl Cop for DuplicateSetElement {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ARRAY_NODE, CALL_NODE, CLASS_VARIABLE_READ_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE, FLOAT_NODE, GLOBAL_VARIABLE_READ_NODE, INSTANCE_VARIABLE_READ_NODE, INTEGER_NODE, LOCAL_VARIABLE_READ_NODE, NIL_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE]
+        &[
+            ARRAY_NODE,
+            CALL_NODE,
+            CLASS_VARIABLE_READ_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            FALSE_NODE,
+            FLOAT_NODE,
+            GLOBAL_VARIABLE_READ_NODE,
+            INSTANCE_VARIABLE_READ_NODE,
+            INTEGER_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            NIL_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+            TRUE_NODE,
+        ]
     }
 
     fn check_node(
@@ -27,8 +47,8 @@ impl Cop for DuplicateSetElement {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -61,7 +81,8 @@ impl Cop for DuplicateSetElement {
                 continue;
             }
 
-            let elem_src = &source.as_bytes()[elem.location().start_offset()..elem.location().end_offset()];
+            let elem_src =
+                &source.as_bytes()[elem.location().start_offset()..elem.location().end_offset()];
             let key = elem_src.to_vec();
 
             if !seen.insert(key) {
@@ -75,7 +96,6 @@ impl Cop for DuplicateSetElement {
                 ));
             }
         }
-
     }
 }
 

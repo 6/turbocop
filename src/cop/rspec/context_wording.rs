@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, INTERPOLATED_STRING_NODE, STRING_NODE};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, INTERPOLATED_STRING_NODE, STRING_NODE};
 
 pub struct ContextWording;
 
@@ -31,8 +31,8 @@ impl Cop for ContextWording {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -118,8 +118,7 @@ impl Cop for ContextWording {
             }
         }
 
-        let prefix_display: Vec<String> =
-            prefixes.iter().map(|p| format!("/^{p}\\b/")).collect();
+        let prefix_display: Vec<String> = prefixes.iter().map(|p| format!("/^{p}\\b/")).collect();
         let loc = arg_list[0].location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(
@@ -147,15 +146,16 @@ mod tests {
         let config = CopConfig {
             options: HashMap::from([(
                 "AllowedPatterns".into(),
-                serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("^if ".into()),
-                ]),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("^if ".into())]),
             )]),
             ..CopConfig::default()
         };
         let source = b"context 'if the user is logged in' do\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&ContextWording, source, config);
-        assert!(diags.is_empty(), "AllowedPatterns should skip matching descriptions");
+        assert!(
+            diags.is_empty(),
+            "AllowedPatterns should skip matching descriptions"
+        );
     }
 
     #[test]
@@ -166,9 +166,7 @@ mod tests {
         let config = CopConfig {
             options: HashMap::from([(
                 "AllowedPatterns".into(),
-                serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("^if ".into()),
-                ]),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("^if ".into())]),
             )]),
             ..CopConfig::default()
         };

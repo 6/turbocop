@@ -1,9 +1,9 @@
 use ruby_prism::Visit;
 
+use crate::cop::node_type::DEF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::DEF_NODE;
 
 pub struct BlockGivenWithExplicitBlock;
 
@@ -26,8 +26,8 @@ impl Cop for BlockGivenWithExplicitBlock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -59,7 +59,6 @@ impl Cop for BlockGivenWithExplicitBlock {
             let (line, column) = source.offset_to_line_col(offset);
             diagnostics.push(self.diagnostic(source, line, column, "Check `block` instead of using `block_given?` with explicit `&block` parameter.".to_string()));
         }
-
     }
 }
 
@@ -86,5 +85,8 @@ impl<'pr> Visit<'pr> for BlockGivenFinder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(BlockGivenWithExplicitBlock, "cops/performance/block_given_with_explicit_block");
+    crate::cop_fixture_tests!(
+        BlockGivenWithExplicitBlock,
+        "cops/performance/block_given_with_explicit_block"
+    );
 }

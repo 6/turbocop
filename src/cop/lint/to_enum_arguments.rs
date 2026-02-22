@@ -20,8 +20,8 @@ impl Cop for ToEnumArguments {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = ToEnumVisitor {
             cop: self,
@@ -76,7 +76,11 @@ impl<'pr> Visit<'pr> for ToEnumVisitor<'_, '_> {
         let method_name = node.name().as_slice();
 
         if (method_name == b"to_enum" || method_name == b"enum_for")
-            && (node.receiver().is_none() || node.receiver().as_ref().map_or(false, |r| r.as_self_node().is_some()))
+            && (node.receiver().is_none()
+                || node
+                    .receiver()
+                    .as_ref()
+                    .map_or(false, |r| r.as_self_node().is_some()))
         {
             if let Some(current_method) = self.method_stack.last() {
                 if let Some(args) = node.arguments() {
@@ -92,7 +96,8 @@ impl<'pr> Visit<'pr> for ToEnumVisitor<'_, '_> {
                             let provided_args = arg_list.len() - 1; // minus the method name arg
                             if provided_args < current_method.param_count {
                                 let loc = node.location();
-                                let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                                let (line, column) =
+                                    self.source.offset_to_line_col(loc.start_offset());
                                 self.diagnostics.push(self.cop.diagnostic(
                                     self.source,
                                     line,

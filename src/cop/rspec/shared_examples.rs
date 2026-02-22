@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, KEYWORD_HASH_NODE, STRING_NODE, SYMBOL_NODE};
 use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, KEYWORD_HASH_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct SharedExamples;
 
@@ -38,8 +38,8 @@ impl Cop for SharedExamples {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: EnforcedStyle — "string" (default) or "symbol"
         let enforced_style = config.get_str("EnforcedStyle", "string");
@@ -54,12 +54,9 @@ impl Cop for SharedExamples {
         // Check for RSpec.shared_examples / ::RSpec.shared_examples as well
         let is_shared = if let Some(recv) = call.receiver() {
             util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
-                && (method_name == b"shared_examples"
-                    || method_name == b"shared_examples_for")
+                && (method_name == b"shared_examples" || method_name == b"shared_examples_for")
         } else {
-            SHARED_EXAMPLE_METHODS
-                .iter()
-                .any(|m| method_name == *m)
+            SHARED_EXAMPLE_METHODS.iter().any(|m| method_name == *m)
         };
 
         if !is_shared {
@@ -87,7 +84,9 @@ impl Cop for SharedExamples {
                         source,
                         line,
                         column,
-                        format!("Prefer `:{sym_name}` over '{str_val}' to symbolize shared examples."),
+                        format!(
+                            "Prefer `:{sym_name}` over '{str_val}' to symbolize shared examples."
+                        ),
                     ));
                 }
             } else {
@@ -110,7 +109,6 @@ impl Cop for SharedExamples {
             }
             break;
         }
-
     }
 }
 

@@ -1,8 +1,12 @@
+use crate::cop::node_type::{
+    BLOCK_NODE, BLOCK_PARAMETERS_NODE, BREAK_NODE, CALL_NODE, CASE_NODE, ELSE_NODE,
+    EMBEDDED_STATEMENTS_NODE, IF_NODE, INTERPOLATED_STRING_NODE, LOCAL_VARIABLE_READ_NODE,
+    NEXT_NODE, NUMBERED_PARAMETERS_NODE, PARENTHESES_NODE, REQUIRED_PARAMETER_NODE,
+    STATEMENTS_NODE, UNLESS_NODE, WHEN_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use ruby_prism::Visit;
-use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, BREAK_NODE, CALL_NODE, CASE_NODE, ELSE_NODE, EMBEDDED_STATEMENTS_NODE, IF_NODE, INTERPOLATED_STRING_NODE, LOCAL_VARIABLE_READ_NODE, NEXT_NODE, NUMBERED_PARAMETERS_NODE, PARENTHESES_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, UNLESS_NODE, WHEN_NODE};
 
 pub struct UnmodifiedReduceAccumulator;
 
@@ -20,7 +24,25 @@ impl Cop for UnmodifiedReduceAccumulator {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, BREAK_NODE, CALL_NODE, CASE_NODE, ELSE_NODE, EMBEDDED_STATEMENTS_NODE, IF_NODE, INTERPOLATED_STRING_NODE, LOCAL_VARIABLE_READ_NODE, NEXT_NODE, NUMBERED_PARAMETERS_NODE, PARENTHESES_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, UNLESS_NODE, WHEN_NODE]
+        &[
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            BREAK_NODE,
+            CALL_NODE,
+            CASE_NODE,
+            ELSE_NODE,
+            EMBEDDED_STATEMENTS_NODE,
+            IF_NODE,
+            INTERPOLATED_STRING_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            NEXT_NODE,
+            NUMBERED_PARAMETERS_NODE,
+            PARENTHESES_NODE,
+            REQUIRED_PARAMETER_NODE,
+            STATEMENTS_NODE,
+            UNLESS_NODE,
+            WHEN_NODE,
+        ]
     }
 
     fn check_node(
@@ -29,8 +51,8 @@ impl Cop for UnmodifiedReduceAccumulator {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -91,7 +113,6 @@ impl Cop for UnmodifiedReduceAccumulator {
             method_str,
             diagnostics,
         );
-
     }
 }
 
@@ -109,12 +130,16 @@ fn extract_reduce_params(params_node: &ruby_prism::Node<'_>) -> Option<(String, 
             return None;
         }
 
-        let acc = requireds[0]
-            .as_required_parameter_node()
-            .map(|p| std::str::from_utf8(p.name().as_slice()).unwrap_or("").to_string())?;
-        let el = requireds[1]
-            .as_required_parameter_node()
-            .map(|p| std::str::from_utf8(p.name().as_slice()).unwrap_or("").to_string());
+        let acc = requireds[0].as_required_parameter_node().map(|p| {
+            std::str::from_utf8(p.name().as_slice())
+                .unwrap_or("")
+                .to_string()
+        })?;
+        let el = requireds[1].as_required_parameter_node().map(|p| {
+            std::str::from_utf8(p.name().as_slice())
+                .unwrap_or("")
+                .to_string()
+        });
 
         // The element might be a destructuring pattern
         let el_name = match el {
@@ -153,7 +178,15 @@ fn check_return_values(
 ) {
     // Check `next` and `break` statements
     for stmt in stmts {
-        check_next_break(cop, source, stmt, acc_name, el_name, method_name, diagnostics);
+        check_next_break(
+            cop,
+            source,
+            stmt,
+            acc_name,
+            el_name,
+            method_name,
+            diagnostics,
+        );
     }
 
     // Check the last expression (implicit return value)
@@ -243,18 +276,42 @@ fn check_next_break(
     if let Some(if_node) = node.as_if_node() {
         if let Some(body) = if_node.statements() {
             for stmt in body.body().iter() {
-                check_next_break(cop, source, &stmt, acc_name, el_name, method_name, diagnostics);
+                check_next_break(
+                    cop,
+                    source,
+                    &stmt,
+                    acc_name,
+                    el_name,
+                    method_name,
+                    diagnostics,
+                );
             }
         }
         if let Some(else_clause) = if_node.subsequent() {
-            check_next_break(cop, source, &else_clause, acc_name, el_name, method_name, diagnostics);
+            check_next_break(
+                cop,
+                source,
+                &else_clause,
+                acc_name,
+                el_name,
+                method_name,
+                diagnostics,
+            );
         }
     }
 
     if let Some(unless_node) = node.as_unless_node() {
         if let Some(body) = unless_node.statements() {
             for stmt in body.body().iter() {
-                check_next_break(cop, source, &stmt, acc_name, el_name, method_name, diagnostics);
+                check_next_break(
+                    cop,
+                    source,
+                    &stmt,
+                    acc_name,
+                    el_name,
+                    method_name,
+                    diagnostics,
+                );
             }
         }
     }
@@ -282,7 +339,11 @@ fn returns_accumulator(node: &ruby_prism::Node<'_>, acc_name: &str) -> bool {
     // Check inside conditionals
     if let Some(if_node) = node.as_if_node() {
         if let Some(body) = if_node.statements() {
-            if body.body().iter().any(|s| returns_accumulator(&s, acc_name)) {
+            if body
+                .body()
+                .iter()
+                .any(|s| returns_accumulator(&s, acc_name))
+            {
                 return true;
             }
         }
@@ -294,14 +355,22 @@ fn returns_accumulator(node: &ruby_prism::Node<'_>, acc_name: &str) -> bool {
     }
     if let Some(unless_node) = node.as_unless_node() {
         if let Some(body) = unless_node.statements() {
-            if body.body().iter().any(|s| returns_accumulator(&s, acc_name)) {
+            if body
+                .body()
+                .iter()
+                .any(|s| returns_accumulator(&s, acc_name))
+            {
                 return true;
             }
         }
     }
     if let Some(else_node) = node.as_else_node() {
         if let Some(stmts) = else_node.statements() {
-            if stmts.body().iter().any(|s| returns_accumulator(&s, acc_name)) {
+            if stmts
+                .body()
+                .iter()
+                .any(|s| returns_accumulator(&s, acc_name))
+            {
                 return true;
             }
         }
@@ -311,7 +380,11 @@ fn returns_accumulator(node: &ruby_prism::Node<'_>, acc_name: &str) -> bool {
         for condition in case_node.conditions().iter() {
             if let Some(when_node) = condition.as_when_node() {
                 if let Some(body) = when_node.statements() {
-                    if body.body().iter().any(|s| returns_accumulator(&s, acc_name)) {
+                    if body
+                        .body()
+                        .iter()
+                        .any(|s| returns_accumulator(&s, acc_name))
+                    {
                         return true;
                     }
                 }
@@ -319,7 +392,11 @@ fn returns_accumulator(node: &ruby_prism::Node<'_>, acc_name: &str) -> bool {
         }
         if let Some(else_clause) = case_node.else_clause() {
             if let Some(stmts) = else_clause.statements() {
-                if stmts.body().iter().any(|s| returns_accumulator(&s, acc_name)) {
+                if stmts
+                    .body()
+                    .iter()
+                    .any(|s| returns_accumulator(&s, acc_name))
+                {
                     return true;
                 }
             }
@@ -461,5 +538,8 @@ fn has_any_local_var(node: &ruby_prism::Node<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(UnmodifiedReduceAccumulator, "cops/lint/unmodified_reduce_accumulator");
+    crate::cop_fixture_tests!(
+        UnmodifiedReduceAccumulator,
+        "cops/lint/unmodified_reduce_accumulator"
+    );
 }

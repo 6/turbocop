@@ -1,9 +1,9 @@
 use ruby_prism::Visit;
 
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE};
 
 pub struct TransactionExitStatement;
 
@@ -18,19 +18,16 @@ impl<'pr> Visit<'pr> for ExitFinder {
     fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
 
     fn visit_return_node(&mut self, node: &ruby_prism::ReturnNode<'pr>) {
-        self.found
-            .push((node.location().start_offset(), "return"));
+        self.found.push((node.location().start_offset(), "return"));
     }
 
     fn visit_break_node(&mut self, node: &ruby_prism::BreakNode<'pr>) {
-        self.found
-            .push((node.location().start_offset(), "break"));
+        self.found.push((node.location().start_offset(), "break"));
     }
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         if node.name().as_slice() == b"throw" && node.receiver().is_none() {
-            self.found
-                .push((node.location().start_offset(), "throw"));
+            self.found.push((node.location().start_offset(), "throw"));
         }
         // Continue visiting children of this call node
         ruby_prism::visit_call_node(self, node);
@@ -56,8 +53,8 @@ impl Cop for TransactionExitStatement {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let transaction_methods = config.get_string_array("TransactionMethods");
 

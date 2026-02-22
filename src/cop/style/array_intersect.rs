@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, PARENTHESES_NODE, STATEMENTS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, PARENTHESES_NODE, STATEMENTS_NODE};
 
 pub struct ArrayIntersect;
 
@@ -20,8 +20,8 @@ impl Cop for ArrayIntersect {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // intersect? requires Ruby >= 3.1
         let ruby_version = config
@@ -55,16 +55,21 @@ impl Cop for ArrayIntersect {
                             let stmt_list: Vec<_> = stmts.body().iter().collect();
                             if stmt_list.len() == 1 {
                                 if let Some(inner_call) = stmt_list[0].as_call_node() {
-                                    let inner_method = std::str::from_utf8(inner_call.name().as_slice()).unwrap_or("");
+                                    let inner_method =
+                                        std::str::from_utf8(inner_call.name().as_slice())
+                                            .unwrap_or("");
                                     if inner_method == "&" {
                                         let loc = node.location();
-                                        let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                        let (line, column) =
+                                            source.offset_to_line_col(loc.start_offset());
                                         let msg = format!(
                                             "Use `intersect?` instead of `({}).{}`.",
-                                            std::str::from_utf8(inner_call.location().as_slice()).unwrap_or("array1 & array2"),
+                                            std::str::from_utf8(inner_call.location().as_slice())
+                                                .unwrap_or("array1 & array2"),
                                             method_name
                                         );
-                                        diagnostics.push(self.diagnostic(source, line, column, msg));
+                                        diagnostics
+                                            .push(self.diagnostic(source, line, column, msg));
                                     }
                                 }
                             }
@@ -74,7 +79,8 @@ impl Cop for ArrayIntersect {
 
                 // Check for a.intersection(b).any? / .empty? / .none?
                 if let Some(recv_call) = receiver.as_call_node() {
-                    let recv_method = std::str::from_utf8(recv_call.name().as_slice()).unwrap_or("");
+                    let recv_method =
+                        std::str::from_utf8(recv_call.name().as_slice()).unwrap_or("");
                     if recv_method == "intersection" {
                         // Must have exactly 1 argument and a receiver
                         if recv_call.receiver().is_some() {
@@ -82,7 +88,8 @@ impl Cop for ArrayIntersect {
                                 let arg_list: Vec<_> = args.arguments().iter().collect();
                                 if arg_list.len() == 1 {
                                     let loc = node.location();
-                                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                    let (line, column) =
+                                        source.offset_to_line_col(loc.start_offset());
                                     let msg = format!(
                                         "Use `intersect?` instead of `intersection(...).{}`.",
                                         method_name
@@ -95,7 +102,6 @@ impl Cop for ArrayIntersect {
                 }
             }
         }
-
     }
 }
 

@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE,
+    REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, SYMBOL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, SYMBOL_NODE};
 
 pub struct CollectionCompact;
 
@@ -11,7 +14,16 @@ impl Cop for CollectionCompact {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, SYMBOL_NODE]
+        &[
+            BLOCK_ARGUMENT_NODE,
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            CALL_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            REQUIRED_PARAMETER_NODE,
+            STATEMENTS_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,10 +32,12 @@ impl Cop for CollectionCompact {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let allowed_receivers = config.get_string_array("AllowedReceivers").unwrap_or_default();
+        let allowed_receivers = config
+            .get_string_array("AllowedReceivers")
+            .unwrap_or_default();
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return,
@@ -59,7 +73,10 @@ impl Cop for CollectionCompact {
                                     source,
                                     line,
                                     column,
-                                    format!("Use `compact{}` instead of `{}(&:nil?)`.", bang, method_name),
+                                    format!(
+                                        "Use `compact{}` instead of `{}(&:nil?)`.",
+                                        bang, method_name
+                                    ),
                                 ));
                             }
                         }
@@ -71,13 +88,18 @@ impl Cop for CollectionCompact {
             if let Some(block) = call.block() {
                 if let Some(block_node) = block.as_block_node() {
                     // Collect all block parameter names
-                    let param_names: Vec<Vec<u8>> = block_node.parameters()
+                    let param_names: Vec<Vec<u8>> = block_node
+                        .parameters()
                         .and_then(|p| p.as_block_parameters_node())
                         .and_then(|bp| bp.parameters())
                         .map(|params| {
-                            params.requireds().iter()
-                                .filter_map(|r| r.as_required_parameter_node()
-                                    .map(|rp| rp.name().as_slice().to_vec()))
+                            params
+                                .requireds()
+                                .iter()
+                                .filter_map(|r| {
+                                    r.as_required_parameter_node()
+                                        .map(|rp| rp.name().as_slice().to_vec())
+                                })
                                 .collect()
                         })
                         .unwrap_or_default();
@@ -88,19 +110,29 @@ impl Cop for CollectionCompact {
                                 let stmts_list: Vec<_> = stmts.body().iter().collect();
                                 if stmts_list.len() == 1 {
                                     if let Some(inner_call) = stmts_list[0].as_call_node() {
-                                        let inner_method = std::str::from_utf8(inner_call.name().as_slice()).unwrap_or("");
+                                        let inner_method =
+                                            std::str::from_utf8(inner_call.name().as_slice())
+                                                .unwrap_or("");
                                         if inner_method == "nil?" {
                                             // Verify the receiver is one of the block parameters directly
                                             // (not a method chain like `notification.target_status.nil?`)
-                                            let receiver_is_param = inner_call.receiver()
+                                            let receiver_is_param = inner_call
+                                                .receiver()
                                                 .and_then(|r| r.as_local_variable_read_node())
-                                                .map(|lv| param_names.iter().any(|p| lv.name().as_slice() == p.as_slice()))
+                                                .map(|lv| {
+                                                    param_names.iter().any(|p| {
+                                                        lv.name().as_slice() == p.as_slice()
+                                                    })
+                                                })
                                                 .unwrap_or(false);
 
                                             if receiver_is_param {
-                                                let bang = if method_name == "reject!" { "!" } else { "" };
-                                                let loc = call.message_loc().unwrap_or(call.location());
-                                                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                                let bang =
+                                                    if method_name == "reject!" { "!" } else { "" };
+                                                let loc =
+                                                    call.message_loc().unwrap_or(call.location());
+                                                let (line, column) =
+                                                    source.offset_to_line_col(loc.start_offset());
                                                 diagnostics.push(self.diagnostic(
                                                     source,
                                                     line,
@@ -117,7 +149,6 @@ impl Cop for CollectionCompact {
                 }
             }
         }
-
     }
 }
 

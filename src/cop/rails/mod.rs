@@ -132,20 +132,26 @@ pub mod unused_render_content;
 pub mod validation;
 pub mod where_equals;
 pub mod where_exists;
-pub mod where_not;
 pub mod where_missing;
+pub mod where_not;
 pub mod where_not_with_multiple_conditions;
 pub mod where_range;
 
 use super::registry::CopRegistry;
 
 pub fn register_all(registry: &mut CopRegistry) {
-    registry.register(Box::new(action_controller_flash_before_render::ActionControllerFlashBeforeRender));
-    registry.register(Box::new(action_controller_test_case::ActionControllerTestCase));
+    registry.register(Box::new(
+        action_controller_flash_before_render::ActionControllerFlashBeforeRender,
+    ));
+    registry.register(Box::new(
+        action_controller_test_case::ActionControllerTestCase,
+    ));
     registry.register(Box::new(action_filter::ActionFilter));
     registry.register(Box::new(action_order::ActionOrder));
     registry.register(Box::new(active_record_aliases::ActiveRecordAliases));
-    registry.register(Box::new(active_record_callbacks_order::ActiveRecordCallbacksOrder));
+    registry.register(Box::new(
+        active_record_callbacks_order::ActiveRecordCallbacksOrder,
+    ));
     registry.register(Box::new(active_record_override::ActiveRecordOverride));
     registry.register(Box::new(active_support_aliases::ActiveSupportAliases));
     registry.register(Box::new(active_support_on_load::ActiveSupportOnLoad));
@@ -157,56 +163,78 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(application_record::ApplicationRecord));
     registry.register(Box::new(arel_star::ArelStar));
     registry.register(Box::new(assert_not::AssertNot));
-    registry.register(Box::new(attribute_default_block_value::AttributeDefaultBlockValue));
+    registry.register(Box::new(
+        attribute_default_block_value::AttributeDefaultBlockValue,
+    ));
     registry.register(Box::new(belongs_to::BelongsTo));
     registry.register(Box::new(blank::Blank));
     registry.register(Box::new(bulk_change_table::BulkChangeTable));
     registry.register(Box::new(compact_blank::CompactBlank));
     registry.register(Box::new(content_tag::ContentTag));
-    registry.register(Box::new(create_table_with_timestamps::CreateTableWithTimestamps));
+    registry.register(Box::new(
+        create_table_with_timestamps::CreateTableWithTimestamps,
+    ));
     registry.register(Box::new(dangerous_column_names::DangerousColumnNames));
     registry.register(Box::new(date::Date));
     registry.register(Box::new(default_scope::DefaultScope));
     registry.register(Box::new(delegate::Delegate));
     registry.register(Box::new(delegate_allow_blank::DelegateAllowBlank));
-    registry.register(Box::new(deprecated_active_model_errors_methods::DeprecatedActiveModelErrorsMethods));
+    registry.register(Box::new(
+        deprecated_active_model_errors_methods::DeprecatedActiveModelErrorsMethods,
+    ));
     registry.register(Box::new(dot_separated_keys::DotSeparatedKeys));
     registry.register(Box::new(duplicate_association::DuplicateAssociation));
     registry.register(Box::new(duplicate_scope::DuplicateScope));
     registry.register(Box::new(duration_arithmetic::DurationArithmetic));
     registry.register(Box::new(dynamic_find_by::DynamicFindBy));
-    registry.register(Box::new(eager_evaluation_log_message::EagerEvaluationLogMessage));
+    registry.register(Box::new(
+        eager_evaluation_log_message::EagerEvaluationLogMessage,
+    ));
     registry.register(Box::new(enum_hash::EnumHash));
     registry.register(Box::new(enum_syntax::EnumSyntax));
     registry.register(Box::new(enum_uniqueness::EnumUniqueness));
     registry.register(Box::new(env::Env));
     registry.register(Box::new(env_local::EnvLocal));
     registry.register(Box::new(environment_comparison::EnvironmentComparison));
-    registry.register(Box::new(environment_variable_access::EnvironmentVariableAccess));
+    registry.register(Box::new(
+        environment_variable_access::EnvironmentVariableAccess,
+    ));
     registry.register(Box::new(exit::Exit));
     registry.register(Box::new(expanded_date_range::ExpandedDateRange));
     registry.register(Box::new(file_path::FilePath));
     registry.register(Box::new(find_by::FindBy));
     registry.register(Box::new(find_by_id::FindById));
-    registry.register(Box::new(find_by_or_assignment_memoization::FindByOrAssignmentMemoization));
+    registry.register(Box::new(
+        find_by_or_assignment_memoization::FindByOrAssignmentMemoization,
+    ));
     registry.register(Box::new(find_each::FindEach));
     registry.register(Box::new(freeze_time::FreezeTime));
     registry.register(Box::new(has_and_belongs_to_many::HasAndBelongsToMany));
-    registry.register(Box::new(has_many_or_has_one_dependent::HasManyOrHasOneDependent));
+    registry.register(Box::new(
+        has_many_or_has_one_dependent::HasManyOrHasOneDependent,
+    ));
     registry.register(Box::new(helper_instance_variable::HelperInstanceVariable));
     registry.register(Box::new(http_positional_arguments::HttpPositionalArguments));
     registry.register(Box::new(http_status::HttpStatus));
-    registry.register(Box::new(http_status_name_consistency::HttpStatusNameConsistency));
+    registry.register(Box::new(
+        http_status_name_consistency::HttpStatusNameConsistency,
+    ));
     registry.register(Box::new(i18n_lazy_lookup::I18nLazyLookup));
     registry.register(Box::new(i18n_locale_assignment::I18nLocaleAssignment));
     registry.register(Box::new(i18n_locale_texts::I18nLocaleTexts));
-    registry.register(Box::new(ignored_columns_assignment::IgnoredColumnsAssignment));
-    registry.register(Box::new(ignored_skip_action_filter_option::IgnoredSkipActionFilterOption));
+    registry.register(Box::new(
+        ignored_columns_assignment::IgnoredColumnsAssignment,
+    ));
+    registry.register(Box::new(
+        ignored_skip_action_filter_option::IgnoredSkipActionFilterOption,
+    ));
     registry.register(Box::new(index_by::IndexBy));
     registry.register(Box::new(index_with::IndexWith));
     registry.register(Box::new(inquiry::Inquiry));
     registry.register(Box::new(inverse_of::InverseOf));
-    registry.register(Box::new(lexically_scoped_action_filter::LexicallyScopedActionFilter));
+    registry.register(Box::new(
+        lexically_scoped_action_filter::LexicallyScopedActionFilter,
+    ));
     registry.register(Box::new(link_to_blank::LinkToBlank));
     registry.register(Box::new(mailer_name::MailerName));
     registry.register(Box::new(match_route::MatchRoute));
@@ -228,11 +256,17 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(rake_environment::RakeEnvironment));
     registry.register(Box::new(read_write_attribute::ReadWriteAttribute));
     registry.register(Box::new(redirect_back_or_to::RedirectBackOrTo));
-    registry.register(Box::new(redundant_active_record_all_method::RedundantActiveRecordAllMethod));
+    registry.register(Box::new(
+        redundant_active_record_all_method::RedundantActiveRecordAllMethod,
+    ));
     registry.register(Box::new(redundant_allow_nil::RedundantAllowNil));
     registry.register(Box::new(redundant_foreign_key::RedundantForeignKey));
-    registry.register(Box::new(redundant_presence_validation_on_belongs_to::RedundantPresenceValidationOnBelongsTo));
-    registry.register(Box::new(redundant_receiver_in_with_options::RedundantReceiverInWithOptions));
+    registry.register(Box::new(
+        redundant_presence_validation_on_belongs_to::RedundantPresenceValidationOnBelongsTo,
+    ));
+    registry.register(Box::new(
+        redundant_receiver_in_with_options::RedundantReceiverInWithOptions,
+    ));
     registry.register(Box::new(redundant_travel_back::RedundantTravelBack));
     registry.register(Box::new(reflection_class_name::ReflectionClassName));
     registry.register(Box::new(refute_methods::RefuteMethods));
@@ -243,12 +277,16 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(require_dependency::RequireDependency));
     registry.register(Box::new(response_parsed_body::ResponseParsedBody));
     registry.register(Box::new(reversible_migration::ReversibleMigration));
-    registry.register(Box::new(reversible_migration_method_definition::ReversibleMigrationMethodDefinition));
+    registry.register(Box::new(
+        reversible_migration_method_definition::ReversibleMigrationMethodDefinition,
+    ));
     registry.register(Box::new(root_join_chain::RootJoinChain));
     registry.register(Box::new(root_pathname_methods::RootPathnameMethods));
     registry.register(Box::new(root_public_path::RootPublicPath));
     registry.register(Box::new(safe_navigation::SafeNavigation));
-    registry.register(Box::new(safe_navigation_with_blank::SafeNavigationWithBlank));
+    registry.register(Box::new(
+        safe_navigation_with_blank::SafeNavigationWithBlank,
+    ));
     registry.register(Box::new(save_bang::SaveBang));
     registry.register(Box::new(schema_comment::SchemaComment));
     registry.register(Box::new(scope_args::ScopeArgs));
@@ -259,15 +297,23 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(strip_heredoc::StripHeredoc));
     registry.register(Box::new(strong_parameters_expect::StrongParametersExpect));
     registry.register(Box::new(table_name_assignment::TableNameAssignment));
-    registry.register(Box::new(three_state_boolean_column::ThreeStateBooleanColumn));
+    registry.register(Box::new(
+        three_state_boolean_column::ThreeStateBooleanColumn,
+    ));
     registry.register(Box::new(time_zone::TimeZone));
     registry.register(Box::new(time_zone_assignment::TimeZoneAssignment));
     registry.register(Box::new(to_formatted_s::ToFormattedS));
     registry.register(Box::new(to_s_with_argument::ToSWithArgument));
-    registry.register(Box::new(top_level_hash_with_indifferent_access::TopLevelHashWithIndifferentAccess));
-    registry.register(Box::new(transaction_exit_statement::TransactionExitStatement));
+    registry.register(Box::new(
+        top_level_hash_with_indifferent_access::TopLevelHashWithIndifferentAccess,
+    ));
+    registry.register(Box::new(
+        transaction_exit_statement::TransactionExitStatement,
+    ));
     registry.register(Box::new(uniq_before_pluck::UniqBeforePluck));
-    registry.register(Box::new(unique_validation_without_index::UniqueValidationWithoutIndex));
+    registry.register(Box::new(
+        unique_validation_without_index::UniqueValidationWithoutIndex,
+    ));
     registry.register(Box::new(unknown_env::UnknownEnv));
     registry.register(Box::new(unused_ignored_columns::UnusedIgnoredColumns));
     registry.register(Box::new(unused_render_content::UnusedRenderContent));
@@ -276,6 +322,8 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(where_exists::WhereExists));
     registry.register(Box::new(where_not::WhereNot));
     registry.register(Box::new(where_missing::WhereMissing));
-    registry.register(Box::new(where_not_with_multiple_conditions::WhereNotWithMultipleConditions));
+    registry.register(Box::new(
+        where_not_with_multiple_conditions::WhereNotWithMultipleConditions,
+    ));
     registry.register(Box::new(where_range::WhereRange));
 }

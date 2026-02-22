@@ -40,7 +40,10 @@ fn is_namespace_only(body: &Option<ruby_prism::Node<'_>>, is_class: bool) -> boo
             return is_constant_declaration(body);
         }
     };
-    stmts.body().iter().all(|node| is_constant_declaration(&node))
+    stmts
+        .body()
+        .iter()
+        .all(|node| is_constant_declaration(&node))
 }
 
 /// Check if a class/module body contains only include/extend/prepend statements.
@@ -59,7 +62,10 @@ fn is_include_statement_only(node: &ruby_prism::Node<'_>) -> bool {
         return true;
     }
     if let Some(stmts) = node.as_statements_node() {
-        return stmts.body().iter().all(|child| is_include_statement_only(&child));
+        return stmts
+            .body()
+            .iter()
+            .all(|child| is_include_statement_only(&child));
     }
     false
 }
@@ -199,8 +205,14 @@ fn is_annotation_or_directive(comment: &str) -> bool {
 }
 
 fn trim_bytes(line: &[u8]) -> &[u8] {
-    let start = line.iter().position(|&b| b != b' ' && b != b'\t').unwrap_or(line.len());
-    let end = line.iter().rposition(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n').map_or(start, |e| e + 1);
+    let start = line
+        .iter()
+        .position(|&b| b != b' ' && b != b'\t')
+        .unwrap_or(line.len());
+    let end = line
+        .iter()
+        .rposition(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
+        .map_or(start, |e| e + 1);
     if end > start { &line[start..end] } else { &[] }
 }
 
@@ -222,7 +234,9 @@ impl Cop for Documentation {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let allowed_constants = config.get_string_array("AllowedConstants").unwrap_or_default();
+        let allowed_constants = config
+            .get_string_array("AllowedConstants")
+            .unwrap_or_default();
 
         let mut visitor = DocumentationVisitor {
             cop: self,
@@ -342,7 +356,10 @@ mod tests {
     fn empty_class_no_offense() {
         let source = b"class Foo\nend\n";
         let diags = run_cop_full(&Documentation, source);
-        assert!(diags.is_empty(), "Empty class should not need documentation");
+        assert!(
+            diags.is_empty(),
+            "Empty class should not need documentation"
+        );
     }
 
     #[test]
@@ -351,91 +368,135 @@ mod tests {
         // See spec: "registers an offense for empty module without documentation"
         let source = b"module Foo\nend\n";
         let diags = run_cop_full(&Documentation, source);
-        assert_eq!(diags.len(), 1, "Empty module should need documentation per RuboCop spec");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Empty module should need documentation per RuboCop spec"
+        );
     }
 
     #[test]
     fn namespace_module_no_offense() {
         let source = b"module Test\n  class A; end\n  class B; end\nend\n";
         let diags = run_cop_full(&Documentation, source);
-        assert!(diags.is_empty(), "Namespace module should not need documentation");
+        assert!(
+            diags.is_empty(),
+            "Namespace module should not need documentation"
+        );
     }
 
     #[test]
     fn namespace_class_no_offense() {
         let source = b"class Test\n  class A; end\n  class B; end\nend\n";
         let diags = run_cop_full(&Documentation, source);
-        assert!(diags.is_empty(), "Namespace class should not need documentation");
+        assert!(
+            diags.is_empty(),
+            "Namespace class should not need documentation"
+        );
     }
 
     #[test]
     fn namespace_with_constants_no_offense() {
         let source = b"class Test\n  A = Class.new\n  B = Class.new\n  D = 1\nend\n";
         let diags = run_cop_full(&Documentation, source);
-        assert!(diags.is_empty(), "Namespace class with constants should not need documentation");
+        assert!(
+            diags.is_empty(),
+            "Namespace class with constants should not need documentation"
+        );
     }
 
     #[test]
     fn nodoc_suppresses() {
         let source = b"class Test #:nodoc:\n  def method\n  end\nend\n";
         let diags = run_cop_full(&Documentation, source);
-        assert!(diags.is_empty(), ":nodoc: should suppress documentation requirement");
+        assert!(
+            diags.is_empty(),
+            ":nodoc: should suppress documentation requirement"
+        );
     }
 
     #[test]
     fn nodoc_with_space() {
         let source = b"class Test # :nodoc:\n  def method\n  end\nend\n";
         let diags = run_cop_full(&Documentation, source);
-        assert!(diags.is_empty(), "# :nodoc: should suppress documentation requirement");
+        assert!(
+            diags.is_empty(),
+            "# :nodoc: should suppress documentation requirement"
+        );
     }
 
     #[test]
     fn nodoc_all_suppresses_inner_classes() {
-        let source = b"module Outer #:nodoc: all\n  class Inner\n    def method\n    end\n  end\nend\n";
+        let source =
+            b"module Outer #:nodoc: all\n  class Inner\n    def method\n    end\n  end\nend\n";
         let diags = run_cop_full(&Documentation, source);
-        assert!(diags.is_empty(), ":nodoc: all should suppress inner classes");
+        assert!(
+            diags.is_empty(),
+            ":nodoc: all should suppress inner classes"
+        );
     }
 
     #[test]
     fn nodoc_all_on_class_suppresses_inner() {
-        let source = b"class Base # :nodoc: all\n  class Helper\n    def method\n    end\n  end\nend\n";
+        let source =
+            b"class Base # :nodoc: all\n  class Helper\n    def method\n    end\n  end\nend\n";
         let diags = run_cop_full(&Documentation, source);
-        assert!(diags.is_empty(), ":nodoc: all on class should suppress inner classes");
+        assert!(
+            diags.is_empty(),
+            ":nodoc: all on class should suppress inner classes"
+        );
     }
 
     #[test]
     fn nodoc_all_deeply_nested() {
         let source = b"module Top #:nodoc: all\n  module Mid\n    class Deep\n      def method\n      end\n    end\n  end\nend\n";
         let diags = run_cop_full(&Documentation, source);
-        assert!(diags.is_empty(), ":nodoc: all should propagate to deeply nested classes");
+        assert!(
+            diags.is_empty(),
+            ":nodoc: all should propagate to deeply nested classes"
+        );
     }
 
     #[test]
     fn include_only_module_no_offense() {
         let source = b"module Foo\n  include Bar\nend\n";
         let diags = run_cop_full(&Documentation, source);
-        assert!(diags.is_empty(), "Module with only include should not need documentation");
+        assert!(
+            diags.is_empty(),
+            "Module with only include should not need documentation"
+        );
     }
 
     #[test]
     fn extend_only_module_no_offense() {
         let source = b"module Foo\n  extend Bar\nend\n";
         let diags = run_cop_full(&Documentation, source);
-        assert!(diags.is_empty(), "Module with only extend should not need documentation");
+        assert!(
+            diags.is_empty(),
+            "Module with only extend should not need documentation"
+        );
     }
 
     #[test]
     fn include_with_methods_needs_docs() {
         let source = b"module Foo\n  include Bar\n  def baz; end\nend\n";
         let diags = run_cop_full(&Documentation, source);
-        assert_eq!(diags.len(), 1, "Module with include AND methods should need documentation");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Module with include AND methods should need documentation"
+        );
     }
 
     #[test]
     fn frozen_string_literal_not_documentation() {
         let source = b"# frozen_string_literal: true\nclass Foo\n  def method\n  end\nend\n";
         let diags = run_cop_full(&Documentation, source);
-        assert_eq!(diags.len(), 1, "frozen_string_literal comment is not documentation");
+        assert_eq!(
+            diags.len(),
+            1,
+            "frozen_string_literal comment is not documentation"
+        );
     }
 
     #[test]
@@ -449,14 +510,21 @@ mod tests {
     fn comment_after_blank_line_not_documentation() {
         let source = b"# Copyright 2024\n\nclass Foo\n  def method\n  end\nend\n";
         let diags = run_cop_full(&Documentation, source);
-        assert_eq!(diags.len(), 1, "Comment separated by blank line is not documentation");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Comment separated by blank line is not documentation"
+        );
     }
 
     #[test]
     fn annotation_followed_by_real_comment_is_documentation() {
         let source = b"# TODO: fix this\n# Class comment.\nclass Foo\n  def method\n  end\nend\n";
         let diags = run_cop_full(&Documentation, source);
-        assert!(diags.is_empty(), "Annotation followed by real comment should count as documentation");
+        assert!(
+            diags.is_empty(),
+            "Annotation followed by real comment should count as documentation"
+        );
     }
 
     #[test]
@@ -471,17 +539,19 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("AllowedConstants".into(), serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("ClassMethods".into()),
-                ])),
-            ]),
+            options: HashMap::from([(
+                "AllowedConstants".into(),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("ClassMethods".into())]),
+            )]),
             ..CopConfig::default()
         };
         // ClassMethods should be exempt
         let source = b"module ClassMethods\n  def method\n  end\nend\n";
         let diags = run_cop_full_with_config(&Documentation, source, config);
-        assert!(diags.is_empty(), "AllowedConstants should exempt ClassMethods");
+        assert!(
+            diags.is_empty(),
+            "AllowedConstants should exempt ClassMethods"
+        );
     }
 
     #[test]
@@ -489,23 +559,30 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("AllowedConstants".into(), serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("ClassMethods".into()),
-                ])),
-            ]),
+            options: HashMap::from([(
+                "AllowedConstants".into(),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("ClassMethods".into())]),
+            )]),
             ..CopConfig::default()
         };
         // Foo is NOT in AllowedConstants, should still be flagged
         let source = b"class Foo\n  def method\n  end\nend\n";
         let diags = run_cop_full_with_config(&Documentation, source, config);
-        assert_eq!(diags.len(), 1, "Non-allowed constant should still be flagged");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Non-allowed constant should still be flagged"
+        );
     }
 
     #[test]
     fn private_constant_namespace_no_offense() {
-        let source = b"module Namespace\n  class Private\n  end\n\n  private_constant :Private\nend\n";
+        let source =
+            b"module Namespace\n  class Private\n  end\n\n  private_constant :Private\nend\n";
         let diags = run_cop_full(&Documentation, source);
-        assert!(diags.is_empty(), "Module with classes and private_constant should not need documentation");
+        assert!(
+            diags.is_empty(),
+            "Module with classes and private_constant should not need documentation"
+        );
     }
 }

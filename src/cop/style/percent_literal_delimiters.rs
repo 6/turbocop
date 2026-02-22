@@ -1,8 +1,12 @@
+use crate::cop::node_type::{
+    ARRAY_NODE, INTERPOLATED_REGULAR_EXPRESSION_NODE, INTERPOLATED_STRING_NODE,
+    INTERPOLATED_SYMBOL_NODE, INTERPOLATED_X_STRING_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE,
+    SYMBOL_NODE, X_STRING_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use std::collections::HashMap;
-use crate::cop::node_type::{ARRAY_NODE, INTERPOLATED_REGULAR_EXPRESSION_NODE, INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, INTERPOLATED_X_STRING_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE, SYMBOL_NODE, X_STRING_NODE};
 
 pub struct PercentLiteralDelimiters;
 
@@ -13,16 +17,16 @@ impl PercentLiteralDelimiters {
         let mut map = HashMap::new();
         // RuboCop vendor defaults
         let defaults: &[(&str, u8, u8)] = &[
-            ("%w",  b'[', b']'),
-            ("%W",  b'[', b']'),
-            ("%i",  b'[', b']'),
-            ("%I",  b'[', b']'),
-            ("%r",  b'{', b'}'),
-            ("%q",  b'(', b')'),
-            ("%Q",  b'(', b')'),
-            ("%s",  b'(', b')'),
-            ("%x",  b'(', b')'),
-            ("%",   b'(', b')'),
+            ("%w", b'[', b']'),
+            ("%W", b'[', b']'),
+            ("%i", b'[', b']'),
+            ("%I", b'[', b']'),
+            ("%r", b'{', b'}'),
+            ("%q", b'(', b')'),
+            ("%Q", b'(', b')'),
+            ("%s", b'(', b')'),
+            ("%x", b'(', b')'),
+            ("%", b'(', b')'),
         ];
         for &(key, open, close) in defaults {
             map.insert(key.to_string(), (open, close));
@@ -64,7 +68,10 @@ impl PercentLiteralDelimiters {
         }
         let second = open_bytes[1];
         // Check for %w, %W, %i, %I, %q, %Q, %r, %s, %x
-        if matches!(second, b'w' | b'W' | b'i' | b'I' | b'q' | b'Q' | b'r' | b's' | b'x') {
+        if matches!(
+            second,
+            b'w' | b'W' | b'i' | b'I' | b'q' | b'Q' | b'r' | b's' | b'x'
+        ) {
             if open_bytes.len() >= 3 {
                 let literal_type = format!("%{}", second as char);
                 let delimiter = open_bytes[2];
@@ -87,7 +94,17 @@ impl Cop for PercentLiteralDelimiters {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ARRAY_NODE, INTERPOLATED_REGULAR_EXPRESSION_NODE, INTERPOLATED_STRING_NODE, INTERPOLATED_SYMBOL_NODE, INTERPOLATED_X_STRING_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE, SYMBOL_NODE, X_STRING_NODE]
+        &[
+            ARRAY_NODE,
+            INTERPOLATED_REGULAR_EXPRESSION_NODE,
+            INTERPOLATED_STRING_NODE,
+            INTERPOLATED_SYMBOL_NODE,
+            INTERPOLATED_X_STRING_NODE,
+            REGULAR_EXPRESSION_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+            X_STRING_NODE,
+        ]
     }
 
     fn check_node(
@@ -96,8 +113,8 @@ impl Cop for PercentLiteralDelimiters {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let preferred = Self::preferred_delimiters(config);
 
@@ -181,12 +198,14 @@ impl Cop for PercentLiteralDelimiters {
                 ),
             ));
         }
-
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(PercentLiteralDelimiters, "cops/style/percent_literal_delimiters");
+    crate::cop_fixture_tests!(
+        PercentLiteralDelimiters,
+        "cops/style/percent_literal_delimiters"
+    );
 }

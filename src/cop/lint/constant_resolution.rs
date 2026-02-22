@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 
 /// Checks that certain constants are fully qualified.
 /// Disabled by default; useful for gems to avoid conflicts.
@@ -26,8 +26,8 @@ impl Cop for ConstantResolution {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check for unqualified constant (no parent scope, just `Foo` not `::Foo`)
         // ConstantPathNode (qualified like Foo::Bar or ::Foo) is already resolved,

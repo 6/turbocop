@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE, FLOAT_NODE, IF_NODE,
+    INTEGER_NODE, NIL_NODE, OR_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE, FLOAT_NODE, IF_NODE, INTEGER_NODE, NIL_NODE, OR_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE};
 
 pub struct CaseLikeIf;
 
@@ -11,7 +14,21 @@ impl Cop for CaseLikeIf {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE, FLOAT_NODE, IF_NODE, INTEGER_NODE, NIL_NODE, OR_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE]
+        &[
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            FALSE_NODE,
+            FLOAT_NODE,
+            IF_NODE,
+            INTEGER_NODE,
+            NIL_NODE,
+            OR_NODE,
+            REGULAR_EXPRESSION_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+            TRUE_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +37,8 @@ impl Cop for CaseLikeIf {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let min_branches = config.get_usize("MinBranchesCount", 3);
 
@@ -74,7 +91,10 @@ impl Cop for CaseLikeIf {
                 for pred in &predicates[1..] {
                     match get_comparison_operands(pred) {
                         Some(ops) if ops.contains(candidate) => {}
-                        _ => { all_match = false; break; }
+                        _ => {
+                            all_match = false;
+                            break;
+                        }
                     }
                 }
                 if all_match {
@@ -123,7 +143,11 @@ fn is_const_reference(node: &ruby_prism::Node<'_>) -> bool {
         let name = c.name().as_slice();
         // Name must be > 1 char, entirely uppercase/digits/underscores,
         // and must equal its uppercase form (no lowercase letters)
-        if name.len() > 1 && name.iter().all(|&b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_') {
+        if name.len() > 1
+            && name
+                .iter()
+                .all(|&b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+        {
             return true;
         }
     }

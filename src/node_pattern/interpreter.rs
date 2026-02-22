@@ -484,13 +484,9 @@ fn matches_node(pattern: &PatternNode, node: &ruby_prism::Node<'_>) -> bool {
         PatternNode::TrueLiteral => node.as_true_node().is_some(),
         PatternNode::FalseLiteral => node.as_false_node().is_some(),
 
-        PatternNode::TypePredicate(typ) => {
-            parser_type_for_node(node) == Some(typ.as_str())
-        }
+        PatternNode::TypePredicate(typ) => parser_type_for_node(node) == Some(typ.as_str()),
 
-        PatternNode::Ident(name) => {
-            parser_type_for_node(node) == Some(name.as_str())
-        }
+        PatternNode::Ident(name) => parser_type_for_node(node) == Some(name.as_str()),
 
         PatternNode::NodeMatch {
             node_type,
@@ -512,10 +508,7 @@ fn matches_node(pattern: &PatternNode, node: &ruby_prism::Node<'_>) -> bool {
                     }
                     "sym" => {
                         if let Some(sym) = node.as_symbol_node() {
-                            return matches_name(
-                                &pattern_children[0],
-                                &*sym.unescaped(),
-                            );
+                            return matches_name(&pattern_children[0], &*sym.unescaped());
                         }
                         return false;
                     }
@@ -733,10 +726,7 @@ mod tests {
         let result = ruby_prism::parse(source);
         let node = first_stmt(&result);
 
-        assert!(interpret_pattern(
-            "(send (send _ :where) :first)",
-            &node
-        ));
+        assert!(interpret_pattern("(send (send _ :where) :first)", &node));
     }
 
     #[test]

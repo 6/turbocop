@@ -1,7 +1,7 @@
+use crate::cop::node_type::{INTERPOLATED_STRING_NODE, STRING_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{INTERPOLATED_STRING_NODE, STRING_NODE};
 
 pub struct HeredocIndentation;
 
@@ -20,24 +20,23 @@ impl Cop for HeredocIndentation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check StringNode and InterpolatedStringNode for heredoc openings.
-        let (opening_loc, closing_loc, raw_content_start) =
-            if let Some(s) = node.as_string_node() {
-                match (s.opening_loc(), s.closing_loc()) {
-                    (Some(o), Some(c)) => (o, c, Some(s.content_loc().start_offset())),
-                    _ => return,
-                }
-            } else if let Some(s) = node.as_interpolated_string_node() {
-                match (s.opening_loc(), s.closing_loc()) {
-                    (Some(o), Some(c)) => (o, c, None),
-                    _ => return,
-                }
-            } else {
-                return;
-            };
+        let (opening_loc, closing_loc, raw_content_start) = if let Some(s) = node.as_string_node() {
+            match (s.opening_loc(), s.closing_loc()) {
+                (Some(o), Some(c)) => (o, c, Some(s.content_loc().start_offset())),
+                _ => return,
+            }
+        } else if let Some(s) = node.as_interpolated_string_node() {
+            match (s.opening_loc(), s.closing_loc()) {
+                (Some(o), Some(c)) => (o, c, None),
+                _ => return,
+            }
+        } else {
+            return;
+        };
 
         let src_bytes = source.as_bytes();
 
@@ -84,7 +83,11 @@ impl Cop for HeredocIndentation {
                 while start < src_bytes.len() && src_bytes[start] != b'\n' {
                     start += 1;
                 }
-                if start < src_bytes.len() { start + 1 } else { start }
+                if start < src_bytes.len() {
+                    start + 1
+                } else {
+                    start
+                }
             }
         } else {
             // Fallback: scan forward from opening
@@ -92,7 +95,11 @@ impl Cop for HeredocIndentation {
             while start < src_bytes.len() && src_bytes[start] != b'\n' {
                 start += 1;
             }
-            if start < src_bytes.len() { start + 1 } else { start }
+            if start < src_bytes.len() {
+                start + 1
+            } else {
+                start
+            }
         };
 
         if content_start >= content_end {
@@ -120,7 +127,10 @@ impl Cop for HeredocIndentation {
 
         // Get heredoc body content
         let body = &bytes[content_start..content_end];
-        if body.iter().all(|&b| b == b' ' || b == b'\t' || b == b'\n' || b == b'\r') {
+        if body
+            .iter()
+            .all(|&b| b == b' ' || b == b'\t' || b == b'\n' || b == b'\r')
+        {
             return; // Empty body
         }
 
@@ -190,7 +200,6 @@ impl Cop for HeredocIndentation {
                 ));
             }
         }
-
     }
 }
 
@@ -200,10 +209,14 @@ fn is_squish_heredoc(bytes: &[u8], opening_end: usize) -> bool {
         return false;
     }
     let rest = &bytes[opening_end..];
-    rest.starts_with(b".squish!") || rest.starts_with(b".squish)")
-        || rest.starts_with(b".squish\n") || rest.starts_with(b".squish\r")
+    rest.starts_with(b".squish!")
+        || rest.starts_with(b".squish)")
+        || rest.starts_with(b".squish\n")
+        || rest.starts_with(b".squish\r")
         || rest.starts_with(b".squish ")
-        || (rest.len() >= 7 && &rest[..7] == b".squish" && (rest.len() == 7 || !rest[7].is_ascii_alphanumeric()))
+        || (rest.len() >= 7
+            && &rest[..7] == b".squish"
+            && (rest.len() == 7 || !rest[7].is_ascii_alphanumeric()))
 }
 
 /// Get the indentation level of the line where the heredoc opening appears.

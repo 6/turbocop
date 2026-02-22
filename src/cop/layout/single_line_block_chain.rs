@@ -1,7 +1,7 @@
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, LAMBDA_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, LAMBDA_NODE};
 
 pub struct SingleLineBlockChain;
 
@@ -20,8 +20,8 @@ impl Cop for SingleLineBlockChain {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // We are looking for: receiver.method where receiver is a single-line block
         // e.g. example.select { |item| item.cond? }.join('-')
@@ -44,15 +44,16 @@ impl Cop for SingleLineBlockChain {
             None => return,
         };
 
-        let (block_open_line, block_close_line) = if let Some(recv_call) = receiver.as_call_node()
-        {
+        let (block_open_line, block_close_line) = if let Some(recv_call) = receiver.as_call_node() {
             // Check if the receiver call has a block
             if let Some(block_ref) = recv_call.block() {
                 if let Some(block) = block_ref.as_block_node() {
-                    let open_line =
-                        source.offset_to_line_col(block.opening_loc().start_offset()).0;
-                    let close_line =
-                        source.offset_to_line_col(block.closing_loc().start_offset()).0;
+                    let open_line = source
+                        .offset_to_line_col(block.opening_loc().start_offset())
+                        .0;
+                    let close_line = source
+                        .offset_to_line_col(block.closing_loc().start_offset())
+                        .0;
                     (open_line, close_line)
                 } else {
                     return;
@@ -61,8 +62,12 @@ impl Cop for SingleLineBlockChain {
                 return;
             }
         } else if let Some(lambda) = receiver.as_lambda_node() {
-            let open_line = source.offset_to_line_col(lambda.opening_loc().start_offset()).0;
-            let close_line = source.offset_to_line_col(lambda.closing_loc().start_offset()).0;
+            let open_line = source
+                .offset_to_line_col(lambda.opening_loc().start_offset())
+                .0;
+            let close_line = source
+                .offset_to_line_col(lambda.closing_loc().start_offset())
+                .0;
             (open_line, close_line)
         } else {
             return;
@@ -115,8 +120,5 @@ impl Cop for SingleLineBlockChain {
 mod tests {
     use super::*;
 
-    crate::cop_fixture_tests!(
-        SingleLineBlockChain,
-        "cops/layout/single_line_block_chain"
-    );
+    crate::cop_fixture_tests!(SingleLineBlockChain, "cops/layout/single_line_block_chain");
 }

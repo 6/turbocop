@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 
 pub struct YAMLFileRead;
 
@@ -23,8 +23,8 @@ impl Cop for YAMLFileRead {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -45,7 +45,8 @@ impl Cop for YAMLFileRead {
         let is_yaml = if let Some(c) = receiver.as_constant_read_node() {
             c.name().as_slice() == b"YAML"
         } else if let Some(cp) = receiver.as_constant_path_node() {
-            let bytes = &source.as_bytes()[cp.location().start_offset()..cp.location().end_offset()];
+            let bytes =
+                &source.as_bytes()[cp.location().start_offset()..cp.location().end_offset()];
             bytes == b"YAML" || bytes == b"::YAML"
         } else {
             false
@@ -72,7 +73,8 @@ impl Cop for YAMLFileRead {
                     if let Some(c) = arg_recv.as_constant_read_node() {
                         c.name().as_slice() == b"File"
                     } else if let Some(cp) = arg_recv.as_constant_path_node() {
-                        let bytes = &source.as_bytes()[cp.location().start_offset()..cp.location().end_offset()];
+                        let bytes = &source.as_bytes()
+                            [cp.location().start_offset()..cp.location().end_offset()];
                         bytes == b"File" || bytes == b"::File"
                     } else {
                         false

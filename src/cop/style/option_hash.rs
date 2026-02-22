@@ -17,18 +17,20 @@ impl Cop for OptionHash {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let suspicious_names = config
             .get_string_array("SuspiciousParamNames")
-            .unwrap_or_else(|| vec![
-                "options".to_string(),
-                "opts".to_string(),
-                "args".to_string(),
-                "params".to_string(),
-                "parameters".to_string(),
-            ]);
+            .unwrap_or_else(|| {
+                vec![
+                    "options".to_string(),
+                    "opts".to_string(),
+                    "args".to_string(),
+                    "params".to_string(),
+                    "parameters".to_string(),
+                ]
+            });
         let _allowlist = config.get_string_array("Allowlist");
 
         let mut visitor = OptionHashVisitor {
@@ -60,7 +62,8 @@ impl<'pr> Visit<'pr> for OptionHashVisitor<'_> {
                     if self.suspicious_names.iter().any(|s| s == name_str) {
                         // Check if default value is a hash
                         let value = opt_param.value();
-                        if value.as_hash_node().is_some() || value.as_keyword_hash_node().is_some() {
+                        if value.as_hash_node().is_some() || value.as_keyword_hash_node().is_some()
+                        {
                             let loc = opt_param.location();
                             let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                             self.diagnostics.push(self.cop.diagnostic(

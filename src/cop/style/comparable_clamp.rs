@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, ELSE_NODE, IF_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, ELSE_NODE, IF_NODE};
 
 pub struct ComparableClamp;
 
@@ -20,8 +20,8 @@ impl Cop for ComparableClamp {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Pattern: if x < low then low elsif x > high then high else x end
         // (or with > / reversed operand positions)
@@ -108,8 +108,14 @@ impl Cop for ComparableClamp {
         // The if body must be one bound, the elsif body the other.
         // Each condition must compare x with the respective bound.
         let is_clamp = is_clamp_pattern(
-            &f_left, f_op, &f_right, &if_body_src,
-            &s_left, s_op, &s_right, &elsif_body_src,
+            &f_left,
+            f_op,
+            &f_right,
+            &if_body_src,
+            &s_left,
+            s_op,
+            &s_right,
+            &elsif_body_src,
             &else_body_src,
         );
 
@@ -123,12 +129,14 @@ impl Cop for ComparableClamp {
                 "Use `clamp` instead of `if/elsif/else`.".to_string(),
             ));
         }
-
     }
 }
 
 /// Get source text of a single statement in a StatementsNode.
-fn get_single_stmt_src(stmts: Option<ruby_prism::StatementsNode<'_>>, source: &SourceFile) -> Option<String> {
+fn get_single_stmt_src(
+    stmts: Option<ruby_prism::StatementsNode<'_>>,
+    source: &SourceFile,
+) -> Option<String> {
     let stmts = stmts?;
     let body: Vec<_> = stmts.body().iter().collect();
     if body.len() != 1 {
@@ -172,8 +180,14 @@ fn get_comparison(node: &ruby_prism::Node<'_>) -> Option<(String, u8, String)> {
 /// Pattern: if (x < min) then min elsif (x > max) then max else x end
 /// (or with reversed operands / operators)
 fn is_clamp_pattern(
-    f_left: &str, f_op: u8, f_right: &str, if_body: &str,
-    s_left: &str, s_op: u8, s_right: &str, elsif_body: &str,
+    f_left: &str,
+    f_op: u8,
+    f_right: &str,
+    if_body: &str,
+    s_left: &str,
+    s_op: u8,
+    s_right: &str,
+    elsif_body: &str,
     else_body: &str,
 ) -> bool {
     // Determine x and bound from first condition

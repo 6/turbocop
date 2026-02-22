@@ -1,49 +1,120 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct RootPathnameMethods;
 
 const FILE_METHODS: &[&[u8]] = &[
-    b"read", b"write", b"binread", b"binwrite", b"readlines",
-    b"exist?", b"exists?", b"directory?", b"file?",
-    b"empty?", b"size", b"delete", b"unlink",
-    b"open", b"expand_path", b"realpath", b"realdirpath",
-    b"basename", b"dirname", b"extname", b"join",
-    b"stat", b"lstat", b"ftype", b"atime", b"ctime", b"mtime",
-    b"readable?", b"writable?", b"executable?",
-    b"symlink?", b"pipe?", b"socket?",
-    b"zero?", b"size?", b"owned?", b"grpowned?",
-    b"chmod", b"chown", b"truncate", b"rename", b"split",
-    b"fnmatch", b"fnmatch?",
-    b"blockdev?", b"chardev?", b"setuid?", b"setgid?", b"sticky?",
-    b"readable_real?", b"writable_real?", b"executable_real?",
-    b"world_readable?", b"world_writable?",
-    b"readlink", b"sysopen", b"birthtime",
-    b"lchmod", b"lchown", b"utime",
+    b"read",
+    b"write",
+    b"binread",
+    b"binwrite",
+    b"readlines",
+    b"exist?",
+    b"exists?",
+    b"directory?",
+    b"file?",
+    b"empty?",
+    b"size",
+    b"delete",
+    b"unlink",
+    b"open",
+    b"expand_path",
+    b"realpath",
+    b"realdirpath",
+    b"basename",
+    b"dirname",
+    b"extname",
+    b"join",
+    b"stat",
+    b"lstat",
+    b"ftype",
+    b"atime",
+    b"ctime",
+    b"mtime",
+    b"readable?",
+    b"writable?",
+    b"executable?",
+    b"symlink?",
+    b"pipe?",
+    b"socket?",
+    b"zero?",
+    b"size?",
+    b"owned?",
+    b"grpowned?",
+    b"chmod",
+    b"chown",
+    b"truncate",
+    b"rename",
+    b"split",
+    b"fnmatch",
+    b"fnmatch?",
+    b"blockdev?",
+    b"chardev?",
+    b"setuid?",
+    b"setgid?",
+    b"sticky?",
+    b"readable_real?",
+    b"writable_real?",
+    b"executable_real?",
+    b"world_readable?",
+    b"world_writable?",
+    b"readlink",
+    b"sysopen",
+    b"birthtime",
+    b"lchmod",
+    b"lchown",
+    b"utime",
 ];
 
 const DIR_METHODS: &[&[u8]] = &[
-    b"glob", b"[]", b"exist?", b"exists?", b"mkdir", b"rmdir",
-    b"children", b"each_child", b"entries", b"empty?",
-    b"open", b"delete", b"unlink",
+    b"glob",
+    b"[]",
+    b"exist?",
+    b"exists?",
+    b"mkdir",
+    b"rmdir",
+    b"children",
+    b"each_child",
+    b"entries",
+    b"empty?",
+    b"open",
+    b"delete",
+    b"unlink",
 ];
 
 const FILE_TEST_METHODS: &[&[u8]] = &[
-    b"blockdev?", b"chardev?", b"directory?", b"empty?",
-    b"executable?", b"executable_real?", b"exist?", b"file?",
-    b"grpowned?", b"owned?", b"pipe?", b"readable?",
-    b"readable_real?", b"setgid?", b"setuid?", b"size", b"size?",
-    b"socket?", b"sticky?", b"symlink?",
-    b"world_readable?", b"world_writable?",
-    b"writable?", b"writable_real?", b"zero?",
+    b"blockdev?",
+    b"chardev?",
+    b"directory?",
+    b"empty?",
+    b"executable?",
+    b"executable_real?",
+    b"exist?",
+    b"file?",
+    b"grpowned?",
+    b"owned?",
+    b"pipe?",
+    b"readable?",
+    b"readable_real?",
+    b"setgid?",
+    b"setuid?",
+    b"size",
+    b"size?",
+    b"socket?",
+    b"sticky?",
+    b"symlink?",
+    b"world_readable?",
+    b"world_writable?",
+    b"writable?",
+    b"writable_real?",
+    b"zero?",
 ];
 
-const FILE_UTILS_METHODS: &[&[u8]] = &[
-    b"chmod", b"chown", b"mkdir", b"mkpath", b"rmdir", b"rmtree",
-];
+const FILE_UTILS_METHODS: &[&[u8]] =
+    &[b"chmod", b"chown", b"mkdir", b"mkpath", b"rmdir", b"rmtree"];
 
 impl Cop for RootPathnameMethods {
     fn name(&self) -> &'static str {
@@ -64,8 +135,8 @@ impl Cop for RootPathnameMethods {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -134,7 +205,6 @@ impl Cop for RootPathnameMethods {
                 ));
             }
         }
-
     }
 }
 

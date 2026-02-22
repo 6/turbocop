@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTERPOLATED_REGULAR_EXPRESSION_NODE,
+    REGULAR_EXPRESSION_NODE, SELF_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTERPOLATED_REGULAR_EXPRESSION_NODE, REGULAR_EXPRESSION_NODE, SELF_NODE};
 
 pub struct CaseEquality;
 
@@ -11,7 +14,14 @@ impl Cop for CaseEquality {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTERPOLATED_REGULAR_EXPRESSION_NODE, REGULAR_EXPRESSION_NODE, SELF_NODE]
+        &[
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            INTERPOLATED_REGULAR_EXPRESSION_NODE,
+            REGULAR_EXPRESSION_NODE,
+            SELF_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +30,8 @@ impl Cop for CaseEquality {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_on_constant = config.get_bool("AllowOnConstant", false);
         let allow_on_self_class = config.get_bool("AllowOnSelfClass", false);
@@ -68,7 +78,9 @@ impl Cop for CaseEquality {
             }
         }
 
-        let msg_loc = call_node.message_loc().unwrap_or_else(|| call_node.location());
+        let msg_loc = call_node
+            .message_loc()
+            .unwrap_or_else(|| call_node.location());
         let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,

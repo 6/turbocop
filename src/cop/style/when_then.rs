@@ -1,7 +1,7 @@
+use crate::cop::node_type::WHEN_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::WHEN_NODE;
 
 pub struct WhenThen;
 
@@ -20,8 +20,8 @@ impl Cop for WhenThen {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let when_node = match node.as_when_node() {
             Some(w) => w,
@@ -34,7 +34,11 @@ impl Cop for WhenThen {
             if text == b"then" || text == b";" {
                 // If it's "then", it's OK. If Prism reports ";", flag it.
                 if text == b";" {
-                    diagnostics.extend(self.flag_semicolon(source, &when_node, then_loc.start_offset()));
+                    diagnostics.extend(self.flag_semicolon(
+                        source,
+                        &when_node,
+                        then_loc.start_offset(),
+                    ));
                 }
                 return;
             }
@@ -58,7 +62,8 @@ impl Cop for WhenThen {
         }
 
         let last_condition = &conditions[conditions.len() - 1];
-        let last_cond_end = last_condition.location().start_offset() + last_condition.location().as_slice().len();
+        let last_cond_end =
+            last_condition.location().start_offset() + last_condition.location().as_slice().len();
         let first_body_start = body_nodes[0].location().start_offset();
 
         // Check source bytes between end of conditions and start of body for a semicolon
@@ -69,7 +74,6 @@ impl Cop for WhenThen {
             let abs_offset = last_cond_end + semi_offset;
             diagnostics.extend(self.flag_semicolon(source, &when_node, abs_offset));
         }
-
     }
 }
 

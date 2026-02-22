@@ -1,23 +1,60 @@
+use crate::cop::node_type::{CALL_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE};
 
 pub struct RedundantSelfAssignment;
 
 /// In-place modification methods where `x = x.method` is redundant
 const INPLACE_METHODS: &[&[u8]] = &[
-    b"map!", b"collect!", b"flat_map!", b"collect_concat!",
-    b"compact!", b"flatten!", b"reject!", b"select!", b"filter!",
-    b"sort!", b"sort_by!", b"uniq!", b"reverse!", b"rotate!",
-    b"shuffle!", b"slice!", b"delete_if!", b"keep_if!",
-    b"gsub!", b"sub!", b"chomp!", b"chop!", b"strip!", b"lstrip!", b"rstrip!",
-    b"squeeze!", b"tr!", b"tr_s!", b"delete!", b"downcase!", b"upcase!",
-    b"swapcase!", b"capitalize!", b"encode!", b"unicode_normalize!",
-    b"scrub!", b"replace",
-    b"merge!", b"update", b"reject!", b"select!", b"filter!",
-    b"transform_keys!", b"transform_values!",
-    b"push", b"append", b"prepend", b"concat",
+    b"map!",
+    b"collect!",
+    b"flat_map!",
+    b"collect_concat!",
+    b"compact!",
+    b"flatten!",
+    b"reject!",
+    b"select!",
+    b"filter!",
+    b"sort!",
+    b"sort_by!",
+    b"uniq!",
+    b"reverse!",
+    b"rotate!",
+    b"shuffle!",
+    b"slice!",
+    b"delete_if!",
+    b"keep_if!",
+    b"gsub!",
+    b"sub!",
+    b"chomp!",
+    b"chop!",
+    b"strip!",
+    b"lstrip!",
+    b"rstrip!",
+    b"squeeze!",
+    b"tr!",
+    b"tr_s!",
+    b"delete!",
+    b"downcase!",
+    b"upcase!",
+    b"swapcase!",
+    b"capitalize!",
+    b"encode!",
+    b"unicode_normalize!",
+    b"scrub!",
+    b"replace",
+    b"merge!",
+    b"update",
+    b"reject!",
+    b"select!",
+    b"filter!",
+    b"transform_keys!",
+    b"transform_values!",
+    b"push",
+    b"append",
+    b"prepend",
+    b"concat",
     b"clear",
 ];
 
@@ -27,7 +64,11 @@ impl Cop for RedundantSelfAssignment {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE]
+        &[
+            CALL_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            LOCAL_VARIABLE_WRITE_NODE,
+        ]
     }
 
     fn check_node(
@@ -36,8 +77,8 @@ impl Cop for RedundantSelfAssignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for `x = x.method!` patterns
         let write = match node.as_local_variable_write_node() {
@@ -93,5 +134,8 @@ impl Cop for RedundantSelfAssignment {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(RedundantSelfAssignment, "cops/style/redundant_self_assignment");
+    crate::cop_fixture_tests!(
+        RedundantSelfAssignment,
+        "cops/style/redundant_self_assignment"
+    );
 }

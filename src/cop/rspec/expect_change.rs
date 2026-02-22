@@ -1,8 +1,11 @@
+use crate::cop::node_type::{
+    BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INSTANCE_VARIABLE_READ_NODE,
+    LOCAL_VARIABLE_READ_NODE, STATEMENTS_NODE, SYMBOL_NODE,
+};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INSTANCE_VARIABLE_READ_NODE, LOCAL_VARIABLE_READ_NODE, STATEMENTS_NODE, SYMBOL_NODE};
 
 pub struct ExpectChange;
 
@@ -20,7 +23,16 @@ impl Cop for ExpectChange {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INSTANCE_VARIABLE_READ_NODE, LOCAL_VARIABLE_READ_NODE, STATEMENTS_NODE, SYMBOL_NODE]
+        &[
+            BLOCK_NODE,
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            INSTANCE_VARIABLE_READ_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            STATEMENTS_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -29,8 +41,8 @@ impl Cop for ExpectChange {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: EnforcedStyle — "method_call" (default) or "block"
         let enforced_style = config.get_str("EnforcedStyle", "method_call");
@@ -145,10 +157,9 @@ impl Cop for ExpectChange {
         }
 
         let recv_loc = recv.location();
-        let recv_text = std::str::from_utf8(
-            &source.as_bytes()[recv_loc.start_offset()..recv_loc.end_offset()],
-        )
-        .unwrap_or("");
+        let recv_text =
+            std::str::from_utf8(&source.as_bytes()[recv_loc.start_offset()..recv_loc.end_offset()])
+                .unwrap_or("");
         let method = std::str::from_utf8(inner_call.name().as_slice()).unwrap_or("");
 
         let loc = call.location();

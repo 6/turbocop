@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::cop::util::{is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -27,8 +27,8 @@ impl Cop for InstanceVariable {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: AssignmentOnly — when true, only flag reads of ivars that are
         // also assigned within the same top-level example group. When false (default),
@@ -214,8 +214,12 @@ fn is_dynamic_class_call(call: &ruby_prism::CallNode<'_>) -> bool {
     // Also check class_eval, module_eval, instance_eval, *_exec
     matches!(
         method,
-        b"class_eval" | b"module_eval" | b"instance_eval"
-            | b"class_exec" | b"module_exec" | b"instance_exec"
+        b"class_eval"
+            | b"module_eval"
+            | b"instance_eval"
+            | b"class_exec"
+            | b"module_exec"
+            | b"instance_exec"
     )
 }
 
@@ -321,10 +325,7 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([(
-                "AssignmentOnly".into(),
-                serde_yml::Value::Bool(true),
-            )]),
+            options: HashMap::from([("AssignmentOnly".into(), serde_yml::Value::Bool(true))]),
             ..CopConfig::default()
         };
         // @bar is read but never assigned — should not be flagged in AssignmentOnly mode
@@ -342,10 +343,7 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([(
-                "AssignmentOnly".into(),
-                serde_yml::Value::Bool(true),
-            )]),
+            options: HashMap::from([("AssignmentOnly".into(), serde_yml::Value::Bool(true))]),
             ..CopConfig::default()
         };
         // @foo is assigned in before and read in it — should be flagged

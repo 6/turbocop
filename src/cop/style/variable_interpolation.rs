@@ -17,8 +17,8 @@ impl Cop for VariableInterpolation {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = VarInterpVisitor {
             cop: self,
@@ -42,7 +42,8 @@ impl VarInterpVisitor<'_> {
             // Embedded variable nodes represent #@var, #@@var, #$var without braces
             if let Some(ev) = part.as_embedded_variable_node() {
                 let var = ev.variable();
-                let var_bytes = &self.source.as_bytes()[var.location().start_offset()..var.location().end_offset()];
+                let var_bytes = &self.source.as_bytes()
+                    [var.location().start_offset()..var.location().end_offset()];
                 let var_str = String::from_utf8_lossy(var_bytes);
 
                 let loc = var.location();
@@ -67,7 +68,10 @@ impl<'pr> Visit<'pr> for VarInterpVisitor<'_> {
         ruby_prism::visit_interpolated_string_node(self, node);
     }
 
-    fn visit_interpolated_regular_expression_node(&mut self, node: &ruby_prism::InterpolatedRegularExpressionNode<'pr>) {
+    fn visit_interpolated_regular_expression_node(
+        &mut self,
+        node: &ruby_prism::InterpolatedRegularExpressionNode<'pr>,
+    ) {
         self.check_parts(node.parts());
         ruby_prism::visit_interpolated_regular_expression_node(self, node);
     }
@@ -77,7 +81,10 @@ impl<'pr> Visit<'pr> for VarInterpVisitor<'_> {
         ruby_prism::visit_interpolated_symbol_node(self, node);
     }
 
-    fn visit_interpolated_x_string_node(&mut self, node: &ruby_prism::InterpolatedXStringNode<'pr>) {
+    fn visit_interpolated_x_string_node(
+        &mut self,
+        node: &ruby_prism::InterpolatedXStringNode<'pr>,
+    ) {
         self.check_parts(node.parts());
         ruby_prism::visit_interpolated_x_string_node(self, node);
     }

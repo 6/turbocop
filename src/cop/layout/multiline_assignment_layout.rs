@@ -1,7 +1,11 @@
+use crate::cop::node_type::{
+    BEGIN_NODE, BLOCK_NODE, CASE_MATCH_NODE, CASE_NODE, CLASS_NODE, CLASS_VARIABLE_WRITE_NODE,
+    CONSTANT_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE,
+    LAMBDA_NODE, LOCAL_VARIABLE_WRITE_NODE, MODULE_NODE, UNLESS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BEGIN_NODE, BLOCK_NODE, CASE_MATCH_NODE, CASE_NODE, CLASS_NODE, CLASS_VARIABLE_WRITE_NODE, CONSTANT_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, LAMBDA_NODE, LOCAL_VARIABLE_WRITE_NODE, MODULE_NODE, UNLESS_NODE};
 
 pub struct MultilineAssignmentLayout;
 
@@ -46,7 +50,22 @@ impl Cop for MultilineAssignmentLayout {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BEGIN_NODE, BLOCK_NODE, CASE_MATCH_NODE, CASE_NODE, CLASS_NODE, CLASS_VARIABLE_WRITE_NODE, CONSTANT_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, LAMBDA_NODE, LOCAL_VARIABLE_WRITE_NODE, MODULE_NODE, UNLESS_NODE]
+        &[
+            BEGIN_NODE,
+            BLOCK_NODE,
+            CASE_MATCH_NODE,
+            CASE_NODE,
+            CLASS_NODE,
+            CLASS_VARIABLE_WRITE_NODE,
+            CONSTANT_WRITE_NODE,
+            GLOBAL_VARIABLE_WRITE_NODE,
+            IF_NODE,
+            INSTANCE_VARIABLE_WRITE_NODE,
+            LAMBDA_NODE,
+            LOCAL_VARIABLE_WRITE_NODE,
+            MODULE_NODE,
+            UNLESS_NODE,
+        ]
     }
 
     fn check_node(
@@ -55,8 +74,8 @@ impl Cop for MultilineAssignmentLayout {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "new_line");
         let supported_types = config
@@ -92,9 +111,8 @@ impl Cop for MultilineAssignmentLayout {
         }
 
         let (value_start_line, _) = source.offset_to_line_col(value.location().start_offset());
-        let (value_end_line, _) = source.offset_to_line_col(
-            value.location().end_offset().saturating_sub(1),
-        );
+        let (value_end_line, _) =
+            source.offset_to_line_col(value.location().end_offset().saturating_sub(1));
 
         // Only check multi-line RHS
         if value_start_line == value_end_line {
@@ -134,7 +152,6 @@ impl Cop for MultilineAssignmentLayout {
             }
             _ => {}
         }
-
     }
 }
 

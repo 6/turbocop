@@ -1,7 +1,7 @@
+use crate::cop::node_type::WHEN_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::WHEN_NODE;
 
 pub struct MultilineWhenThen;
 
@@ -20,8 +20,8 @@ impl Cop for MultilineWhenThen {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let when_node = match node.as_when_node() {
             Some(w) => w,
@@ -49,7 +49,9 @@ impl Cop for MultilineWhenThen {
         if let Some(stmts) = when_node.statements() {
             let body_nodes: Vec<_> = stmts.body().into_iter().collect();
             if !body_nodes.is_empty() {
-                let first_body_line = source.offset_to_line_col(body_nodes[0].location().start_offset()).0;
+                let first_body_line = source
+                    .offset_to_line_col(body_nodes[0].location().start_offset())
+                    .0;
                 if first_body_line == then_line {
                     // Check if all body nodes are on the same line as `then`
                     // If a later body node wraps to the next line, it could be:

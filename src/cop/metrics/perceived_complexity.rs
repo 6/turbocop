@@ -1,9 +1,12 @@
 use ruby_prism::Visit;
 
+use crate::cop::node_type::{
+    BLOCK_NODE, CALL_NODE, CASE_MATCH_NODE, CASE_NODE, DEF_NODE, ELSE_NODE, IF_NODE,
+    LOCAL_VARIABLE_READ_NODE, UNLESS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, CASE_MATCH_NODE, CASE_NODE, DEF_NODE, ELSE_NODE, IF_NODE, LOCAL_VARIABLE_READ_NODE, UNLESS_NODE};
 
 pub struct PerceivedComplexity;
 
@@ -11,27 +14,102 @@ pub struct PerceivedComplexity;
 /// Sourced from RuboCop's Metrics::Utils::IteratingBlock::KNOWN_ITERATING_METHODS.
 const KNOWN_ITERATING_METHODS: &[&[u8]] = &[
     // Enumerable
-    b"all?", b"any?", b"chain", b"chunk", b"chunk_while", b"collect", b"collect_concat",
-    b"count", b"cycle", b"detect", b"drop", b"drop_while", b"each", b"each_cons",
-    b"each_entry", b"each_slice", b"each_with_index", b"each_with_object", b"entries",
-    b"filter", b"filter_map", b"find", b"find_all", b"find_index", b"flat_map",
-    b"grep", b"grep_v", b"group_by", b"inject", b"lazy", b"map", b"max", b"max_by",
-    b"min", b"min_by", b"minmax", b"minmax_by", b"none?", b"one?", b"partition",
-    b"reduce", b"reject", b"reverse_each", b"select", b"slice_after", b"slice_before",
-    b"slice_when", b"sort", b"sort_by", b"sum", b"take", b"take_while", b"tally",
-    b"to_h", b"uniq", b"zip",
+    b"all?",
+    b"any?",
+    b"chain",
+    b"chunk",
+    b"chunk_while",
+    b"collect",
+    b"collect_concat",
+    b"count",
+    b"cycle",
+    b"detect",
+    b"drop",
+    b"drop_while",
+    b"each",
+    b"each_cons",
+    b"each_entry",
+    b"each_slice",
+    b"each_with_index",
+    b"each_with_object",
+    b"entries",
+    b"filter",
+    b"filter_map",
+    b"find",
+    b"find_all",
+    b"find_index",
+    b"flat_map",
+    b"grep",
+    b"grep_v",
+    b"group_by",
+    b"inject",
+    b"lazy",
+    b"map",
+    b"max",
+    b"max_by",
+    b"min",
+    b"min_by",
+    b"minmax",
+    b"minmax_by",
+    b"none?",
+    b"one?",
+    b"partition",
+    b"reduce",
+    b"reject",
+    b"reverse_each",
+    b"select",
+    b"slice_after",
+    b"slice_before",
+    b"slice_when",
+    b"sort",
+    b"sort_by",
+    b"sum",
+    b"take",
+    b"take_while",
+    b"tally",
+    b"to_h",
+    b"uniq",
+    b"zip",
     // Enumerator
-    b"with_index", b"with_object",
+    b"with_index",
+    b"with_object",
     // Array
-    b"bsearch", b"bsearch_index", b"collect!", b"combination", b"d_permutation",
-    b"delete_if", b"each_index", b"keep_if", b"map!", b"permutation", b"product",
-    b"reject!", b"repeat", b"repeated_combination", b"select!", b"sort!", b"sort_by!",
+    b"bsearch",
+    b"bsearch_index",
+    b"collect!",
+    b"combination",
+    b"d_permutation",
+    b"delete_if",
+    b"each_index",
+    b"keep_if",
+    b"map!",
+    b"permutation",
+    b"product",
+    b"reject!",
+    b"repeat",
+    b"repeated_combination",
+    b"select!",
+    b"sort!",
+    b"sort_by!",
     // Hash
-    b"each_key", b"each_pair", b"each_value", b"fetch", b"fetch_values", b"has_key?",
-    b"merge", b"merge!", b"transform_keys", b"transform_keys!", b"transform_values",
+    b"each_key",
+    b"each_pair",
+    b"each_value",
+    b"fetch",
+    b"fetch_values",
+    b"has_key?",
+    b"merge",
+    b"merge!",
+    b"transform_keys",
+    b"transform_keys!",
+    b"transform_values",
     b"transform_values!",
     // Extra common methods not in RuboCop's list but often seen
-    b"each_line", b"each_byte", b"each_char", b"each_codepoint", b"rindex",
+    b"each_line",
+    b"each_byte",
+    b"each_char",
+    b"each_codepoint",
+    b"rindex",
 ];
 
 struct PerceivedCounter {
@@ -63,7 +141,11 @@ impl PerceivedCounter {
             ruby_prism::Node::IfNode { .. } => {
                 if let Some(if_node) = node.as_if_node() {
                     let is_ternary = if_node.if_keyword_loc().is_none();
-                    if !is_ternary && if_node.subsequent().is_some_and(|s| s.as_else_node().is_some()) {
+                    if !is_ternary
+                        && if_node
+                            .subsequent()
+                            .is_some_and(|s| s.as_else_node().is_some())
+                    {
                         self.complexity += 2;
                     } else {
                         self.complexity += 1;
@@ -150,7 +232,10 @@ impl PerceivedCounter {
             ruby_prism::Node::CallNode { .. } => {
                 if let Some(call) = node.as_call_node() {
                     // Safe navigation (&.) counts, but discount repeated &. on the same lvar
-                    if call.call_operator_loc().is_some_and(|loc| loc.as_slice() == b"&.") {
+                    if call
+                        .call_operator_loc()
+                        .is_some_and(|loc| loc.as_slice() == b"&.")
+                    {
                         if !self.discount_repeated_csend(&call) {
                             self.complexity += 1;
                         }
@@ -229,7 +314,17 @@ impl Cop for PerceivedComplexity {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE, CASE_MATCH_NODE, CASE_NODE, DEF_NODE, ELSE_NODE, IF_NODE, LOCAL_VARIABLE_READ_NODE, UNLESS_NODE]
+        &[
+            BLOCK_NODE,
+            CALL_NODE,
+            CASE_MATCH_NODE,
+            CASE_NODE,
+            DEF_NODE,
+            ELSE_NODE,
+            IF_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            UNLESS_NODE,
+        ]
     }
 
     fn check_node(
@@ -238,8 +333,8 @@ impl Cop for PerceivedComplexity {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -251,15 +346,17 @@ impl Cop for PerceivedComplexity {
         // AllowedMethods / AllowedPatterns: skip methods matching these
         let allowed_methods = config.get_string_array("AllowedMethods");
         let allowed_patterns = config.get_string_array("AllowedPatterns");
-        let method_name_str =
-            std::str::from_utf8(def_node.name().as_slice()).unwrap_or("");
+        let method_name_str = std::str::from_utf8(def_node.name().as_slice()).unwrap_or("");
         if let Some(allowed) = &allowed_methods {
             if allowed.iter().any(|m| m == method_name_str) {
                 return;
             }
         }
         if let Some(patterns) = &allowed_patterns {
-            if patterns.iter().any(|p| method_name_str.contains(p.as_str())) {
+            if patterns
+                .iter()
+                .any(|p| method_name_str.contains(p.as_str()))
+            {
                 return;
             }
         }
@@ -274,20 +371,16 @@ impl Cop for PerceivedComplexity {
 
         let score = 1 + counter.complexity;
         if score > max {
-            let method_name =
-                std::str::from_utf8(def_node.name().as_slice()).unwrap_or("unknown");
+            let method_name = std::str::from_utf8(def_node.name().as_slice()).unwrap_or("unknown");
             let start_offset = def_node.def_keyword_loc().start_offset();
             let (line, column) = source.offset_to_line_col(start_offset);
             diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
-                format!(
-                    "Perceived complexity for {method_name} is too high. [{score}/{max}]"
-                ),
+                format!("Perceived complexity for {method_name} is too high. [{score}/{max}]"),
             ));
         }
-
     }
 }
 
@@ -298,8 +391,8 @@ mod tests {
 
     #[test]
     fn config_custom_max() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
             options: HashMap::from([("Max".into(), serde_yml::Value::Number(1.into()))]),
@@ -308,7 +401,10 @@ mod tests {
         // 1 (base) + 2 (if with else) = 3 > Max:1
         let source = b"def foo\n  if x\n    y\n  else\n    z\n  end\nend\n";
         let diags = run_cop_full_with_config(&PerceivedComplexity, source, config);
-        assert!(!diags.is_empty(), "Should fire with Max:1 on method with if/else");
+        assert!(
+            !diags.is_empty(),
+            "Should fire with Max:1 on method with if/else"
+        );
         assert!(diags[0].message.contains("/1]"));
     }
 }

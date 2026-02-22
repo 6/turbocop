@@ -17,8 +17,8 @@ impl Cop for StaticClass {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = StaticClassVisitor {
             cop: self,
@@ -43,7 +43,9 @@ impl<'pr> Visit<'pr> for StaticClassVisitor<'_> {
             if let Some(stmts) = body.as_statements_node() {
                 let body_nodes: Vec<_> = stmts.body().iter().collect();
                 if !body_nodes.is_empty() && all_class_methods(&body_nodes) {
-                    let (line, column) = self.source.offset_to_line_col(node.location().start_offset());
+                    let (line, column) = self
+                        .source
+                        .offset_to_line_col(node.location().start_offset());
                     self.diagnostics.push(self.cop.diagnostic(
                         self.source,
                         line,

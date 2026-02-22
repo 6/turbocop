@@ -1,8 +1,8 @@
+use crate::cop::node_type::{UNTIL_NODE, WHILE_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
-use crate::cop::node_type::{UNTIL_NODE, WHILE_NODE};
 
 pub struct WhileUntilModifier;
 
@@ -12,16 +12,28 @@ fn contains_lvar_assignment(node: &ruby_prism::Node<'_>) -> bool {
         found: bool,
     }
     impl<'pr> Visit<'pr> for LvarAssignChecker {
-        fn visit_local_variable_write_node(&mut self, _node: &ruby_prism::LocalVariableWriteNode<'pr>) {
+        fn visit_local_variable_write_node(
+            &mut self,
+            _node: &ruby_prism::LocalVariableWriteNode<'pr>,
+        ) {
             self.found = true;
         }
-        fn visit_local_variable_and_write_node(&mut self, _node: &ruby_prism::LocalVariableAndWriteNode<'pr>) {
+        fn visit_local_variable_and_write_node(
+            &mut self,
+            _node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
+        ) {
             self.found = true;
         }
-        fn visit_local_variable_or_write_node(&mut self, _node: &ruby_prism::LocalVariableOrWriteNode<'pr>) {
+        fn visit_local_variable_or_write_node(
+            &mut self,
+            _node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+        ) {
             self.found = true;
         }
-        fn visit_local_variable_operator_write_node(&mut self, _node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>) {
+        fn visit_local_variable_operator_write_node(
+            &mut self,
+            _node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+        ) {
             self.found = true;
         }
     }
@@ -45,8 +57,8 @@ impl Cop for WhileUntilModifier {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let (kw_loc, statements, keyword) = if let Some(while_node) = node.as_while_node() {
             (while_node.keyword_loc(), while_node.statements(), "while")
@@ -84,7 +96,11 @@ impl Cop for WhileUntilModifier {
 
         // Body must be on a single line
         let (body_start_line, _) = source.offset_to_line_col(body_node.location().start_offset());
-        let body_end_off = body_node.location().end_offset().saturating_sub(1).max(body_node.location().start_offset());
+        let body_end_off = body_node
+            .location()
+            .end_offset()
+            .saturating_sub(1)
+            .max(body_node.location().start_offset());
         let (body_end_line, _) = source.offset_to_line_col(body_end_off);
         if body_start_line != body_end_line {
             return;
@@ -99,7 +115,8 @@ impl Cop for WhileUntilModifier {
             .unwrap_or(120) as usize;
 
         // Estimate modifier form length: "body keyword condition"
-        let body_src = &source.as_bytes()[body_node.location().start_offset()..body_node.location().end_offset()];
+        let body_src = &source.as_bytes()
+            [body_node.location().start_offset()..body_node.location().end_offset()];
         let body_str = String::from_utf8_lossy(body_src);
         let body_trimmed = body_str.trim();
 
@@ -117,15 +134,23 @@ impl Cop for WhileUntilModifier {
             return;
         }
 
-        let pred_src = &source.as_bytes()[predicate.location().start_offset()..predicate.location().end_offset()];
+        let pred_src = &source.as_bytes()
+            [predicate.location().start_offset()..predicate.location().end_offset()];
         let pred_str = String::from_utf8_lossy(pred_src);
 
         // Calculate indentation of the original while/until keyword
         let kw_offset = kw_loc.start_offset();
         let src_bytes = source.as_bytes();
         // Walk back to find the start of the line
-        let line_start = src_bytes[..kw_offset].iter().rposition(|&b| b == b'\n').map(|p| p + 1).unwrap_or(0);
-        let indent = src_bytes[line_start..].iter().take_while(|&&b| b == b' ' || b == b'\t').count();
+        let line_start = src_bytes[..kw_offset]
+            .iter()
+            .rposition(|&b| b == b'\n')
+            .map(|p| p + 1)
+            .unwrap_or(0);
+        let indent = src_bytes[line_start..]
+            .iter()
+            .take_while(|&&b| b == b' ' || b == b'\t')
+            .count();
 
         // "  body keyword condition"
         let modifier_len = indent + body_trimmed.len() + 1 + keyword.len() + 1 + pred_str.len();
@@ -138,7 +163,10 @@ impl Cop for WhileUntilModifier {
             source,
             line,
             column,
-            format!("Favor modifier `{}` usage when having a single-line body.", keyword),
+            format!(
+                "Favor modifier `{}` usage when having a single-line body.",
+                keyword
+            ),
         ));
     }
 }

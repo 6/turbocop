@@ -1,7 +1,7 @@
+use crate::cop::node_type::WHEN_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::WHEN_NODE;
 
 pub struct EmptyWhen;
 
@@ -24,8 +24,8 @@ impl Cop for EmptyWhen {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let when_node = match node.as_when_node() {
             Some(n) => n,
@@ -63,8 +63,10 @@ impl Cop for EmptyWhen {
                         continue;
                     }
                     // Stop at the next when/else/end keyword
-                    if trimmed.starts_with(b"when ") || trimmed.starts_with(b"when\n")
-                        || trimmed.starts_with(b"else") || trimmed.starts_with(b"end")
+                    if trimmed.starts_with(b"when ")
+                        || trimmed.starts_with(b"when\n")
+                        || trimmed.starts_with(b"else")
+                        || trimmed.starts_with(b"end")
                     {
                         break;
                     }

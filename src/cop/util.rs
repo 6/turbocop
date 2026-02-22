@@ -22,7 +22,14 @@ pub fn count_body_lines_ex(
     count_comments: bool,
     foldable_ranges: &[(usize, usize)],
 ) -> usize {
-    count_body_lines_full(source, start_offset, end_offset, count_comments, foldable_ranges, &[])
+    count_body_lines_full(
+        source,
+        start_offset,
+        end_offset,
+        count_comments,
+        foldable_ranges,
+        &[],
+    )
 }
 
 /// Count body lines with foldable line ranges and fully excluded line ranges.
@@ -136,7 +143,10 @@ impl<'pr> ruby_prism::Visit<'pr> for HeredocVisitor<'_> {
                 // The actual content and closing delimiter are found via closing_loc().
                 let (start_line, _) = self.source.offset_to_line_col(opening.start_offset());
                 if let Some(closing) = node.closing_loc() {
-                    let end_off = closing.end_offset().saturating_sub(1).max(closing.start_offset());
+                    let end_off = closing
+                        .end_offset()
+                        .saturating_sub(1)
+                        .max(closing.start_offset());
                     let (end_line, _) = self.source.offset_to_line_col(end_off);
                     if end_line > start_line {
                         self.ranges.push((start_line, end_line));
@@ -154,7 +164,10 @@ impl<'pr> ruby_prism::Visit<'pr> for HeredocVisitor<'_> {
             if bytes.starts_with(b"<<") {
                 let (start_line, _) = self.source.offset_to_line_col(opening.start_offset());
                 if let Some(closing) = node.closing_loc() {
-                    let end_off = closing.end_offset().saturating_sub(1).max(closing.start_offset());
+                    let end_off = closing
+                        .end_offset()
+                        .saturating_sub(1)
+                        .max(closing.start_offset());
                     let (end_line, _) = self.source.offset_to_line_col(end_off);
                     if end_line > start_line {
                         self.ranges.push((start_line, end_line));
@@ -219,10 +232,15 @@ impl<'pr> ruby_prism::Visit<'pr> for FoldableVisitor<'_> {
 }
 
 fn trim_bytes(b: &[u8]) -> &[u8] {
-    let start = b.iter().position(|&c| c != b' ' && c != b'\t' && c != b'\r');
+    let start = b
+        .iter()
+        .position(|&c| c != b' ' && c != b'\t' && c != b'\r');
     match start {
         Some(s) => {
-            let end = b.iter().rposition(|&c| c != b' ' && c != b'\t' && c != b'\r').unwrap();
+            let end = b
+                .iter()
+                .rposition(|&c| c != b' ' && c != b'\t' && c != b'\r')
+                .unwrap();
             &b[s..=end]
         }
         None => &[],
@@ -384,9 +402,7 @@ pub fn assignment_context_base_col(source: &SourceFile, keyword_offset: usize) -
             }
             // Found a bare assignment `=`
             // Return column of first non-whitespace on the line
-            return before_keyword
-                .iter()
-                .position(|&b| b != b' ' && b != b'\t');
+            return before_keyword.iter().position(|&b| b != b' ' && b != b'\t');
         }
         i += 1;
     }
@@ -403,9 +419,7 @@ pub fn assignment_context_base_col(source: &SourceFile, keyword_offset: usize) -
                 continue;
             }
             // Found `<<` — return column of first non-whitespace on line
-            return before_keyword
-                .iter()
-                .position(|&b| b != b' ' && b != b'\t');
+            return before_keyword.iter().position(|&b| b != b' ' && b != b'\t');
         }
         j += 1;
     }
@@ -470,7 +484,14 @@ pub fn check_empty_lines_around_body(
     end_offset: usize,
     body_kind: &str,
 ) -> Vec<Diagnostic> {
-    check_empty_lines_around_body_with_corrections(cop_name, source, keyword_offset, end_offset, body_kind, None)
+    check_empty_lines_around_body_with_corrections(
+        cop_name,
+        source,
+        keyword_offset,
+        end_offset,
+        body_kind,
+        None,
+    )
 }
 
 /// Like `check_empty_lines_around_body` but also generates corrections when `corrections` is Some.
@@ -497,7 +518,10 @@ pub fn check_empty_lines_around_body_with_corrections(
         if is_blank_line(line) && after_keyword < end_line {
             let mut diag = Diagnostic {
                 path: source.path_str().to_string(),
-                location: Location { line: after_keyword, column: 0 },
+                location: Location {
+                    line: after_keyword,
+                    column: 0,
+                },
                 severity: Severity::Convention,
                 cop_name: cop_name.to_string(),
                 message: format!("Extra empty line detected at {body_kind} body beginning."),
@@ -530,7 +554,10 @@ pub fn check_empty_lines_around_body_with_corrections(
                 if is_blank_line(line) {
                     let mut diag = Diagnostic {
                         path: source.path_str().to_string(),
-                        location: Location { line: before_end, column: 0 },
+                        location: Location {
+                            line: before_end,
+                            column: 0,
+                        },
                         severity: Severity::Convention,
                         cop_name: cop_name.to_string(),
                         message: format!("Extra empty line detected at {body_kind} body end."),
@@ -569,7 +596,14 @@ pub fn check_missing_empty_lines_around_body(
     end_offset: usize,
     body_kind: &str,
 ) -> Vec<Diagnostic> {
-    check_missing_empty_lines_around_body_with_corrections(cop_name, source, keyword_offset, end_offset, body_kind, None)
+    check_missing_empty_lines_around_body_with_corrections(
+        cop_name,
+        source,
+        keyword_offset,
+        end_offset,
+        body_kind,
+        None,
+    )
 }
 
 /// Like `check_missing_empty_lines_around_body` but also generates corrections when `corrections` is Some.
@@ -597,7 +631,10 @@ pub fn check_missing_empty_lines_around_body_with_corrections(
         if !is_blank_line(line) && after_keyword < end_line {
             let mut diag = Diagnostic {
                 path: source.path_str().to_string(),
-                location: Location { line: after_keyword, column: 0 },
+                location: Location {
+                    line: after_keyword,
+                    column: 0,
+                },
                 severity: Severity::Convention,
                 cop_name: cop_name.to_string(),
                 message: format!("Empty line missing at {body_kind} body beginning."),
@@ -627,7 +664,10 @@ pub fn check_missing_empty_lines_around_body_with_corrections(
                 if !is_blank_line(line) {
                     let mut diag = Diagnostic {
                         path: source.path_str().to_string(),
-                        location: Location { line: before_end, column: 0 },
+                        location: Location {
+                            line: before_end,
+                            column: 0,
+                        },
                         severity: Severity::Convention,
                         cop_name: cop_name.to_string(),
                         message: format!("Empty line missing at {body_kind} body end."),
@@ -683,7 +723,10 @@ pub fn check_keyword_end_alignment(
     if end_col != line_indent {
         return vec![Diagnostic {
             path: source.path_str().to_string(),
-            location: Location { line: end_line, column: end_col },
+            location: Location {
+                line: end_line,
+                column: end_col,
+            },
             severity: Severity::Convention,
             cop_name: cop_name.to_string(),
             message: format!("Align `end` with `{keyword_name}`."),
@@ -736,7 +779,10 @@ pub fn check_first_element_indentation(
     if elem_col != expected {
         return vec![Diagnostic {
             path: source.path_str().to_string(),
-            location: Location { line: elem_line, column: elem_col },
+            location: Location {
+                line: elem_line,
+                column: elem_col,
+            },
             severity: Severity::Convention,
             cop_name: cop_name.to_string(),
             message: format!(
@@ -860,10 +906,7 @@ pub fn constant_name<'a>(node: &ruby_prism::Node<'a>) -> Option<&'a [u8]> {
 /// Get the full constant path string from source bytes.
 ///
 /// For a ConstantPathNode like `ActiveRecord::Base`, extracts the full text.
-pub fn full_constant_path<'a>(
-    source: &'a SourceFile,
-    node: &ruby_prism::Node<'_>,
-) -> &'a [u8] {
+pub fn full_constant_path<'a>(source: &'a SourceFile, node: &ruby_prism::Node<'_>) -> &'a [u8] {
     let loc = node.location();
     &source.as_bytes()[loc.start_offset()..loc.end_offset()]
 }
@@ -900,32 +943,60 @@ pub fn as_method_chain3<'a>(node: &ruby_prism::Node<'a>) -> Option<MethodChain3<
 
 /// RSpec example group methods.
 pub const RSPEC_EXAMPLE_GROUPS: &[&str] = &[
-    "describe", "context", "feature", "example_group",
-    "xdescribe", "xcontext", "xfeature",
-    "fdescribe", "fcontext", "ffeature",
-    "shared_examples", "shared_examples_for", "shared_context",
+    "describe",
+    "context",
+    "feature",
+    "example_group",
+    "xdescribe",
+    "xcontext",
+    "xfeature",
+    "fdescribe",
+    "fcontext",
+    "ffeature",
+    "shared_examples",
+    "shared_examples_for",
+    "shared_context",
 ];
 
 /// RSpec focused (f-prefixed) methods.
 pub const RSPEC_FOCUSED_METHODS: &[&str] = &[
-    "fdescribe", "fcontext", "ffeature",
-    "fit", "fspecify", "fexample", "fscenario",
+    "fdescribe",
+    "fcontext",
+    "ffeature",
+    "fit",
+    "fspecify",
+    "fexample",
+    "fscenario",
     "focus",
 ];
 
 /// RSpec example methods.
 pub const RSPEC_EXAMPLES: &[&str] = &[
-    "it", "specify", "example", "scenario",
-    "xit", "xspecify", "xexample", "xscenario",
-    "fit", "fspecify", "fexample", "fscenario",
-    "pending", "skip",
+    "it",
+    "specify",
+    "example",
+    "scenario",
+    "xit",
+    "xspecify",
+    "xexample",
+    "xscenario",
+    "fit",
+    "fspecify",
+    "fexample",
+    "fscenario",
+    "pending",
+    "skip",
 ];
 
 /// RSpec hook methods.
 pub const RSPEC_HOOKS: &[&str] = &[
-    "before", "after", "around",
-    "prepend_before", "prepend_after",
-    "append_before", "append_after",
+    "before",
+    "after",
+    "around",
+    "prepend_before",
+    "prepend_after",
+    "append_before",
+    "append_after",
 ];
 
 /// RSpec let/subject methods.
@@ -934,16 +1005,41 @@ pub const RSPEC_SUBJECTS: &[&str] = &["subject", "subject!"];
 
 /// All RSpec methods that define example groups or examples (for detecting RSpec context).
 pub const RSPEC_ALL_METHODS: &[&str] = &[
-    "describe", "context", "feature", "example_group",
-    "xdescribe", "xcontext", "xfeature",
-    "fdescribe", "fcontext", "ffeature",
-    "shared_examples", "shared_examples_for", "shared_context",
-    "it", "specify", "example", "scenario",
-    "xit", "xspecify", "xexample", "xscenario",
-    "fit", "fspecify", "fexample", "fscenario",
-    "pending", "skip", "focus",
-    "before", "after", "around",
-    "let", "let!", "subject", "subject!",
+    "describe",
+    "context",
+    "feature",
+    "example_group",
+    "xdescribe",
+    "xcontext",
+    "xfeature",
+    "fdescribe",
+    "fcontext",
+    "ffeature",
+    "shared_examples",
+    "shared_examples_for",
+    "shared_context",
+    "it",
+    "specify",
+    "example",
+    "scenario",
+    "xit",
+    "xspecify",
+    "xexample",
+    "xscenario",
+    "fit",
+    "fspecify",
+    "fexample",
+    "fscenario",
+    "pending",
+    "skip",
+    "focus",
+    "before",
+    "after",
+    "around",
+    "let",
+    "let!",
+    "subject",
+    "subject!",
 ];
 
 /// Check if a method name is an RSpec example group method.
@@ -984,7 +1080,10 @@ pub fn is_rspec_subject(name: &[u8]) -> bool {
 pub const RSPEC_DEFAULT_INCLUDE: &[&str] = &["**/*_spec.rb", "**/spec/**/*"];
 
 /// Check if a CallNode has a keyword argument `focus: true` or symbol arg `:focus`.
-pub fn has_rspec_focus_metadata(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<(usize, usize, usize, usize)> {
+pub fn has_rspec_focus_metadata(
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+) -> Option<(usize, usize, usize, usize)> {
     let call = node.as_call_node()?;
     let args = call.arguments()?;
     for arg in args.arguments().iter() {
@@ -1038,14 +1137,13 @@ pub fn string_value(node: &ruby_prism::Node<'_>) -> Option<Vec<u8>> {
 }
 
 /// Count block body lines (statements in a block node).
-pub fn block_body_line_count(
-    source: &SourceFile,
-    block: &ruby_prism::BlockNode<'_>,
-) -> usize {
+pub fn block_body_line_count(source: &SourceFile, block: &ruby_prism::BlockNode<'_>) -> usize {
     let loc = block.location();
     let (start_line, _) = source.offset_to_line_col(loc.start_offset());
     let (end_line, _) = source.offset_to_line_col(loc.end_offset().saturating_sub(1));
-    if end_line <= start_line + 1 { return 0; }
+    if end_line <= start_line + 1 {
+        return 0;
+    }
     end_line - start_line - 1
 }
 

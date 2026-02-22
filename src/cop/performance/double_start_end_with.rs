@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, OR_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, OR_NODE};
 
 pub struct DoubleStartEndWith;
 
@@ -24,8 +24,8 @@ impl Cop for DoubleStartEndWith {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let include_as_aliases = config.get_bool("IncludeActiveSupportAliases", false);
 
@@ -52,9 +52,9 @@ impl Cop for DoubleStartEndWith {
             return;
         }
 
-        let is_target = left_name == b"start_with?" || left_name == b"end_with?"
-            || (include_as_aliases
-                && (left_name == b"starts_with?" || left_name == b"ends_with?"));
+        let is_target = left_name == b"start_with?"
+            || left_name == b"end_with?"
+            || (include_as_aliases && (left_name == b"starts_with?" || left_name == b"ends_with?"));
         if !is_target {
             return;
         }
@@ -67,9 +67,12 @@ impl Cop for DoubleStartEndWith {
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(source, line, column, format!(
-            "Use `{method_display}` with multiple arguments instead of chaining `||`."
-        )));
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            format!("Use `{method_display}` with multiple arguments instead of chaining `||`."),
+        ));
     }
 }
 

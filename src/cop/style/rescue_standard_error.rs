@@ -1,7 +1,7 @@
+use crate::cop::node_type::BEGIN_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::BEGIN_NODE;
 
 pub struct RescueStandardError;
 
@@ -23,7 +23,15 @@ fn check_rescue_node(
                     if name == b"StandardError" {
                         let kw_loc = rescue_node.keyword_loc();
                         let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                        diags.push(cop.diagnostic(source, line, column, "Omit the error class when rescuing `StandardError` by itself.".to_string()));
+                        diags.push(
+                            cop.diagnostic(
+                                source,
+                                line,
+                                column,
+                                "Omit the error class when rescuing `StandardError` by itself."
+                                    .to_string(),
+                            ),
+                        );
                     }
                 }
             }
@@ -32,7 +40,12 @@ fn check_rescue_node(
             if exceptions.is_empty() {
                 let kw_loc = rescue_node.keyword_loc();
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                diags.push(cop.diagnostic(source, line, column, "Specify `StandardError` explicitly when rescuing.".to_string()));
+                diags.push(cop.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Specify `StandardError` explicitly when rescuing.".to_string(),
+                ));
             }
         }
         _ => {}
@@ -61,8 +74,8 @@ impl Cop for RescueStandardError {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let begin_node = match node.as_begin_node() {
             Some(b) => b,
@@ -76,7 +89,12 @@ impl Cop for RescueStandardError {
 
         let enforced_style = config.get_str("EnforcedStyle", "implicit");
 
-        diagnostics.extend(check_rescue_node(self, source, &rescue_clause, enforced_style));
+        diagnostics.extend(check_rescue_node(
+            self,
+            source,
+            &rescue_clause,
+            enforced_style,
+        ));
     }
 }
 

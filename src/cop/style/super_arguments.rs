@@ -16,8 +16,8 @@ impl Cop for SuperArguments {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = SuperArgumentsVisitor {
             cop: self,
@@ -80,12 +80,20 @@ fn extract_def_params(params: &ruby_prism::ParametersNode<'_>) -> Vec<DefParam> 
     for p in params.keywords().iter() {
         if let Some(kw) = p.as_required_keyword_parameter_node() {
             let name = kw.name().as_slice();
-            let clean = if name.ends_with(b":") { &name[..name.len()-1] } else { name };
+            let clean = if name.ends_with(b":") {
+                &name[..name.len() - 1]
+            } else {
+                name
+            };
             result.push(DefParam::Keyword(clean.to_vec()));
         }
         if let Some(kw) = p.as_optional_keyword_parameter_node() {
             let name = kw.name().as_slice();
-            let clean = if name.ends_with(b":") { &name[..name.len()-1] } else { name };
+            let clean = if name.ends_with(b":") {
+                &name[..name.len() - 1]
+            } else {
+                name
+            };
             result.push(DefParam::Keyword(clean.to_vec()));
         }
     }
@@ -166,7 +174,9 @@ fn keyword_pair_matches(assoc: &ruby_prism::AssocNode<'_>, name: &[u8]) -> bool 
 }
 
 /// Flatten super arguments: expand bare keyword hashes into individual pairs.
-fn flatten_super_args<'a>(args: impl Iterator<Item = ruby_prism::Node<'a>>) -> Vec<ruby_prism::Node<'a>> {
+fn flatten_super_args<'a>(
+    args: impl Iterator<Item = ruby_prism::Node<'a>>,
+) -> Vec<ruby_prism::Node<'a>> {
     let mut result = Vec::new();
     for arg in args {
         if let Some(kh) = arg.as_keyword_hash_node() {
@@ -197,7 +207,10 @@ impl<'pr> Visit<'pr> for SuperChecker<'_> {
 
         // Build effective def params (exclude block param if super has explicit block)
         let effective_def_params: Vec<&DefParam> = if has_explicit_block {
-            self.def_params.iter().filter(|p| !matches!(p, DefParam::Block(_))).collect()
+            self.def_params
+                .iter()
+                .filter(|p| !matches!(p, DefParam::Block(_)))
+                .collect()
         } else {
             self.def_params.iter().collect()
         };
@@ -212,7 +225,9 @@ impl<'pr> Visit<'pr> for SuperChecker<'_> {
             return;
         }
 
-        let all_match = flat_args.iter().zip(effective_def_params.iter())
+        let all_match = flat_args
+            .iter()
+            .zip(effective_def_params.iter())
             .all(|(arg, param)| super_arg_matches_def_param(arg, param));
 
         if all_match {
@@ -231,7 +246,10 @@ impl<'pr> Visit<'pr> for SuperArgumentsVisitor<'_> {
         // has different semantics — don't flag it.
         if let Some(params) = node.parameters() {
             if let Some(kw_rest) = params.keyword_rest() {
-                if kw_rest.as_keyword_rest_parameter_node().is_some_and(|k| k.name().is_none()) {
+                if kw_rest
+                    .as_keyword_rest_parameter_node()
+                    .is_some_and(|k| k.name().is_none())
+                {
                     return;
                 }
             }

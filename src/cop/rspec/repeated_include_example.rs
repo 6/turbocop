@@ -1,9 +1,13 @@
+use crate::cop::node_type::{
+    BLOCK_ARGUMENT_NODE, BLOCK_NODE, CALL_NODE, CLASS_VARIABLE_READ_NODE,
+    GLOBAL_VARIABLE_READ_NODE, INSTANCE_VARIABLE_READ_NODE, INTERPOLATED_STRING_NODE,
+    LOCAL_VARIABLE_READ_NODE, STATEMENTS_NODE, STRING_NODE,
+};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use std::collections::HashMap;
-use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, BLOCK_NODE, CALL_NODE, CLASS_VARIABLE_READ_NODE, GLOBAL_VARIABLE_READ_NODE, INSTANCE_VARIABLE_READ_NODE, INTERPOLATED_STRING_NODE, LOCAL_VARIABLE_READ_NODE, STATEMENTS_NODE, STRING_NODE};
 
 /// RSpec/RepeatedIncludeExample: Flag duplicate include_examples/it_behaves_like calls.
 pub struct RepeatedIncludeExample;
@@ -28,7 +32,18 @@ impl Cop for RepeatedIncludeExample {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_ARGUMENT_NODE, BLOCK_NODE, CALL_NODE, CLASS_VARIABLE_READ_NODE, GLOBAL_VARIABLE_READ_NODE, INSTANCE_VARIABLE_READ_NODE, INTERPOLATED_STRING_NODE, LOCAL_VARIABLE_READ_NODE, STATEMENTS_NODE, STRING_NODE]
+        &[
+            BLOCK_ARGUMENT_NODE,
+            BLOCK_NODE,
+            CALL_NODE,
+            CLASS_VARIABLE_READ_NODE,
+            GLOBAL_VARIABLE_READ_NODE,
+            INSTANCE_VARIABLE_READ_NODE,
+            INTERPOLATED_STRING_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            STATEMENTS_NODE,
+            STRING_NODE,
+        ]
     }
 
     fn check_node(
@@ -37,8 +52,8 @@ impl Cop for RepeatedIncludeExample {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -97,7 +112,9 @@ impl Cop for RepeatedIncludeExample {
                 // Extract the shared example name from the signature
                 let shared_name = extract_shared_name(sig_bytes);
                 for (idx, &(line, col)) in locs.iter().enumerate() {
-                    let other_lines: Vec<String> = locs.iter().enumerate()
+                    let other_lines: Vec<String> = locs
+                        .iter()
+                        .enumerate()
                         .filter(|(i, _)| *i != idx)
                         .map(|(_, (l, _))| l.to_string())
                         .collect();
@@ -110,7 +127,6 @@ impl Cop for RepeatedIncludeExample {
                 }
             }
         }
-
     }
 }
 
@@ -235,5 +251,8 @@ fn is_example_group(name: &[u8]) -> bool {
 mod tests {
     use super::*;
 
-    crate::cop_fixture_tests!(RepeatedIncludeExample, "cops/rspec/repeated_include_example");
+    crate::cop_fixture_tests!(
+        RepeatedIncludeExample,
+        "cops/rspec/repeated_include_example"
+    );
 }

@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    CLASS_VARIABLE_WRITE_NODE, CONSTANT_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE,
+    INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE, UNLESS_NODE, UNTIL_NODE, WHILE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CLASS_VARIABLE_WRITE_NODE, CONSTANT_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE, UNLESS_NODE, UNTIL_NODE, WHILE_NODE};
 
 pub struct AssignmentInCondition;
 
@@ -15,7 +18,17 @@ impl Cop for AssignmentInCondition {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CLASS_VARIABLE_WRITE_NODE, CONSTANT_WRITE_NODE, GLOBAL_VARIABLE_WRITE_NODE, IF_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE, UNLESS_NODE, UNTIL_NODE, WHILE_NODE]
+        &[
+            CLASS_VARIABLE_WRITE_NODE,
+            CONSTANT_WRITE_NODE,
+            GLOBAL_VARIABLE_WRITE_NODE,
+            IF_NODE,
+            INSTANCE_VARIABLE_WRITE_NODE,
+            LOCAL_VARIABLE_WRITE_NODE,
+            UNLESS_NODE,
+            UNTIL_NODE,
+            WHILE_NODE,
+        ]
     }
 
     fn check_node(
@@ -24,8 +37,8 @@ impl Cop for AssignmentInCondition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_safe = config.get_bool("AllowSafeAssignment", true);
 

@@ -1,9 +1,9 @@
-use crate::cop::util::{is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE};
+use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use std::collections::HashMap;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct IndexedLet;
 
@@ -21,7 +21,13 @@ impl Cop for IndexedLet {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE]
+        &[
+            BLOCK_NODE,
+            CALL_NODE,
+            STATEMENTS_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -30,8 +36,8 @@ impl Cop for IndexedLet {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: Max — maximum allowed group size (default 1)
         let max = config.get_usize("Max", 1);
@@ -176,7 +182,6 @@ impl Cop for IndexedLet {
                 }
             }
         }
-
     }
 }
 
@@ -242,7 +247,10 @@ mod tests {
         };
         let source = b"describe 'test' do\n  let(:item_1) { 'x' }\n  let(:item_2) { 'x' }\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&IndexedLet, source, config);
-        assert!(diags.is_empty(), "AllowedIdentifiers should skip matching names");
+        assert!(
+            diags.is_empty(),
+            "AllowedIdentifiers should skip matching names"
+        );
     }
 
     #[test]
@@ -253,14 +261,15 @@ mod tests {
         let config = CopConfig {
             options: HashMap::from([(
                 "AllowedPatterns".into(),
-                serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("^item".into()),
-                ]),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("^item".into())]),
             )]),
             ..CopConfig::default()
         };
         let source = b"describe 'test' do\n  let(:item_1) { 'x' }\n  let(:item_2) { 'x' }\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&IndexedLet, source, config);
-        assert!(diags.is_empty(), "AllowedPatterns should skip matching regex");
+        assert!(
+            diags.is_empty(),
+            "AllowedPatterns should skip matching regex"
+        );
     }
 }

@@ -31,7 +31,10 @@ fn is_magic_comment(line: &[u8]) -> bool {
     let line_str = std::str::from_utf8(after_hash).unwrap_or("");
 
     // Check direct magic comment patterns: `# frozen_string_literal: true`
-    if MAGIC_COMMENT_PATTERNS.iter().any(|p| line_str.starts_with(p)) {
+    if MAGIC_COMMENT_PATTERNS
+        .iter()
+        .any(|p| line_str.starts_with(p))
+    {
         return true;
     }
 
@@ -44,7 +47,10 @@ fn is_magic_comment(line: &[u8]) -> bool {
         // Also check for patterns within the -*- ... -*- wrapper
         if let Some(end) = inner.find("-*-") {
             let content = inner[..end].trim();
-            if MAGIC_COMMENT_PATTERNS.iter().any(|p| content.starts_with(p)) {
+            if MAGIC_COMMENT_PATTERNS
+                .iter()
+                .any(|p| content.starts_with(p))
+            {
                 return true;
             }
         }
@@ -62,7 +68,13 @@ impl Cop for EmptyLineAfterMagicComment {
         true
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, mut corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        _config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         let lines: Vec<&[u8]> = source.lines().collect();
         let mut last_magic_line = None;
 
@@ -94,7 +106,9 @@ impl Cop for EmptyLineAfterMagicComment {
         }
 
         let next_line = lines[next_idx];
-        let is_blank = next_line.iter().all(|&b| b == b' ' || b == b'\t' || b == b'\r');
+        let is_blank = next_line
+            .iter()
+            .all(|&b| b == b' ' || b == b'\t' || b == b'\r');
 
         if !is_blank {
             let mut diag = self.diagnostic(
@@ -117,7 +131,6 @@ impl Cop for EmptyLineAfterMagicComment {
             }
             diagnostics.push(diag);
         }
-
     }
 }
 
@@ -137,7 +150,8 @@ mod tests {
     #[test]
     fn autocorrect_insert_blank_after_frozen_string() {
         let input = b"# frozen_string_literal: true\nx = 1\n";
-        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&EmptyLineAfterMagicComment, input);
+        let (_diags, corrections) =
+            crate::testutil::run_cop_autocorrect(&EmptyLineAfterMagicComment, input);
         assert!(!corrections.is_empty());
         let cs = crate::correction::CorrectionSet::from_vec(corrections);
         let corrected = cs.apply(input);
@@ -147,10 +161,14 @@ mod tests {
     #[test]
     fn autocorrect_insert_blank_after_multiple_magic() {
         let input = b"# frozen_string_literal: true\n# encoding: utf-8\nx = 1\n";
-        let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&EmptyLineAfterMagicComment, input);
+        let (_diags, corrections) =
+            crate::testutil::run_cop_autocorrect(&EmptyLineAfterMagicComment, input);
         assert!(!corrections.is_empty());
         let cs = crate::correction::CorrectionSet::from_vec(corrections);
         let corrected = cs.apply(input);
-        assert_eq!(corrected, b"# frozen_string_literal: true\n# encoding: utf-8\n\nx = 1\n");
+        assert_eq!(
+            corrected,
+            b"# frozen_string_literal: true\n# encoding: utf-8\n\nx = 1\n"
+        );
     }
 }

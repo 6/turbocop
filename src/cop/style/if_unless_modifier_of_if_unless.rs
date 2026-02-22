@@ -1,7 +1,7 @@
+use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
 
 pub struct IfUnlessModifierOfIfUnless;
 
@@ -20,8 +20,8 @@ impl Cop for IfUnlessModifierOfIfUnless {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check modifier `if`
         if let Some(if_node) = node.as_if_node() {
@@ -82,7 +82,6 @@ impl Cop for IfUnlessModifierOfIfUnless {
                 }
             }
         }
-
     }
 }
 
@@ -93,5 +92,8 @@ fn is_conditional(node: &ruby_prism::Node<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(IfUnlessModifierOfIfUnless, "cops/style/if_unless_modifier_of_if_unless");
+    crate::cop_fixture_tests!(
+        IfUnlessModifierOfIfUnless,
+        "cops/style/if_unless_modifier_of_if_unless"
+    );
 }

@@ -26,8 +26,8 @@ impl Cop for DescribedClass {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let skip_blocks = config.get_bool("SkipBlocks", false);
         let enforced_style = config.get_str("EnforcedStyle", "described_class");
@@ -117,8 +117,7 @@ impl DescribedClassVisitor<'_> {
 
     fn is_include_extend(call: &ruby_prism::CallNode<'_>) -> bool {
         let name = call.name().as_slice();
-        (name == b"include" || name == b"extend" || name == b"prepend")
-            && call.receiver().is_none()
+        (name == b"include" || name == b"extend" || name == b"prepend") && call.receiver().is_none()
     }
 }
 
@@ -331,10 +330,7 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([(
-                "OnlyStaticConstants".into(),
-                serde_yml::Value::Bool(true),
-            )]),
+            options: HashMap::from([("OnlyStaticConstants".into(), serde_yml::Value::Bool(true))]),
             ..CopConfig::default()
         };
         let source = b"describe MyClass do\n  it { MyClass.new }\nend\n";
@@ -352,10 +348,7 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([(
-                "SkipBlocks".into(),
-                serde_yml::Value::Bool(true),
-            )]),
+            options: HashMap::from([("SkipBlocks".into(), serde_yml::Value::Bool(true))]),
             ..CopConfig::default()
         };
         let source =

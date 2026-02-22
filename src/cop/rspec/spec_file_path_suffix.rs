@@ -1,8 +1,8 @@
-use crate::cop::util::{is_rspec_example_group, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{CALL_NODE, PROGRAM_NODE};
+use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, PROGRAM_NODE};
 
 pub struct SpecFilePathSuffix;
 
@@ -29,8 +29,8 @@ impl Cop for SpecFilePathSuffix {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Only check ProgramNode (root)
         let program = match node.as_program_node() {
@@ -84,7 +84,8 @@ mod tests {
     use super::*;
 
     crate::cop_scenario_fixture_tests!(
-        SpecFilePathSuffix, "cops/rspec/spec_file_path_suffix",
+        SpecFilePathSuffix,
+        "cops/rspec/spec_file_path_suffix",
         scenario_repeated_rb = "repeated_rb.rb",
         scenario_missing_spec = "missing_spec.rb",
         scenario_wrong_ext = "wrong_ext.rb",

@@ -16,8 +16,8 @@ impl Cop for LineContinuationLeadingSpace {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "trailing");
 
@@ -65,8 +65,8 @@ impl Cop for LineContinuationLeadingSpace {
                 .unwrap_or(before_backslash);
 
             // Only check string line continuations (end with ' or " before spaces+\)
-            let is_string_continuation = before_trimmed.ends_with(b"'")
-                || before_trimmed.ends_with(b"\"");
+            let is_string_continuation =
+                before_trimmed.ends_with(b"'") || before_trimmed.ends_with(b"\"");
             if !is_string_continuation {
                 continue;
             }
@@ -121,13 +121,15 @@ impl Cop for LineContinuationLeadingSpace {
                                     .rposition(|&b| b != b' ')
                                     .map(|p| p + 1)
                                     .unwrap_or(0);
-                                diagnostics.push(self.diagnostic(
-                                    source,
-                                    line_num,
-                                    spaces_start,
-                                    "Move trailing spaces to the start of the next line."
-                                        .to_string(),
-                                ));
+                                diagnostics.push(
+                                    self.diagnostic(
+                                        source,
+                                        line_num,
+                                        spaces_start,
+                                        "Move trailing spaces to the start of the next line."
+                                            .to_string(),
+                                    ),
+                                );
                             }
                         }
                     }
@@ -135,7 +137,6 @@ impl Cop for LineContinuationLeadingSpace {
                 _ => {}
             }
         }
-
     }
 }
 

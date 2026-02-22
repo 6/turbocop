@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 
 pub struct EmptyLiteral;
 
@@ -11,7 +11,10 @@ fn has_frozen_string_literal(source: &SourceFile) -> bool {
         let lower: Vec<u8> = line.to_ascii_lowercase();
         if lower.windows(22).any(|w| w == b"frozen_string_literal:") {
             // Check if it's set to `true`
-            if let Some(pos) = lower.windows(22).position(|w| w == b"frozen_string_literal:") {
+            if let Some(pos) = lower
+                .windows(22)
+                .position(|w| w == b"frozen_string_literal:")
+            {
                 let after = &lower[pos + 22..];
                 let trimmed: Vec<u8> = after.iter().copied().skip_while(|&b| b == b' ').collect();
                 if trimmed.starts_with(b"true") {
@@ -38,8 +41,8 @@ impl Cop for EmptyLiteral {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call_node = match node.as_call_node() {
             Some(c) => c,
@@ -132,6 +135,9 @@ mod tests {
             &EmptyLiteral,
             b"# frozen_string_literal: true\n\ns = String.new\n",
         );
-        assert!(diags.is_empty(), "String.new should not be flagged when frozen_string_literal is true");
+        assert!(
+            diags.is_empty(),
+            "String.new should not be flagged when frozen_string_literal is true"
+        );
     }
 }

@@ -1,7 +1,7 @@
+use crate::cop::node_type::ARRAY_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::ARRAY_NODE;
 
 pub struct SpaceInsideArrayLiteralBrackets;
 
@@ -24,8 +24,8 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let array = match node.as_array_node() {
             Some(a) => a,
@@ -58,13 +58,18 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
                 "space" => {
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
                     let mut diag = self.diagnostic(
-                        source, line, column,
+                        source,
+                        line,
+                        column,
                         "Space inside empty array literal brackets missing.".to_string(),
                     );
                     if let Some(ref mut corr) = corrections {
                         corr.push(crate::correction::Correction {
-                            start: open_end, end: open_end, replacement: " ".to_string(),
-                            cop_name: self.name(), cop_index: 0,
+                            start: open_end,
+                            end: open_end,
+                            replacement: " ".to_string(),
+                            cop_name: self.name(),
+                            cop_index: 0,
                         });
                         diag.corrected = true;
                     }
@@ -79,13 +84,18 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
                 "no_space" => {
                     let (line, column) = source.offset_to_line_col(open_end);
                     let mut diag = self.diagnostic(
-                        source, line, column,
+                        source,
+                        line,
+                        column,
                         "Space inside empty array literal brackets detected.".to_string(),
                     );
                     if let Some(ref mut corr) = corrections {
                         corr.push(crate::correction::Correction {
-                            start: open_end, end: open_end + 1, replacement: String::new(),
-                            cop_name: self.name(), cop_index: 0,
+                            start: open_end,
+                            end: open_end + 1,
+                            replacement: String::new(),
+                            cop_name: self.name(),
+                            cop_index: 0,
                         });
                         diag.corrected = true;
                     }
@@ -104,7 +114,6 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
 
         let enforced = config.get_str("EnforcedStyle", "no_space");
 
-
         let space_after_open = bytes.get(open_end) == Some(&b' ');
         let space_before_close = close_start > 0 && bytes.get(close_start - 1) == Some(&b' ');
 
@@ -113,13 +122,18 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
                 if space_after_open {
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
                     let mut diag = self.diagnostic(
-                        source, line, column,
+                        source,
+                        line,
+                        column,
                         "Space inside array literal brackets detected.".to_string(),
                     );
                     if let Some(ref mut corr) = corrections {
                         corr.push(crate::correction::Correction {
-                            start: open_end, end: open_end + 1, replacement: String::new(),
-                            cop_name: self.name(), cop_index: 0,
+                            start: open_end,
+                            end: open_end + 1,
+                            replacement: String::new(),
+                            cop_name: self.name(),
+                            cop_index: 0,
                         });
                         diag.corrected = true;
                     }
@@ -128,13 +142,18 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
                 if space_before_close {
                     let (line, column) = source.offset_to_line_col(closing.start_offset());
                     let mut diag = self.diagnostic(
-                        source, line, column,
+                        source,
+                        line,
+                        column,
                         "Space inside array literal brackets detected.".to_string(),
                     );
                     if let Some(ref mut corr) = corrections {
                         corr.push(crate::correction::Correction {
-                            start: close_start - 1, end: close_start, replacement: String::new(),
-                            cop_name: self.name(), cop_index: 0,
+                            start: close_start - 1,
+                            end: close_start,
+                            replacement: String::new(),
+                            cop_name: self.name(),
+                            cop_index: 0,
                         });
                         diag.corrected = true;
                     }
@@ -145,13 +164,18 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
                 if !space_after_open {
                     let (line, column) = source.offset_to_line_col(opening.start_offset());
                     let mut diag = self.diagnostic(
-                        source, line, column,
+                        source,
+                        line,
+                        column,
                         "Space inside array literal brackets missing.".to_string(),
                     );
                     if let Some(ref mut corr) = corrections {
                         corr.push(crate::correction::Correction {
-                            start: open_end, end: open_end, replacement: " ".to_string(),
-                            cop_name: self.name(), cop_index: 0,
+                            start: open_end,
+                            end: open_end,
+                            replacement: " ".to_string(),
+                            cop_name: self.name(),
+                            cop_index: 0,
                         });
                         diag.corrected = true;
                     }
@@ -160,13 +184,18 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
                 if !space_before_close {
                     let (line, column) = source.offset_to_line_col(closing.start_offset());
                     let mut diag = self.diagnostic(
-                        source, line, column,
+                        source,
+                        line,
+                        column,
                         "Space inside array literal brackets missing.".to_string(),
                     );
                     if let Some(ref mut corr) = corrections {
                         corr.push(crate::correction::Correction {
-                            start: close_start, end: close_start, replacement: " ".to_string(),
-                            cop_name: self.name(), cop_index: 0,
+                            start: close_start,
+                            end: close_start,
+                            replacement: " ".to_string(),
+                            cop_name: self.name(),
+                            cop_index: 0,
                         });
                         diag.corrected = true;
                     }
@@ -175,7 +204,6 @@ impl Cop for SpaceInsideArrayLiteralBrackets {
             }
             _ => {}
         }
-
     }
 }
 
@@ -194,18 +222,23 @@ mod tests {
 
     #[test]
     fn empty_brackets_space_style_flags_no_space() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyleForEmptyBrackets".into(), serde_yml::Value::String("space".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyleForEmptyBrackets".into(),
+                serde_yml::Value::String("space".into()),
+            )]),
             ..CopConfig::default()
         };
         let src = b"x = []\n";
         let diags = run_cop_full_with_config(&SpaceInsideArrayLiteralBrackets, src, config);
-        assert_eq!(diags.len(), 1, "space style should flag empty [] without space");
+        assert_eq!(
+            diags.len(),
+            1,
+            "space style should flag empty [] without space"
+        );
     }
 
     #[test]

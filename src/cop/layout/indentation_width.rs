@@ -1,8 +1,11 @@
+use crate::cop::node_type::{
+    BEGIN_NODE, BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, IF_NODE, MODULE_NODE, STATEMENTS_NODE,
+    UNTIL_NODE, WHEN_NODE, WHILE_NODE,
+};
 use crate::cop::util::{assignment_context_base_col, expected_indent_for_body};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BEGIN_NODE, BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, IF_NODE, MODULE_NODE, STATEMENTS_NODE, UNTIL_NODE, WHEN_NODE, WHILE_NODE};
 
 pub struct IndentationWidth;
 
@@ -128,7 +131,19 @@ impl Cop for IndentationWidth {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BEGIN_NODE, BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, IF_NODE, MODULE_NODE, STATEMENTS_NODE, UNTIL_NODE, WHEN_NODE, WHILE_NODE]
+        &[
+            BEGIN_NODE,
+            BLOCK_NODE,
+            CALL_NODE,
+            CLASS_NODE,
+            DEF_NODE,
+            IF_NODE,
+            MODULE_NODE,
+            STATEMENTS_NODE,
+            UNTIL_NODE,
+            WHEN_NODE,
+            WHILE_NODE,
+        ]
     }
 
     fn check_node(
@@ -137,12 +152,14 @@ impl Cop for IndentationWidth {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let width = config.get_usize("Width", 2);
         let align_style = config.get_str("EnforcedStyleAlignWith", "start_of_line");
-        let allowed_patterns = config.get_string_array("AllowedPatterns").unwrap_or_default();
+        let allowed_patterns = config
+            .get_string_array("AllowedPatterns")
+            .unwrap_or_default();
 
         // Skip if the node's source line matches any allowed pattern
         if !allowed_patterns.is_empty() {
@@ -175,7 +192,11 @@ impl Cop for IndentationWidth {
                 } else {
                     kw_col
                 };
-                let alt_base = if base_col != kw_col { Some(kw_col) } else { None };
+                let alt_base = if base_col != kw_col {
+                    Some(kw_col)
+                } else {
+                    None
+                };
                 diagnostics.extend(self.check_statements_indentation(
                     source,
                     kw_offset,
@@ -287,7 +308,10 @@ impl Cop for IndentationWidth {
                     while line_start > 0 && bytes[line_start - 1] != b'\n' {
                         line_start -= 1;
                     }
-                    if !bytes[line_start..closing_offset].iter().all(|&b| b == b' ' || b == b'\t') {
+                    if !bytes[line_start..closing_offset]
+                        .iter()
+                        .all(|&b| b == b' ' || b == b'\t')
+                    {
                         return;
                     }
 
@@ -297,8 +321,10 @@ impl Cop for IndentationWidth {
                         if let Some(body_node) = block.body() {
                             if let Some(stmts) = body_node.as_statements_node() {
                                 if let Some(first) = stmts.body().iter().next() {
-                                    let (params_line, _) = source.offset_to_line_col(params.location().end_offset());
-                                    let (first_line, _) = source.offset_to_line_col(first.location().start_offset());
+                                    let (params_line, _) =
+                                        source.offset_to_line_col(params.location().end_offset());
+                                    let (first_line, _) =
+                                        source.offset_to_line_col(first.location().start_offset());
                                     if first_line == params_line {
                                         return;
                                     }
@@ -313,8 +339,10 @@ impl Cop for IndentationWidth {
                     // Otherwise, use the `end`/`}` keyword column.
                     let base_col = if let Some(dot_loc) = call_node.call_operator_loc() {
                         if let Some(receiver) = call_node.receiver() {
-                            let (recv_end_line, _) = source.offset_to_line_col(receiver.location().end_offset());
-                            let (dot_line, dot_col) = source.offset_to_line_col(dot_loc.start_offset());
+                            let (recv_end_line, _) =
+                                source.offset_to_line_col(receiver.location().end_offset());
+                            let (dot_line, dot_col) =
+                                source.offset_to_line_col(dot_loc.start_offset());
                             if dot_line > recv_end_line {
                                 dot_col
                             } else {
@@ -350,7 +378,8 @@ impl Cop for IndentationWidth {
                 let (then_line, _) = source.offset_to_line_col(then_loc.start_offset());
                 if let Some(stmts) = when_node.statements() {
                     if let Some(first) = stmts.body().iter().next() {
-                        let (first_line, _) = source.offset_to_line_col(first.location().start_offset());
+                        let (first_line, _) =
+                            source.offset_to_line_col(first.location().start_offset());
                         if first_line == then_line {
                             return;
                         }
@@ -420,7 +449,6 @@ impl Cop for IndentationWidth {
             ));
             return;
         }
-
     }
 }
 
@@ -450,16 +478,21 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyleAlignWith".into(), serde_yml::Value::String("keyword".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyleAlignWith".into(),
+                serde_yml::Value::String("keyword".into()),
+            )]),
             ..CopConfig::default()
         };
         // Body indented 2 from column 0, but `def` is at column 8 (after `private `)
         // With keyword style, body should be at column 10 (8 + 2)
         let source = b"private def foo\n  bar\nend\n";
         let diags = run_cop_full_with_config(&IndentationWidth, source, config);
-        assert_eq!(diags.len(), 1, "keyword style should flag body not aligned with def keyword");
+        assert_eq!(
+            diags.len(),
+            1,
+            "keyword style should flag body not aligned with def keyword"
+        );
         assert!(diags[0].message.contains("Use 2"));
     }
 
@@ -468,17 +501,19 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("AllowedPatterns".into(), serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("^\\s*module".into()),
-                ])),
-            ]),
+            options: HashMap::from([(
+                "AllowedPatterns".into(),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("^\\s*module".into())]),
+            )]),
             ..CopConfig::default()
         };
         // Module with wrong indentation but matches AllowedPatterns
         let source = b"module Foo\n      x = 1\nend\n";
         let diags = run_cop_full_with_config(&IndentationWidth, source, config);
-        assert!(diags.is_empty(), "AllowedPatterns should skip matching lines");
+        assert!(
+            diags.is_empty(),
+            "AllowedPatterns should skip matching lines"
+        );
     }
 
     #[test]
@@ -487,7 +522,11 @@ mod tests {
         // Body indented 2 from `if` keyword (col 4), body at col 6 — correct
         let source = b"x = if foo\n      bar\n    end\n";
         let diags = run_cop_full(&IndentationWidth, source);
-        assert!(diags.is_empty(), "body at if+2 should not flag: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "body at if+2 should not flag: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -496,7 +535,12 @@ mod tests {
         // Body at column 2 — should be column 6 (if=4, 4+2=6). Flagged.
         let source = b"x = if foo\n  bar\nend\n";
         let diags = run_cop_full(&IndentationWidth, source);
-        assert_eq!(diags.len(), 1, "should flag wrong indentation in assignment context: {:?}", diags);
+        assert_eq!(
+            diags.len(),
+            1,
+            "should flag wrong indentation in assignment context: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -505,7 +549,11 @@ mod tests {
         // x ||= if foo ... body indented from `if` keyword (col 6), body at col 8 — correct
         let source = b"x ||= if foo\n        bar\n      end\n";
         let diags = run_cop_full(&IndentationWidth, source);
-        assert!(diags.is_empty(), "compound assignment context should work: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "compound assignment context should work: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -517,16 +565,21 @@ mod tests {
         //          end
         let source = b"    @links = if enabled?\n               body\n             end\n";
         let diags = run_cop_full(&IndentationWidth, source);
-        assert!(diags.is_empty(), "keyword style assignment should not flag: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "keyword style assignment should not flag: {:?}",
+            diags
+        );
     }
 
     #[test]
     fn assignment_variable_style_body_from_variable() {
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("EndAlignmentStyle".into(), serde_yml::Value::String("variable".into())),
-            ]),
+            options: HashMap::from([(
+                "EndAlignmentStyle".into(),
+                serde_yml::Value::String("variable".into()),
+            )]),
             ..CopConfig::default()
         };
         // Variable style: body at col 6 (server=4, 4+2=6), if at col 15
@@ -535,16 +588,21 @@ mod tests {
         // end
         let source = b"    server = if cond\n      body\n    end\n";
         let diags = run_cop_full_with_config(&IndentationWidth, source, config);
-        assert!(diags.is_empty(), "variable style should accept body indented from variable: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "variable style should accept body indented from variable: {:?}",
+            diags
+        );
     }
 
     #[test]
     fn assignment_variable_style_also_accepts_keyword_indent() {
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("EndAlignmentStyle".into(), serde_yml::Value::String("variable".into())),
-            ]),
+            options: HashMap::from([(
+                "EndAlignmentStyle".into(),
+                serde_yml::Value::String("variable".into()),
+            )]),
             ..CopConfig::default()
         };
         // Variable style: body at col 15 (if=13, 13+2=15) — keyword indent also accepted
@@ -553,36 +611,50 @@ mod tests {
         //             end
         let source = b"    server = if cond\n               body\n             end\n";
         let diags = run_cop_full_with_config(&IndentationWidth, source, config);
-        assert!(diags.is_empty(), "variable style should also accept keyword indent: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "variable style should also accept keyword indent: {:?}",
+            diags
+        );
     }
 
     #[test]
     fn shovel_operator_variable_style_no_offense() {
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("EndAlignmentStyle".into(), serde_yml::Value::String("variable".into())),
-            ]),
+            options: HashMap::from([(
+                "EndAlignmentStyle".into(),
+                serde_yml::Value::String("variable".into()),
+            )]),
             ..CopConfig::default()
         };
         // << operator with variable style: body indented from receiver, not if keyword
         let source = b"html << if error\n  error\nelse\n  default\nend\n";
         let diags = run_cop_full_with_config(&IndentationWidth, source, config);
-        assert!(diags.is_empty(), "variable style << context should not flag body: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "variable style << context should not flag body: {:?}",
+            diags
+        );
     }
 
     #[test]
     fn shovel_operator_indented_variable_style_no_offense() {
         use std::collections::HashMap;
         let config = CopConfig {
-            options: HashMap::from([
-                ("EndAlignmentStyle".into(), serde_yml::Value::String("variable".into())),
-            ]),
+            options: HashMap::from([(
+                "EndAlignmentStyle".into(),
+                serde_yml::Value::String("variable".into()),
+            )]),
             ..CopConfig::default()
         };
         // << operator with variable style at col 8: body indented from @buffer col
         let source = b"        @buffer << if value.safe?\n          value\n        else\n          escape(value)\n        end\n";
         let diags = run_cop_full_with_config(&IndentationWidth, source, config);
-        assert!(diags.is_empty(), "variable style << context should not flag body: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "variable style << context should not flag body: {:?}",
+            diags
+        );
     }
 }

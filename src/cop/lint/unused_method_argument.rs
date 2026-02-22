@@ -1,8 +1,12 @@
+use crate::cop::node_type::{
+    CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, DEF_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE,
+    OPTIONAL_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE,
+    STATEMENTS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, DEF_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE};
 
 pub struct UnusedMethodArgument;
 
@@ -16,7 +20,17 @@ impl Cop for UnusedMethodArgument {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, DEF_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE]
+        &[
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            DEF_NODE,
+            OPTIONAL_KEYWORD_PARAMETER_NODE,
+            OPTIONAL_PARAMETER_NODE,
+            REQUIRED_KEYWORD_PARAMETER_NODE,
+            REQUIRED_PARAMETER_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -25,8 +39,8 @@ impl Cop for UnusedMethodArgument {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let def_node = match node.as_def_node() {
             Some(d) => d,
@@ -152,7 +166,6 @@ impl Cop for UnusedMethodArgument {
             return;
         }
 
-
         for (name, offset, _is_keyword) in &param_info {
             // Skip arguments prefixed with _
             if name.starts_with(b"_") {
@@ -177,7 +190,6 @@ impl Cop for UnusedMethodArgument {
                 ));
             }
         }
-
     }
 }
 
@@ -254,10 +266,7 @@ impl<'pr> Visit<'pr> for VarReadFinder {
     }
 
     // Bare `super` (no args, no parens) implicitly forwards all method arguments
-    fn visit_forwarding_super_node(
-        &mut self,
-        _node: &ruby_prism::ForwardingSuperNode<'pr>,
-    ) {
+    fn visit_forwarding_super_node(&mut self, _node: &ruby_prism::ForwardingSuperNode<'pr>) {
         self.has_forwarding_super = true;
     }
 

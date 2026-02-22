@@ -1,9 +1,9 @@
-use crate::cop::util::{is_rspec_example, RSPEC_DEFAULT_INCLUDE};
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
+use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use std::collections::HashMap;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
 
 /// RSpec/RepeatedDescription: Don't repeat descriptions within an example group.
 pub struct RepeatedDescription;
@@ -31,8 +31,8 @@ impl Cop for RepeatedDescription {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -74,7 +74,12 @@ impl Cop for RepeatedDescription {
                         let loc = c.location();
                         let (line, col) = source.offset_to_line_col(loc.start_offset());
                         let end_off = loc.end_offset();
-                        desc_map.entry(s).or_default().push((line, col, loc.start_offset(), end_off));
+                        desc_map.entry(s).or_default().push((
+                            line,
+                            col,
+                            loc.start_offset(),
+                            end_off,
+                        ));
                     }
                 }
             }
@@ -93,7 +98,6 @@ impl Cop for RepeatedDescription {
                 }
             }
         }
-
     }
 }
 

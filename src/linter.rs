@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use rayon::prelude::*;
 use ruby_prism::Visit;
@@ -54,7 +54,8 @@ impl PhaseTimers {
         eprintln!("debug:   file I/O:       {file_io:.0?} (cumulative across threads)");
         eprintln!("debug:   prism parse:    {parse:.0?}");
         eprintln!("debug:   codemap build:  {codemap:.0?}");
-        let cop_filter = std::time::Duration::from_nanos(self.cop_filter_ns.load(Ordering::Relaxed));
+        let cop_filter =
+            std::time::Duration::from_nanos(self.cop_filter_ns.load(Ordering::Relaxed));
         let cop_ast = std::time::Duration::from_nanos(self.cop_ast_ns.load(Ordering::Relaxed));
         eprintln!("debug:   cop execution:  {cop_exec:.0?}");
         eprintln!("debug:     filter+config:  {cop_filter:.0?}");
@@ -67,11 +68,8 @@ impl PhaseTimers {
 
 /// Renamed cops from vendor/rubocop/config/obsoletion.yml.
 /// Maps old cop name -> new cop name (e.g., "Naming/PredicateName" -> "Naming/PredicatePrefix").
-static RENAMED_COPS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
-    parse_renamed_cops(include_str!(
-        "../vendor/rubocop/config/obsoletion.yml"
-    ))
-});
+static RENAMED_COPS: LazyLock<HashMap<String, String>> =
+    LazyLock::new(|| parse_renamed_cops(include_str!("../vendor/rubocop/config/obsoletion.yml")));
 
 /// Parse the `renamed:` section from obsoletion.yml content.
 ///
@@ -318,16 +316,29 @@ pub fn run_linter(
             .collect();
         entries.sort_by(|a, b| (b.1 + b.2 + b.3).cmp(&(a.1 + a.2 + a.3)));
         eprintln!("\n=== Per-cop timing (top 30) ===");
-        eprintln!("{:<50} {:>10} {:>10} {:>10} {:>10}", "Cop", "lines", "source", "ast", "total");
+        eprintln!(
+            "{:<50} {:>10} {:>10} {:>10} {:>10}",
+            "Cop", "lines", "source", "ast", "total"
+        );
         for (name, l, s, a) in entries.iter().take(30) {
             let lms = *l as f64 / 1_000_000.0;
             let sms = *s as f64 / 1_000_000.0;
             let ams = *a as f64 / 1_000_000.0;
             let total = lms + sms + ams;
-            eprintln!("{:<50} {:>9.1}ms {:>9.1}ms {:>9.1}ms {:>9.1}ms", name, lms, sms, ams, total);
+            eprintln!(
+                "{:<50} {:>9.1}ms {:>9.1}ms {:>9.1}ms {:>9.1}ms",
+                name, lms, sms, ams, total
+            );
         }
         let total_all: u64 = entries.iter().map(|(_, l, s, a)| l + s + a).sum();
-        eprintln!("{:<50} {:>10} {:>10} {:>10} {:>9.1}ms", "TOTAL", "", "", "", total_all as f64 / 1_000_000.0);
+        eprintln!(
+            "{:<50} {:>10} {:>10} {:>10} {:>9.1}ms",
+            "TOTAL",
+            "",
+            "",
+            "",
+            total_all as f64 / 1_000_000.0
+        );
     }
 
     let corrected_count = total_corrected.load(std::sync::atomic::Ordering::Relaxed);
@@ -422,7 +433,10 @@ fn lint_file(
     // Write corrected bytes to disk if autocorrect produced changes
     if let Some(bytes) = corrected_bytes {
         if let Err(e) = std::fs::write(path, &bytes) {
-            eprintln!("error: failed to write corrected file {}: {e}", path.display());
+            eprintln!(
+                "error: failed to write corrected file {}: {e}",
+                path.display()
+            );
         }
     }
 
@@ -562,8 +576,16 @@ fn lint_source_inner(
     if autocorrect_mode == crate::cli::AutocorrectMode::Off {
         // Fast path: no autocorrect, run once
         let (diags, _) = lint_source_once(
-            source, config, registry, args, cop_filters,
-            base_configs, has_dir_overrides, timers, autocorrect_mode, allowlist,
+            source,
+            config,
+            registry,
+            args,
+            cop_filters,
+            base_configs,
+            has_dir_overrides,
+            timers,
+            autocorrect_mode,
+            allowlist,
         );
         return (diags, None, 0);
     }
@@ -579,8 +601,16 @@ fn lint_source_inner(
     for _iteration in 0..MAX_ITERATIONS {
         let iter_source = SourceFile::from_vec(path.clone(), current_bytes.clone());
         let (diags, corrections) = lint_source_once(
-            &iter_source, config, registry, args, cop_filters,
-            base_configs, has_dir_overrides, timers, autocorrect_mode, allowlist,
+            &iter_source,
+            config,
+            registry,
+            args,
+            cop_filters,
+            base_configs,
+            has_dir_overrides,
+            timers,
+            autocorrect_mode,
+            allowlist,
         );
 
         if corrections.is_empty() {
@@ -611,9 +641,16 @@ fn lint_source_inner(
     // Hit max iterations — run one final pass without corrections to get clean diagnostics
     let final_source = SourceFile::from_vec(path.clone(), current_bytes.clone());
     let (diags, _) = lint_source_once(
-        &final_source, config, registry, args, cop_filters,
-        base_configs, has_dir_overrides, timers,
-        crate::cli::AutocorrectMode::Off, allowlist,
+        &final_source,
+        config,
+        registry,
+        args,
+        cop_filters,
+        base_configs,
+        has_dir_overrides,
+        timers,
+        crate::cli::AutocorrectMode::Off,
+        allowlist,
     );
     let mut all_diags = corrected_diags;
     all_diags.extend(diags);
@@ -701,10 +738,24 @@ fn lint_source_once(
 
         if should_correct {
             cop.check_lines(source, cop_config, &mut diagnostics, Some(&mut corrections));
-            cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics, Some(&mut corrections));
+            cop.check_source(
+                source,
+                &parse_result,
+                &code_map,
+                cop_config,
+                &mut diagnostics,
+                Some(&mut corrections),
+            );
         } else {
             cop.check_lines(source, cop_config, &mut diagnostics, None);
-            cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics, None);
+            cop.check_source(
+                source,
+                &parse_result,
+                &code_map,
+                cop_config,
+                &mut diagnostics,
+                None,
+            );
         }
         ast_cop_indices.push((i, override_idx));
     }
@@ -746,10 +797,24 @@ fn lint_source_once(
 
         if should_correct {
             cop.check_lines(source, cop_config, &mut diagnostics, Some(&mut corrections));
-            cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics, Some(&mut corrections));
+            cop.check_source(
+                source,
+                &parse_result,
+                &code_map,
+                cop_config,
+                &mut diagnostics,
+                Some(&mut corrections),
+            );
         } else {
             cop.check_lines(source, cop_config, &mut diagnostics, None);
-            cop.check_source(source, &parse_result, &code_map, cop_config, &mut diagnostics, None);
+            cop.check_source(
+                source,
+                &parse_result,
+                &code_map,
+                cop_config,
+                &mut diagnostics,
+                None,
+            );
         }
         ast_cop_indices.push((i, override_idx));
     }
@@ -819,17 +884,12 @@ fn lint_source_once(
 
         if cop_enabled {
             for directive in disabled.unused_directives() {
-                if !is_directive_redundant(
-                    &directive.cop_name,
-                    registry,
-                    cop_filters,
-                    &source.path,
-                ) {
+                if !is_directive_redundant(&directive.cop_name, registry, cop_filters, &source.path)
+                {
                     continue;
                 }
 
-                let message =
-                    format!("Unnecessary disabling of `{}`.", directive.cop_name);
+                let message = format!("Unnecessary disabling of `{}`.", directive.cop_name);
                 diagnostics.push(Diagnostic {
                     path: source.path_str().to_string(),
                     location: Location {
@@ -899,7 +959,10 @@ mod tests {
     fn parse_renamed_cops_extended_format() {
         let yaml = "renamed:\n  Naming/PredicateName:\n    new_name: Naming/PredicatePrefix\n    severity: warning\n";
         let map = parse_renamed_cops(yaml);
-        assert_eq!(map.get("Naming/PredicateName").unwrap(), "Naming/PredicatePrefix");
+        assert_eq!(
+            map.get("Naming/PredicateName").unwrap(),
+            "Naming/PredicatePrefix"
+        );
         assert_eq!(map.len(), 1);
     }
 
@@ -944,22 +1007,33 @@ renamed:
         // Extended format but without the new_name key — should be skipped
         let yaml = "renamed:\n  Bad/Entry:\n    severity: warning\n";
         let map = parse_renamed_cops(yaml);
-        assert!(map.is_empty(), "entry with empty new_name should be skipped");
+        assert!(
+            map.is_empty(),
+            "entry with empty new_name should be skipped"
+        );
     }
 
     #[test]
     fn parse_renamed_cops_real_obsoletion_yml() {
         // Verify the actual vendor file parses correctly
-        let map = parse_renamed_cops(include_str!(
-            "../vendor/rubocop/config/obsoletion.yml"
-        ));
+        let map = parse_renamed_cops(include_str!("../vendor/rubocop/config/obsoletion.yml"));
         // Spot-check a few known renames
         assert_eq!(map.get("Layout/Tab").unwrap(), "Layout/IndentationStyle");
         assert_eq!(map.get("Lint/Eval").unwrap(), "Security/Eval");
-        assert_eq!(map.get("Naming/PredicateName").unwrap(), "Naming/PredicatePrefix");
-        assert_eq!(map.get("Style/PredicateName").unwrap(), "Naming/PredicatePrefix");
+        assert_eq!(
+            map.get("Naming/PredicateName").unwrap(),
+            "Naming/PredicatePrefix"
+        );
+        assert_eq!(
+            map.get("Style/PredicateName").unwrap(),
+            "Naming/PredicatePrefix"
+        );
         // Should have a reasonable number of entries
-        assert!(map.len() >= 30, "expected at least 30 renames, got {}", map.len());
+        assert!(
+            map.len() >= 30,
+            "expected at least 30 renames, got {}",
+            map.len()
+        );
     }
 
     // --- PhaseTimers ---

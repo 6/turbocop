@@ -1,13 +1,24 @@
+use crate::cop::node_type::{
+    CLASS_VARIABLE_WRITE_NODE, DEF_NODE, GLOBAL_VARIABLE_WRITE_NODE, INSTANCE_VARIABLE_WRITE_NODE,
+    LOCAL_VARIABLE_WRITE_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE,
+    REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE, SYMBOL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CLASS_VARIABLE_WRITE_NODE, DEF_NODE, GLOBAL_VARIABLE_WRITE_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE, SYMBOL_NODE};
 
 pub struct VariableNumber;
 
 const DEFAULT_ALLOWED: &[&str] = &[
-    "TLS1_1", "TLS1_2", "capture3", "iso8601", "rfc1123_date",
-    "rfc822", "rfc2822", "rfc3339", "x86_64",
+    "TLS1_1",
+    "TLS1_2",
+    "capture3",
+    "iso8601",
+    "rfc1123_date",
+    "rfc822",
+    "rfc2822",
+    "rfc3339",
+    "x86_64",
 ];
 
 impl Cop for VariableNumber {
@@ -16,7 +27,18 @@ impl Cop for VariableNumber {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CLASS_VARIABLE_WRITE_NODE, DEF_NODE, GLOBAL_VARIABLE_WRITE_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_WRITE_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE, SYMBOL_NODE]
+        &[
+            CLASS_VARIABLE_WRITE_NODE,
+            DEF_NODE,
+            GLOBAL_VARIABLE_WRITE_NODE,
+            INSTANCE_VARIABLE_WRITE_NODE,
+            LOCAL_VARIABLE_WRITE_NODE,
+            OPTIONAL_KEYWORD_PARAMETER_NODE,
+            OPTIONAL_PARAMETER_NODE,
+            REQUIRED_KEYWORD_PARAMETER_NODE,
+            REQUIRED_PARAMETER_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -25,8 +47,8 @@ impl Cop for VariableNumber {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "normalcase");
         let check_method_names = config.get_bool("CheckMethodNames", true);
@@ -34,9 +56,8 @@ impl Cop for VariableNumber {
         let allowed = config.get_string_array("AllowedIdentifiers");
         let allowed_patterns = config.get_string_array("AllowedPatterns");
 
-        let allowed_ids: Vec<String> = allowed.unwrap_or_else(|| {
-            DEFAULT_ALLOWED.iter().map(|s| s.to_string()).collect()
-        });
+        let allowed_ids: Vec<String> =
+            allowed.unwrap_or_else(|| DEFAULT_ALLOWED.iter().map(|s| s.to_string()).collect());
 
         let allowed_pats: Vec<String> = allowed_patterns.unwrap_or_default();
 
@@ -45,7 +66,14 @@ impl Cop for VariableNumber {
             let name = lvar.name().as_slice();
             let name_str = std::str::from_utf8(name).unwrap_or("");
             if !is_allowed(name_str, &allowed_ids, &allowed_pats) {
-                if let Some(diag) = check_number_style(self, source, name_str, &lvar.name_loc(), enforced_style, "variable") {
+                if let Some(diag) = check_number_style(
+                    self,
+                    source,
+                    name_str,
+                    &lvar.name_loc(),
+                    enforced_style,
+                    "variable",
+                ) {
                     diagnostics.push(diag);
                 }
             }
@@ -58,7 +86,14 @@ impl Cop for VariableNumber {
             // Strip leading @
             let bare = name_str.trim_start_matches('@');
             if !is_allowed(bare, &allowed_ids, &allowed_pats) {
-                if let Some(diag) = check_number_style(self, source, bare, &ivar.name_loc(), enforced_style, "variable") {
+                if let Some(diag) = check_number_style(
+                    self,
+                    source,
+                    bare,
+                    &ivar.name_loc(),
+                    enforced_style,
+                    "variable",
+                ) {
                     diagnostics.push(diag);
                 }
             }
@@ -70,7 +105,14 @@ impl Cop for VariableNumber {
             let name_str = std::str::from_utf8(name).unwrap_or("");
             let bare = name_str.trim_start_matches('@');
             if !is_allowed(bare, &allowed_ids, &allowed_pats) {
-                if let Some(diag) = check_number_style(self, source, bare, &cvar.name_loc(), enforced_style, "variable") {
+                if let Some(diag) = check_number_style(
+                    self,
+                    source,
+                    bare,
+                    &cvar.name_loc(),
+                    enforced_style,
+                    "variable",
+                ) {
                     diagnostics.push(diag);
                 }
             }
@@ -82,7 +124,14 @@ impl Cop for VariableNumber {
             let name_str = std::str::from_utf8(name).unwrap_or("");
             let bare = name_str.trim_start_matches('$');
             if !is_allowed(bare, &allowed_ids, &allowed_pats) {
-                if let Some(diag) = check_number_style(self, source, bare, &gvar.name_loc(), enforced_style, "variable") {
+                if let Some(diag) = check_number_style(
+                    self,
+                    source,
+                    bare,
+                    &gvar.name_loc(),
+                    enforced_style,
+                    "variable",
+                ) {
                     diagnostics.push(diag);
                 }
             }
@@ -94,7 +143,14 @@ impl Cop for VariableNumber {
                 let name = def_node.name().as_slice();
                 let name_str = std::str::from_utf8(name).unwrap_or("");
                 if !is_allowed(name_str, &allowed_ids, &allowed_pats) {
-                    if let Some(diag) = check_number_style(self, source, name_str, &def_node.name_loc(), enforced_style, "method name") {
+                    if let Some(diag) = check_number_style(
+                        self,
+                        source,
+                        name_str,
+                        &def_node.name_loc(),
+                        enforced_style,
+                        "method name",
+                    ) {
                         diagnostics.push(diag);
                     }
                 }
@@ -107,7 +163,14 @@ impl Cop for VariableNumber {
                 let name = sym.unescaped();
                 let name_str = std::str::from_utf8(&name).unwrap_or("");
                 if !is_allowed(name_str, &allowed_ids, &allowed_pats) {
-                    if let Some(diag) = check_number_style(self, source, name_str, &sym.value_loc().unwrap_or(sym.location()), enforced_style, "symbol") {
+                    if let Some(diag) = check_number_style(
+                        self,
+                        source,
+                        name_str,
+                        &sym.value_loc().unwrap_or(sym.location()),
+                        enforced_style,
+                        "symbol",
+                    ) {
                         diagnostics.push(diag);
                     }
                 }
@@ -119,7 +182,14 @@ impl Cop for VariableNumber {
             let name = param.name().as_slice();
             let name_str = std::str::from_utf8(name).unwrap_or("");
             if !is_allowed(name_str, &allowed_ids, &allowed_pats) {
-                if let Some(diag) = check_number_style(self, source, name_str, &param.location(), enforced_style, "variable") {
+                if let Some(diag) = check_number_style(
+                    self,
+                    source,
+                    name_str,
+                    &param.location(),
+                    enforced_style,
+                    "variable",
+                ) {
                     diagnostics.push(diag);
                 }
             }
@@ -128,7 +198,14 @@ impl Cop for VariableNumber {
             let name = param.name().as_slice();
             let name_str = std::str::from_utf8(name).unwrap_or("");
             if !is_allowed(name_str, &allowed_ids, &allowed_pats) {
-                if let Some(diag) = check_number_style(self, source, name_str, &param.name_loc(), enforced_style, "variable") {
+                if let Some(diag) = check_number_style(
+                    self,
+                    source,
+                    name_str,
+                    &param.name_loc(),
+                    enforced_style,
+                    "variable",
+                ) {
                     diagnostics.push(diag);
                 }
             }
@@ -138,7 +215,14 @@ impl Cop for VariableNumber {
             let name_str = std::str::from_utf8(name).unwrap_or("");
             let bare = name_str.trim_end_matches(':');
             if !is_allowed(bare, &allowed_ids, &allowed_pats) {
-                if let Some(diag) = check_number_style(self, source, bare, &param.name_loc(), enforced_style, "variable") {
+                if let Some(diag) = check_number_style(
+                    self,
+                    source,
+                    bare,
+                    &param.name_loc(),
+                    enforced_style,
+                    "variable",
+                ) {
                     diagnostics.push(diag);
                 }
             }
@@ -148,12 +232,18 @@ impl Cop for VariableNumber {
             let name_str = std::str::from_utf8(name).unwrap_or("");
             let bare = name_str.trim_end_matches(':');
             if !is_allowed(bare, &allowed_ids, &allowed_pats) {
-                if let Some(diag) = check_number_style(self, source, bare, &param.name_loc(), enforced_style, "variable") {
+                if let Some(diag) = check_number_style(
+                    self,
+                    source,
+                    bare,
+                    &param.name_loc(),
+                    enforced_style,
+                    "variable",
+                ) {
                     diagnostics.push(diag);
                 }
             }
         }
-
     }
 }
 

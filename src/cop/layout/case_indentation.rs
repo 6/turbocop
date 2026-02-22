@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CASE_NODE, WHEN_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CASE_NODE, WHEN_NODE};
 
 pub struct CaseIndentation;
 
@@ -20,8 +20,8 @@ impl Cop for CaseIndentation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "case");
         let indent_one_step = config.get_bool("IndentOneStep", false);
@@ -37,7 +37,9 @@ impl Cop for CaseIndentation {
         // EnforcedStyle "end": align `when` with `end` keyword
         // EnforcedStyle "case" (default): align `when` with `case` keyword
         let base_col = if style == "end" {
-            source.offset_to_line_col(case_node.end_keyword_loc().start_offset()).1
+            source
+                .offset_to_line_col(case_node.end_keyword_loc().start_offset())
+                .1
         } else {
             case_col
         };
@@ -57,23 +59,16 @@ impl Cop for CaseIndentation {
             "Indent `when` as deep as `case`.".to_string()
         };
 
-
         for condition in case_node.conditions().iter() {
             if let Some(when_node) = condition.as_when_node() {
                 let when_loc = when_node.keyword_loc();
                 let (when_line, when_col) = source.offset_to_line_col(when_loc.start_offset());
 
                 if when_col != expected_col {
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        when_line,
-                        when_col,
-                        message.clone(),
-                    ));
+                    diagnostics.push(self.diagnostic(source, when_line, when_col, message.clone()));
                 }
             }
         }
-
     }
 }
 
@@ -88,7 +83,10 @@ mod tests {
     fn nested_case_respects_own_indent() {
         let src = b"case x\nwhen 1\n  case y\n  when :a\n    puts :a\n  end\nend\n";
         let diags = run_cop_full(&CaseIndentation, src);
-        assert!(diags.is_empty(), "Properly indented nested case should not trigger");
+        assert!(
+            diags.is_empty(),
+            "Properly indented nested case should not trigger"
+        );
     }
 
     #[test]
@@ -102,35 +100,41 @@ mod tests {
 
     #[test]
     fn indent_one_step_requires_indented_when() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("IndentOneStep".into(), serde_yml::Value::Bool(true)),
-            ]),
+            options: HashMap::from([("IndentOneStep".into(), serde_yml::Value::Bool(true))]),
             ..CopConfig::default()
         };
         // `when` at same level as `case` should be flagged
         let src = b"case x\nwhen 1\n  puts 1\nend\n";
         let diags = run_cop_full_with_config(&CaseIndentation, src, config.clone());
-        assert_eq!(diags.len(), 1, "IndentOneStep should flag when at case level");
+        assert_eq!(
+            diags.len(),
+            1,
+            "IndentOneStep should flag when at case level"
+        );
 
         // `when` indented one step from `case` should be OK
         let src2 = b"case x\n  when 1\n    puts 1\nend\n";
         let diags2 = run_cop_full_with_config(&CaseIndentation, src2, config);
-        assert!(diags2.is_empty(), "IndentOneStep should accept indented when");
+        assert!(
+            diags2.is_empty(),
+            "IndentOneStep should accept indented when"
+        );
     }
 
     #[test]
     fn end_style_aligns_when_with_end() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("end".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("end".into()),
+            )]),
             ..CopConfig::default()
         };
         // `case` at col 4 (via assignment), `end` at col 0, `when` at col 4 (aligned with case)
@@ -142,17 +146,24 @@ mod tests {
         // Actually in this case end_keyword_loc gives us col 4, same as when.
         // The "end" style only differs from "case" when case_col != end_col.
         // Let's just verify "end" style accepts when aligned at end_col
-        assert!(diags.is_empty(), "end style should accept when aligned with end");
+        assert!(
+            diags.is_empty(),
+            "end style should accept when aligned with end"
+        );
 
         // Verify "case" style still works — when at case_col should be OK
         let config_case = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("case".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("case".into()),
+            )]),
             ..CopConfig::default()
         };
         let src2 = b"case x\nwhen 1\n  puts 1\nend\n";
         let diags2 = run_cop_full_with_config(&CaseIndentation, src2, config_case);
-        assert!(diags2.is_empty(), "case style should accept when aligned with case");
+        assert!(
+            diags2.is_empty(),
+            "case style should accept when aligned with case"
+        );
     }
 }

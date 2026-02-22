@@ -27,8 +27,8 @@ impl Cop for ShadowingOuterLocalVariable {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = ShadowVisitor {
             cop: self,
@@ -100,7 +100,14 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
         }
         let scope: HashMap<String, VarInfo> = name_set
             .into_iter()
-            .map(|n| (n, VarInfo { conditional_branch: None }))
+            .map(|n| {
+                (
+                    n,
+                    VarInfo {
+                        conditional_branch: None,
+                    },
+                )
+            })
             .collect();
         self.scopes.push(scope);
         ruby_prism::visit_def_node(self, node);
@@ -121,10 +128,7 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
         self.scopes.pop();
     }
 
-    fn visit_local_variable_write_node(
-        &mut self,
-        node: &ruby_prism::LocalVariableWriteNode<'pr>,
-    ) {
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
         let name = std::str::from_utf8(node.name().as_slice())
             .unwrap_or("")
             .to_string();
@@ -176,13 +180,20 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
 
                 // Check block-local variables (|a; b| — b is a block-local)
                 for local in block_params.locals().iter() {
-                    let name = std::str::from_utf8(local.as_block_local_variable_node().map_or(&[][..], |n| n.name().as_slice()))
-                        .unwrap_or("")
-                        .to_string();
+                    let name = std::str::from_utf8(
+                        local
+                            .as_block_local_variable_node()
+                            .map_or(&[][..], |n| n.name().as_slice()),
+                    )
+                    .unwrap_or("")
+                    .to_string();
                     if !name.is_empty() && !name.starts_with('_') {
                         if let Some(info) = outer_locals.get(&name) {
                             // Skip if in different branches of the same conditional
-                            if is_different_conditional_branch(info.conditional_branch, block_cond_branch) {
+                            if is_different_conditional_branch(
+                                info.conditional_branch,
+                                block_cond_branch,
+                            ) {
                                 continue;
                             }
                             let loc = local.location();
@@ -210,7 +221,12 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
                     let mut param_names = HashSet::new();
                     collect_param_names_into(&inner_params, &mut param_names);
                     for name in param_names {
-                        body_scope.insert(name, VarInfo { conditional_branch: None });
+                        body_scope.insert(
+                            name,
+                            VarInfo {
+                                conditional_branch: None,
+                            },
+                        );
                     }
                 }
                 // Also add destructured params
@@ -280,7 +296,8 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
         // Visit each when clause with branch tracking
         for condition in node.conditions().iter() {
             let branch_offset = condition.location().start_offset();
-            self.conditional_branch_stack.push((case_offset, branch_offset));
+            self.conditional_branch_stack
+                .push((case_offset, branch_offset));
             self.visit(&condition);
             self.conditional_branch_stack.pop();
         }
@@ -288,7 +305,8 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
         // Visit the else clause (consequent) with its own branch
         if let Some(else_clause) = node.else_clause() {
             let branch_offset = else_clause.location().start_offset();
-            self.conditional_branch_stack.push((case_offset, branch_offset));
+            self.conditional_branch_stack
+                .push((case_offset, branch_offset));
             self.visit_else_node(&else_clause);
             self.conditional_branch_stack.pop();
         }
@@ -304,7 +322,8 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
         // Visit then-body with branch tracking
         if let Some(stmts) = node.statements() {
             let branch_offset = stmts.location().start_offset();
-            self.conditional_branch_stack.push((if_offset, branch_offset));
+            self.conditional_branch_stack
+                .push((if_offset, branch_offset));
             self.visit_statements_node(&stmts);
             self.conditional_branch_stack.pop();
         }
@@ -312,7 +331,8 @@ impl<'pr> Visit<'pr> for ShadowVisitor<'_, '_> {
         // Visit else-body with branch tracking
         if let Some(subsequent) = node.subsequent() {
             let branch_offset = subsequent.location().start_offset();
-            self.conditional_branch_stack.push((if_offset, branch_offset));
+            self.conditional_branch_stack
+                .push((if_offset, branch_offset));
             self.visit(&subsequent);
             self.conditional_branch_stack.pop();
         }
@@ -366,9 +386,24 @@ fn check_multi_target_shadow(
             let name = std::str::from_utf8(req.name().as_slice())
                 .unwrap_or("")
                 .to_string();
-            check_shadow(cop, source, &name, req.location(), outer_locals, block_cond_branch, diagnostics);
+            check_shadow(
+                cop,
+                source,
+                &name,
+                req.location(),
+                outer_locals,
+                block_cond_branch,
+                diagnostics,
+            );
         } else if let Some(inner) = target.as_multi_target_node() {
-            check_multi_target_shadow(cop, source, &inner, outer_locals, block_cond_branch, diagnostics);
+            check_multi_target_shadow(
+                cop,
+                source,
+                &inner,
+                outer_locals,
+                block_cond_branch,
+                diagnostics,
+            );
         }
     }
     for target in mt.rights().iter() {
@@ -376,7 +411,15 @@ fn check_multi_target_shadow(
             let name = std::str::from_utf8(req.name().as_slice())
                 .unwrap_or("")
                 .to_string();
-            check_shadow(cop, source, &name, req.location(), outer_locals, block_cond_branch, diagnostics);
+            check_shadow(
+                cop,
+                source,
+                &name,
+                req.location(),
+                outer_locals,
+                block_cond_branch,
+                diagnostics,
+            );
         }
     }
 }
@@ -395,7 +438,15 @@ fn check_block_params_shadow(
             let name = std::str::from_utf8(req.name().as_slice())
                 .unwrap_or("")
                 .to_string();
-            check_shadow(cop, source, &name, req.location(), outer_locals, block_cond_branch, diagnostics);
+            check_shadow(
+                cop,
+                source,
+                &name,
+                req.location(),
+                outer_locals,
+                block_cond_branch,
+                diagnostics,
+            );
         }
     }
 
@@ -405,7 +456,15 @@ fn check_block_params_shadow(
             let name = std::str::from_utf8(opt.name().as_slice())
                 .unwrap_or("")
                 .to_string();
-            check_shadow(cop, source, &name, opt.location(), outer_locals, block_cond_branch, diagnostics);
+            check_shadow(
+                cop,
+                source,
+                &name,
+                opt.location(),
+                outer_locals,
+                block_cond_branch,
+                diagnostics,
+            );
         }
     }
 
@@ -416,7 +475,15 @@ fn check_block_params_shadow(
                 let name = std::str::from_utf8(name_const.as_slice())
                     .unwrap_or("")
                     .to_string();
-                check_shadow(cop, source, &name, rest_param.location(), outer_locals, block_cond_branch, diagnostics);
+                check_shadow(
+                    cop,
+                    source,
+                    &name,
+                    rest_param.location(),
+                    outer_locals,
+                    block_cond_branch,
+                    diagnostics,
+                );
             }
         }
     }
@@ -427,7 +494,15 @@ fn check_block_params_shadow(
             let name = std::str::from_utf8(name_const.as_slice())
                 .unwrap_or("")
                 .to_string();
-            check_shadow(cop, source, &name, block.location(), outer_locals, block_cond_branch, diagnostics);
+            check_shadow(
+                cop,
+                source,
+                &name,
+                block.location(),
+                outer_locals,
+                block_cond_branch,
+                diagnostics,
+            );
         }
     }
 }
@@ -503,7 +578,12 @@ fn collect_multi_target_names_from_block_params(
                 let mut names = HashSet::new();
                 collect_multi_target_names(&mt, &mut names);
                 for name in names {
-                    scope.insert(name, VarInfo { conditional_branch: None });
+                    scope.insert(
+                        name,
+                        VarInfo {
+                            conditional_branch: None,
+                        },
+                    );
                 }
             }
         }
@@ -557,5 +637,8 @@ fn collect_param_names_into(params: &ruby_prism::ParametersNode<'_>, scope: &mut
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ShadowingOuterLocalVariable, "cops/lint/shadowing_outer_local_variable");
+    crate::cop_fixture_tests!(
+        ShadowingOuterLocalVariable,
+        "cops/lint/shadowing_outer_local_variable"
+    );
 }

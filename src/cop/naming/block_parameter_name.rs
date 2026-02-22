@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    BLOCK_NODE, BLOCK_PARAMETERS_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_PARAMETER_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_PARAMETER_NODE};
 
 pub struct BlockParameterName;
 
@@ -11,7 +13,12 @@ impl Cop for BlockParameterName {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_PARAMETER_NODE]
+        &[
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            OPTIONAL_PARAMETER_NODE,
+            REQUIRED_PARAMETER_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +27,8 @@ impl Cop for BlockParameterName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let min_length = config.get_usize("MinNameLength", 1);
         let _allow_numbers = config.get_bool("AllowNamesEndingInNumbers", true);
@@ -51,17 +58,32 @@ impl Cop for BlockParameterName {
         for param in params_node.requireds().iter() {
             if let Some(req) = param.as_required_parameter_node() {
                 let name = req.name().as_slice();
-                check_param_name(self, source, name, &req.location(), min_length, config, diagnostics);
+                check_param_name(
+                    self,
+                    source,
+                    name,
+                    &req.location(),
+                    min_length,
+                    config,
+                    diagnostics,
+                );
             }
         }
 
         for param in params_node.optionals().iter() {
             if let Some(opt) = param.as_optional_parameter_node() {
                 let name = opt.name().as_slice();
-                check_param_name(self, source, name, &opt.location(), min_length, config, diagnostics);
+                check_param_name(
+                    self,
+                    source,
+                    name,
+                    &opt.location(),
+                    min_length,
+                    config,
+                    diagnostics,
+                );
             }
         }
-
     }
 }
 

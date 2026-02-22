@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
+use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE};
 
 pub struct EnumUniqueness;
 
@@ -55,8 +55,7 @@ fn find_duplicate_values(
         if let Some(assoc) = elem.as_assoc_node() {
             let val = assoc.value();
             let val_loc = val.location();
-            let val_bytes =
-                &source.as_bytes()[val_loc.start_offset()..val_loc.end_offset()];
+            let val_bytes = &source.as_bytes()[val_loc.start_offset()..val_loc.end_offset()];
             value_map
                 .entry(val_bytes.to_vec())
                 .or_default()
@@ -98,8 +97,8 @@ impl Cop for EnumUniqueness {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -116,19 +115,17 @@ impl Cop for EnumUniqueness {
 
         let duplicates = find_duplicate_values(source, &call);
 
-        diagnostics.extend(duplicates
-            .into_iter()
-            .map(|(_line, _col, val)| {
-                // Report at the call location for simplicity
-                let loc = node.location();
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    format!("Duplicate enum value `{val}` detected."),
-                )
-            }));
+        diagnostics.extend(duplicates.into_iter().map(|(_line, _col, val)| {
+            // Report at the call location for simplicity
+            let loc = node.location();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            self.diagnostic(
+                source,
+                line,
+                column,
+                format!("Duplicate enum value `{val}` detected."),
+            )
+        }));
     }
 }
 

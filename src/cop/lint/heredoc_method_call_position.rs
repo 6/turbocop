@@ -22,8 +22,8 @@ impl Cop for HeredocMethodCallPosition {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = HeredocVisitor {
             cop: self,
@@ -47,7 +47,10 @@ impl<'pr> Visit<'pr> for HeredocVisitor<'_, '_> {
         if let Some(recv) = node.receiver() {
             if is_heredoc(&recv) {
                 // The method call should be on the same line as the heredoc opening
-                let heredoc_opening_line = self.source.offset_to_line_col(recv.location().start_offset()).0;
+                let heredoc_opening_line = self
+                    .source
+                    .offset_to_line_col(recv.location().start_offset())
+                    .0;
 
                 // The message (method name) should also be on the same line
                 if let Some(msg_loc) = node.message_loc() {

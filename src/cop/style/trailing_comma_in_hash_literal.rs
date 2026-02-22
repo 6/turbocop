@@ -1,8 +1,8 @@
+use crate::cop::node_type::HASH_NODE;
 use crate::cop::util::has_trailing_comma;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::HASH_NODE;
 
 pub struct TrailingCommaInHashLiteral;
 
@@ -21,8 +21,8 @@ impl Cop for TrailingCommaInHashLiteral {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Note: keyword_hash_node (keyword args like `foo(a: 1)`) intentionally not
         // handled — this cop only applies to trailing commas in hash literals.
@@ -65,9 +65,7 @@ impl Cop for TrailingCommaInHashLiteral {
                 // no_comma: flag trailing commas in multiline
                 if has_comma {
                     let search_range = &bytes[last_end..closing_start];
-                    if let Some(comma_offset) =
-                        search_range.iter().position(|&b| b == b',')
-                    {
+                    if let Some(comma_offset) = search_range.iter().position(|&b| b == b',') {
                         let abs_offset = last_end + comma_offset;
                         let (line, column) = source.offset_to_line_col(abs_offset);
                         diagnostics.push(self.diagnostic(
@@ -80,7 +78,6 @@ impl Cop for TrailingCommaInHashLiteral {
                 }
             }
         }
-
     }
 }
 

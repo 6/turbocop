@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct HashCompareByIdentity;
 
@@ -26,8 +26,8 @@ impl Cop for HashCompareByIdentity {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -62,16 +62,17 @@ impl Cop for HashCompareByIdentity {
             if arg_call.name().as_slice() == b"object_id" && arg_call.receiver().is_some() {
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Use `Hash#compare_by_identity` instead of using `object_id` for keys."
-                        .to_string(),
-                ));
+                diagnostics.push(
+                    self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Use `Hash#compare_by_identity` instead of using `object_id` for keys."
+                            .to_string(),
+                    ),
+                );
             }
         }
-
     }
 }
 

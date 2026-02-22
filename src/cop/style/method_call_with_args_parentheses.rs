@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct MethodCallWithArgsParentheses;
 
@@ -34,9 +34,31 @@ const IGNORED_METHODS: &[&[u8]] = &[
 fn is_operator(name: &[u8]) -> bool {
     matches!(
         name,
-        b"+" | b"-" | b"*" | b"/" | b"%" | b"**" | b"==" | b"!=" | b"<" | b">" | b"<="
-            | b">=" | b"<=>" | b"<<" | b">>" | b"&" | b"|" | b"^" | b"~" | b"!" | b"[]"
-            | b"[]=" | b"=~" | b"!~" | b"+@" | b"-@"
+        b"+" | b"-"
+            | b"*"
+            | b"/"
+            | b"%"
+            | b"**"
+            | b"=="
+            | b"!="
+            | b"<"
+            | b">"
+            | b"<="
+            | b">="
+            | b"<=>"
+            | b"<<"
+            | b">>"
+            | b"&"
+            | b"|"
+            | b"^"
+            | b"~"
+            | b"!"
+            | b"[]"
+            | b"[]="
+            | b"=~"
+            | b"!~"
+            | b"+@"
+            | b"-@"
     )
 }
 
@@ -105,8 +127,8 @@ impl Cop for MethodCallWithArgsParentheses {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let ignore_macros = config.get_bool("IgnoreMacros", true);
         let allowed_methods = config.get_string_array("AllowedMethods");
@@ -356,10 +378,7 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([(
-                "IgnoreMacros".into(),
-                serde_yml::Value::Bool(false),
-            )]),
+            options: HashMap::from([("IgnoreMacros".into(), serde_yml::Value::Bool(false))]),
             ..CopConfig::default()
         };
         let source = b"custom_macro :arg\n";
@@ -378,9 +397,7 @@ mod tests {
         let config = CopConfig {
             options: HashMap::from([(
                 "IncludedMacros".into(),
-                serde_yml::Value::Sequence(vec![serde_yml::Value::String(
-                    "custom_macro".into(),
-                )]),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("custom_macro".into())]),
             )]),
             ..CopConfig::default()
         };

@@ -21,8 +21,8 @@ impl Cop for Pluck {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = PluckVisitor {
             cop: self,
@@ -53,8 +53,7 @@ impl<'pr> Visit<'pr> for PluckVisitor<'_, '_> {
         // Check for pluck candidate: receiver.map/collect { |x| x[:key] }
         // Skip when the nearest ancestor block's call has a receiver
         // (RuboCop: `node.each_ancestor(:any_block).first&.receiver`).
-        if (method_name == b"map" || method_name == b"collect")
-            && !self.nearest_block_has_receiver
+        if (method_name == b"map" || method_name == b"collect") && !self.nearest_block_has_receiver
         {
             if let Some(diag) = self.check_pluck_candidate(node) {
                 self.diagnostics.push(diag);

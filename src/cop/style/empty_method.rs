@@ -1,7 +1,7 @@
+use crate::cop::node_type::{DEF_NODE, STATEMENTS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{DEF_NODE, STATEMENTS_NODE};
 
 pub struct EmptyMethod;
 
@@ -20,8 +20,8 @@ impl Cop for EmptyMethod {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "compact");
         let def_node = match node.as_def_node() {
@@ -74,11 +74,21 @@ impl Cop for EmptyMethod {
         match enforced_style {
             "compact" if !is_single_line => {
                 let (line, column) = source.offset_to_line_col(def_loc.start_offset());
-                diagnostics.push(self.diagnostic(source, line, column, "Put empty method definitions on a single line.".to_string()));
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Put empty method definitions on a single line.".to_string(),
+                ));
             }
             "expanded" if is_single_line => {
                 let (line, column) = source.offset_to_line_col(def_loc.start_offset());
-                diagnostics.push(self.diagnostic(source, line, column, "Put the `end` on the next line.".to_string()));
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Put the `end` on the next line.".to_string(),
+                ));
             }
             _ => {}
         }
@@ -88,7 +98,7 @@ impl Cop for EmptyMethod {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{run_cop_full_with_config, run_cop_full};
+    use crate::testutil::{run_cop_full, run_cop_full_with_config};
 
     crate::cop_fixture_tests!(EmptyMethod, "cops/style/empty_method");
 
@@ -97,9 +107,10 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("expanded".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("expanded".into()),
+            )]),
             ..CopConfig::default()
         };
         let source = b"def foo; end\n";
@@ -113,14 +124,18 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EnforcedStyle".into(), serde_yml::Value::String("expanded".into())),
-            ]),
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("expanded".into()),
+            )]),
             ..CopConfig::default()
         };
         let source = b"def foo\nend\n";
         let diags = run_cop_full_with_config(&EmptyMethod, source, config);
-        assert!(diags.is_empty(), "Should allow multiline empty method with expanded style");
+        assert!(
+            diags.is_empty(),
+            "Should allow multiline empty method with expanded style"
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
+use crate::cop::node_type::{DEF_NODE, RETURN_NODE, STATEMENTS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{DEF_NODE, RETURN_NODE, STATEMENTS_NODE};
 
 pub struct RedundantReturn;
 
@@ -20,8 +20,8 @@ impl Cop for RedundantReturn {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_multiple = config.get_bool("AllowMultipleReturnValues", false);
         let def_node = match node.as_def_node() {
@@ -54,16 +54,20 @@ impl Cop for RedundantReturn {
             }
             let loc = last.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(source, line, column, "Redundant `return` detected.".to_string()));
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                "Redundant `return` detected.".to_string(),
+            ));
         }
-
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{run_cop_full_with_config, run_cop_full};
+    use crate::testutil::{run_cop_full, run_cop_full_with_config};
 
     crate::cop_fixture_tests!(RedundantReturn, "cops/style/redundant_return");
 
@@ -72,15 +76,19 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("AllowMultipleReturnValues".into(), serde_yml::Value::Bool(true)),
-            ]),
+            options: HashMap::from([(
+                "AllowMultipleReturnValues".into(),
+                serde_yml::Value::Bool(true),
+            )]),
             ..CopConfig::default()
         };
         // `return x, y` should be allowed when AllowMultipleReturnValues is true
         let source = b"def foo\n  return x, y\nend\n";
         let diags = run_cop_full_with_config(&RedundantReturn, source, config);
-        assert!(diags.is_empty(), "Should allow multiple return values when configured");
+        assert!(
+            diags.is_empty(),
+            "Should allow multiple return values when configured"
+        );
     }
 
     #[test]
@@ -88,7 +96,11 @@ mod tests {
         // `return x, y` should be flagged by default
         let source = b"def foo\n  return x, y\nend\n";
         let diags = run_cop_full(&RedundantReturn, source);
-        assert_eq!(diags.len(), 1, "Should flag multiple return values by default");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag multiple return values by default"
+        );
     }
 
     #[test]
@@ -96,9 +108,10 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("AllowMultipleReturnValues".into(), serde_yml::Value::Bool(true)),
-            ]),
+            options: HashMap::from([(
+                "AllowMultipleReturnValues".into(),
+                serde_yml::Value::Bool(true),
+            )]),
             ..CopConfig::default()
         };
         // `return x` should still be flagged even with AllowMultipleReturnValues

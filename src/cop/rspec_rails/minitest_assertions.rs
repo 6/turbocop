@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, SYMBOL_NODE};
 use crate::cop::rspec_rails::RSPEC_RAILS_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, SYMBOL_NODE};
 
 pub struct MinitestAssertions;
 
@@ -46,8 +46,7 @@ fn is_negated(method: &[u8]) -> bool {
 fn source_text<'a>(source: &'a SourceFile, node: &ruby_prism::Node<'_>) -> &'a str {
     let loc = node.location();
     let end = loc.start_offset() + loc.as_slice().len();
-    std::str::from_utf8(&source.as_bytes()[loc.start_offset()..end])
-        .unwrap_or("?")
+    std::str::from_utf8(&source.as_bytes()[loc.start_offset()..end]).unwrap_or("?")
 }
 
 impl Cop for MinitestAssertions {
@@ -73,8 +72,8 @@ impl Cop for MinitestAssertions {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -236,12 +235,7 @@ impl Cop for MinitestAssertions {
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(
-            source,
-            line,
-            column,
-            format!("Use `{preferred}`."),
-        ));
+        diagnostics.push(self.diagnostic(source, line, column, format!("Use `{preferred}`.")));
     }
 }
 

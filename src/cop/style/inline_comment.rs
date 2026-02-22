@@ -13,8 +13,8 @@ impl Cop for InlineComment {
         &self,
         source: &SourceFile,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let lines = source.lines();
 
@@ -61,7 +61,6 @@ impl Cop for InlineComment {
                 ));
             }
         }
-
     }
 }
 

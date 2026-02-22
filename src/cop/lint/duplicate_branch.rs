@@ -2,10 +2,10 @@ use std::collections::HashSet;
 
 use ruby_prism::Visit;
 
+use crate::cop::node_type::{CASE_NODE, ELSE_NODE, IF_NODE, WHEN_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CASE_NODE, ELSE_NODE, IF_NODE, WHEN_NODE};
 
 pub struct DuplicateBranch;
 
@@ -28,8 +28,8 @@ impl Cop for DuplicateBranch {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _ignore_literal = config.get_bool("IgnoreLiteralBranches", false);
         let _ignore_constant = config.get_bool("IgnoreConstantBranches", false);
@@ -46,7 +46,6 @@ impl Cop for DuplicateBranch {
             diagnostics.extend(check_case_branches(self, source, &case_node));
             return;
         }
-
     }
 }
 
@@ -85,10 +84,7 @@ struct MaxExtentFinder {
 }
 
 impl<'pr> Visit<'pr> for MaxExtentFinder {
-    fn visit_interpolated_string_node(
-        &mut self,
-        node: &ruby_prism::InterpolatedStringNode<'pr>,
-    ) {
+    fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
         if let Some(close) = node.closing_loc() {
             let end = close.end_offset();
             if end > self.max_end {

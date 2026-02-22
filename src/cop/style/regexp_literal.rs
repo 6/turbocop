@@ -1,7 +1,7 @@
+use crate::cop::node_type::{INTERPOLATED_REGULAR_EXPRESSION_NODE, REGULAR_EXPRESSION_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{INTERPOLATED_REGULAR_EXPRESSION_NODE, REGULAR_EXPRESSION_NODE};
 
 pub struct RegexpLiteral;
 
@@ -11,7 +11,10 @@ impl Cop for RegexpLiteral {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[INTERPOLATED_REGULAR_EXPRESSION_NODE, REGULAR_EXPRESSION_NODE]
+        &[
+            INTERPOLATED_REGULAR_EXPRESSION_NODE,
+            REGULAR_EXPRESSION_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +23,8 @@ impl Cop for RegexpLiteral {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "slashes");
         let allow_inner_slashes = config.get_bool("AllowInnerSlashes", false);
@@ -31,7 +34,12 @@ impl Cop for RegexpLiteral {
                 let opening = re.opening_loc();
                 let content = re.content_loc().as_slice();
                 let loc = re.location();
-                (opening.as_slice().to_vec(), content.to_vec(), loc.start_offset(), loc.end_offset())
+                (
+                    opening.as_slice().to_vec(),
+                    content.to_vec(),
+                    loc.start_offset(),
+                    loc.end_offset(),
+                )
             } else if let Some(re) = node.as_interpolated_regular_expression_node() {
                 let opening = re.opening_loc();
                 let closing = re.closing_loc();
@@ -43,7 +51,6 @@ impl Cop for RegexpLiteral {
                 let full = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
                 let content = if content_end > content_start {
                     full[content_start..content_end].to_vec()
-
                 } else {
                     Vec::new()
                 };
@@ -73,8 +80,8 @@ impl Cop for RegexpLiteral {
         //   do_something %r{ regexp}  # valid
         //   do_something / regexp/    # syntax error
         // Allow %r in these cases (matching RuboCop's behavior).
-        let content_starts_with_space_or_eq = !content_bytes.is_empty()
-            && (content_bytes[0] == b' ' || content_bytes[0] == b'=');
+        let content_starts_with_space_or_eq =
+            !content_bytes.is_empty() && (content_bytes[0] == b' ' || content_bytes[0] == b'=');
 
         match enforced_style {
             "slashes" => {
@@ -145,7 +152,6 @@ impl Cop for RegexpLiteral {
                 "Use `%r` around regular expression.".to_string(),
             ));
         }
-
     }
 }
 

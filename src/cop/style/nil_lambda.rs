@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, LAMBDA_NODE, NIL_NODE,
+    RETURN_NODE, STATEMENTS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, LAMBDA_NODE, NIL_NODE, RETURN_NODE, STATEMENTS_NODE};
 
 pub struct NilLambda;
 
@@ -72,7 +75,16 @@ impl Cop for NilLambda {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, LAMBDA_NODE, NIL_NODE, RETURN_NODE, STATEMENTS_NODE]
+        &[
+            BLOCK_NODE,
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            LAMBDA_NODE,
+            NIL_NODE,
+            RETURN_NODE,
+            STATEMENTS_NODE,
+        ]
     }
 
     fn check_node(
@@ -81,8 +93,8 @@ impl Cop for NilLambda {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check lambda node: `-> { nil }`
         if let Some(lambda) = node.as_lambda_node() {
@@ -114,7 +126,10 @@ impl Cop for NilLambda {
                                     source,
                                     line,
                                     column,
-                                    format!("Use an empty {} instead of always returning nil.", type_name),
+                                    format!(
+                                        "Use an empty {} instead of always returning nil.",
+                                        type_name
+                                    ),
                                 ));
                             }
                         }
@@ -122,7 +137,6 @@ impl Cop for NilLambda {
                 }
             }
         }
-
     }
 }
 

@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct EachWithObjectArgument;
 
@@ -33,8 +33,8 @@ impl Cop for EachWithObjectArgument {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -74,5 +74,8 @@ impl Cop for EachWithObjectArgument {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(EachWithObjectArgument, "cops/lint/each_with_object_argument");
+    crate::cop_fixture_tests!(
+        EachWithObjectArgument,
+        "cops/lint/each_with_object_argument"
+    );
 }

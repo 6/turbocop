@@ -1,7 +1,7 @@
+use crate::cop::node_type::{ASSOC_SPLAT_NODE, CALL_NODE, KEYWORD_HASH_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_SPLAT_NODE, CALL_NODE, KEYWORD_HASH_NODE};
 
 pub struct KeywordArgumentsMerging;
 
@@ -32,8 +32,8 @@ impl Cop for KeywordArgumentsMerging {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -44,7 +44,6 @@ impl Cop for KeywordArgumentsMerging {
             Some(a) => a,
             None => return,
         };
-
 
         for arg in args.arguments().iter() {
             if let Some(kw_hash) = arg.as_keyword_hash_node() {
@@ -57,7 +56,8 @@ impl Cop for KeywordArgumentsMerging {
                             if Self::is_merge_call(&value) {
                                 let merge_call = value.as_call_node().unwrap();
                                 let receiver = merge_call.receiver().unwrap();
-                                let (line, column) = source.offset_to_line_col(receiver.location().start_offset());
+                                let (line, column) =
+                                    source.offset_to_line_col(receiver.location().start_offset());
                                 diagnostics.push(self.diagnostic(
                                     source,
                                     line,
@@ -70,12 +70,14 @@ impl Cop for KeywordArgumentsMerging {
                 }
             }
         }
-
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(KeywordArgumentsMerging, "cops/style/keyword_arguments_merging");
+    crate::cop_fixture_tests!(
+        KeywordArgumentsMerging,
+        "cops/style/keyword_arguments_merging"
+    );
 }

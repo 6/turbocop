@@ -1,7 +1,7 @@
+use crate::cop::node_type::{LOCAL_VARIABLE_TARGET_NODE, MULTI_WRITE_NODE, SPLAT_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{LOCAL_VARIABLE_TARGET_NODE, MULTI_WRITE_NODE, SPLAT_NODE};
 
 pub struct TrailingUnderscoreVariable;
 
@@ -20,8 +20,8 @@ impl Cop for TrailingUnderscoreVariable {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_named = config.get_bool("AllowNamedUnderscoreVariables", true);
 
@@ -109,5 +109,8 @@ fn is_underscore_var(node: &ruby_prism::Node<'_>, allow_named: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(TrailingUnderscoreVariable, "cops/style/trailing_underscore_variable");
+    crate::cop_fixture_tests!(
+        TrailingUnderscoreVariable,
+        "cops/style/trailing_underscore_variable"
+    );
 }

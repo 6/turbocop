@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, CLASS_NODE, DEF_NODE, MODULE_NODE};
 use crate::cop::util::line_at;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CLASS_NODE, DEF_NODE, MODULE_NODE};
 
 pub struct EmptyLineBetweenDefs;
 
@@ -89,7 +89,9 @@ fn is_definition_end(source: &SourceFile, end_line: usize) -> bool {
 
     let end_indent = {
         let line = lines[end_line - 1];
-        line.iter().take_while(|&&b| b == b' ' || b == b'\t').count()
+        line.iter()
+            .take_while(|&&b| b == b' ' || b == b'\t')
+            .count()
     };
 
     // Scan backwards looking for the opener at the same indentation level
@@ -102,7 +104,10 @@ fn is_definition_end(source: &SourceFile, end_line: usize) -> bool {
             .copied()
             .skip_while(|&b| b == b' ' || b == b'\t')
             .collect();
-        let indent = line.iter().take_while(|&&b| b == b' ' || b == b'\t').count();
+        let indent = line
+            .iter()
+            .take_while(|&&b| b == b' ' || b == b'\t')
+            .count();
 
         // Strip trailing whitespace for end-of-line checks
         let end_trimmed = trimmed
@@ -111,7 +116,13 @@ fn is_definition_end(source: &SourceFile, end_line: usize) -> bool {
             .map_or(&[] as &[u8], |i| &trimmed[..=i]);
 
         // Check if this line has `end` at the same indent level (nested end)
-        if indent == end_indent && (trimmed == b"end" || trimmed.starts_with(b"end ") || trimmed.starts_with(b"end\t") || trimmed.starts_with(b"end\n") || trimmed.starts_with(b"end\r")) {
+        if indent == end_indent
+            && (trimmed == b"end"
+                || trimmed.starts_with(b"end ")
+                || trimmed.starts_with(b"end\t")
+                || trimmed.starts_with(b"end\n")
+                || trimmed.starts_with(b"end\r"))
+        {
             nesting += 1;
             line_num -= 1;
             continue;
@@ -173,8 +184,8 @@ impl Cop for EmptyLineBetweenDefs {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let empty_between_methods = config.get_bool("EmptyLineBetweenMethodDefs", true);
         let empty_between_classes = config.get_bool("EmptyLineBetweenClassDefs", true);
@@ -205,7 +216,9 @@ impl Cop for EmptyLineBetweenDefs {
             is_def_like_macro = false;
             let loc = class_node.class_keyword_loc();
             let (line, col) = source.offset_to_line_col(loc.start_offset());
-            let end_line = source.offset_to_line_col(class_node.end_keyword_loc().start_offset()).0;
+            let end_line = source
+                .offset_to_line_col(class_node.end_keyword_loc().start_offset())
+                .0;
             (line, col, end_line == line)
         } else if let Some(module_node) = node.as_module_node() {
             if !empty_between_modules {
@@ -214,7 +227,9 @@ impl Cop for EmptyLineBetweenDefs {
             is_def_like_macro = false;
             let loc = module_node.module_keyword_loc();
             let (line, col) = source.offset_to_line_col(loc.start_offset());
-            let end_line = source.offset_to_line_col(module_node.end_keyword_loc().start_offset()).0;
+            let end_line = source
+                .offset_to_line_col(module_node.end_keyword_loc().start_offset())
+                .0;
             (line, col, end_line == line)
         } else if let Some(call_node) = node.as_call_node() {
             // DefLikeMacros: treat matching call nodes as definition-like
@@ -316,8 +331,7 @@ impl Cop for EmptyLineBetweenDefs {
                     first_non_blank_idx = Some(i);
                 }
             }
-            if let (Some(last_blank), Some(first_non_blank)) =
-                (last_blank_idx, first_non_blank_idx)
+            if let (Some(last_blank), Some(first_non_blank)) = (last_blank_idx, first_non_blank_idx)
             {
                 if last_blank > first_non_blank {
                     return;
@@ -379,7 +393,9 @@ impl Cop for EmptyLineBetweenDefs {
         }
 
         let msg = if blank_count > number_of_empty_lines {
-            format!("Expected {number_of_empty_lines} empty line between method definitions; found {blank_count}.")
+            format!(
+                "Expected {number_of_empty_lines} empty line between method definitions; found {blank_count}."
+            )
         } else if number_of_empty_lines == 1 {
             "Use empty lines between method definitions.".to_string()
         } else {
@@ -414,7 +430,10 @@ mod tests {
     use crate::testutil::run_cop_full;
 
     crate::cop_fixture_tests!(EmptyLineBetweenDefs, "cops/layout/empty_line_between_defs");
-    crate::cop_autocorrect_fixture_tests!(EmptyLineBetweenDefs, "cops/layout/empty_line_between_defs");
+    crate::cop_autocorrect_fixture_tests!(
+        EmptyLineBetweenDefs,
+        "cops/layout/empty_line_between_defs"
+    );
 
     #[test]
     fn single_def_no_offense() {
@@ -427,69 +446,91 @@ mod tests {
     fn def_after_end_without_blank_line() {
         let src = b"class Foo\n  def bar\n    1\n  end\n  def baz\n    2\n  end\nend\n";
         let diags = run_cop_full(&EmptyLineBetweenDefs, src);
-        assert_eq!(diags.len(), 1, "Missing blank line between defs should trigger");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Missing blank line between defs should trigger"
+        );
         assert_eq!(diags[0].location.line, 5);
     }
 
     #[test]
     fn number_of_empty_lines_requires_multiple() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("NumberOfEmptyLines".into(), serde_yml::Value::Number(2.into())),
-            ]),
+            options: HashMap::from([(
+                "NumberOfEmptyLines".into(),
+                serde_yml::Value::Number(2.into()),
+            )]),
             ..CopConfig::default()
         };
         // One blank line between defs should be flagged when 2 required
         let src = b"class Foo\n  def bar\n    1\n  end\n\n  def baz\n    2\n  end\nend\n";
         let diags = run_cop_full_with_config(&EmptyLineBetweenDefs, src, config.clone());
-        assert_eq!(diags.len(), 1, "Should flag when fewer than NumberOfEmptyLines blank lines");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag when fewer than NumberOfEmptyLines blank lines"
+        );
 
         // Two blank lines should be accepted
         let src2 = b"class Foo\n  def bar\n    1\n  end\n\n\n  def baz\n    2\n  end\nend\n";
         let diags2 = run_cop_full_with_config(&EmptyLineBetweenDefs, src2, config);
-        assert!(diags2.is_empty(), "Should accept when NumberOfEmptyLines blank lines present");
+        assert!(
+            diags2.is_empty(),
+            "Should accept when NumberOfEmptyLines blank lines present"
+        );
     }
 
     #[test]
     fn def_like_macros_flags_missing_blank_line() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("DefLikeMacros".into(), serde_yml::Value::Sequence(vec![
-                    serde_yml::Value::String("scope".into()),
-                ])),
-            ]),
+            options: HashMap::from([(
+                "DefLikeMacros".into(),
+                serde_yml::Value::Sequence(vec![serde_yml::Value::String("scope".into())]),
+            )]),
             ..CopConfig::default()
         };
         // Two scope macros without blank line
         let src = b"class Foo\n  scope :active, -> { where(active: true) }\n  scope :recent, -> { where(recent: true) }\nend\n";
         let diags = run_cop_full_with_config(&EmptyLineBetweenDefs, src, config.clone());
-        assert_eq!(diags.len(), 1, "Missing blank line between def-like macros should trigger");
+        assert_eq!(
+            diags.len(),
+            1,
+            "Missing blank line between def-like macros should trigger"
+        );
 
         // With blank line — no offense
         let src2 = b"class Foo\n  scope :active, -> { where(active: true) }\n\n  scope :recent, -> { where(recent: true) }\nend\n";
         let diags2 = run_cop_full_with_config(&EmptyLineBetweenDefs, src2, config);
-        assert!(diags2.is_empty(), "Blank line between def-like macros should be accepted");
+        assert!(
+            diags2.is_empty(),
+            "Blank line between def-like macros should be accepted"
+        );
     }
 
     #[test]
     fn empty_between_method_defs_false_skips_methods() {
-        use std::collections::HashMap;
         use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([
-                ("EmptyLineBetweenMethodDefs".into(), serde_yml::Value::Bool(false)),
-            ]),
+            options: HashMap::from([(
+                "EmptyLineBetweenMethodDefs".into(),
+                serde_yml::Value::Bool(false),
+            )]),
             ..CopConfig::default()
         };
         let src = b"class Foo\n  def bar\n    1\n  end\n  def baz\n    2\n  end\nend\n";
         let diags = run_cop_full_with_config(&EmptyLineBetweenDefs, src, config);
-        assert!(diags.is_empty(), "Should not flag when EmptyLineBetweenMethodDefs is false");
+        assert!(
+            diags.is_empty(),
+            "Should not flag when EmptyLineBetweenMethodDefs is false"
+        );
     }
 }

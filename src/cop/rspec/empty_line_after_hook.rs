@@ -1,13 +1,10 @@
-use ruby_prism::Visit;
-
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
 use crate::cop::util::{
-    self, is_blank_line, is_rspec_hook, line_at, node_on_single_line,
-    RSPEC_DEFAULT_INCLUDE,
+    RSPEC_DEFAULT_INCLUDE, is_blank_line, is_rspec_hook, line_at, node_on_single_line,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
 
 pub struct EmptyLineAfterHook;
 
@@ -34,8 +31,8 @@ impl Cop for EmptyLineAfterHook {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // We look for any block node whose body contains statements.
         // Among those statements, we find hook calls and check if there's
@@ -98,7 +95,8 @@ impl Cop for EmptyLineAfterHook {
                             found_blank = true;
                             break;
                         }
-                        let trimmed = line.iter()
+                        let trimmed = line
+                            .iter()
                             .position(|&b| b != b' ' && b != b'\t')
                             .map(|start| &line[start..])
                             .unwrap_or(&[]);
@@ -121,7 +119,10 @@ impl Cop for EmptyLineAfterHook {
                 let next_stmt = &nodes[i + 1];
                 if let Some(next_c) = next_stmt.as_call_node() {
                     let next_name = next_c.name().as_slice();
-                    if next_c.receiver().is_none() && is_rspec_hook(next_name) && next_c.block().is_some() {
+                    if next_c.receiver().is_none()
+                        && is_rspec_hook(next_name)
+                        && next_c.block().is_some()
+                    {
                         let next_loc = next_stmt.location();
                         if node_on_single_line(source, &next_loc) {
                             continue; // consecutive one-liner hooks allowed
@@ -149,7 +150,6 @@ impl Cop for EmptyLineAfterHook {
                 format!("Add an empty line after `{hook_name}`."),
             ));
         }
-
     }
 }
 

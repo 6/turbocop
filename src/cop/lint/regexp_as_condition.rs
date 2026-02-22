@@ -1,7 +1,7 @@
+use crate::cop::node_type::MATCH_LAST_LINE_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::MATCH_LAST_LINE_NODE;
 
 pub struct RegexpAsCondition;
 
@@ -24,8 +24,8 @@ impl Cop for RegexpAsCondition {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // MatchLastLineNode is what Prism creates for bare regexp in conditions
         let match_node = match node.as_match_last_line_node() {

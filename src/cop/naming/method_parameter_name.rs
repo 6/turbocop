@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    DEF_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE,
+    REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{DEF_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE};
 
 pub struct MethodParameterName;
 
@@ -15,7 +18,13 @@ impl Cop for MethodParameterName {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[DEF_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, OPTIONAL_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE, REQUIRED_PARAMETER_NODE]
+        &[
+            DEF_NODE,
+            OPTIONAL_KEYWORD_PARAMETER_NODE,
+            OPTIONAL_PARAMETER_NODE,
+            REQUIRED_KEYWORD_PARAMETER_NODE,
+            REQUIRED_PARAMETER_NODE,
+        ]
     }
 
     fn check_node(
@@ -24,8 +33,8 @@ impl Cop for MethodParameterName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let min_length = config.get_usize("MinNameLength", 3);
         let _allow_numbers = config.get_bool("AllowNamesEndingInNumbers", true);
@@ -42,15 +51,22 @@ impl Cop for MethodParameterName {
             None => return,
         };
 
-        let allowed: Vec<String> = allowed_names.unwrap_or_else(|| {
-            DEFAULT_ALLOWED.iter().map(|s| s.to_string()).collect()
-        });
+        let allowed: Vec<String> = allowed_names
+            .unwrap_or_else(|| DEFAULT_ALLOWED.iter().map(|s| s.to_string()).collect());
 
         // Check required parameters
         for param in params.requireds().iter() {
             if let Some(req) = param.as_required_parameter_node() {
                 let name = req.name().as_slice();
-                check_param(self, source, name, &req.location(), min_length, &allowed, diagnostics);
+                check_param(
+                    self,
+                    source,
+                    name,
+                    &req.location(),
+                    min_length,
+                    &allowed,
+                    diagnostics,
+                );
             }
         }
 
@@ -58,7 +74,15 @@ impl Cop for MethodParameterName {
         for param in params.optionals().iter() {
             if let Some(opt) = param.as_optional_parameter_node() {
                 let name = opt.name().as_slice();
-                check_param(self, source, name, &opt.name_loc(), min_length, &allowed, diagnostics);
+                check_param(
+                    self,
+                    source,
+                    name,
+                    &opt.name_loc(),
+                    min_length,
+                    &allowed,
+                    diagnostics,
+                );
             }
         }
 
@@ -72,7 +96,15 @@ impl Cop for MethodParameterName {
                 } else {
                     name
                 };
-                check_param(self, source, clean_name, &kw.name_loc(), min_length, &allowed, diagnostics);
+                check_param(
+                    self,
+                    source,
+                    clean_name,
+                    &kw.name_loc(),
+                    min_length,
+                    &allowed,
+                    diagnostics,
+                );
             }
             if let Some(kw) = param.as_optional_keyword_parameter_node() {
                 let name = kw.name().as_slice();
@@ -81,7 +113,15 @@ impl Cop for MethodParameterName {
                 } else {
                     name
                 };
-                check_param(self, source, clean_name, &kw.name_loc(), min_length, &allowed, diagnostics);
+                check_param(
+                    self,
+                    source,
+                    clean_name,
+                    &kw.name_loc(),
+                    min_length,
+                    &allowed,
+                    diagnostics,
+                );
             }
         }
 
@@ -90,7 +130,15 @@ impl Cop for MethodParameterName {
             if let Some(rest_param) = rest.as_rest_parameter_node() {
                 if rest_param.name_loc().is_some() {
                     let name = rest_param.name().map(|n| n.as_slice()).unwrap_or(b"");
-                    check_param(self, source, name, &rest_param.location(), min_length, &allowed, diagnostics);
+                    check_param(
+                        self,
+                        source,
+                        name,
+                        &rest_param.location(),
+                        min_length,
+                        &allowed,
+                        diagnostics,
+                    );
                 }
             }
         }
@@ -100,7 +148,15 @@ impl Cop for MethodParameterName {
             if let Some(kw_rest_param) = kw_rest.as_keyword_rest_parameter_node() {
                 if kw_rest_param.name_loc().is_some() {
                     let name = kw_rest_param.name().map(|n| n.as_slice()).unwrap_or(b"");
-                    check_param(self, source, name, &kw_rest_param.location(), min_length, &allowed, diagnostics);
+                    check_param(
+                        self,
+                        source,
+                        name,
+                        &kw_rest_param.location(),
+                        min_length,
+                        &allowed,
+                        diagnostics,
+                    );
                 }
             }
         }
@@ -109,10 +165,17 @@ impl Cop for MethodParameterName {
         if let Some(block) = params.block() {
             if block.name_loc().is_some() {
                 let name = block.name().map(|n| n.as_slice()).unwrap_or(b"");
-                check_param(self, source, name, &block.location(), min_length, &allowed, diagnostics);
+                check_param(
+                    self,
+                    source,
+                    name,
+                    &block.location(),
+                    min_length,
+                    &allowed,
+                    diagnostics,
+                );
             }
         }
-
     }
 }
 

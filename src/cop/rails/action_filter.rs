@@ -1,7 +1,7 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct ActionFilter;
 
@@ -44,8 +44,8 @@ impl Cop for ActionFilter {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -63,17 +63,19 @@ impl Cop for ActionFilter {
         let (current, prefer) = if style == "action" {
             // Bad: filter methods; Good: action methods
             match FILTER_METHODS.iter().find(|(filter, _)| *filter == name) {
-                Some((filter, action)) => {
-                    (std::str::from_utf8(filter).unwrap(), std::str::from_utf8(action).unwrap())
-                }
+                Some((filter, action)) => (
+                    std::str::from_utf8(filter).unwrap(),
+                    std::str::from_utf8(action).unwrap(),
+                ),
                 None => return,
             }
         } else {
             // Bad: action methods; Good: filter methods
             match FILTER_METHODS.iter().find(|(_, action)| *action == name) {
-                Some((filter, action)) => {
-                    (std::str::from_utf8(action).unwrap(), std::str::from_utf8(filter).unwrap())
-                }
+                Some((filter, action)) => (
+                    std::str::from_utf8(action).unwrap(),
+                    std::str::from_utf8(filter).unwrap(),
+                ),
                 None => return,
             }
         };

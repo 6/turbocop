@@ -24,8 +24,8 @@ impl Cop for RedundantCopEnableDirective {
         _parse_result: &ruby_prism::ParseResult<'_>,
         code_map: &CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Track which cops/departments are currently disabled
         let mut disabled: HashSet<String> = HashSet::new();
@@ -103,7 +103,6 @@ impl Cop for RedundantCopEnableDirective {
 
             byte_offset += line.len() + 1;
         }
-
     }
 }
 
@@ -211,5 +210,8 @@ fn parse_all_directives(line: &str) -> Vec<(&str, Vec<String>, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(RedundantCopEnableDirective, "cops/lint/redundant_cop_enable_directive");
+    crate::cop_fixture_tests!(
+        RedundantCopEnableDirective,
+        "cops/lint/redundant_cop_enable_directive"
+    );
 }

@@ -1,7 +1,7 @@
+use crate::cop::node_type::{BEGIN_NODE, CONSTANT_PATH_TARGET_NODE, CONSTANT_TARGET_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BEGIN_NODE, CONSTANT_PATH_TARGET_NODE, CONSTANT_TARGET_NODE};
 
 pub struct ConstantOverwrittenInRescue;
 
@@ -24,8 +24,8 @@ impl Cop for ConstantOverwrittenInRescue {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let begin_node = match node.as_begin_node() {
             Some(n) => n,
@@ -47,29 +47,22 @@ impl Cop for ConstantOverwrittenInRescue {
                             let (line, column) =
                                 source.offset_to_line_col(operator_loc.start_offset());
                             // Get the constant name from the reference
-                            let ref_src =
-                                if let Some(ct) = reference.as_constant_target_node() {
-                                    std::str::from_utf8(ct.name().as_slice())
-                                        .unwrap_or("constant")
-                                        .to_string()
-                                } else if let Some(cpt) =
-                                    reference.as_constant_path_target_node()
-                                {
-                                    std::str::from_utf8(
-                                        cpt.location().as_slice(),
-                                    )
+                            let ref_src = if let Some(ct) = reference.as_constant_target_node() {
+                                std::str::from_utf8(ct.name().as_slice())
                                     .unwrap_or("constant")
                                     .to_string()
-                                } else {
-                                    "constant".to_string()
-                                };
+                            } else if let Some(cpt) = reference.as_constant_path_target_node() {
+                                std::str::from_utf8(cpt.location().as_slice())
+                                    .unwrap_or("constant")
+                                    .to_string()
+                            } else {
+                                "constant".to_string()
+                            };
                             diagnostics.push(self.diagnostic(
                                 source,
                                 line,
                                 column,
-                                format!(
-                                    "`{ref_src}` is overwritten by `rescue =>`."
-                                ),
+                                format!("`{ref_src}` is overwritten by `rescue =>`."),
                             ));
                         }
                     }
@@ -77,7 +70,6 @@ impl Cop for ConstantOverwrittenInRescue {
             }
             rescue_opt = rescue_node.subsequent();
         }
-
     }
 }
 

@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CASE_MATCH_NODE, IN_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CASE_MATCH_NODE, IN_NODE};
 
 pub struct EmptyInPattern;
 
@@ -24,8 +24,8 @@ impl Cop for EmptyInPattern {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _allow_comments = config.get_bool("AllowComments", true);
 
@@ -35,14 +35,11 @@ impl Cop for EmptyInPattern {
             None => return,
         };
 
-
         for condition in case_match.conditions().iter() {
             if let Some(in_node) = condition.as_in_node() {
                 // Check if the body is empty
                 let body_empty = in_node.statements().is_none()
-                    || in_node
-                        .statements()
-                        .map_or(true, |s| s.body().is_empty());
+                    || in_node.statements().map_or(true, |s| s.body().is_empty());
 
                 if body_empty {
                     let loc = in_node.in_loc();
@@ -56,7 +53,6 @@ impl Cop for EmptyInPattern {
                 }
             }
         }
-
     }
 }
 

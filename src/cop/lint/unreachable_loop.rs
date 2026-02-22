@@ -20,8 +20,8 @@ impl Cop for UnreachableLoop {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _allowed_patterns = config.get_string_array("AllowedPatterns");
         let mut visitor = UnreachableLoopVisitor {
@@ -46,8 +46,12 @@ fn is_break_command(node: &ruby_prism::Node<'_>) -> bool {
     }
     if let Some(call) = node.as_call_node() {
         let name = call.name().as_slice();
-        if (name == b"raise" || name == b"fail" || name == b"throw"
-            || name == b"exit" || name == b"exit!" || name == b"abort")
+        if (name == b"raise"
+            || name == b"fail"
+            || name == b"throw"
+            || name == b"exit"
+            || name == b"exit!"
+            || name == b"abort")
             && (call.receiver().is_none() || is_kernel_receiver(&call))
         {
             return true;
@@ -293,10 +297,7 @@ fn contains_continue_keyword(node: &ruby_prism::Node<'_>) -> bool {
     finder.found
 }
 
-fn preceded_by_continue(
-    body: &[ruby_prism::Node<'_>],
-    break_stmt: &ruby_prism::Node<'_>,
-) -> bool {
+fn preceded_by_continue(body: &[ruby_prism::Node<'_>], break_stmt: &ruby_prism::Node<'_>) -> bool {
     let break_offset = break_stmt.location().start_offset();
     for sibling in body {
         let sibling_offset = sibling.location().start_offset();
@@ -385,8 +386,7 @@ impl<'pr> Visit<'pr> for UnreachableLoopVisitor<'_, '_> {
                         };
                         if breaks {
                             let loc = node.location();
-                            let (line, column) =
-                                self.source.offset_to_line_col(loc.start_offset());
+                            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
                             self.diagnostics.push(self.cop.diagnostic(
                                 self.source,
                                 line,

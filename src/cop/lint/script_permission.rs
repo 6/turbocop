@@ -13,7 +13,13 @@ impl Cop for ScriptPermission {
         Severity::Warning
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        _config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         // Only check files that start with a shebang
         let first_line = match source.lines().next() {
             Some(l) => l,
@@ -107,11 +113,7 @@ mod tests {
 
     #[test]
     fn offense_fixture_2() {
-        let path = make_temp_script(
-            "test_script2.rb",
-            b"#!/usr/bin/ruby\nputs 'test'\n",
-            0o644,
-        );
+        let path = make_temp_script("test_script2.rb", b"#!/usr/bin/ruby\nputs 'test'\n", 0o644);
         let source = SourceFile::from_bytes(&path, std::fs::read(&path).unwrap());
         let config = CopConfig::default();
         let mut diags = Vec::new();

@@ -1,7 +1,7 @@
+use crate::cop::node_type::DEF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::DEF_NODE;
 
 pub struct MultilineMethodParameterLineBreaks;
 
@@ -20,8 +20,8 @@ impl Cop for MultilineMethodParameterLineBreaks {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let _allow_multiline_final = config.get_bool("AllowMultilineFinalElement", false);
 
@@ -87,7 +87,6 @@ impl Cop for MultilineMethodParameterLineBreaks {
             return;
         }
 
-
         for i in 1..param_locs.len() {
             let (_, prev_end) = param_locs[i - 1];
             let (curr_start, _) = param_locs[i];
@@ -105,7 +104,6 @@ impl Cop for MultilineMethodParameterLineBreaks {
                 ));
             }
         }
-
     }
 }
 

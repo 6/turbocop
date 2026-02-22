@@ -21,8 +21,8 @@ impl Cop for DisjunctiveAssignmentInConstructor {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = InitVisitor {
             cop: self,
@@ -119,5 +119,8 @@ fn check_or_asgn(visitor: &mut InitVisitor<'_, '_>, node: &ruby_prism::Node<'_>)
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(DisjunctiveAssignmentInConstructor, "cops/lint/disjunctive_assignment_in_constructor");
+    crate::cop_fixture_tests!(
+        DisjunctiveAssignmentInConstructor,
+        "cops/lint/disjunctive_assignment_in_constructor"
+    );
 }

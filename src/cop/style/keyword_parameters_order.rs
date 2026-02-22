@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    BLOCK_NODE, BLOCK_PARAMETERS_NODE, DEF_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE,
+    REQUIRED_KEYWORD_PARAMETER_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, DEF_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE};
 
 pub struct KeywordParametersOrder;
 
@@ -11,7 +14,13 @@ impl Cop for KeywordParametersOrder {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, DEF_NODE, OPTIONAL_KEYWORD_PARAMETER_NODE, REQUIRED_KEYWORD_PARAMETER_NODE]
+        &[
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            DEF_NODE,
+            OPTIONAL_KEYWORD_PARAMETER_NODE,
+            REQUIRED_KEYWORD_PARAMETER_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +29,8 @@ impl Cop for KeywordParametersOrder {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check both def and block parameters
         let parameters = if let Some(def_node) = node.as_def_node() {
@@ -44,7 +53,6 @@ impl Cop for KeywordParametersOrder {
             Some(p) => p,
             None => return,
         };
-
 
         // Check keyword parameters order: required keywords should come before optional keywords
         let keywords: Vec<_> = parameters.keywords().iter().collect();
@@ -76,21 +84,26 @@ impl Cop for KeywordParametersOrder {
                 if seen_required {
                     let loc = kw.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Place optional keyword parameters at the end of the parameters list.".to_string(),
-                    ));
+                    diagnostics.push(
+                        self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Place optional keyword parameters at the end of the parameters list."
+                                .to_string(),
+                        ),
+                    );
                 }
             }
         }
-
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(KeywordParametersOrder, "cops/style/keyword_parameters_order");
+    crate::cop_fixture_tests!(
+        KeywordParametersOrder,
+        "cops/style/keyword_parameters_order"
+    );
 }

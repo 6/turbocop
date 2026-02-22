@@ -134,13 +134,17 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(describe_method::DescribeMethod));
     registry.register(Box::new(describe_symbol::DescribeSymbol));
     registry.register(Box::new(described_class::DescribedClass));
-    registry.register(Box::new(described_class_module_wrapping::DescribedClassModuleWrapping));
+    registry.register(Box::new(
+        described_class_module_wrapping::DescribedClassModuleWrapping,
+    ));
     registry.register(Box::new(dialect::Dialect));
     registry.register(Box::new(duplicated_metadata::DuplicatedMetadata));
     registry.register(Box::new(empty_example_group::EmptyExampleGroup));
     registry.register(Box::new(empty_hook::EmptyHook));
     registry.register(Box::new(empty_line_after_example::EmptyLineAfterExample));
-    registry.register(Box::new(empty_line_after_example_group::EmptyLineAfterExampleGroup));
+    registry.register(Box::new(
+        empty_line_after_example_group::EmptyLineAfterExampleGroup,
+    ));
     registry.register(Box::new(empty_line_after_final_let::EmptyLineAfterFinalLet));
     registry.register(Box::new(empty_line_after_hook::EmptyLineAfterHook));
     registry.register(Box::new(empty_line_after_subject::EmptyLineAfterSubject));
@@ -148,9 +152,13 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(empty_output::EmptyOutput));
     registry.register(Box::new(eq::Eq));
     registry.register(Box::new(example_length::ExampleLength));
-    registry.register(Box::new(example_without_description::ExampleWithoutDescription));
+    registry.register(Box::new(
+        example_without_description::ExampleWithoutDescription,
+    ));
     registry.register(Box::new(example_wording::ExampleWording));
-    registry.register(Box::new(excessive_docstring_spacing::ExcessiveDocstringSpacing));
+    registry.register(Box::new(
+        excessive_docstring_spacing::ExcessiveDocstringSpacing,
+    ));
     registry.register(Box::new(expect_actual::ExpectActual));
     registry.register(Box::new(expect_change::ExpectChange));
     registry.register(Box::new(expect_in_hook::ExpectInHook));
@@ -159,8 +167,12 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(focus::Focus));
     registry.register(Box::new(hook_argument::HookArgument));
     registry.register(Box::new(hooks_before_examples::HooksBeforeExamples));
-    registry.register(Box::new(identical_equality_assertion::IdenticalEqualityAssertion));
-    registry.register(Box::new(implicit_block_expectation::ImplicitBlockExpectation));
+    registry.register(Box::new(
+        identical_equality_assertion::IdenticalEqualityAssertion,
+    ));
+    registry.register(Box::new(
+        implicit_block_expectation::ImplicitBlockExpectation,
+    ));
     registry.register(Box::new(implicit_expect::ImplicitExpect));
     registry.register(Box::new(implicit_subject::ImplicitSubject));
     registry.register(Box::new(include_examples::IncludeExamples));
@@ -171,7 +183,9 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(it_behaves_like::ItBehavesLike));
     registry.register(Box::new(iterated_expectation::IteratedExpectation));
     registry.register(Box::new(leading_subject::LeadingSubject));
-    registry.register(Box::new(leaky_constant_declaration::LeakyConstantDeclaration));
+    registry.register(Box::new(
+        leaky_constant_declaration::LeakyConstantDeclaration,
+    ));
     registry.register(Box::new(leaky_local_variable::LeakyLocalVariable));
     registry.register(Box::new(let_before_examples::LetBeforeExamples));
     registry.register(Box::new(let_setup::LetSetup));
@@ -180,8 +194,12 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(message_expectation::MessageExpectation));
     registry.register(Box::new(message_spies::MessageSpies));
     registry.register(Box::new(metadata_style::MetadataStyle));
-    registry.register(Box::new(missing_example_group_argument::MissingExampleGroupArgument));
-    registry.register(Box::new(missing_expectation_target_method::MissingExpectationTargetMethod));
+    registry.register(Box::new(
+        missing_example_group_argument::MissingExampleGroupArgument,
+    ));
+    registry.register(Box::new(
+        missing_expectation_target_method::MissingExpectationTargetMethod,
+    ));
     registry.register(Box::new(multiple_describes::MultipleDescribes));
     registry.register(Box::new(multiple_expectations::MultipleExpectations));
     registry.register(Box::new(multiple_memoized_helpers::MultipleMemoizedHelpers));
@@ -199,12 +217,18 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(receive_messages::ReceiveMessages));
     registry.register(Box::new(receive_never::ReceiveNever));
     registry.register(Box::new(redundant_around::RedundantAround));
-    registry.register(Box::new(redundant_predicate_matcher::RedundantPredicateMatcher));
+    registry.register(Box::new(
+        redundant_predicate_matcher::RedundantPredicateMatcher,
+    ));
     registry.register(Box::new(remove_const::RemoveConst));
     registry.register(Box::new(repeated_description::RepeatedDescription));
     registry.register(Box::new(repeated_example::RepeatedExample));
-    registry.register(Box::new(repeated_example_group_body::RepeatedExampleGroupBody));
-    registry.register(Box::new(repeated_example_group_description::RepeatedExampleGroupDescription));
+    registry.register(Box::new(
+        repeated_example_group_body::RepeatedExampleGroupBody,
+    ));
+    registry.register(Box::new(
+        repeated_example_group_description::RepeatedExampleGroupDescription,
+    ));
     registry.register(Box::new(repeated_include_example::RepeatedIncludeExample));
     registry.register(Box::new(repeated_subject_call::RepeatedSubjectCall));
     registry.register(Box::new(return_from_stub::ReturnFromStub));
@@ -212,7 +236,9 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(scattered_setup::ScatteredSetup));
     registry.register(Box::new(shared_context::SharedContext));
     registry.register(Box::new(shared_examples::SharedExamples));
-    registry.register(Box::new(single_argument_message_chain::SingleArgumentMessageChain));
+    registry.register(Box::new(
+        single_argument_message_chain::SingleArgumentMessageChain,
+    ));
     registry.register(Box::new(skip_block_inside_example::SkipBlockInsideExample));
     registry.register(Box::new(sort_metadata::SortMetadata));
     registry.register(Box::new(spec_file_path_format::SpecFilePathFormat));
@@ -220,7 +246,9 @@ pub fn register_all(registry: &mut CopRegistry) {
     registry.register(Box::new(stubbed_mock::StubbedMock));
     registry.register(Box::new(subject_declaration::SubjectDeclaration));
     registry.register(Box::new(subject_stub::SubjectStub));
-    registry.register(Box::new(undescriptive_literals_description::UndescriptiveLiteralsDescription));
+    registry.register(Box::new(
+        undescriptive_literals_description::UndescriptiveLiteralsDescription,
+    ));
     registry.register(Box::new(unspecified_exception::UnspecifiedException));
     registry.register(Box::new(variable_definition::VariableDefinition));
     registry.register(Box::new(variable_name::VariableName));

@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, ELSE_NODE, IF_NODE, RESCUE_NODE, UNLESS_NODE, WHILE_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, ELSE_NODE, IF_NODE, RESCUE_NODE, UNLESS_NODE, WHILE_NODE};
 
 pub struct Presence;
 
@@ -15,7 +15,14 @@ impl Cop for Presence {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, ELSE_NODE, IF_NODE, RESCUE_NODE, UNLESS_NODE, WHILE_NODE]
+        &[
+            CALL_NODE,
+            ELSE_NODE,
+            IF_NODE,
+            RESCUE_NODE,
+            UNLESS_NODE,
+            WHILE_NODE,
+        ]
     }
 
     fn check_node(
@@ -24,8 +31,8 @@ impl Cop for Presence {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         if let Some(if_node) = node.as_if_node() {
             // Skip elsif nodes
@@ -62,8 +69,7 @@ impl Cop for Presence {
             };
             let else_text = else_text_owned.as_str();
 
-            let else_is_ignored =
-                is_else_ignored_from_subsequent(&else_clause);
+            let else_is_ignored = is_else_ignored_from_subsequent(&else_clause);
 
             diagnostics.extend(check_presence_patterns(
                 self,
@@ -87,11 +93,10 @@ impl Cop for Presence {
 
         if let Some(unless_node) = node.as_unless_node() {
             let predicate = unless_node.predicate();
-            let (receiver_text, is_present_raw) =
-                match extract_presence_check(source, &predicate) {
-                    Some(r) => r,
-                    None => return,
-                };
+            let (receiver_text, is_present_raw) = match extract_presence_check(source, &predicate) {
+                Some(r) => r,
+                None => return,
+            };
             // `unless` flips: `unless present?` == `if blank?`
             let is_present = !is_present_raw;
 
@@ -113,8 +118,7 @@ impl Cop for Presence {
             };
             let else_text = else_text_owned.as_str();
 
-            let else_is_ignored =
-                is_else_ignored_from_else_node(&else_clause);
+            let else_is_ignored = is_else_ignored_from_else_node(&else_clause);
 
             diagnostics.extend(check_presence_patterns(
                 self,
@@ -135,7 +139,6 @@ impl Cop for Presence {
             ));
             return;
         }
-
     }
 }
 
@@ -261,10 +264,7 @@ fn check_presence_patterns(
     // This pattern was added in rubocop-rails 2.34. Older versions don't flag it.
     // We gate on VersionChanged: if the installed gem's config has VersionChanged >= 2.34,
     // the chain pattern exists; otherwise skip.
-    let version_changed: f64 = config
-        .get_str("VersionChanged", "")
-        .parse()
-        .unwrap_or(0.0);
+    let version_changed: f64 = config.get_str("VersionChanged", "").parse().unwrap_or(0.0);
     if nil_text == "nil" && version_changed >= 2.34 {
         let value_node = if is_present { then_node } else { else_node };
         if let Some(vn) = value_node {
@@ -345,7 +345,6 @@ fn node_text(source: &SourceFile, node: &ruby_prism::Node<'_>) -> String {
         .to_string()
 }
 
-
 /// Check if the else branch from IfNode's subsequent contains an ignored node.
 fn is_else_ignored_from_subsequent(subsequent: &Option<ruby_prism::Node<'_>>) -> bool {
     match subsequent {
@@ -395,12 +394,7 @@ fn is_ignored_chain_node(call: &ruby_prism::CallNode<'_>) -> bool {
     if name == b"[]" || name == b"[]=" {
         return true;
     }
-    if name == b"+"
-        || name == b"-"
-        || name == b"*"
-        || name == b"/"
-        || name == b"%"
-        || name == b"**"
+    if name == b"+" || name == b"-" || name == b"*" || name == b"/" || name == b"%" || name == b"**"
     {
         return true;
     }

@@ -13,7 +13,13 @@ impl Cop for RubyVersionGlobalsUsage {
         &["**/*.gemspec"]
     }
 
-    fn check_lines(&self, source: &SourceFile, _config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        _config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         for (line_idx, line) in source.lines().enumerate() {
             let line_str = match std::str::from_utf8(line) {
                 Ok(s) => s,

@@ -1,7 +1,7 @@
+use crate::cop::node_type::{AND_NODE, CALL_NODE, OR_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{AND_NODE, CALL_NODE, OR_NODE};
 
 pub struct RequireParentheses;
 
@@ -24,8 +24,8 @@ impl Cop for RequireParentheses {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -51,9 +51,10 @@ impl Cop for RequireParentheses {
 
         // Check if any argument is an AndNode or OrNode (but not `and`/`or` keywords,
         // which have lower precedence and wouldn't end up inside the args)
-        let has_boolean_arg = args.arguments().iter().any(|arg| {
-            arg.as_and_node().is_some() || arg.as_or_node().is_some()
-        });
+        let has_boolean_arg = args
+            .arguments()
+            .iter()
+            .any(|arg| arg.as_and_node().is_some() || arg.as_or_node().is_some());
 
         if !has_boolean_arg {
             return;
@@ -65,8 +66,7 @@ impl Cop for RequireParentheses {
             source,
             line,
             column,
-            "Use parentheses in the method call to avoid confusion about precedence."
-                .to_string(),
+            "Use parentheses in the method call to avoid confusion about precedence.".to_string(),
         ));
     }
 }

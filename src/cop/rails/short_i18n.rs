@@ -1,8 +1,8 @@
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::util;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::CALL_NODE;
 
 pub struct ShortI18n;
 
@@ -25,8 +25,8 @@ impl Cop for ShortI18n {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "conservative");
 
@@ -97,7 +97,10 @@ mod tests {
         };
         let source = b"translate :key\n";
         let diags = run_cop_full_with_config(&ShortI18n, source, config);
-        assert!(!diags.is_empty(), "aggressive style should flag bare translate");
+        assert!(
+            !diags.is_empty(),
+            "aggressive style should flag bare translate"
+        );
     }
 
     #[test]
@@ -115,6 +118,9 @@ mod tests {
         };
         let source = b"localize Time.now\n";
         let diags = run_cop_full_with_config(&ShortI18n, source, config);
-        assert!(!diags.is_empty(), "aggressive style should flag bare localize");
+        assert!(
+            !diags.is_empty(),
+            "aggressive style should flag bare localize"
+        );
     }
 }

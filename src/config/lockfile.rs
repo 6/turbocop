@@ -28,7 +28,9 @@ pub fn lockfile_path(project_dir: &Path) -> PathBuf {
     let mut hasher = Sha256::new();
     hasher.update(canonical.to_string_lossy().as_bytes());
     let hash = format!("{:x}", hasher.finalize());
-    cache_root_dir().join("lockfiles").join(format!("{hash}.json"))
+    cache_root_dir()
+        .join("lockfiles")
+        .join(format!("{hash}.json"))
 }
 
 /// Write the lockfile for the given project directory.
@@ -84,9 +86,7 @@ pub fn read_lock(dir: &Path) -> Result<TurboCopLock> {
 pub fn check_freshness(lock: &TurboCopLock, dir: &Path) -> Result<()> {
     let current_hash = hash_file(&dir.join("Gemfile.lock"));
     if lock.gemfile_lock_sha256 != current_hash {
-        anyhow::bail!(
-            "Stale lockfile (Gemfile.lock changed). Run 'turbocop --init' to refresh."
-        );
+        anyhow::bail!("Stale lockfile (Gemfile.lock changed). Run 'turbocop --init' to refresh.");
     }
     // Verify cached gem paths still exist (catches Ruby version switches,
     // gem reinstalls, rbenv rehash, etc.)
@@ -125,9 +125,7 @@ fn chrono_now() -> String {
 
     // Days since epoch to Y-M-D (simplified)
     let (year, month, day) = days_to_ymd(days);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}Z"
-    )
+    format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}Z")
 }
 
 fn days_to_ymd(mut days: u64) -> (u64, u64, u64) {
@@ -193,11 +191,17 @@ mod tests {
             let path = lockfile_path(project.path());
             // The path should contain a "lockfiles" component and end with .json
             let components: Vec<_> = path.components().collect();
-            let has_lockfiles = components.iter().any(|c| {
-                c.as_os_str() == "lockfiles"
-            });
-            assert!(has_lockfiles, "path should contain 'lockfiles' dir: {}", path.display());
-            assert!(path.to_string_lossy().ends_with(".json"), "path should end with .json: {}", path.display());
+            let has_lockfiles = components.iter().any(|c| c.as_os_str() == "lockfiles");
+            assert!(
+                has_lockfiles,
+                "path should contain 'lockfiles' dir: {}",
+                path.display()
+            );
+            assert!(
+                path.to_string_lossy().ends_with(".json"),
+                "path should end with .json: {}",
+                path.display()
+            );
         });
     }
 
@@ -255,7 +259,11 @@ mod tests {
 
             // Verify file was created at the expected location
             let expected = lockfile_path(project.path());
-            assert!(expected.exists(), "lockfile not created at {}", expected.display());
+            assert!(
+                expected.exists(),
+                "lockfile not created at {}",
+                expected.display()
+            );
 
             // Verify no .turbocop.cache was created in project dir
             assert!(!project.path().join(".turbocop.cache").exists());

@@ -1,7 +1,7 @@
+use crate::cop::node_type::{INTERPOLATED_STRING_NODE, STRING_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{INTERPOLATED_STRING_NODE, STRING_NODE};
 
 pub struct HeredocDelimiterCase;
 
@@ -20,8 +20,8 @@ impl Cop for HeredocDelimiterCase {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "uppercase");
 
@@ -75,8 +75,12 @@ impl Cop for HeredocDelimiterCase {
             return;
         }
 
-        let is_uppercase = delimiter.iter().all(|&b| b.is_ascii_uppercase() || b == b'_' || b.is_ascii_digit());
-        let is_lowercase = delimiter.iter().all(|&b| b.is_ascii_lowercase() || b == b'_' || b.is_ascii_digit());
+        let is_uppercase = delimiter
+            .iter()
+            .all(|&b| b.is_ascii_uppercase() || b == b'_' || b.is_ascii_digit());
+        let is_lowercase = delimiter
+            .iter()
+            .all(|&b| b.is_ascii_lowercase() || b == b'_' || b.is_ascii_digit());
 
         let offense = match enforced_style {
             "uppercase" => !is_uppercase,
@@ -91,8 +95,16 @@ impl Cop for HeredocDelimiterCase {
             let delimiter_offset = if delimiter_offset > opening_loc.end_offset() {
                 opening_loc.start_offset() + 2
             } else {
-                opening_loc.start_offset() + opening.len() - delimiter.len()
-                    - if opening.ends_with(b"'") || opening.ends_with(b"\"") || opening.ends_with(b"`") { 1 } else { 0 }
+                opening_loc.start_offset() + opening.len()
+                    - delimiter.len()
+                    - if opening.ends_with(b"'")
+                        || opening.ends_with(b"\"")
+                        || opening.ends_with(b"`")
+                    {
+                        1
+                    } else {
+                        0
+                    }
             };
             let (line, column) = source.offset_to_line_col(delimiter_offset);
             diagnostics.push(self.diagnostic(
@@ -102,7 +114,6 @@ impl Cop for HeredocDelimiterCase {
                 format!("Use {enforced_style} heredoc delimiters."),
             ));
         }
-
     }
 }
 

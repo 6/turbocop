@@ -1,7 +1,7 @@
+use crate::cop::node_type::{BEGIN_NODE, DEF_NODE, RESCUE_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BEGIN_NODE, DEF_NODE, RESCUE_NODE};
 
 pub struct RescueEnsureAlignment;
 
@@ -20,10 +20,9 @@ impl Cop for RescueEnsureAlignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-
         if let Some(begin_node) = node.as_begin_node() {
             let begin_kw_loc = match begin_node.begin_keyword_loc() {
                 Some(loc) => loc,
@@ -41,14 +40,16 @@ impl Cop for RescueEnsureAlignment {
                     line_start -= 1;
                 }
                 let mut indent = 0;
-                while line_start + indent < bytes.len()
-                    && bytes[line_start + indent] == b' '
-                {
+                while line_start + indent < bytes.len() && bytes[line_start + indent] == b' ' {
                     indent += 1;
                 }
                 // If begin is NOT at the start of the line, the line likely has
                 // an assignment (e.g., `x = begin`). Use the line's indent.
-                if indent != begin_col { indent } else { begin_col }
+                if indent != begin_col {
+                    indent
+                } else {
+                    begin_col
+                }
             };
             let _ = begin_line;
 
@@ -100,7 +101,6 @@ impl Cop for RescueEnsureAlignment {
                 }
             }
         }
-
     }
 }
 

@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, LOCAL_VARIABLE_READ_NODE, OR_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, LOCAL_VARIABLE_READ_NODE, OR_NODE};
 
 pub struct MultipleComparison;
 
@@ -66,27 +66,26 @@ impl MultipleComparison {
                 // "variable" side of the comparison. The AllowMethodComparison
                 // config controls whether comparisons where the VALUE is a
                 // method call are counted.
-                let (var_src, value_is_call) =
-                    if lhs.as_local_variable_read_node().is_some() {
-                        (lhs_src, rhs.as_call_node().is_some())
-                    } else if rhs.as_local_variable_read_node().is_some() {
-                        (rhs_src, lhs.as_call_node().is_some())
-                    } else if lhs.as_call_node().is_some() && rhs.as_call_node().is_none() {
-                        // lhs is a method call (the "variable"), rhs is a literal value
-                        (lhs_src, false)
-                    } else if rhs.as_call_node().is_some() && lhs.as_call_node().is_none() {
-                        // rhs is a method call (the "variable"), lhs is a literal value
-                        (rhs_src, false)
-                    } else if lhs.as_call_node().is_some() && rhs.as_call_node().is_some() {
-                        // Both sides are method calls — lhs is the variable, rhs is the value
-                        if allow_method {
-                            (lhs_src, true)
-                        } else {
-                            (lhs_src, true)
-                        }
+                let (var_src, value_is_call) = if lhs.as_local_variable_read_node().is_some() {
+                    (lhs_src, rhs.as_call_node().is_some())
+                } else if rhs.as_local_variable_read_node().is_some() {
+                    (rhs_src, lhs.as_call_node().is_some())
+                } else if lhs.as_call_node().is_some() && rhs.as_call_node().is_none() {
+                    // lhs is a method call (the "variable"), rhs is a literal value
+                    (lhs_src, false)
+                } else if rhs.as_call_node().is_some() && lhs.as_call_node().is_none() {
+                    // rhs is a method call (the "variable"), lhs is a literal value
+                    (rhs_src, false)
+                } else if lhs.as_call_node().is_some() && rhs.as_call_node().is_some() {
+                    // Both sides are method calls — lhs is the variable, rhs is the value
+                    if allow_method {
+                        (lhs_src, true)
                     } else {
-                        return None;
-                    };
+                        (lhs_src, true)
+                    }
+                } else {
+                    return None;
+                };
 
                 // When AllowMethodComparison is true and the value is a method call,
                 // skip this comparison (count = 0) but still return the variable
@@ -117,8 +116,8 @@ impl Cop for MultipleComparison {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_method = config.get_bool("AllowMethodComparison", true);
         let threshold = config.get_usize("ComparisonsThreshold", 2);
@@ -152,7 +151,6 @@ impl Cop for MultipleComparison {
                 ));
             }
         }
-
     }
 }
 

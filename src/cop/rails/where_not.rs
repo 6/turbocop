@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, STRING_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, STRING_NODE};
 
 pub struct WhereNot;
 
@@ -74,8 +74,7 @@ fn is_not_eq_anonymous(s: &str) -> bool {
     if i + 1 >= bytes.len() {
         return false;
     }
-    if !((bytes[i] == b'!' && bytes[i + 1] == b'=') || (bytes[i] == b'<' && bytes[i + 1] == b'>'))
-    {
+    if !((bytes[i] == b'!' && bytes[i + 1] == b'=') || (bytes[i] == b'<' && bytes[i + 1] == b'>')) {
         return false;
     }
     i += 2;
@@ -113,8 +112,7 @@ fn is_not_eq_named(s: &str) -> bool {
     if i + 1 >= bytes.len() {
         return false;
     }
-    if !((bytes[i] == b'!' && bytes[i + 1] == b'=') || (bytes[i] == b'<' && bytes[i + 1] == b'>'))
-    {
+    if !((bytes[i] == b'!' && bytes[i + 1] == b'=') || (bytes[i] == b'<' && bytes[i + 1] == b'>')) {
         return false;
     }
     i += 2;
@@ -137,7 +135,10 @@ fn is_not_eq_named(s: &str) -> bool {
 }
 
 fn eq_ignore_case(a: &[u8], b: &[u8]) -> bool {
-    a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.to_ascii_lowercase() == y.to_ascii_lowercase())
+    a.len() == b.len()
+        && a.iter()
+            .zip(b.iter())
+            .all(|(x, y)| x.to_ascii_lowercase() == y.to_ascii_lowercase())
 }
 
 /// Match: word_or_dot+ whitespace+ NOT whitespace+ IN whitespace+ (?) (case insensitive)
@@ -312,8 +313,8 @@ impl Cop for WhereNot {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,

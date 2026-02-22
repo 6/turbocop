@@ -3,10 +3,11 @@ pub mod bundler;
 pub mod factory_bot;
 pub mod gemspec;
 pub mod layout;
-pub mod migration;
 pub mod lint;
 pub mod metrics;
+pub mod migration;
 pub mod naming;
+pub mod node_type;
 pub mod performance;
 pub mod rails;
 pub mod registry;
@@ -15,7 +16,6 @@ pub mod rspec_rails;
 pub mod security;
 pub mod style;
 pub mod tiers;
-pub mod node_type;
 pub mod util;
 pub mod walker;
 
@@ -145,7 +145,11 @@ impl CopConfig {
                 }
             }
         }
-        if result.is_empty() { None } else { Some(result) }
+        if result.is_empty() {
+            None
+        } else {
+            Some(result)
+        }
     }
 
     /// Whether the cop itself is considered safe (default: true).
@@ -179,11 +183,11 @@ impl CopConfig {
         match mode {
             AutocorrectMode::Off => false,
             AutocorrectMode::Safe => {
-                self.is_safe() && self.is_safe_autocorrect() && self.autocorrect_setting() != "disabled"
+                self.is_safe()
+                    && self.is_safe_autocorrect()
+                    && self.autocorrect_setting() != "disabled"
             }
-            AutocorrectMode::All => {
-                self.autocorrect_setting() != "disabled"
-            }
+            AutocorrectMode::All => self.autocorrect_setting() != "disabled",
         }
     }
 }
@@ -439,18 +443,20 @@ mod tests {
     #[test]
     fn should_autocorrect_safe_blocked_by_unsafe_cop() {
         use crate::cli::AutocorrectMode;
-        let cfg = config_with(HashMap::from([
-            ("Safe".into(), serde_yml::Value::Bool(false)),
-        ]));
+        let cfg = config_with(HashMap::from([(
+            "Safe".into(),
+            serde_yml::Value::Bool(false),
+        )]));
         assert!(!cfg.should_autocorrect(AutocorrectMode::Safe));
     }
 
     #[test]
     fn should_autocorrect_safe_blocked_by_unsafe_autocorrect() {
         use crate::cli::AutocorrectMode;
-        let cfg = config_with(HashMap::from([
-            ("SafeAutoCorrect".into(), serde_yml::Value::Bool(false)),
-        ]));
+        let cfg = config_with(HashMap::from([(
+            "SafeAutoCorrect".into(),
+            serde_yml::Value::Bool(false),
+        )]));
         assert!(!cfg.should_autocorrect(AutocorrectMode::Safe));
     }
 
@@ -467,34 +473,38 @@ mod tests {
     #[test]
     fn should_autocorrect_disabled_blocks_all_modes() {
         use crate::cli::AutocorrectMode;
-        let cfg = config_with(HashMap::from([
-            ("AutoCorrect".into(), serde_yml::Value::Bool(false)),
-        ]));
+        let cfg = config_with(HashMap::from([(
+            "AutoCorrect".into(),
+            serde_yml::Value::Bool(false),
+        )]));
         assert!(!cfg.should_autocorrect(AutocorrectMode::Safe));
         assert!(!cfg.should_autocorrect(AutocorrectMode::All));
     }
 
     #[test]
     fn autocorrect_setting_bool_true_is_always() {
-        let cfg = config_with(HashMap::from([
-            ("AutoCorrect".into(), serde_yml::Value::Bool(true)),
-        ]));
+        let cfg = config_with(HashMap::from([(
+            "AutoCorrect".into(),
+            serde_yml::Value::Bool(true),
+        )]));
         assert_eq!(cfg.autocorrect_setting(), "always");
     }
 
     #[test]
     fn autocorrect_setting_bool_false_is_disabled() {
-        let cfg = config_with(HashMap::from([
-            ("AutoCorrect".into(), serde_yml::Value::Bool(false)),
-        ]));
+        let cfg = config_with(HashMap::from([(
+            "AutoCorrect".into(),
+            serde_yml::Value::Bool(false),
+        )]));
         assert_eq!(cfg.autocorrect_setting(), "disabled");
     }
 
     #[test]
     fn autocorrect_setting_string_passthrough() {
-        let cfg = config_with(HashMap::from([
-            ("AutoCorrect".into(), serde_yml::Value::String("contextual".into())),
-        ]));
+        let cfg = config_with(HashMap::from([(
+            "AutoCorrect".into(),
+            serde_yml::Value::String("contextual".into()),
+        )]));
         assert_eq!(cfg.autocorrect_setting(), "contextual");
     }
 

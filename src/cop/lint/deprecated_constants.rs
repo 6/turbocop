@@ -1,16 +1,12 @@
+use crate::cop::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
 
 pub struct DeprecatedConstants;
 
 /// Built-in deprecated constants when no config is provided.
-const BUILTIN_DEPRECATED: &[(&str, &str)] = &[
-    ("NIL", "nil"),
-    ("TRUE", "true"),
-    ("FALSE", "false"),
-];
+const BUILTIN_DEPRECATED: &[(&str, &str)] = &[("NIL", "nil"), ("TRUE", "true"), ("FALSE", "false")];
 
 impl Cop for DeprecatedConstants {
     fn name(&self) -> &'static str {
@@ -31,8 +27,8 @@ impl Cop for DeprecatedConstants {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Handle ConstantReadNode (bare constants like NIL, TRUE, FALSE)
         if let Some(const_read) = node.as_constant_read_node() {
@@ -63,7 +59,6 @@ impl Cop for DeprecatedConstants {
                 diagnostics.push(self.diagnostic(source, line, column, msg));
             }
         }
-
     }
 }
 
@@ -77,17 +72,15 @@ fn deprecated_message(constant_name: &str, config: &CopConfig) -> Option<String>
             for (k, v) in mapping.iter() {
                 if let Some(key_str) = k.as_str() {
                     if key_str == constant_name {
-                        let alternative = v
-                            .as_mapping()
-                            .and_then(|m| {
-                                m.iter().find_map(|(mk, mv)| {
-                                    if mk.as_str() == Some("Alternative") {
-                                        mv.as_str().map(|s| s.to_string())
-                                    } else {
-                                        None
-                                    }
-                                })
-                            });
+                        let alternative = v.as_mapping().and_then(|m| {
+                            m.iter().find_map(|(mk, mv)| {
+                                if mk.as_str() == Some("Alternative") {
+                                    mv.as_str().map(|s| s.to_string())
+                                } else {
+                                    None
+                                }
+                            })
+                        });
 
                         return if let Some(alt) = alternative {
                             Some(format!("Use `{alt}` instead of `{constant_name}`."))

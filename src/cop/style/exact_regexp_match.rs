@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, REGULAR_EXPRESSION_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, REGULAR_EXPRESSION_NODE};
 
 pub struct ExactRegexpMatch;
 
@@ -12,7 +12,11 @@ impl ExactRegexpMatch {
             // Must have no meaningful regex flags (no /i, /m, /x, etc.)
             // Note: flags() includes base node flags (like encoding), so we
             // check specific regex flag methods instead of flags() != 0.
-            if regex.is_ignore_case() || regex.is_extended() || regex.is_multi_line() || regex.is_once() {
+            if regex.is_ignore_case()
+                || regex.is_extended()
+                || regex.is_multi_line()
+                || regex.is_once()
+            {
                 return false;
             }
             let bytes = regex.unescaped();
@@ -43,16 +47,16 @@ impl ExactRegexpMatch {
             let b = bytes[i];
             // Check for regex metacharacters
             match b {
-                b'.' | b'*' | b'+' | b'?' | b'|' | b'(' | b')' | b'[' | b']'
-                | b'{' | b'}' | b'^' | b'$' => return false,
+                b'.' | b'*' | b'+' | b'?' | b'|' | b'(' | b')' | b'[' | b']' | b'{' | b'}'
+                | b'^' | b'$' => return false,
                 b'\\' => {
                     // Escape sequence
                     if i + 1 < bytes.len() {
                         let next = bytes[i + 1];
                         match next {
                             // These are special regex escapes
-                            b'd' | b'D' | b'w' | b'W' | b's' | b'S' | b'b' | b'B'
-                            | b'h' | b'H' | b'R' | b'p' | b'P' | b'A' | b'z' | b'Z' => {
+                            b'd' | b'D' | b'w' | b'W' | b's' | b'S' | b'b' | b'B' | b'h' | b'H'
+                            | b'R' | b'p' | b'P' | b'A' | b'z' | b'Z' => {
                                 return false;
                             }
                             // Literal escape of special char
@@ -87,8 +91,8 @@ impl Cop for ExactRegexpMatch {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -137,7 +141,6 @@ impl Cop for ExactRegexpMatch {
             }
             _ => {}
         }
-
     }
 }
 

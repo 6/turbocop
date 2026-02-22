@@ -1,8 +1,10 @@
+use crate::cop::node_type::{
+    BLOCK_ARGUMENT_NODE, BLOCK_NODE, CALL_NODE, STATEMENTS_NODE, SYMBOL_NODE,
+};
 use crate::cop::rspec_rails::RSPEC_RAILS_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_ARGUMENT_NODE, BLOCK_NODE, CALL_NODE, STATEMENTS_NODE, SYMBOL_NODE};
 
 pub struct TravelAround;
 
@@ -22,7 +24,13 @@ impl Cop for TravelAround {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_ARGUMENT_NODE, BLOCK_NODE, CALL_NODE, STATEMENTS_NODE, SYMBOL_NODE]
+        &[
+            BLOCK_ARGUMENT_NODE,
+            BLOCK_NODE,
+            CALL_NODE,
+            STATEMENTS_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -31,8 +39,8 @@ impl Cop for TravelAround {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // We look for `around` blocks and then check their body for travel patterns.
         let call = match node.as_call_node() {
@@ -75,7 +83,6 @@ impl Cop for TravelAround {
             Some(s) => s,
             None => return,
         };
-
 
         for stmt in stmts.body().iter() {
             if let Some(travel_call) = stmt.as_call_node() {
@@ -129,7 +136,6 @@ impl Cop for TravelAround {
                 }
             }
         }
-
     }
 }
 

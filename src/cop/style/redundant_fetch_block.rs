@@ -1,7 +1,11 @@
+use crate::cop::node_type::{
+    BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE, FLOAT_NODE,
+    IMAGINARY_NODE, INTEGER_NODE, NIL_NODE, RATIONAL_NODE, STATEMENTS_NODE, STRING_NODE,
+    SYMBOL_NODE, TRUE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, NIL_NODE, RATIONAL_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE};
 
 pub struct RedundantFetchBlock;
 
@@ -25,7 +29,22 @@ impl Cop for RedundantFetchBlock {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, FALSE_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, NIL_NODE, RATIONAL_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE]
+        &[
+            BLOCK_NODE,
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            FALSE_NODE,
+            FLOAT_NODE,
+            IMAGINARY_NODE,
+            INTEGER_NODE,
+            NIL_NODE,
+            RATIONAL_NODE,
+            STATEMENTS_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+            TRUE_NODE,
+        ]
     }
 
     fn check_node(
@@ -34,13 +53,15 @@ impl Cop for RedundantFetchBlock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let safe_for_constants = config.get_bool("SafeForConstants", false);
         // Check if frozen_string_literal is enabled (needed for string body)
         let frozen_string_literal = source.lines().next().is_some_and(|line| {
-            std::str::from_utf8(line).unwrap_or("").contains("frozen_string_literal: true")
+            std::str::from_utf8(line)
+                .unwrap_or("")
+                .contains("frozen_string_literal: true")
         });
 
         let call = match node.as_call_node() {
@@ -137,7 +158,9 @@ impl Cop for RedundantFetchBlock {
             if let Some(stmts) = body.as_statements_node() {
                 let body_stmts: Vec<_> = stmts.body().iter().collect();
                 if body_stmts.len() == 1 {
-                    std::str::from_utf8(body_stmts[0].location().as_slice()).unwrap_or("nil").to_string()
+                    std::str::from_utf8(body_stmts[0].location().as_slice())
+                        .unwrap_or("nil")
+                        .to_string()
                 } else {
                     "nil".to_string()
                 }

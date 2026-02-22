@@ -1,8 +1,12 @@
+use crate::cop::node_type::{
+    BEGIN_NODE, BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, ELSE_NODE,
+    IF_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, NEXT_NODE,
+    REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, YIELD_NODE,
+};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BEGIN_NODE, BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, ELSE_NODE, IF_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, NEXT_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, YIELD_NODE};
 
 pub struct AroundBlock;
 
@@ -22,7 +26,21 @@ impl Cop for AroundBlock {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BEGIN_NODE, BLOCK_ARGUMENT_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, ELSE_NODE, IF_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE, NEXT_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, YIELD_NODE]
+        &[
+            BEGIN_NODE,
+            BLOCK_ARGUMENT_NODE,
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            CALL_NODE,
+            ELSE_NODE,
+            IF_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            LOCAL_VARIABLE_WRITE_NODE,
+            NEXT_NODE,
+            REQUIRED_PARAMETER_NODE,
+            STATEMENTS_NODE,
+            YIELD_NODE,
+        ]
     }
 
     fn check_node(
@@ -31,8 +49,8 @@ impl Cop for AroundBlock {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -74,7 +92,8 @@ impl Cop for AroundBlock {
             }
             Some(name) => {
                 // Has a block parameter — check if it's used with .run or .call (or yield)
-                if body_uses_param_correctly(&block_node, &name) || body_contains_yield(&block_node) {
+                if body_uses_param_correctly(&block_node, &name) || body_contains_yield(&block_node)
+                {
                     return;
                 }
 
@@ -100,8 +119,6 @@ impl Cop for AroundBlock {
                         }
                     }
                 }
-
-
             }
         }
     }

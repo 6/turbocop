@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, KEYWORD_HASH_NODE};
 use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, KEYWORD_HASH_NODE};
 
 /// Checks for `fetch` or `Array.new` with both a default value argument and a block.
 /// The block always supersedes the default value argument.
@@ -27,8 +27,8 @@ impl Cop for UselessDefaultValueArgument {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -50,7 +50,9 @@ impl Cop for UselessDefaultValueArgument {
             };
 
             // Skip if receiver is in AllowedReceivers
-            let allowed_receivers = config.get_string_array("AllowedReceivers").unwrap_or_default();
+            let allowed_receivers = config
+                .get_string_array("AllowedReceivers")
+                .unwrap_or_default();
             if !allowed_receivers.is_empty() {
                 let recv_bytes = receiver.location().as_slice();
                 let recv_str = std::str::from_utf8(recv_bytes).unwrap_or("");
@@ -116,7 +118,6 @@ impl Cop for UselessDefaultValueArgument {
                 "Block supersedes default value argument.".to_string(),
             ));
         }
-
     }
 }
 

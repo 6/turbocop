@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, ELSE_NODE, IF_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, ELSE_NODE, IF_NODE};
 
 pub struct MinMaxComparison;
 
@@ -20,8 +20,8 @@ impl Cop for MinMaxComparison {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Looking for: a > b ? a : b  (max)  or  a < b ? a : b  (min), etc.
         let ternary = match node.as_if_node() {

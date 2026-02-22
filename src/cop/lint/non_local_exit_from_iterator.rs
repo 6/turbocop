@@ -20,8 +20,8 @@ impl Cop for NonLocalExitFromIterator {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mut visitor = NonLocalExitVisitor {
             cop: self,
@@ -108,8 +108,8 @@ impl<'pr> Visit<'pr> for NonLocalExitVisitor<'_, '_> {
                 let has_args = block_node.parameters().is_some();
                 let is_chained_send = node.receiver().is_some();
                 let method_name = node.name().as_slice();
-                let is_define_method = method_name == b"define_method"
-                    || method_name == b"define_singleton_method";
+                let is_define_method =
+                    method_name == b"define_method" || method_name == b"define_singleton_method";
 
                 self.block_stack.push(BlockContext {
                     has_args,
@@ -137,5 +137,8 @@ impl<'pr> Visit<'pr> for NonLocalExitVisitor<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(NonLocalExitFromIterator, "cops/lint/non_local_exit_from_iterator");
+    crate::cop_fixture_tests!(
+        NonLocalExitFromIterator,
+        "cops/lint/non_local_exit_from_iterator"
+    );
 }

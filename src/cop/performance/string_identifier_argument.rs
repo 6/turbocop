@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, STRING_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, STRING_NODE};
 
 pub struct StringIdentifierArgument;
 
@@ -193,5 +193,8 @@ impl Cop for StringIdentifierArgument {
 mod tests {
     use super::*;
 
-    crate::cop_fixture_tests!(StringIdentifierArgument, "cops/performance/string_identifier_argument");
+    crate::cop_fixture_tests!(
+        StringIdentifierArgument,
+        "cops/performance/string_identifier_argument"
+    );
 }

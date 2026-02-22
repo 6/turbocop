@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, INTEGER_NODE, RANGE_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, INTEGER_NODE, RANGE_NODE};
 
 pub struct SlicingWithRange;
 
@@ -32,8 +32,8 @@ impl Cop for SlicingWithRange {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -60,7 +60,10 @@ impl Cop for SlicingWithRange {
         let range_node = &arg_list[0];
 
         // Use opening_loc (the `[`) as the diagnostic position to match RuboCop
-        let bracket_offset = call.opening_loc().map(|l| l.start_offset()).unwrap_or(node.location().start_offset());
+        let bracket_offset = call
+            .opening_loc()
+            .map(|l| l.start_offset())
+            .unwrap_or(node.location().start_offset());
 
         // Check for inclusive range (0..-1) or (0..nil)
         if let Some(irange) = range_node.as_range_node() {
@@ -76,12 +79,20 @@ impl Cop for SlicingWithRange {
                         if let Some(right) = irange.right() {
                             if Self::int_value(&right) == Some(-1) {
                                 let (line, column) = source.offset_to_line_col(bracket_offset);
-                                let src = std::str::from_utf8(node.location().as_slice()).unwrap_or("");
+                                let src =
+                                    std::str::from_utf8(node.location().as_slice()).unwrap_or("");
                                 diagnostics.push(self.diagnostic(
                                     source,
                                     line,
                                     column,
-                                    format!("Prefer `{}` over `{}`.", std::str::from_utf8(call.receiver().unwrap().location().as_slice()).unwrap_or("ary"), src),
+                                    format!(
+                                            "Prefer `{}` over `{}`.",
+                                            std::str::from_utf8(
+                                                call.receiver().unwrap().location().as_slice()
+                                            )
+                                            .unwrap_or("ary"),
+                                            src
+                                        ),
                                 ));
                             }
                         }
@@ -93,7 +104,14 @@ impl Cop for SlicingWithRange {
                                 source,
                                 line,
                                 column,
-                                format!("Prefer `{}` over `{}`.", std::str::from_utf8(call.receiver().unwrap().location().as_slice()).unwrap_or("ary"), src),
+                                format!(
+                                        "Prefer `{}` over `{}`.",
+                                        std::str::from_utf8(
+                                            call.receiver().unwrap().location().as_slice()
+                                        )
+                                        .unwrap_or("ary"),
+                                        src
+                                    ),
                             ));
                         }
                     }
@@ -105,7 +123,14 @@ impl Cop for SlicingWithRange {
                             source,
                             line,
                             column,
-                            format!("Prefer `{}` over `{}`.", std::str::from_utf8(call.receiver().unwrap().location().as_slice()).unwrap_or("ary"), src),
+                            format!(
+                                    "Prefer `{}` over `{}`.",
+                                    std::str::from_utf8(
+                                        call.receiver().unwrap().location().as_slice()
+                                    )
+                                    .unwrap_or("ary"),
+                                    src
+                                ),
                         ));
                     }
                 }
@@ -113,8 +138,10 @@ impl Cop for SlicingWithRange {
                 // x..-1 where x != 0 — suggest endless range
                 if is_inclusive {
                     if let Some(right) = irange.right() {
-                        if Self::int_value(&right) == Some(-1) && Self::int_value(&left) != Some(0) {
-                            let left_src = std::str::from_utf8(left.location().as_slice()).unwrap_or("1");
+                        if Self::int_value(&right) == Some(-1) && Self::int_value(&left) != Some(0)
+                        {
+                            let left_src =
+                                std::str::from_utf8(left.location().as_slice()).unwrap_or("1");
                             let (line, column) = source.offset_to_line_col(bracket_offset);
                             diagnostics.push(self.diagnostic(
                                 source,
@@ -127,7 +154,6 @@ impl Cop for SlicingWithRange {
                 }
             }
         }
-
     }
 }
 

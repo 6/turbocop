@@ -62,7 +62,11 @@ pub fn build_report(
     let preview_set: HashSet<&str> = summary.preview_gated.iter().map(|s| s.as_str()).collect();
     let unimplemented_set: HashSet<&str> =
         summary.unimplemented.iter().map(|s| s.as_str()).collect();
-    let outside_set: HashSet<&str> = summary.outside_baseline.iter().map(|s| s.as_str()).collect();
+    let outside_set: HashSet<&str> = summary
+        .outside_baseline
+        .iter()
+        .map(|s| s.as_str())
+        .collect();
 
     let mut cops = Vec::new();
 
@@ -91,8 +95,14 @@ pub fn build_report(
     }
 
     let counts = MigrateCounts {
-        stable: cops.iter().filter(|c| c.status == CopStatus::Stable).count(),
-        preview: cops.iter().filter(|c| c.status == CopStatus::Preview).count(),
+        stable: cops
+            .iter()
+            .filter(|c| c.status == CopStatus::Stable)
+            .count(),
+        preview: cops
+            .iter()
+            .filter(|c| c.status == CopStatus::Preview)
+            .count(),
         unimplemented: cops
             .iter()
             .filter(|c| c.status == CopStatus::Unimplemented)
@@ -121,7 +131,10 @@ pub fn print_text(report: &MigrateReport, args: &Args) {
 
     // Counts
     println!("Enabled cops: {}", report.cops.len());
-    println!("  Stable:           {:>4}  (runs by default)", report.counts.stable);
+    println!(
+        "  Stable:           {:>4}  (runs by default)",
+        report.counts.stable
+    );
     println!(
         "  Preview:          {:>4}  (requires --preview)",
         report.counts.preview
@@ -146,7 +159,10 @@ pub fn print_text(report: &MigrateReport, args: &Args) {
         .collect();
     if !preview_cops.is_empty() {
         println!();
-        println!("Preview-gated cops (top {}):", preview_cops.len().min(max_examples));
+        println!(
+            "Preview-gated cops (top {}):",
+            preview_cops.len().min(max_examples)
+        );
         for name in preview_cops.iter().take(max_examples) {
             println!("  - {name}");
         }
@@ -197,21 +213,29 @@ pub fn print_text(report: &MigrateReport, args: &Args) {
 
     // Suggested CI command
     println!();
-    let skipped = report.counts.preview + report.counts.unimplemented + report.counts.outside_baseline;
+    let skipped =
+        report.counts.preview + report.counts.unimplemented + report.counts.outside_baseline;
     if skipped == 0 {
         println!("All enabled cops are stable. No migration needed.");
     } else {
         println!("Suggested CI command:");
-        if report.counts.preview > 0 && report.counts.unimplemented == 0 && report.counts.outside_baseline == 0 {
+        if report.counts.preview > 0
+            && report.counts.unimplemented == 0
+            && report.counts.outside_baseline == 0
+        {
             println!("  turbocop --strict .");
             println!("  # Fails if preview-gated cops are skipped. Add --preview to run them.");
         } else if report.counts.unimplemented > 0 || report.counts.outside_baseline > 0 {
             if args.strict.as_deref() == Some("all") {
                 println!("  turbocop --strict=all .");
-                println!("  # Fails if any cops are skipped (preview + unimplemented + outside baseline).");
+                println!(
+                    "  # Fails if any cops are skipped (preview + unimplemented + outside baseline)."
+                );
             } else {
                 println!("  turbocop --strict .");
-                println!("  # Fails only for preview-gated cops. Use --strict=all to include unimplemented.");
+                println!(
+                    "  # Fails only for preview-gated cops. Use --strict=all to include unimplemented."
+                );
             }
         }
     }

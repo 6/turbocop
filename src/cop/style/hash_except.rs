@@ -1,7 +1,10 @@
+use crate::cop::node_type::{
+    BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE,
+    REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct HashExcept;
 
@@ -11,7 +14,16 @@ impl Cop for HashExcept {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE, REQUIRED_PARAMETER_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE]
+        &[
+            BLOCK_NODE,
+            BLOCK_PARAMETERS_NODE,
+            CALL_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            REQUIRED_PARAMETER_NODE,
+            STATEMENTS_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -20,8 +32,8 @@ impl Cop for HashExcept {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -104,7 +116,8 @@ impl Cop for HashExcept {
             // For reject: k == :sym -> except(:sym)
             // For select/filter: k != :sym -> except(:sym)
             let is_matching = (method_bytes == b"reject" && cmp_method == b"==")
-                || ((method_bytes == b"select" || method_bytes == b"filter") && cmp_method == b"!=");
+                || ((method_bytes == b"select" || method_bytes == b"filter")
+                    && cmp_method == b"!=");
 
             if !is_matching {
                 return;
@@ -126,33 +139,35 @@ impl Cop for HashExcept {
             }
 
             // One side must be the key param, other must be a literal
-            let (is_key_left, value_node) = if let Some(lvar) = cmp_recv.as_local_variable_read_node() {
-                if lvar.name().as_slice() == key_name {
-                    (true, &cmp_arg_list[0])
+            let (is_key_left, value_node) =
+                if let Some(lvar) = cmp_recv.as_local_variable_read_node() {
+                    if lvar.name().as_slice() == key_name {
+                        (true, &cmp_arg_list[0])
+                    } else {
+                        return;
+                    }
+                } else if let Some(lvar) = cmp_arg_list[0].as_local_variable_read_node() {
+                    if lvar.name().as_slice() == key_name {
+                        (false, &cmp_recv)
+                    } else {
+                        return;
+                    }
                 } else {
                     return;
-                }
-            } else if let Some(lvar) = cmp_arg_list[0].as_local_variable_read_node() {
-                if lvar.name().as_slice() == key_name {
-                    (false, &cmp_recv)
-                } else {
-                    return;
-                }
-            } else {
-                return;
-            };
+                };
 
             let _ = is_key_left;
 
             // Value must be a symbol or string literal
-            let is_sym_or_str = value_node.as_symbol_node().is_some()
-                || value_node.as_string_node().is_some();
+            let is_sym_or_str =
+                value_node.as_symbol_node().is_some() || value_node.as_string_node().is_some();
 
             if !is_sym_or_str {
                 return;
             }
 
-            let value_src = &source.as_bytes()[value_node.location().start_offset()..value_node.location().end_offset()];
+            let value_src = &source.as_bytes()
+                [value_node.location().start_offset()..value_node.location().end_offset()];
             let value_str = String::from_utf8_lossy(value_src);
 
             let loc = call.message_loc().unwrap_or_else(|| call.location());
@@ -164,7 +179,6 @@ impl Cop for HashExcept {
                 format!("Use `except({})` instead.", value_str),
             ));
         }
-
     }
 }
 

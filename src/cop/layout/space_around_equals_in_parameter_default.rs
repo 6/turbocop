@@ -1,7 +1,7 @@
+use crate::cop::node_type::OPTIONAL_PARAMETER_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::OPTIONAL_PARAMETER_NODE;
 
 pub struct SpaceAroundEqualsInParameterDefault;
 
@@ -24,8 +24,8 @@ impl Cop for SpaceAroundEqualsInParameterDefault {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let opt = match node.as_optional_parameter_node() {
             Some(o) => o,
@@ -47,20 +47,28 @@ impl Cop for SpaceAroundEqualsInParameterDefault {
                 if !space_before || !space_after {
                     let (line, column) = source.offset_to_line_col(op_start);
                     let mut diag = self.diagnostic(
-                        source, line, column,
+                        source,
+                        line,
+                        column,
                         "Surrounding space missing for operator `=`.".to_string(),
                     );
                     if let Some(ref mut corr) = corrections {
                         if !space_before {
                             corr.push(crate::correction::Correction {
-                                start: op_start, end: op_start, replacement: " ".to_string(),
-                                cop_name: self.name(), cop_index: 0,
+                                start: op_start,
+                                end: op_start,
+                                replacement: " ".to_string(),
+                                cop_name: self.name(),
+                                cop_index: 0,
                             });
                         }
                         if !space_after {
                             corr.push(crate::correction::Correction {
-                                start: op_end, end: op_end, replacement: " ".to_string(),
-                                cop_name: self.name(), cop_index: 0,
+                                start: op_end,
+                                end: op_end,
+                                replacement: " ".to_string(),
+                                cop_name: self.name(),
+                                cop_index: 0,
                             });
                         }
                         diag.corrected = true;
@@ -72,20 +80,28 @@ impl Cop for SpaceAroundEqualsInParameterDefault {
                 if space_before || space_after {
                     let (line, column) = source.offset_to_line_col(op_start);
                     let mut diag = self.diagnostic(
-                        source, line, column,
+                        source,
+                        line,
+                        column,
                         "Surrounding space detected for operator `=`.".to_string(),
                     );
                     if let Some(ref mut corr) = corrections {
                         if space_before {
                             corr.push(crate::correction::Correction {
-                                start: op_start - 1, end: op_start, replacement: String::new(),
-                                cop_name: self.name(), cop_index: 0,
+                                start: op_start - 1,
+                                end: op_start,
+                                replacement: String::new(),
+                                cop_name: self.name(),
+                                cop_index: 0,
                             });
                         }
                         if space_after {
                             corr.push(crate::correction::Correction {
-                                start: op_end, end: op_end + 1, replacement: String::new(),
-                                cop_name: self.name(), cop_index: 0,
+                                start: op_end,
+                                end: op_end + 1,
+                                replacement: String::new(),
+                                cop_name: self.name(),
+                                cop_index: 0,
                             });
                         }
                         diag.corrected = true;

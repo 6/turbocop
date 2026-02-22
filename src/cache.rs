@@ -171,9 +171,7 @@ impl ResultCache {
         let (mtime_secs, mtime_nanos) = systemtime_to_parts(meta.modified().ok());
         let size = meta.len();
 
-        if entry.mtime_secs == mtime_secs
-            && entry.mtime_nanos == mtime_nanos
-            && entry.size == size
+        if entry.mtime_secs == mtime_secs && entry.mtime_nanos == mtime_nanos && entry.size == size
         {
             let path_str = path.to_string_lossy();
             CacheLookup::StatHit(
@@ -443,11 +441,7 @@ fn evict_old_sessions(cache_root: &Path, max_sessions: usize) -> std::io::Result
 
     let mut sessions: Vec<(PathBuf, SystemTime)> = dir_entries
         .iter()
-        .filter(|e| {
-            e.path()
-                .extension()
-                .is_some_and(|ext| ext == "index")
-        })
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "index"))
         .filter_map(|e| {
             let mtime = e
                 .metadata()
@@ -761,11 +755,7 @@ mod tests {
             std::fs::read_dir(tmp.path())
                 .unwrap()
                 .filter_map(|e| e.ok())
-                .filter(|e| {
-                    e.path()
-                        .extension()
-                        .is_some_and(|ext| ext == "index")
-                })
+                .filter(|e| e.path().extension().is_some_and(|ext| ext == "index"))
                 .count()
         };
         assert_eq!(index_count(), 2);
@@ -798,6 +788,9 @@ mod tests {
             "old-format session directory should be cleaned up"
         );
         // lockfiles directory should be preserved
-        assert!(lockfiles_dir.exists(), "lockfiles directory should be preserved");
+        assert!(
+            lockfiles_dir.exists(),
+            "lockfiles directory should be preserved"
+        );
     }
 }

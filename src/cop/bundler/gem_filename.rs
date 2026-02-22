@@ -15,13 +15,16 @@ impl Cop for GemFilename {
         &["**/Gemfile", "**/gems.rb"]
     }
 
-    fn check_lines(&self, source: &SourceFile, config: &CopConfig, diagnostics: &mut Vec<Diagnostic>, _corrections: Option<&mut Vec<crate::correction::Correction>>) {
+    fn check_lines(
+        &self,
+        source: &SourceFile,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
         let enforced_style = config.get_str("EnforcedStyle", "Gemfile");
         let path = Path::new(source.path_str());
-        let file_name = path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("");
+        let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
 
         match enforced_style {
             "Gemfile" => {
@@ -74,7 +77,6 @@ impl Cop for GemFilename {
             }
             _ => {}
         }
-
     }
 }
 
@@ -82,7 +84,8 @@ impl Cop for GemFilename {
 mod tests {
     use super::*;
     crate::cop_scenario_fixture_tests!(
-        GemFilename, "cops/bundler/gem_filename",
+        GemFilename,
+        "cops/bundler/gem_filename",
         gems_rb_when_gemfile_enforced = "gems_rb_when_gemfile_enforced.rb",
         gems_locked_when_gemfile_enforced = "gems_locked_when_gemfile_enforced.rb",
         nested_gems_rb = "nested_gems_rb.rb",

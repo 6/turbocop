@@ -1,7 +1,11 @@
+use crate::cop::node_type::{
+    AND_NODE, CALL_NODE, CLASS_VARIABLE_READ_NODE, CLASS_VARIABLE_WRITE_NODE,
+    INSTANCE_VARIABLE_READ_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_READ_NODE,
+    LOCAL_VARIABLE_WRITE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{AND_NODE, CALL_NODE, CLASS_VARIABLE_READ_NODE, CLASS_VARIABLE_WRITE_NODE, INSTANCE_VARIABLE_READ_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE};
 
 pub struct SelfAssignment;
 
@@ -43,7 +47,16 @@ impl Cop for SelfAssignment {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[AND_NODE, CALL_NODE, CLASS_VARIABLE_READ_NODE, CLASS_VARIABLE_WRITE_NODE, INSTANCE_VARIABLE_READ_NODE, INSTANCE_VARIABLE_WRITE_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE]
+        &[
+            AND_NODE,
+            CALL_NODE,
+            CLASS_VARIABLE_READ_NODE,
+            CLASS_VARIABLE_WRITE_NODE,
+            INSTANCE_VARIABLE_READ_NODE,
+            INSTANCE_VARIABLE_WRITE_NODE,
+            LOCAL_VARIABLE_READ_NODE,
+            LOCAL_VARIABLE_WRITE_NODE,
+        ]
     }
 
     fn check_node(
@@ -52,8 +65,8 @@ impl Cop for SelfAssignment {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let write_name = match Self::get_write_name(node) {
             Some(n) => n,
@@ -126,7 +139,6 @@ impl Cop for SelfAssignment {
                 }
             }
         }
-
     }
 }
 

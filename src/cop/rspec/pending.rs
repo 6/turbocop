@@ -1,15 +1,20 @@
+use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, FALSE_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE};
 use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, FALSE_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE};
 
 pub struct Pending;
 
 /// x-prefixed methods that indicate pending specs.
 const XMETHODS: &[&[u8]] = &[
-    b"xcontext", b"xdescribe", b"xexample", b"xfeature",
-    b"xit", b"xscenario", b"xspecify",
+    b"xcontext",
+    b"xdescribe",
+    b"xexample",
+    b"xfeature",
+    b"xit",
+    b"xscenario",
+    b"xspecify",
 ];
 
 impl Cop for Pending {
@@ -26,7 +31,13 @@ impl Cop for Pending {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ASSOC_NODE, CALL_NODE, FALSE_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE]
+        &[
+            ASSOC_NODE,
+            CALL_NODE,
+            FALSE_NODE,
+            KEYWORD_HASH_NODE,
+            SYMBOL_NODE,
+        ]
     }
 
     fn check_node(
@@ -35,8 +46,8 @@ impl Cop for Pending {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -49,7 +60,12 @@ impl Cop for Pending {
         if XMETHODS.contains(&method_name) && call.receiver().is_none() && call.block().is_some() {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(source, line, column, "Pending spec found.".to_string()));
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                "Pending spec found.".to_string(),
+            ));
         }
 
         // Check for `pending 'test' do` and `skip 'test' do` as example methods
@@ -59,7 +75,12 @@ impl Cop for Pending {
         {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(source, line, column, "Pending spec found.".to_string()));
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                "Pending spec found.".to_string(),
+            ));
         }
 
         // Check for `skip` without arguments inside an example (standalone call)
@@ -70,13 +91,16 @@ impl Cop for Pending {
         {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(source, line, column, "Pending spec found.".to_string()));
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                "Pending spec found.".to_string(),
+            ));
         }
 
         // Check for `it 'test'` without a block (pending example)
-        let example_methods: &[&[u8]] = &[
-            b"it", b"specify", b"example", b"scenario",
-        ];
+        let example_methods: &[&[u8]] = &[b"it", b"specify", b"example", b"scenario"];
         if example_methods.contains(&method_name)
             && call.receiver().is_none()
             && call.block().is_none()
@@ -84,7 +108,12 @@ impl Cop for Pending {
         {
             let loc = call.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(source, line, column, "Pending spec found.".to_string()));
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                "Pending spec found.".to_string(),
+            ));
         }
 
         // Check for :skip or :pending metadata, or skip: true/string, pending: true/string
@@ -139,7 +168,6 @@ impl Cop for Pending {
                 }
             }
         }
-
     }
 }
 

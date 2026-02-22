@@ -1,7 +1,7 @@
+use crate::cop::node_type::{BEGIN_NODE, NIL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{BEGIN_NODE, NIL_NODE};
 
 pub struct SuppressedException;
 
@@ -24,8 +24,8 @@ impl Cop for SuppressedException {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // RescueNode is visited via visit_begin_node's specific method,
         // not via the generic visit() dispatch. So we match BeginNode
@@ -61,13 +61,20 @@ impl Cop for SuppressedException {
                 // (empty body is always suppressed, AllowNil only applies to explicit `nil`)
 
                 if allow_comments && suppressed {
-                    let (rescue_line, _) = source.offset_to_line_col(rescue_node.keyword_loc().start_offset());
+                    let (rescue_line, _) =
+                        source.offset_to_line_col(rescue_node.keyword_loc().start_offset());
                     let clause_end_line = if let Some(sub) = rescue_node.subsequent() {
-                        source.offset_to_line_col(sub.keyword_loc().start_offset()).0
+                        source
+                            .offset_to_line_col(sub.keyword_loc().start_offset())
+                            .0
                     } else if let Some(else_clause) = begin_node.else_clause() {
-                        source.offset_to_line_col(else_clause.location().start_offset()).0
+                        source
+                            .offset_to_line_col(else_clause.location().start_offset())
+                            .0
                     } else if let Some(ensure_clause) = begin_node.ensure_clause() {
-                        source.offset_to_line_col(ensure_clause.location().start_offset()).0
+                        source
+                            .offset_to_line_col(ensure_clause.location().start_offset())
+                            .0
                     } else if let Some(end_loc) = begin_node.end_keyword_loc() {
                         source.offset_to_line_col(end_loc.start_offset()).0
                     } else {
@@ -77,7 +84,8 @@ impl Cop for SuppressedException {
                     let lines: Vec<&[u8]> = source.lines().collect();
                     for line_num in (rescue_line + 1)..clause_end_line {
                         if let Some(line) = lines.get(line_num - 1) {
-                            let trimmed = line.iter()
+                            let trimmed = line
+                                .iter()
                                 .position(|&b| b != b' ' && b != b'\t')
                                 .map(|start| &line[start..])
                                 .unwrap_or(&[]);

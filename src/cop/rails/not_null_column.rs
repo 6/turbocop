@@ -1,8 +1,8 @@
+use crate::cop::node_type::{CALL_NODE, FALSE_NODE, SYMBOL_NODE};
 use crate::cop::util::has_keyword_arg;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, FALSE_NODE, SYMBOL_NODE};
 
 pub struct NotNullColumn;
 
@@ -29,8 +29,8 @@ impl Cop for NotNullColumn {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let database = config.get_str("Database", "");
 
@@ -123,6 +123,9 @@ mod tests {
         };
         let source = b"add_column :users, :name, :string, null: false\n";
         let diags = run_cop_full_with_config(&NotNullColumn, source, config);
-        assert!(!diags.is_empty(), "MySQL should still flag non-text columns");
+        assert!(
+            !diags.is_empty(),
+            "MySQL should still flag non-text columns"
+        );
     }
 }

@@ -1,7 +1,7 @@
+use crate::cop::node_type::{UNTIL_NODE, WHILE_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{UNTIL_NODE, WHILE_NODE};
 
 pub struct Loop;
 
@@ -24,8 +24,8 @@ impl Cop for Loop {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check WhileNode for begin..end while form
         // Prism sets the PM_LOOP_FLAGS_BEGIN_MODIFIER flag for this pattern.
@@ -33,12 +33,15 @@ impl Cop for Loop {
             if while_node.is_begin_modifier() {
                 let kw_loc = while_node.keyword_loc();
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Use `Kernel#loop` with `break` rather than `begin/end/while(until)`.".to_string(),
-                ));
+                diagnostics.push(
+                    self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Use `Kernel#loop` with `break` rather than `begin/end/while(until)`."
+                            .to_string(),
+                    ),
+                );
             }
         }
 
@@ -47,15 +50,17 @@ impl Cop for Loop {
             if until_node.is_begin_modifier() {
                 let kw_loc = until_node.keyword_loc();
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Use `Kernel#loop` with `break` rather than `begin/end/while(until)`.".to_string(),
-                ));
+                diagnostics.push(
+                    self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Use `Kernel#loop` with `break` rather than `begin/end/while(until)`."
+                            .to_string(),
+                    ),
+                );
             }
         }
-
     }
 }
 

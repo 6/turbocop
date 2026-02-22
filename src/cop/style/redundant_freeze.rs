@@ -1,7 +1,11 @@
+use crate::cop::node_type::{
+    ARRAY_NODE, CALL_NODE, FALSE_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE,
+    INTERPOLATED_STRING_NODE, NIL_NODE, PARENTHESES_NODE, RATIONAL_NODE, STATEMENTS_NODE,
+    STRING_NODE, SYMBOL_NODE, TRUE_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{ARRAY_NODE, CALL_NODE, FALSE_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, INTERPOLATED_STRING_NODE, NIL_NODE, PARENTHESES_NODE, RATIONAL_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE};
 
 pub struct RedundantFreeze;
 
@@ -73,14 +77,11 @@ impl RedundantFreeze {
                                         return true;
                                     }
                                     // Pattern 2: non_string_non_array op numeric_right
-                                    if !Self::is_string_or_array(&receiver)
-                                        && name_bytes != b"<<"
-                                    {
+                                    if !Self::is_string_or_array(&receiver) && name_bytes != b"<<" {
                                         if let Some(args) = call.arguments() {
                                             let arg_list: Vec<_> =
                                                 args.arguments().iter().collect();
-                                            if arg_list.len() == 1
-                                                && Self::is_numeric(&arg_list[0])
+                                            if arg_list.len() == 1 && Self::is_numeric(&arg_list[0])
                                             {
                                                 return true;
                                             }
@@ -103,7 +104,22 @@ impl Cop for RedundantFreeze {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[ARRAY_NODE, CALL_NODE, FALSE_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, INTERPOLATED_STRING_NODE, NIL_NODE, PARENTHESES_NODE, RATIONAL_NODE, STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE, TRUE_NODE]
+        &[
+            ARRAY_NODE,
+            CALL_NODE,
+            FALSE_NODE,
+            FLOAT_NODE,
+            IMAGINARY_NODE,
+            INTEGER_NODE,
+            INTERPOLATED_STRING_NODE,
+            NIL_NODE,
+            PARENTHESES_NODE,
+            RATIONAL_NODE,
+            STATEMENTS_NODE,
+            STRING_NODE,
+            SYMBOL_NODE,
+            TRUE_NODE,
+        ]
     }
 
     fn check_node(
@@ -112,8 +128,8 @@ impl Cop for RedundantFreeze {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let call_node = match node.as_call_node() {
             Some(c) => c,

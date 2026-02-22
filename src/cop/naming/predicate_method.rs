@@ -14,16 +14,13 @@ const DEFAULT_WAYWARD_PREDICATES: &[&str] = &["infinite?", "nonzero?"];
 
 /// Known operator method names in Ruby.
 const OPERATOR_METHODS: &[&[u8]] = &[
-    b"==", b"!=", b"<", b">", b"<=", b">=", b"<=>", b"===",
-    b"[]", b"[]=", b"+", b"-", b"*", b"/", b"%", b"**",
-    b"<<", b">>", b"&", b"|", b"^", b"~", b"!", b"!~", b"=~",
-    b"+@", b"-@",
+    b"==", b"!=", b"<", b">", b"<=", b">=", b"<=>", b"===", b"[]", b"[]=", b"+", b"-", b"*", b"/",
+    b"%", b"**", b"<<", b">>", b"&", b"|", b"^", b"~", b"!", b"!~", b"=~", b"+@", b"-@",
 ];
 
 /// Comparison methods whose return value is boolean.
 const COMPARISON_METHODS: &[&[u8]] = &[
-    b"==", b"!=", b"<", b">", b"<=", b">=", b"<=>", b"===",
-    b"match?", b"equal?", b"eql?",
+    b"==", b"!=", b"<", b">", b"<=", b">=", b"<=>", b"===", b"match?", b"equal?", b"eql?",
 ];
 
 /// Classification of a return value.
@@ -54,18 +51,23 @@ impl Cop for PredicateMethod {
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let mode = config.get_str("Mode", "conservative");
         let conservative = mode == "conservative";
 
         let allowed_methods_cfg = config.get_string_array("AllowedMethods");
         let allowed_methods: Vec<String> = allowed_methods_cfg.unwrap_or_else(|| {
-            DEFAULT_ALLOWED_METHODS.iter().map(|s| s.to_string()).collect()
+            DEFAULT_ALLOWED_METHODS
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
         });
 
-        let allowed_patterns = config.get_string_array("AllowedPatterns").unwrap_or_default();
+        let allowed_patterns = config
+            .get_string_array("AllowedPatterns")
+            .unwrap_or_default();
         let compiled_patterns: Vec<regex::Regex> = allowed_patterns
             .iter()
             .filter_map(|p| {
@@ -78,7 +80,10 @@ impl Cop for PredicateMethod {
 
         let wayward_cfg = config.get_string_array("WaywardPredicates");
         let wayward: Vec<String> = wayward_cfg.unwrap_or_else(|| {
-            DEFAULT_WAYWARD_PREDICATES.iter().map(|s| s.to_string()).collect()
+            DEFAULT_WAYWARD_PREDICATES
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
         });
 
         let mut visitor = PredicateMethodVisitor {
@@ -136,7 +141,11 @@ impl PredicateMethodVisitor<'_> {
         }
 
         // Skip allowed patterns
-        if self.compiled_patterns.iter().any(|re| re.is_match(method_str)) {
+        if self
+            .compiled_patterns
+            .iter()
+            .any(|re| re.is_match(method_str))
+        {
             return;
         }
 
@@ -227,7 +236,10 @@ fn normalize_ruby_regex(pattern: &str) -> String {
     }
 
     // Convert Ruby anchors to Rust equivalents
-    s = s.replace("\\A", "^").replace("\\z", "$").replace("\\Z", "$");
+    s = s
+        .replace("\\A", "^")
+        .replace("\\z", "$")
+        .replace("\\Z", "$");
     s
 }
 

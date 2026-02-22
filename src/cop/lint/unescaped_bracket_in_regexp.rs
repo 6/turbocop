@@ -1,7 +1,9 @@
+use crate::cop::node_type::{
+    INTERPOLATED_REGULAR_EXPRESSION_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{INTERPOLATED_REGULAR_EXPRESSION_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE};
 
 pub struct UnescapedBracketInRegexp;
 
@@ -19,7 +21,11 @@ impl Cop for UnescapedBracketInRegexp {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[INTERPOLATED_REGULAR_EXPRESSION_NODE, REGULAR_EXPRESSION_NODE, STRING_NODE]
+        &[
+            INTERPOLATED_REGULAR_EXPRESSION_NODE,
+            REGULAR_EXPRESSION_NODE,
+            STRING_NODE,
+        ]
     }
 
     fn check_node(
@@ -28,8 +34,8 @@ impl Cop for UnescapedBracketInRegexp {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Check RegularExpressionNode
         if let Some(regexp) = node.as_regular_expression_node() {
@@ -49,7 +55,12 @@ impl Cop for UnescapedBracketInRegexp {
             // The offset of the regexp content within the source (after the opening /)
             let content_start = regexp.content_loc().start_offset();
 
-            diagnostics.extend(find_unescaped_brackets(self, source, content_str, content_start));
+            diagnostics.extend(find_unescaped_brackets(
+                self,
+                source,
+                content_str,
+                content_start,
+            ));
             return;
         }
 
@@ -63,12 +74,16 @@ impl Cop for UnescapedBracketInRegexp {
                         Err(_) => continue,
                     };
                     let content_start = s.content_loc().start_offset();
-                    diagnostics.extend(find_unescaped_brackets(self, source, content_str, content_start));
+                    diagnostics.extend(find_unescaped_brackets(
+                        self,
+                        source,
+                        content_str,
+                        content_start,
+                    ));
                 }
             }
             return;
         }
-
     }
 }
 
@@ -155,5 +170,8 @@ fn find_unescaped_brackets(
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(UnescapedBracketInRegexp, "cops/lint/unescaped_bracket_in_regexp");
+    crate::cop_fixture_tests!(
+        UnescapedBracketInRegexp,
+        "cops/lint/unescaped_bracket_in_regexp"
+    );
 }

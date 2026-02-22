@@ -6,12 +6,7 @@ use crate::parse::source::SourceFile;
 
 pub struct UnknownEnv;
 
-const KNOWN_ENVS: &[&[u8]] = &[
-    b"development?",
-    b"test?",
-    b"production?",
-    b"local?",
-];
+const KNOWN_ENVS: &[&[u8]] = &[b"development?", b"test?", b"production?", b"local?"];
 
 impl Cop for UnknownEnv {
     fn name(&self) -> &'static str {
@@ -28,8 +23,8 @@ impl Cop for UnknownEnv {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let configured_envs = config.get_string_array("Environments");
 

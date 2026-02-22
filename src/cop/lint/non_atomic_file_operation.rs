@@ -1,17 +1,24 @@
+use crate::cop::node_type::{
+    CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, IF_NODE, UNLESS_NODE,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, IF_NODE, UNLESS_NODE};
 
 pub struct NonAtomicFileOperation;
 
 const MAKE_METHODS: &[&[u8]] = &[b"mkdir"];
 const REMOVE_METHODS: &[&[u8]] = &[
-    b"remove", b"delete", b"unlink", b"remove_file", b"rm", b"rmdir", b"safe_unlink",
+    b"remove",
+    b"delete",
+    b"unlink",
+    b"remove_file",
+    b"rm",
+    b"rmdir",
+    b"safe_unlink",
 ];
-const RECURSIVE_REMOVE_METHODS: &[&[u8]] = &[
-    b"remove_dir", b"remove_entry", b"remove_entry_secure",
-];
+const RECURSIVE_REMOVE_METHODS: &[&[u8]] =
+    &[b"remove_dir", b"remove_entry", b"remove_entry_secure"];
 const EXIST_METHODS: &[&[u8]] = &[b"exist?", b"exists?"];
 const EXIST_CLASSES: &[&[u8]] = &[b"FileTest", b"File", b"Dir", b"Shell"];
 const FS_CLASSES: &[&[u8]] = &[b"FileUtils", b"Dir"];
@@ -26,7 +33,13 @@ impl Cop for NonAtomicFileOperation {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, IF_NODE, UNLESS_NODE]
+        &[
+            CALL_NODE,
+            CONSTANT_PATH_NODE,
+            CONSTANT_READ_NODE,
+            IF_NODE,
+            UNLESS_NODE,
+        ]
     }
 
     fn check_node(
@@ -35,14 +48,22 @@ impl Cop for NonAtomicFileOperation {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for if/unless nodes
         let (condition, body, has_else) = if let Some(if_node) = node.as_if_node() {
-            (if_node.predicate(), if_node.statements(), if_node.subsequent().is_some())
+            (
+                if_node.predicate(),
+                if_node.statements(),
+                if_node.subsequent().is_some(),
+            )
         } else if let Some(unless_node) = node.as_unless_node() {
-            (unless_node.predicate(), unless_node.statements(), unless_node.else_clause().is_some())
+            (
+                unless_node.predicate(),
+                unless_node.statements(),
+                unless_node.else_clause().is_some(),
+            )
         } else {
             return;
         };
@@ -72,7 +93,8 @@ impl Cop for NonAtomicFileOperation {
         let is_exist_class = if let Some(cr) = cond_recv.as_constant_read_node() {
             EXIST_CLASSES.iter().any(|c| *c == cr.name().as_slice())
         } else if let Some(cp) = cond_recv.as_constant_path_node() {
-            cp.name().is_some_and(|n| EXIST_CLASSES.iter().any(|c| *c == n.as_slice()))
+            cp.name()
+                .is_some_and(|n| EXIST_CLASSES.iter().any(|c| *c == n.as_slice()))
         } else {
             false
         };
@@ -113,7 +135,8 @@ impl Cop for NonAtomicFileOperation {
                 let is_fs_class = if let Some(cr) = recv.as_constant_read_node() {
                     FS_CLASSES.iter().any(|c| *c == cr.name().as_slice())
                 } else if let Some(cp) = recv.as_constant_path_node() {
-                    cp.name().is_some_and(|n| FS_CLASSES.iter().any(|c| *c == n.as_slice()))
+                    cp.name()
+                        .is_some_and(|n| FS_CLASSES.iter().any(|c| *c == n.as_slice()))
                 } else {
                     false
                 };
@@ -136,13 +159,10 @@ impl Cop for NonAtomicFileOperation {
                     source,
                     line,
                     column,
-                    format!(
-                        "Use atomic file operation method `FileUtils.{replacement}`."
-                    ),
+                    format!("Use atomic file operation method `FileUtils.{replacement}`."),
                 ));
             }
         }
-
     }
 }
 

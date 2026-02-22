@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, STRING_NODE, SYMBOL_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, STRING_NODE, SYMBOL_NODE};
 
 pub struct SendWithLiteralMethodName;
 
@@ -20,8 +20,8 @@ impl Cop for SendWithLiteralMethodName {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allow_send = config.get_bool("AllowSend", true);
 
@@ -35,8 +35,8 @@ impl Cop for SendWithLiteralMethodName {
         // Check for public_send, __send__, or send
         // When AllowSend is true (default), only public_send is flagged.
         // When AllowSend is false, send and __send__ are also flagged.
-        let is_target = name == b"public_send"
-            || (!allow_send && (name == b"__send__" || name == b"send"));
+        let is_target =
+            name == b"public_send" || (!allow_send && (name == b"__send__" || name == b"send"));
 
         if !is_target {
             return;
@@ -84,5 +84,8 @@ impl Cop for SendWithLiteralMethodName {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(SendWithLiteralMethodName, "cops/style/send_with_literal_method_name");
+    crate::cop_fixture_tests!(
+        SendWithLiteralMethodName,
+        "cops/style/send_with_literal_method_name"
+    );
 }

@@ -1,7 +1,7 @@
+use crate::cop::node_type::{CALL_NODE, INTEGER_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::{CALL_NODE, INTEGER_NODE};
 
 pub struct UselessTimes;
 
@@ -24,8 +24,8 @@ impl Cop for UselessTimes {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Look for `N.times` where N is 0, 1, or negative
         let call = match node.as_call_node() {
@@ -60,7 +60,8 @@ impl Cop for UselessTimes {
 
         // Get the display text for the number
         let recv_text = std::str::from_utf8(
-            &source.as_bytes()[receiver.location().start_offset()..receiver.location().end_offset()],
+            &source.as_bytes()
+                [receiver.location().start_offset()..receiver.location().end_offset()],
         )
         .unwrap_or("N");
 

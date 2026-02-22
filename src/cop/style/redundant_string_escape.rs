@@ -1,17 +1,15 @@
+use crate::cop::node_type::STRING_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
-use crate::cop::node_type::STRING_NODE;
 
 pub struct RedundantStringEscape;
 
 /// Valid escape sequences in double-quoted strings
 const MEANINGFUL_ESCAPES: &[u8] = &[
-    b'\\', b'\'', b'"', b'a', b'b', b'e', b'f', b'n', b'r', b's', b't', b'v',
-    b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7',
-    b'x', b'u', b'c', b'C', b'M',
-    b'#',
-    b'\n', b'\r', // literal newline/carriage-return: line continuation in double-quoted strings
+    b'\\', b'\'', b'"', b'a', b'b', b'e', b'f', b'n', b'r', b's', b't', b'v', b'0', b'1', b'2',
+    b'3', b'4', b'5', b'6', b'7', b'x', b'u', b'c', b'C', b'M', b'#', b'\n',
+    b'\r', // literal newline/carriage-return: line continuation in double-quoted strings
 ];
 
 impl Cop for RedundantStringEscape {
@@ -29,8 +27,8 @@ impl Cop for RedundantStringEscape {
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    _corrections: Option<&mut Vec<crate::correction::Correction>>,
+        diagnostics: &mut Vec<Diagnostic>,
+        _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Only check double-quoted strings
         let (opening_loc, content_loc) = if let Some(s) = node.as_string_node() {
@@ -70,7 +68,6 @@ impl Cop for RedundantStringEscape {
                 i += 1;
             }
         }
-
     }
 }
 
