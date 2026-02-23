@@ -17,3 +17,10 @@ unless x
 else
   do_other
 end
+
+# Double-bang (!! truthiness cast) is not a simple negation
+unless !!enabled
+  set_defaults
+end
+
+do_something unless !!active

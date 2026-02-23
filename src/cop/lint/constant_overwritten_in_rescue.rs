@@ -36,8 +36,11 @@ impl Cop for ConstantOverwrittenInRescue {
 
         while let Some(rescue_node) = rescue_opt {
             // Check if: no exception classes specified AND reference is a constant
-            // This matches `rescue => ConstantName`
-            if rescue_node.exceptions().is_empty() {
+            // AND rescue body is empty.
+            // This matches `rescue => ConstantName` with no handler body.
+            // RuboCop's pattern: (resbody nil? $(casgn _ _) nil?)
+            // If there IS a body, the user may intentionally capture into a constant.
+            if rescue_node.exceptions().is_empty() && rescue_node.statements().is_none() {
                 if let Some(reference) = rescue_node.reference() {
                     let is_constant = reference.as_constant_target_node().is_some()
                         || reference.as_constant_path_target_node().is_some();

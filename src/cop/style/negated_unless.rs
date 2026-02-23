@@ -44,9 +44,18 @@ impl Cop for NegatedUnless {
         }
 
         // Check if predicate is a `!` call (negation)
+        // Skip `!!expr` (double-bang truthiness cast) — not a simple negation
         let predicate = unless_node.predicate();
         if let Some(call) = predicate.as_call_node() {
             if call.name().as_slice() == b"!" {
+                // If the receiver of `!` is itself another `!` call, this is `!!expr`
+                if let Some(recv) = call.receiver() {
+                    if let Some(inner_call) = recv.as_call_node() {
+                        if inner_call.name().as_slice() == b"!" {
+                            return;
+                        }
+                    }
+                }
                 let kw_loc = unless_node.keyword_loc();
                 let (line, column) = source.offset_to_line_col(kw_loc.start_offset());
                 diagnostics.push(self.diagnostic(

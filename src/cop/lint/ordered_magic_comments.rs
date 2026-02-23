@@ -88,8 +88,11 @@ impl Cop for OrderedMagicComments {
 }
 
 fn is_encoding_comment(lower: &[u8]) -> bool {
-    // Match "encoding:" or "coding:" patterns (also emacs-style)
-    lower.windows(9).any(|w| w == b"encoding:") || lower.windows(7).any(|w| w == b"coding:")
+    // Match "encoding: " or "coding: " patterns (also emacs-style with `:`)
+    // RuboCop requires a space after the colon for simple comments (e.g. `# encoding: utf-8`).
+    // Comments like `# encoding:ASCII-8BIT` (no space) are not recognized as magic comments.
+    // Also match emacs-style `-*- coding: ... -*-` which uses colon + space.
+    lower.windows(10).any(|w| w == b"encoding: ") || lower.windows(8).any(|w| w == b"coding: ")
 }
 
 fn is_frozen_string_comment(lower: &[u8]) -> bool {
