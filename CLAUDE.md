@@ -21,6 +21,16 @@ cargo run -- --format json .
 cargo run -- --debug .       # phase-level timing breakdown
 ```
 
+## Before Committing
+
+Always run these before committing to match CI:
+
+```
+cargo fmt
+cargo clippy --release -- -D warnings
+cargo test --release
+```
+
 ## Performance Profiling
 
 `--debug` prints phase-level timing: bundler shell-outs, config loading, and per-phase linter breakdown (file I/O, Prism parse, CodeMap build, cop execution split into filter+config vs AST walk, disable filtering) using `AtomicU64` counters across rayon threads.
