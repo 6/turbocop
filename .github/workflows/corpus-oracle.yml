@@ -190,7 +190,7 @@ jobs:
   # ── Collect and diff all results ───────────────────────────────
   collect-results:
     needs: [oracle-repo]
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
