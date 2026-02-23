@@ -13,6 +13,16 @@ fn extract_const_name(node: &ruby_prism::Node<'_>) -> String {
         .to_string()
 }
 
+/// Check if the argument to `.new` is an acceptable type that can't be
+/// easily converted to exploded form (hash, splat, forwarding args).
+fn is_acceptable_exploded_arg(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_hash_node().is_some()
+        || node.as_keyword_hash_node().is_some()
+        || node.as_splat_node().is_some()
+        || node.as_forwarding_arguments_node().is_some()
+        || node.as_assoc_splat_node().is_some()
+}
+
 impl Cop for RaiseArgs {
     fn name(&self) -> &'static str {
         "Style/RaiseArgs"
@@ -46,47 +56,124 @@ impl Cop for RaiseArgs {
             return;
         }
 
-        let enforced_style = config.get_str("EnforcedStyle", "explode");
-        let allowed_compact_types = config
-            .get_string_array("AllowedCompactTypes")
-            .unwrap_or_default();
+        let method_name = std::str::from_utf8(name).unwrap_or("raise");
+        let enforced_style = config.get_str("EnforcedStyle", "exploded");
 
-        if enforced_style != "explode" {
-            return;
+        match enforced_style {
+            "exploded" => self.check_exploded(source, &call, config, diagnostics, method_name),
+            "compact" => self.check_compact(source, &call, diagnostics, method_name),
+            _ => {}
         }
+    }
+}
 
+impl RaiseArgs {
+    fn check_exploded(
+        &self,
+        source: &SourceFile,
+        call: &ruby_prism::CallNode<'_>,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        method_name: &str,
+    ) {
         let args = match call.arguments() {
             Some(a) => a,
             None => return,
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
-        if arg_list.is_empty() {
+        // Exploded style only flags single-arg raise where arg is Error.new(...)
+        if arg_list.len() != 1 {
             return;
         }
 
-        // Check if the first argument is a call to `.new`
-        if let Some(arg_call) = arg_list[0].as_call_node() {
-            if arg_call.name().as_slice() == b"new" {
-                if let Some(receiver) = arg_call.receiver() {
-                    // Check AllowedCompactTypes: extract the constant name
-                    let const_name = extract_const_name(&receiver);
-                    if !const_name.is_empty()
-                        && allowed_compact_types.iter().any(|t| t == &const_name)
+        let arg_call = match arg_list[0].as_call_node() {
+            Some(c) => c,
+            None => return,
+        };
+
+        if arg_call.name().as_slice() != b"new" {
+            return;
+        }
+
+        let receiver = match arg_call.receiver() {
+            Some(r) => r,
+            None => return,
+        };
+
+        // Check if .new has multiple arguments — allow raise Ex.new(arg1, arg2)
+        if let Some(new_args) = arg_call.arguments() {
+            let new_arg_list: Vec<_> = new_args.arguments().iter().collect();
+            if new_arg_list.len() > 1 {
+                return;
+            }
+            // Single arg: check if it's a hash, splat, or forwarding arg
+            if new_arg_list.len() == 1 && is_acceptable_exploded_arg(&new_arg_list[0]) {
+                return;
+            }
+        }
+
+        // Check AllowedCompactTypes
+        let allowed_compact_types = config
+            .get_string_array("AllowedCompactTypes")
+            .unwrap_or_default();
+        let const_name = extract_const_name(&receiver);
+        if !const_name.is_empty() && allowed_compact_types.iter().any(|t| t == &const_name) {
+            return;
+        }
+
+        let loc = call.message_loc().unwrap_or_else(|| call.location());
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            format!("Provide an exception class and message as arguments to `{method_name}`."),
+        ));
+    }
+
+    fn check_compact(
+        &self,
+        source: &SourceFile,
+        call: &ruby_prism::CallNode<'_>,
+        diagnostics: &mut Vec<Diagnostic>,
+        method_name: &str,
+    ) {
+        let args = match call.arguments() {
+            Some(a) => a,
+            None => return,
+        };
+
+        let arg_list: Vec<_> = args.arguments().iter().collect();
+        // Compact style flags raise with 2+ args (raise Error, msg)
+        if arg_list.len() < 2 {
+            return;
+        }
+
+        // If the first arg is a send to .new with a hash arg, don't flag
+        // (matches RuboCop: `exception.first_argument&.hash_type?`)
+        if let Some(first_call) = arg_list[0].as_call_node() {
+            if first_call.name().as_slice() == b"new" {
+                if let Some(new_args) = first_call.arguments() {
+                    let new_arg_list: Vec<_> = new_args.arguments().iter().collect();
+                    if !new_arg_list.is_empty()
+                        && (new_arg_list[0].as_hash_node().is_some()
+                            || new_arg_list[0].as_keyword_hash_node().is_some())
                     {
                         return;
                     }
-                    let loc = call.message_loc().unwrap_or_else(|| call.location());
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Provide an exception class and message as separate arguments.".to_string(),
-                    ));
                 }
             }
         }
+
+        let loc = call.message_loc().unwrap_or_else(|| call.location());
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            format!("Provide an exception object as an argument to `{method_name}`."),
+        ));
     }
 }
 
@@ -112,7 +199,7 @@ mod tests {
             options: HashMap::from([
                 (
                     "EnforcedStyle".into(),
-                    serde_yml::Value::String("explode".into()),
+                    serde_yml::Value::String("exploded".into()),
                 ),
                 (
                     "AllowedCompactTypes".into(),
@@ -140,7 +227,7 @@ mod tests {
             options: HashMap::from([
                 (
                     "EnforcedStyle".into(),
-                    serde_yml::Value::String("explode".into()),
+                    serde_yml::Value::String("exploded".into()),
                 ),
                 (
                     "AllowedCompactTypes".into(),

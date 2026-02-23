@@ -1,4 +1,4 @@
-use crate::cop::node_type::{DEF_NODE, RETURN_NODE, STATEMENTS_NODE};
+use crate::cop::node_type::DEF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -11,7 +11,7 @@ impl Cop for RedundantReturn {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[DEF_NODE, RETURN_NODE, STATEMENTS_NODE]
+        &[DEF_NODE]
     }
 
     fn check_node(
@@ -34,33 +34,151 @@ impl Cop for RedundantReturn {
             None => return,
         };
 
-        let statements = match body.as_statements_node() {
-            Some(s) => s,
-            None => return,
-        };
+        check_terminal(self, source, &body, allow_multiple, diagnostics);
+    }
+}
 
-        let last = match statements.body().last() {
-            Some(n) => n,
-            None => return,
-        };
+/// Recursively check terminal positions for redundant `return` statements.
+/// A terminal position is the last expression that would be implicitly returned.
+fn check_terminal(
+    cop: &RedundantReturn,
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+    allow_multiple: bool,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    // StatementsNode: check the last statement
+    if let Some(stmts) = node.as_statements_node() {
+        if let Some(last) = stmts.body().last() {
+            check_terminal(cop, source, &last, allow_multiple, diagnostics);
+        }
+        return;
+    }
 
-        if let Some(ret_node) = last.as_return_node() {
-            // AllowMultipleReturnValues: skip `return x, y` when enabled
-            if allow_multiple {
-                let arg_count = ret_node.arguments().map_or(0, |a| a.arguments().len());
-                if arg_count > 1 {
-                    return;
+    // ReturnNode: this is a redundant return in terminal position
+    if let Some(ret_node) = node.as_return_node() {
+        if allow_multiple {
+            let arg_count = ret_node.arguments().map_or(0, |a| a.arguments().len());
+            if arg_count > 1 {
+                return;
+            }
+        }
+        let loc = node.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        diagnostics.push(cop.diagnostic(
+            source,
+            line,
+            column,
+            "Redundant `return` detected.".to_string(),
+        ));
+        return;
+    }
+
+    // IfNode: check terminal position in each branch
+    if let Some(if_node) = node.as_if_node() {
+        if let Some(stmts) = if_node.statements() {
+            check_terminal_stmts(cop, source, &stmts, allow_multiple, diagnostics);
+        }
+        if let Some(subsequent) = if_node.subsequent() {
+            if let Some(elsif) = subsequent.as_if_node() {
+                check_terminal(cop, source, &elsif.as_node(), allow_multiple, diagnostics);
+            } else if let Some(else_node) = subsequent.as_else_node() {
+                if let Some(stmts) = else_node.statements() {
+                    check_terminal_stmts(cop, source, &stmts, allow_multiple, diagnostics);
                 }
             }
-            let loc = last.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                "Redundant `return` detected.".to_string(),
-            ));
         }
+        return;
+    }
+
+    // UnlessNode: check terminal position in each branch
+    if let Some(unless_node) = node.as_unless_node() {
+        if let Some(stmts) = unless_node.statements() {
+            check_terminal_stmts(cop, source, &stmts, allow_multiple, diagnostics);
+        }
+        if let Some(else_clause) = unless_node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                check_terminal_stmts(cop, source, &stmts, allow_multiple, diagnostics);
+            }
+        }
+        return;
+    }
+
+    // CaseNode: check terminal position in each when/else branch
+    if let Some(case_node) = node.as_case_node() {
+        for condition in case_node.conditions().iter() {
+            if let Some(when_node) = condition.as_when_node() {
+                if let Some(stmts) = when_node.statements() {
+                    check_terminal_stmts(cop, source, &stmts, allow_multiple, diagnostics);
+                }
+            }
+        }
+        if let Some(else_clause) = case_node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                check_terminal_stmts(cop, source, &stmts, allow_multiple, diagnostics);
+            }
+        }
+        return;
+    }
+
+    // BeginNode: check statements body and rescue clauses
+    if let Some(begin_node) = node.as_begin_node() {
+        // Check main body statements
+        if let Some(stmts) = begin_node.statements() {
+            check_terminal_stmts(cop, source, &stmts, allow_multiple, diagnostics);
+        }
+        // Check rescue clauses
+        if let Some(rescue) = begin_node.rescue_clause() {
+            check_rescue_terminal(cop, source, &rescue, allow_multiple, diagnostics);
+        }
+        // Check else clause on begin/rescue/else
+        if let Some(else_clause) = begin_node.else_clause() {
+            if let Some(stmts) = else_clause.statements() {
+                check_terminal_stmts(cop, source, &stmts, allow_multiple, diagnostics);
+            }
+        }
+        return;
+    }
+
+    // RescueNode (implicit rescue on def body): check each rescue clause
+    if let Some(rescue_node) = node.as_rescue_node() {
+        // The rescue node's own statements
+        if let Some(stmts) = rescue_node.statements() {
+            check_terminal_stmts(cop, source, &stmts, allow_multiple, diagnostics);
+        }
+        // Subsequent rescue clauses
+        if let Some(subsequent) = rescue_node.subsequent() {
+            check_rescue_terminal(cop, source, &subsequent, allow_multiple, diagnostics);
+        }
+    }
+}
+
+/// Check the last statement in a StatementsNode as a terminal position.
+fn check_terminal_stmts(
+    cop: &RedundantReturn,
+    source: &SourceFile,
+    stmts: &ruby_prism::StatementsNode<'_>,
+    allow_multiple: bool,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if let Some(last) = stmts.body().last() {
+        check_terminal(cop, source, &last, allow_multiple, diagnostics);
+    }
+}
+
+/// Recursively check rescue clause chains for redundant returns.
+fn check_rescue_terminal(
+    cop: &RedundantReturn,
+    source: &SourceFile,
+    rescue: &ruby_prism::RescueNode<'_>,
+    allow_multiple: bool,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if let Some(stmts) = rescue.statements() {
+        check_terminal_stmts(cop, source, &stmts, allow_multiple, diagnostics);
+    }
+    if let Some(subsequent) = rescue.subsequent() {
+        check_rescue_terminal(cop, source, &subsequent, allow_multiple, diagnostics);
     }
 }
 
