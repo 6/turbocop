@@ -1589,7 +1589,7 @@ fn count_annotations(content: &str) -> usize {
 
 #[test]
 fn all_cops_have_minimum_test_coverage() {
-    let testdata = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/cops");
+    let testdata = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cops");
     let registry = CopRegistry::default_registry();
 
     // No-op stub cops that never produce offenses by design.
@@ -1667,7 +1667,7 @@ fn all_cops_have_minimum_test_coverage() {
 
 #[test]
 fn all_cops_have_fixture_files() {
-    let testdata = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/cops");
+    let testdata = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cops");
     let registry = CopRegistry::default_registry();
     let mut missing = Vec::new();
 
@@ -1826,8 +1826,8 @@ fn config_overrides_new_departments() {
 
 #[test]
 fn inherit_from_merges_configs() {
-    let child_path =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/config/inherit_from/child.yml");
+    let child_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/config/inherit_from/child.yml");
     let config = load_config(Some(child_path.as_path()), None, None).unwrap();
 
     // Child overrides Layout/LineLength Max from 100 to 120
@@ -1868,7 +1868,7 @@ fn circular_inherit_from_is_detected() {
     // an empty layer instead of recursing. This handles both true cycles and
     // diamond dependencies (e.g., standard's base.yml referenced from multiple paths).
     let circular_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("testdata/config/inherit_from/circular_a.yml");
+        .join("tests/fixtures/config/inherit_from/circular_a.yml");
     let result = load_config(Some(circular_path.as_path()), None, None);
     assert!(
         result.is_ok(),
@@ -1882,7 +1882,7 @@ fn diamond_dependency_does_not_error() {
     //             → diamond_right → diamond_base
     // diamond_base is visited twice from different paths. Should not error.
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("testdata/config/inherit_from/diamond_root.yml");
+        .join("tests/fixtures/config/inherit_from/diamond_root.yml");
     let config = load_config(Some(path.as_path()), None, None)
         .expect("Diamond dependency should load successfully");
     // Verify the config chain loaded correctly — DisabledByDefault from base should apply
@@ -1910,8 +1910,8 @@ fn diamond_dependency_does_not_error() {
 
 #[test]
 fn rubocop_only_outputs_uncovered_cops() {
-    let config_path =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/config/rubocop_only/mixed.yml");
+    let config_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/config/rubocop_only/mixed.yml");
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args(["--rubocop-only", "--config", config_path.to_str().unwrap()])
         .output()
@@ -2435,7 +2435,7 @@ fn codegen_generates_output_for_vendor_file() {
 fn codegen_handles_file_with_no_patterns() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     // Use a file that likely has no def_node_matcher
-    let test_file = manifest.join("testdata/cops/layout/trailing_whitespace/offense.rb");
+    let test_file = manifest.join("tests/fixtures/cops/layout/trailing_whitespace/offense.rb");
 
     if !test_file.exists() {
         eprintln!("Skipping codegen no-patterns test: test file not found");
