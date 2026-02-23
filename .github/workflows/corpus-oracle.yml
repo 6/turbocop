@@ -202,15 +202,17 @@ jobs:
           # Cop list is uploaded alongside results from any repo job
           COP_LIST=$(find all-results -name turbocop-cops.txt -print -quit)
           python3 corpus/diff_results.py \
-            --turbocop-dir all-results/turbocop \
-            --rubocop-dir all-results/rubocop \
+            --turbocop-dir all-results/results/turbocop \
+            --rubocop-dir all-results/results/rubocop \
             --manifest corpus/manifest.jsonl \
             --output-json corpus-results.json \
             --output-md corpus-results.md \
             ${COP_LIST:+--cop-list "$COP_LIST"}
 
       - name: Print summary
-        run: cat corpus-results.md
+        run: |
+          cat corpus-results.md
+          cat corpus-results.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload report
         uses: actions/upload-artifact@v4
