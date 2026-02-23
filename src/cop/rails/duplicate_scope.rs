@@ -37,43 +37,59 @@ impl Cop for DuplicateScope {
 
         let calls = class_body_calls(&class);
 
-        let mut seen: HashMap<Vec<u8>, usize> = HashMap::new();
+        // Group scopes by their body expression (everything after the name).
+        // RuboCop flags scopes that share the same expression, not the same name.
+        let mut seen: HashMap<Vec<u8>, Vec<&ruby_prism::CallNode<'_>>> = HashMap::new();
 
         for call in &calls {
             if !is_dsl_call(call, b"scope") {
                 continue;
             }
 
-            let name = match extract_first_symbol_arg(call) {
-                Some(n) => n,
+            let body_key = match extract_scope_body_source(call) {
+                Some(k) => k,
                 None => continue,
             };
 
-            match seen.entry(name) {
-                std::collections::hash_map::Entry::Occupied(e) => {
-                    let loc = call.message_loc().unwrap_or(call.location());
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    let name_str = String::from_utf8_lossy(e.key());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        format!("Duplicate scope `{name_str}` detected."),
-                    ));
-                }
-                std::collections::hash_map::Entry::Vacant(e) => {
-                    e.insert(0);
-                }
+            seen.entry(body_key).or_default().push(call);
+        }
+
+        for calls in seen.values() {
+            if calls.len() < 2 {
+                continue;
+            }
+            // Flag all scopes in the group (RuboCop flags every duplicate)
+            for call in calls {
+                let loc = call.message_loc().unwrap_or(call.location());
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Multiple scopes share this same expression.".to_string(),
+                ));
             }
         }
     }
 }
 
-fn extract_first_symbol_arg(call: &ruby_prism::CallNode<'_>) -> Option<Vec<u8>> {
+/// Extract the source bytes of the scope body expression (everything after the
+/// first argument, i.e., the scope name). Returns None if the call doesn't have
+/// at least two arguments.
+fn extract_scope_body_source<'a>(call: &ruby_prism::CallNode<'a>) -> Option<Vec<u8>> {
     let args = call.arguments()?;
-    let first_arg = args.arguments().iter().next()?;
-    let sym = first_arg.as_symbol_node()?;
-    Some(sym.unescaped().to_vec())
+    let arg_list: Vec<_> = args.arguments().iter().collect();
+    if arg_list.len() < 2 {
+        return None;
+    }
+    // Body is everything from the second argument to the end of the last argument
+    let start = arg_list[1].location().start_offset();
+    let end = arg_list.last().unwrap().location().end_offset();
+    Some(
+        call.location().as_slice()
+            [start - call.location().start_offset()..end - call.location().start_offset()]
+            .to_vec(),
+    )
 }
 
 #[cfg(test)]
