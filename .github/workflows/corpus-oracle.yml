@@ -20,7 +20,7 @@ on:
       - "src/cop/**"
       - "src/config/**"
       - "src/resources/tiers.json"
-      - "corpus/**"
+      - "bench/corpus/**"
 
 env:
   CARGO_TERM_COLOR: always
@@ -64,7 +64,7 @@ jobs:
           import json, os, sys
 
           repos = []
-          with open('corpus/manifest.jsonl') as f:
+          with open('bench/corpus/manifest.jsonl') as f:
               for line in f:
                   line = line.strip()
                   if line:
@@ -115,12 +115,12 @@ jobs:
       - name: Cache baseline bundle
         uses: actions/cache@v4
         with:
-          path: corpus/vendor/bundle
-          key: corpus-bundle-${{ hashFiles('corpus/Gemfile') }}
+          path: bench/corpus/vendor/bundle
+          key: corpus-bundle-${{ hashFiles('bench/corpus/Gemfile') }}
 
       - name: Install baseline gems
         run: |
-          cd corpus
+          cd bench/corpus
           bundle config set --local path vendor/bundle
           bundle install --jobs 4 --retry 3
 
@@ -149,12 +149,12 @@ jobs:
           REPO_ID="${{ matrix.id }}"
           mkdir -p results/turbocop
           echo "=== turbocop: ${REPO_ID} ==="
-          BUNDLE_GEMFILE=$PWD/corpus/Gemfile \
-          BUNDLE_PATH=$PWD/corpus/vendor/bundle \
+          BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
+          BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
           bin/turbocop \
             --format json \
             --no-cache \
-            --config corpus/baseline_rubocop.yml \
+            --config bench/corpus/baseline_rubocop.yml \
             "repos/${REPO_ID}" \
             > "results/turbocop/${REPO_ID}.json" 2>results/turbocop/${REPO_ID}.err || true
 
@@ -163,10 +163,10 @@ jobs:
           REPO_ID="${{ matrix.id }}"
           mkdir -p results/rubocop
           echo "=== rubocop: ${REPO_ID} ==="
-          BUNDLE_GEMFILE=$PWD/corpus/Gemfile \
-          BUNDLE_PATH=$PWD/corpus/vendor/bundle \
+          BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
+          BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
           bundle exec rubocop \
-            --config corpus/baseline_rubocop.yml \
+            --config bench/corpus/baseline_rubocop.yml \
             --format json \
             --force-exclusion \
             --cache false \
@@ -202,10 +202,10 @@ jobs:
         run: |
           # Cop list is uploaded alongside results from any repo job
           COP_LIST=$(find all-results -name turbocop-cops.txt -print -quit)
-          python3 corpus/diff_results.py \
+          python3 bench/corpus/diff_results.py \
             --turbocop-dir all-results/results/turbocop \
             --rubocop-dir all-results/results/rubocop \
-            --manifest corpus/manifest.jsonl \
+            --manifest bench/corpus/manifest.jsonl \
             --output-json corpus-results.json \
             --output-md corpus-results.md \
             ${COP_LIST:+--cop-list "$COP_LIST"}

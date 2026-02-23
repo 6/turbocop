@@ -15,7 +15,7 @@ Triggered weekly and on PRs that change cop implementations. See `.github/workfl
 ## Adding repos
 
 ```
-python3 corpus/add_repos.py --stars --count 50        # top Ruby repos by stars
-python3 corpus/add_repos.py --repo https://github.com/org/repo
-python3 corpus/add_repos.py --stars --count 50 --dry-run
+python3 bench/corpus/add_repos.py --stars --count 50        # top Ruby repos by stars
+python3 bench/corpus/add_repos.py --repo https://github.com/org/repo
+python3 bench/corpus/add_repos.py --stars --count 50 --dry-run
 ```

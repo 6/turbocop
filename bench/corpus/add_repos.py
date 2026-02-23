@@ -3,13 +3,13 @@
 
 Usage:
     # Add top Ruby repos by stars (that have a Gemfile)
-    python3 corpus/add_repos.py --stars --count 50
+    python3 bench/corpus/add_repos.py --stars --count 50
 
     # Add a specific repo
-    python3 corpus/add_repos.py --repo https://github.com/rails/rails
+    python3 bench/corpus/add_repos.py --repo https://github.com/rails/rails
 
     # Dry run (show what would be added)
-    python3 corpus/add_repos.py --stars --count 50 --dry-run
+    python3 bench/corpus/add_repos.py --stars --count 50 --dry-run
 """
 
 import argparse

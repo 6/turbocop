@@ -86,7 +86,7 @@ Build candidates from multiple feeds for diversity, then dedupe.
 
 ### Manifest format (JSONL, checked in)
 
-Store one line per repo in `corpus/manifest.jsonl`:
+Store one line per repo in `bench/corpus/manifest.jsonl`:
 
 ```json
 {"id":"rails__rails__abc1234","repo_url":"https://github.com/rails/rails","sha":"abc1234...","source":"github_stars","set":"frozen","notes":""}
@@ -438,10 +438,10 @@ Cops enter `autocorrect_safe_allowlist.json` only after 0 mismatches + 0 gate fa
 
 * [x] **Define baseline versions** in one place
 
-  * `corpus/Gemfile` pins RuboCop + plugins to turbocop baseline
-  * **Done when**: `corpus/Gemfile` versions match vendor submodule tags.
+  * `bench/corpus/Gemfile` pins RuboCop + plugins to turbocop baseline
+  * **Done when**: `bench/corpus/Gemfile` versions match vendor submodule tags.
 
-* [x] **Create `corpus/manifest.jsonl`** with initial ~20 repos
+* [x] **Create `bench/corpus/manifest.jsonl`** with initial ~20 repos
 
   * 14 bench repos (known-good) + 8 new repos for diversity (22 total).
   * All marked as `set: "frozen"` with pinned SHAs.
@@ -449,7 +449,7 @@ Cops enter `autocorrect_safe_allowlist.json` only after 0 mismatches + 0 gate fa
 
 * [x] **Implement path exclusions** shared by all runs
 
-  * `corpus/baseline_rubocop.yml` excludes: `vendor/`, `node_modules/`, `tmp/`, `coverage/`, `dist/`, `build/`, `.git/`, `db/schema.rb`, `bin/`
+  * `bench/corpus/baseline_rubocop.yml` excludes: `vendor/`, `node_modules/`, `tmp/`, `coverage/`, `dist/`, `build/`, `.git/`, `db/schema.rb`, `bin/`
   * **Done when**: both tools use equivalent exclusions.
 
 ---
@@ -465,7 +465,7 @@ Cops enter `autocorrect_safe_allowlist.json` only after 0 mismatches + 0 gate fa
 * [x] **`setup-bench` or inline step**
 
   * Install Ruby + corpus bundle per batch job.
-  * Cache with `actions/cache` keyed on `corpus/Gemfile` hash.
+  * Cache with `actions/cache` keyed on `bench/corpus/Gemfile` hash.
   * **Done when**: `bundle exec rubocop --version` prints baseline version.
 
 * [x] **`corpus-matrix` job (batch of ~5 repos per job)**
@@ -480,7 +480,7 @@ Cops enter `autocorrect_safe_allowlist.json` only after 0 mismatches + 0 gate fa
   * Upload as workflow artifacts.
   * **Done when**: results are visible in the Actions tab after a successful run.
 
-* [x] **Diff engine** (`corpus/diff_results.py`)
+* [x] **Diff engine** (`bench/corpus/diff_results.py`)
 
   * Accept per-repo JSON files as input.
   * Produce normalized per-cop + per-repo diffs.

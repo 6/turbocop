@@ -22,9 +22,9 @@ bench/private_autocorrect_validate.json
 bench/private_autocorrect_validate.md
 
 # Corpus oracle
-corpus/.bundle/
-corpus/vendor/
-corpus/repos/
+bench/corpus/.bundle/
+bench/corpus/vendor/
+bench/corpus/repos/
 __pycache__/
 corpus-results.json
 corpus-results.md

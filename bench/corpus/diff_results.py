@@ -2,10 +2,10 @@
 """Diff turbocop vs RuboCop JSON results and produce a corpus report.
 
 Usage:
-    python3 corpus/diff_results.py \
+    python3 bench/corpus/diff_results.py \
         --turbocop-dir results/turbocop \
         --rubocop-dir results/rubocop \
-        --manifest corpus/manifest.jsonl \
+        --manifest bench/corpus/manifest.jsonl \
         --output-json corpus-results.json \
         --output-md corpus-results.md
 """
