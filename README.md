@@ -1,6 +1,6 @@
 # turbocop
 
-Experimental RuboCop rewrite in Rust. Often 10x+ faster, 900+ cops.
+Experimental RuboCop rewrite in Rust. 900+ cops.
 
 > [!NOTE]
 > 🚧 Early-stage: Detection is high-fidelity on most codebases but edge cases remain. Autocorrect is not yet complete. Expect bugs.

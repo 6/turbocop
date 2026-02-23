@@ -241,21 +241,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BRANCH="corpus-oracle/update-tiers"
+          BRANCH="corpus-oracle/update-tiers-$(date +%s)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B "$BRANCH"
           cp tiers.json src/resources/tiers.json
           git add src/resources/tiers.json
           git commit -m "Update tiers.json from corpus oracle results"
-          git push -f origin "$BRANCH"
+          git push origin "$BRANCH"
 
-          # Check if a PR already exists for this branch
-          EXISTING=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' || true)
-          if [ -n "$EXISTING" ]; then
-            echo "PR #$EXISTING already exists, force-pushed update"
-          else
-            gh pr create \
+          gh pr create \
               --title "Update tiers.json from corpus oracle" \
               --body "$(cat <<'EOF'
           ## Summary
@@ -273,4 +268,3 @@ jobs:
           )" \
               --head "$BRANCH" \
               --base main
-          fi
