@@ -153,9 +153,10 @@ jobs:
           BUNDLE_PATH=$PWD/corpus/vendor/bundle \
           bin/turbocop \
             --format json \
+            --no-cache \
             --config corpus/baseline_rubocop.yml \
             "repos/${REPO_ID}" \
-            > "results/turbocop/${REPO_ID}.json" 2>/dev/null || true
+            > "results/turbocop/${REPO_ID}.json" 2>results/turbocop/${REPO_ID}.err || true
 
       - name: Run RuboCop
         run: |
@@ -170,7 +171,7 @@ jobs:
             --force-exclusion \
             --cache false \
             "repos/${REPO_ID}" \
-            > "results/rubocop/${REPO_ID}.json" 2>/dev/null || true
+            > "results/rubocop/${REPO_ID}.json" 2>results/rubocop/${REPO_ID}.err || true
 
       - name: Upload results
         uses: actions/upload-artifact@v4
