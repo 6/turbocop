@@ -122,9 +122,8 @@ jobs:
       - name: Make binary executable
         run: chmod +x bin/turbocop
 
+      # Ruby version read from mise.toml
       - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.3"
 
       - name: Cache baseline bundle
         uses: actions/cache@v4
