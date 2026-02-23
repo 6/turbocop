@@ -74,6 +74,12 @@ impl Cop for RedundantRegexpConstructor {
             return;
         }
 
+        // If there are extra arguments (e.g., flags), the constructor isn't
+        // redundant — `Regexp.new(/re/, Regexp::IGNORECASE)` changes behavior.
+        if arg_list.len() != 1 {
+            return;
+        }
+
         if arg_list[0].as_regular_expression_node().is_none()
             && arg_list[0]
                 .as_interpolated_regular_expression_node()

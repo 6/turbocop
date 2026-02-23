@@ -9,3 +9,7 @@ class Bar
     return 42
   end
 end
+
+class << self
+  return 1
+end

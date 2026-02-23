@@ -5080,7 +5080,7 @@ fn migrate_clean_config_no_skips() {
     fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
     fs::write(
         dir.join(".rubocop.yml"),
-        "Gemspec/AddRuntimeDependency:\n  Enabled: true\n",
+        "Lint/DeprecatedClassMethods:\n  Enabled: true\n",
     )
     .unwrap();
 
@@ -5287,7 +5287,7 @@ fn rules_tier_filter_preview() {
     );
     // Should NOT contain stable-only cops
     assert!(
-        !stdout.contains("Gemspec/AddRuntimeDependency"),
+        !stdout.contains("Lint/DeprecatedClassMethods"),
         "Should not show stable cops when filtered to preview: {stdout}"
     );
 }

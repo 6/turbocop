@@ -6,4 +6,6 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'bar'
   spec.add_development_dependency 'rspec'
   spec.authors = ['Author']
+  # spec.add_runtime_dependency 'foo'
+  # Old dependency: spec.add_runtime_dependency 'bar', '~> 1.0'
 end

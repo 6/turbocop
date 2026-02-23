@@ -61,6 +61,7 @@ impl<'pr> Visit<'pr> for TopLevelReturnVisitor<'_, '_> {
     fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
     fn visit_block_node(&mut self, _node: &ruby_prism::BlockNode<'pr>) {}
     fn visit_lambda_node(&mut self, _node: &ruby_prism::LambdaNode<'pr>) {}
+    fn visit_singleton_class_node(&mut self, _node: &ruby_prism::SingletonClassNode<'pr>) {}
 }
 
 #[cfg(test)]

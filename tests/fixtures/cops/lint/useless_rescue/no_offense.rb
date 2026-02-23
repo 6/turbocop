@@ -19,3 +19,19 @@ rescue ArgumentError
 rescue
   # noop
 end
+
+def with_ensure
+  do_something
+rescue => e
+  raise
+ensure
+  do_cleanup(e)
+end
+
+def with_ensure_raise_var
+  do_something
+rescue => e
+  raise e
+ensure
+  log(e)
+end

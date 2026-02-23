@@ -285,19 +285,20 @@ pub fn is_screaming_snake_case(name: &[u8]) -> bool {
 }
 
 /// Check if a name is CamelCase (starts uppercase, no underscores).
+/// Non-ASCII characters (e.g., UTF-8 multibyte) are allowed, matching RuboCop behavior.
 pub fn is_camel_case(name: &[u8]) -> bool {
     if name.is_empty() {
         return false;
     }
-    if !name[0].is_ascii_uppercase() {
+    if !name[0].is_ascii_uppercase() && name[0].is_ascii() {
         return false;
     }
-    // Allow digits, no underscores (except leading _ is not CamelCase)
     for &b in &name[1..] {
         if b == b'_' {
             return false;
         }
-        if !(b.is_ascii_alphanumeric()) {
+        // Allow non-ASCII bytes (UTF-8 multibyte characters) and ASCII alphanumerics
+        if b.is_ascii() && !b.is_ascii_alphanumeric() {
             return false;
         }
     }
@@ -1185,6 +1186,9 @@ mod tests {
         assert!(!is_camel_case(b"FOO_BAR"));
         assert!(!is_camel_case(b"Foo_Bar"));
         assert!(!is_camel_case(b""));
+        // Non-ASCII (UTF-8) characters should be allowed
+        assert!(is_camel_case("Ålpha".as_bytes()));
+        assert!(is_camel_case("Ëxample".as_bytes()));
     }
 
     #[test]

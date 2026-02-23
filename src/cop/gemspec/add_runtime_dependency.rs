@@ -25,6 +25,10 @@ impl Cop for AddRuntimeDependency {
                 Ok(s) => s,
                 Err(_) => continue,
             };
+            // Skip comment lines to avoid flagging commented-out code
+            if line_str.trim_start().starts_with('#') {
+                continue;
+            }
             if let Some(pos) = line_str.find(".add_runtime_dependency") {
                 // Column is at the dot
                 diagnostics.push(self.diagnostic(

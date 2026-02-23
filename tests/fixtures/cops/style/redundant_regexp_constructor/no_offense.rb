@@ -4,3 +4,6 @@ Regexp.compile('bar')
 x = /bar/i
 Regexp.new(variable)
 y = 'hello'
+Regexp.new(/foo/, Regexp::IGNORECASE)
+Regexp.new(/bar/, 'i')
+Regexp.compile(/baz/, Regexp::MULTILINE)

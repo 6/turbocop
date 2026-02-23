@@ -11,3 +11,10 @@ in Integer
 in String
   handle_string
 end
+
+case value
+in Integer
+  # handle integer values
+in String
+  handle_string
+end

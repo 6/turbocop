@@ -29,6 +29,7 @@ impl Cop for UselessRescue {
             cop: self,
             source,
             diagnostics: Vec::new(),
+            ensure_var_names: Vec::new(),
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -39,28 +40,82 @@ struct RescueVisitor<'a, 'src> {
     cop: &'a UselessRescue,
     source: &'src SourceFile,
     diagnostics: Vec<Diagnostic>,
+    /// Local variable names referenced in the current ensure context.
+    /// When visiting inside a begin/def node with an ensure clause,
+    /// this contains variable names used in the ensure body.
+    ensure_var_names: Vec<Vec<u8>>,
 }
 
 impl<'pr> Visit<'pr> for RescueVisitor<'_, '_> {
+    fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
+        // If this begin has an ensure clause, collect local variable names used in it
+        let prev_len = self.ensure_var_names.len();
+        if let Some(ensure_clause) = node.ensure_clause() {
+            collect_ensure_lvar_names(ensure_clause, &mut self.ensure_var_names);
+        }
+
+        ruby_prism::visit_begin_node(self, node);
+
+        self.ensure_var_names.truncate(prev_len);
+    }
+
     fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
         // Check if this is the last rescue clause (no subsequent rescue)
         // RescueNode has a `subsequent` which is the next rescue clause
-        if node.subsequent().is_none() {
-            // This is the last rescue clause
-            if only_reraising(node, self.source) {
-                let loc = node.location();
-                let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-                self.diagnostics.push(self.cop.diagnostic(
-                    self.source,
-                    line,
-                    column,
-                    "Useless `rescue` detected.".to_string(),
-                ));
-            }
+        if node.subsequent().is_none()
+            && only_reraising(node, self.source)
+            && !self.exception_var_used_in_ensure(node)
+        {
+            let loc = node.location();
+            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                "Useless `rescue` detected.".to_string(),
+            ));
         }
 
         // Continue visiting children
         ruby_prism::visit_rescue_node(self, node);
+    }
+}
+
+impl RescueVisitor<'_, '_> {
+    fn exception_var_used_in_ensure(&self, rescue_node: &ruby_prism::RescueNode<'_>) -> bool {
+        if self.ensure_var_names.is_empty() {
+            return false;
+        }
+
+        if let Some(reference) = rescue_node.reference() {
+            if let Some(local_var) = reference.as_local_variable_target_node() {
+                let var_name = local_var.name().as_slice();
+                return self.ensure_var_names.iter().any(|n| n == var_name);
+            }
+        }
+
+        false
+    }
+}
+
+/// Collect all local variable read names from an ensure clause's body.
+fn collect_ensure_lvar_names(ensure_clause: ruby_prism::EnsureNode<'_>, names: &mut Vec<Vec<u8>>) {
+    struct LvarCollector<'a> {
+        names: &'a mut Vec<Vec<u8>>,
+    }
+    impl<'pr> Visit<'pr> for LvarCollector<'_> {
+        fn visit_local_variable_read_node(
+            &mut self,
+            node: &ruby_prism::LocalVariableReadNode<'pr>,
+        ) {
+            self.names.push(node.name().as_slice().to_vec());
+        }
+    }
+    let mut collector = LvarCollector { names };
+    if let Some(statements) = ensure_clause.statements() {
+        for stmt in statements.body().iter() {
+            collector.visit(&stmt);
+        }
     }
 }
 
@@ -116,16 +171,12 @@ fn only_reraising(rescue_node: &ruby_prism::RescueNode<'_>, source: &SourceFile)
     }
 
     // Check if it matches the rescue variable name
-    if let Some(ref_node) = rescue_node.reference() {
-        let ref_src = source.byte_slice(
-            ref_node.location().start_offset(),
-            ref_node.location().end_offset(),
-            "",
-        );
-        // The reference includes the `=> ` prefix in some cases, extract the variable name
-        let var_name = ref_src.trim_start_matches("=> ").trim();
-        if !var_name.is_empty() && arg_src == var_name {
-            return true;
+    if let Some(reference) = rescue_node.reference() {
+        if let Some(local_var) = reference.as_local_variable_target_node() {
+            let var_name = std::str::from_utf8(local_var.name().as_slice()).unwrap_or("");
+            if !var_name.is_empty() && arg_src == var_name {
+                return true;
+            }
         }
     }
 
