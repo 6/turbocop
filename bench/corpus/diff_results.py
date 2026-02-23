@@ -135,6 +135,7 @@ def main():
     total_fn = 0
     repos_perfect = 0
     repos_error = 0
+    total_files = 0
 
     for repo_id in all_ids:
         tc_path = tc_files.get(repo_id)
@@ -170,6 +171,7 @@ def main():
             continue
 
         rc_offenses, rc_inspected_files = rc_result
+        total_files += len(rc_inspected_files)
 
         # Filter to covered cops only (drop offenses from cops turbocop doesn't implement)
         if covered_cops is not None:
@@ -236,6 +238,7 @@ def main():
             "fn": n_fn,
             "turbocop_total": len(tc_offenses),
             "rubocop_total": len(rc_offenses),
+            "files_inspected": len(rc_inspected_files),
         })
 
     # Build per-cop table (sorted by divergence descending)
@@ -283,6 +286,7 @@ def main():
             "fp": total_fp,
             "fn": total_fn,
             "overall_match_rate": round(overall_rate, 4),
+            "total_files_inspected": total_files,
         },
         "by_cop": by_cop,  # all cops (gen_tiers.py needs the full list)
         "by_repo": repo_results,
