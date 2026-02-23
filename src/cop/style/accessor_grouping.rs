@@ -58,7 +58,6 @@ impl Cop for AccessorGrouping {
 
         if enforced_style == "grouped" {
             diagnostics.extend(check_grouped(self, source, &stmts));
-            return;
         }
     }
 }

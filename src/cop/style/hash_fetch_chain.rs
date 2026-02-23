@@ -27,13 +27,12 @@ impl HashFetchChain {
                 if let Some(recv) = call.receiver() {
                     if recv
                         .as_constant_read_node()
-                        .map_or(false, |c| c.name().as_slice() == b"Hash")
+                        .is_some_and(|c| c.name().as_slice() == b"Hash")
                     {
                         return true;
                     }
-                    if recv.as_constant_path_node().map_or(false, |cp| {
-                        cp.parent().is_none()
-                            && cp.name().map_or(false, |n| n.as_slice() == b"Hash")
+                    if recv.as_constant_path_node().is_some_and(|cp| {
+                        cp.parent().is_none() && cp.name().is_some_and(|n| n.as_slice() == b"Hash")
                     }) {
                         return true;
                     }

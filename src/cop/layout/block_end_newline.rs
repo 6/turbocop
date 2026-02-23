@@ -61,7 +61,6 @@ impl Cop for BlockEndNewline {
                     close_col + 1
                 ),
             ));
-            return;
         }
     }
 }

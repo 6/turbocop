@@ -80,7 +80,7 @@ impl<'pr> Visit<'pr> for ToEnumVisitor<'_, '_> {
                 || node
                     .receiver()
                     .as_ref()
-                    .map_or(false, |r| r.as_self_node().is_some()))
+                    .is_some_and(|r| r.as_self_node().is_some()))
         {
             if let Some(current_method) = self.method_stack.last() {
                 if let Some(args) = node.arguments() {
@@ -130,7 +130,7 @@ impl<'pr> Visit<'pr> for ToEnumVisitor<'_, '_> {
 fn is_method_ref(node: &ruby_prism::Node<'_>, method_name: &[u8]) -> bool {
     // Check for :method_name (symbol)
     if let Some(sym) = node.as_symbol_node() {
-        return &*sym.unescaped() == method_name;
+        return sym.unescaped() == method_name;
     }
 
     // Check for __method__ or __callee__

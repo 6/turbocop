@@ -63,7 +63,7 @@ impl Cop for NestedPercentLiteral {
                     && elem_src.starts_with(prefix)
                     && !elem_src[prefix.len()..prefix.len() + 1]
                         .first()
-                        .map_or(true, |b| b.is_ascii_alphanumeric())
+                        .is_none_or(|b| b.is_ascii_alphanumeric())
                 {
                     let loc = array_node.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());

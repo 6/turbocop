@@ -53,7 +53,7 @@ impl Cop for AccessorMethodName {
         let has_one_regular_arg = total_param_count == 1
             && def_node
                 .parameters()
-                .map_or(false, |params| params.requireds().len() == 1);
+                .is_some_and(|params| params.requireds().len() == 1);
 
         let message = if name_str.starts_with("get_") && total_param_count == 0 {
             // Reader methods: get_* with no arguments

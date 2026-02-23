@@ -70,7 +70,7 @@ fn has_version_specifier(line: &str) -> bool {
     let trimmed = line.trim();
     // After `gem 'name'`, look for version-like arguments
     // Find the closing quote of the gem name
-    let first_quote = match trimmed.find(|c: char| c == '\'' || c == '"') {
+    let first_quote = match trimmed.find(['\'', '"']) {
         Some(idx) => idx,
         None => return false,
     };

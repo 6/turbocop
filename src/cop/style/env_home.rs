@@ -82,10 +82,8 @@ impl Cop for EnvHome {
         }
 
         // For fetch, second arg must be nil or absent
-        if method_bytes == b"fetch" && arg_list.len() == 2 {
-            if arg_list[1].as_nil_node().is_none() {
-                return;
-            }
+        if method_bytes == b"fetch" && arg_list.len() == 2 && arg_list[1].as_nil_node().is_none() {
+            return;
         }
 
         let loc = node.location();

@@ -112,10 +112,7 @@ fn extract_set_elements<'pr>(
             }
         }
 
-        let name = match constant_name(&recv) {
-            Some(n) => n,
-            None => return None,
-        };
+        let name = constant_name(&recv)?;
         if name != b"Set" && name != b"SortedSet" {
             return None;
         }

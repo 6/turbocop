@@ -278,20 +278,19 @@ impl AbcCounter {
                         // Safe navigation (&.) adds an extra condition, matching
                         // RuboCop where csend is both a branch and a condition.
                         // But repeated &. on the same local variable is discounted.
-                        if call.call_operator_loc().map_or(false, |loc| {
+                        if call.call_operator_loc().is_some_and(|loc| {
                             let bytes = loc.as_slice();
                             bytes == b"&."
-                        }) {
-                            if !self.discount_repeated_csend(&call) {
-                                self.conditions += 1;
-                            }
+                        }) && !self.discount_repeated_csend(&call)
+                        {
+                            self.conditions += 1;
                         }
                         // Iterating block: a call with a block to a known iterating method
                         // counts as a condition (block is in RuboCop's CONDITION_NODES).
-                        if call.block().is_some_and(|b| b.as_block_node().is_some()) {
-                            if KNOWN_ITERATING_METHODS.contains(&method_name) {
-                                self.conditions += 1;
-                            }
+                        if call.block().is_some_and(|b| b.as_block_node().is_some())
+                            && KNOWN_ITERATING_METHODS.contains(&method_name)
+                        {
+                            self.conditions += 1;
                         }
                     }
                 }

@@ -60,7 +60,7 @@ impl Cop for RedundantFilterChain {
         let recv_method = recv_call.name();
         let recv_bytes = recv_method.as_slice();
 
-        if !FILTER_METHODS.iter().any(|&m| m == recv_bytes) {
+        if !FILTER_METHODS.contains(&recv_bytes) {
             return;
         }
 

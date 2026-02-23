@@ -35,22 +35,22 @@ fn target_ruby_version(config: &CopConfig) -> f64 {
 
 /// Check if a feature is redundant given the target Ruby version.
 fn is_redundant_feature(feature: &[u8], ruby_version: f64) -> bool {
-    if ALWAYS_REDUNDANT.iter().any(|f| *f == feature) {
+    if ALWAYS_REDUNDANT.contains(&feature) {
         return true;
     }
-    if ruby_version >= 2.1 && RUBY_21_REDUNDANT.iter().any(|f| *f == feature) {
+    if ruby_version >= 2.1 && RUBY_21_REDUNDANT.contains(&feature) {
         return true;
     }
-    if ruby_version >= 2.2 && RUBY_22_REDUNDANT.iter().any(|f| *f == feature) {
+    if ruby_version >= 2.2 && RUBY_22_REDUNDANT.contains(&feature) {
         return true;
     }
-    if ruby_version >= 2.7 && RUBY_27_REDUNDANT.iter().any(|f| *f == feature) {
+    if ruby_version >= 2.7 && RUBY_27_REDUNDANT.contains(&feature) {
         return true;
     }
-    if ruby_version >= 3.1 && RUBY_31_REDUNDANT.iter().any(|f| *f == feature) {
+    if ruby_version >= 3.1 && RUBY_31_REDUNDANT.contains(&feature) {
         return true;
     }
-    if ruby_version >= 3.2 && RUBY_32_REDUNDANT.iter().any(|f| *f == feature) {
+    if ruby_version >= 3.2 && RUBY_32_REDUNDANT.contains(&feature) {
         return true;
     }
     false

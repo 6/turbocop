@@ -230,7 +230,7 @@ impl Cop for ShadowedException {
 
         // Find the first offending rescue clause (matching RuboCop's find_shadowing_rescue)
         // First check: any group with multiple levels
-        for (_i, (excs, offset)) in all_clauses.iter().enumerate() {
+        for (excs, offset) in all_clauses.iter() {
             let group = if excs.is_empty() {
                 vec!["StandardError".to_string()]
             } else {

@@ -92,7 +92,7 @@ impl Cop for Focus {
         let is_rspec_method = if call.receiver().is_none() {
             is_focusable_method(method_name)
         } else if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
+            util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
                 && (method_name == b"describe" || method_name == b"fdescribe")
         } else {
             false

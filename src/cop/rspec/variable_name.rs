@@ -79,10 +79,8 @@ impl Cop for VariableName {
             }
             let name_owned: Option<Vec<u8>> = if let Some(sym) = arg.as_symbol_node() {
                 Some(sym.unescaped().to_vec())
-            } else if let Some(s) = arg.as_string_node() {
-                Some(s.unescaped().to_vec())
             } else {
-                None
+                arg.as_string_node().map(|s| s.unescaped().to_vec())
             };
 
             if let Some(ref name) = name_owned {

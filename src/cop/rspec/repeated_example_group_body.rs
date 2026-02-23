@@ -46,11 +46,7 @@ impl Cop for RepeatedExampleGroupBody {
     ) {
         // We need to look at sibling example groups within a common parent.
         // The parent can be a ProgramNode (top-level) or any block body.
-        let stmts = if let Some(program) = node.as_program_node() {
-            Some(program.statements())
-        } else {
-            None
-        };
+        let stmts = node.as_program_node().map(|program| program.statements());
 
         if stmts.is_none() {
             // Also check inside example group blocks
@@ -167,7 +163,7 @@ fn check_sibling_groups_iter<'a>(
     }
 
     let mut diagnostics = Vec::new();
-    for (_sig, locs) in &body_map {
+    for locs in body_map.values() {
         if locs.len() > 1 {
             for (idx, (line, col, group_name)) in locs.iter().enumerate() {
                 let other_lines: Vec<String> = locs
@@ -211,7 +207,7 @@ fn is_rspec_example_group_for_body(call: &ruby_prism::CallNode<'_>) -> bool {
             if let Some(cr) = recv.as_constant_read_node() {
                 cr.name().as_slice() == b"RSpec"
             } else if let Some(cp) = recv.as_constant_path_node() {
-                cp.name().map_or(false, |n| n.as_slice() == b"RSpec") && cp.parent().is_none()
+                cp.name().is_some_and(|n| n.as_slice() == b"RSpec") && cp.parent().is_none()
             } else {
                 false
             }

@@ -70,7 +70,6 @@ impl Cop for EmptyElse {
                     check_nil,
                 ));
             }
-            return;
         }
     }
 }

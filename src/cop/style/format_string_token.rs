@@ -73,55 +73,53 @@ impl FormatStringToken {
         let mut count = 0;
         let mut i = 0;
         while i < bytes.len() {
-            if bytes[i] == b'%' {
-                if i + 1 < bytes.len() {
-                    let next = bytes[i + 1];
-                    if next == b'%' {
-                        i += 2;
-                        continue;
-                    }
-                    if next == b'<' || next == b'{' {
-                        i += 2;
-                        continue;
-                    }
-                    // Skip flags and width
-                    let mut j = i + 1;
-                    while j < bytes.len()
-                        && (bytes[j] == b'-'
-                            || bytes[j] == b'+'
-                            || bytes[j] == b' '
-                            || bytes[j] == b'0'
-                            || bytes[j] == b'#'
-                            || bytes[j].is_ascii_digit()
-                            || bytes[j] == b'.'
-                            || bytes[j] == b'*')
-                    {
-                        j += 1;
-                    }
-                    if j < bytes.len()
-                        && matches!(
-                            bytes[j],
-                            b's' | b'd'
-                                | b'f'
-                                | b'g'
-                                | b'e'
-                                | b'x'
-                                | b'X'
-                                | b'o'
-                                | b'b'
-                                | b'B'
-                                | b'i'
-                                | b'u'
-                                | b'c'
-                                | b'p'
-                                | b'a'
-                                | b'A'
-                                | b'E'
-                                | b'G'
-                        )
-                    {
-                        count += 1;
-                    }
+            if bytes[i] == b'%' && i + 1 < bytes.len() {
+                let next = bytes[i + 1];
+                if next == b'%' {
+                    i += 2;
+                    continue;
+                }
+                if next == b'<' || next == b'{' {
+                    i += 2;
+                    continue;
+                }
+                // Skip flags and width
+                let mut j = i + 1;
+                while j < bytes.len()
+                    && (bytes[j] == b'-'
+                        || bytes[j] == b'+'
+                        || bytes[j] == b' '
+                        || bytes[j] == b'0'
+                        || bytes[j] == b'#'
+                        || bytes[j].is_ascii_digit()
+                        || bytes[j] == b'.'
+                        || bytes[j] == b'*')
+                {
+                    j += 1;
+                }
+                if j < bytes.len()
+                    && matches!(
+                        bytes[j],
+                        b's' | b'd'
+                            | b'f'
+                            | b'g'
+                            | b'e'
+                            | b'x'
+                            | b'X'
+                            | b'o'
+                            | b'b'
+                            | b'B'
+                            | b'i'
+                            | b'u'
+                            | b'c'
+                            | b'p'
+                            | b'a'
+                            | b'A'
+                            | b'E'
+                            | b'G'
+                    )
+                {
+                    count += 1;
                 }
             }
             i += 1;
@@ -295,7 +293,7 @@ struct FormatStringTokenVisitor<'a> {
 impl<'pr> Visit<'pr> for FormatStringTokenVisitor<'_> {
     fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
         let content_bytes = node.unescaped();
-        let content_str = match std::str::from_utf8(&content_bytes) {
+        let content_str = match std::str::from_utf8(content_bytes) {
             Ok(s) => s,
             Err(_) => return,
         };
@@ -349,7 +347,6 @@ impl<'pr> Visit<'pr> for FormatStringTokenVisitor<'_> {
                         column,
                         "Prefer annotated tokens (like `%<foo>s`) over unannotated tokens (like `%s`).".to_string(),
                     ));
-                    return;
                 }
             }
             "template" => {
@@ -369,7 +366,6 @@ impl<'pr> Visit<'pr> for FormatStringTokenVisitor<'_> {
                         column,
                         "Prefer template tokens (like `%{foo}`) over unannotated tokens (like `%s`).".to_string(),
                     ));
-                    return;
                 }
             }
             "unannotated" => {
@@ -389,7 +385,6 @@ impl<'pr> Visit<'pr> for FormatStringTokenVisitor<'_> {
                         column,
                         "Prefer unannotated tokens (like `%s`) over template tokens (like `%{foo}`).".to_string(),
                     ));
-                    return;
                 }
             }
             _ => {}

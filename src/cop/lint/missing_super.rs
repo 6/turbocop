@@ -90,7 +90,7 @@ impl MissingSuperVisitor<'_, '_> {
             parent_name
         };
 
-        if STATELESS_CLASSES.iter().any(|&s| s == last_segment) {
+        if STATELESS_CLASSES.contains(&last_segment) {
             return true;
         }
         if self

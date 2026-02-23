@@ -57,7 +57,6 @@ impl Cop for CombinableDefined {
                     let arg_list: Vec<_> = args.arguments().iter().collect();
                     if arg_list.len() == 1 {
                         diagnostics.extend(check_and(self, source, &receiver, &arg_list[0]));
-                        return;
                     }
                 }
             }

@@ -189,7 +189,7 @@ fn is_matcher_with_configured_response(node: &ruby_prism::Node<'_>) -> bool {
     // RuboCop pattern (send #message_expectation? #configured_response? _) requires
     // exactly one argument after the method name. Methods like and_call_original
     // with no arguments don't match.
-    let has_args = call.arguments().map_or(false, |a| {
+    let has_args = call.arguments().is_some_and(|a| {
         let args: Vec<_> = a.arguments().iter().collect();
         !args.is_empty()
     });

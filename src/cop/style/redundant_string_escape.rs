@@ -6,11 +6,7 @@ use crate::parse::source::SourceFile;
 pub struct RedundantStringEscape;
 
 /// Valid escape sequences in double-quoted strings
-const MEANINGFUL_ESCAPES: &[u8] = &[
-    b'\\', b'\'', b'"', b'a', b'b', b'e', b'f', b'n', b'r', b's', b't', b'v', b'0', b'1', b'2',
-    b'3', b'4', b'5', b'6', b'7', b'x', b'u', b'c', b'C', b'M', b'#', b'\n',
-    b'\r', // literal newline/carriage-return: line continuation in double-quoted strings
-];
+const MEANINGFUL_ESCAPES: &[u8] = b"\\'\"abefnrstv01234567xucCM#\n\r";
 
 impl Cop for RedundantStringEscape {
     fn name(&self) -> &'static str {

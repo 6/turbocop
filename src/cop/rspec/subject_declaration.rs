@@ -44,31 +44,27 @@ impl Cop for SubjectDeclaration {
         let method_name = call.name().as_slice();
 
         // Check for `let(:subject)` or `let!(:subject)` — should use `subject` directly
-        if method_name == b"let" || method_name == b"let!" {
-            if is_subject_name_arg(&call) {
-                let loc = call.location();
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Use subject explicitly rather than using let".to_string(),
-                ));
-            }
+        if (method_name == b"let" || method_name == b"let!") && is_subject_name_arg(&call) {
+            let loc = call.location();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                "Use subject explicitly rather than using let".to_string(),
+            ));
         }
 
         // Check for `subject(:subject)` or `subject!(:subject)` — ambiguous
-        if method_name == b"subject" || method_name == b"subject!" {
-            if is_subject_name_arg(&call) {
-                let loc = call.location();
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Ambiguous declaration of subject".to_string(),
-                ));
-            }
+        if (method_name == b"subject" || method_name == b"subject!") && is_subject_name_arg(&call) {
+            let loc = call.location();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                "Ambiguous declaration of subject".to_string(),
+            ));
         }
     }
 }

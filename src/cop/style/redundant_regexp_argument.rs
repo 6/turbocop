@@ -45,7 +45,7 @@ impl Cop for RedundantRegexpArgument {
         };
 
         let name = call.name().as_slice();
-        if !TARGET_METHODS.iter().any(|m| *m == name) {
+        if !TARGET_METHODS.contains(&name) {
             return;
         }
 

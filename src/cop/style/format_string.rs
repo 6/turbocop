@@ -132,12 +132,12 @@ impl Cop for FormatString {
 fn is_kernel_constant(node: &ruby_prism::Node<'_>) -> bool {
     if node
         .as_constant_read_node()
-        .map_or(false, |c| c.name().as_slice() == b"Kernel")
+        .is_some_and(|c| c.name().as_slice() == b"Kernel")
     {
         return true;
     }
     if let Some(cp) = node.as_constant_path_node() {
-        if cp.parent().is_none() && cp.name().map_or(false, |n| n.as_slice() == b"Kernel") {
+        if cp.parent().is_none() && cp.name().is_some_and(|n| n.as_slice() == b"Kernel") {
             return true;
         }
     }

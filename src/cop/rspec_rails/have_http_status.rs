@@ -52,7 +52,7 @@ impl Cop for HaveHttpStatus {
         };
 
         let runner_name = runner_call.name().as_slice();
-        if !RUNNERS.iter().any(|r| *r == runner_name) {
+        if !RUNNERS.contains(&runner_name) {
             return;
         }
 
@@ -131,7 +131,7 @@ impl Cop for HaveHttpStatus {
         };
 
         let matcher_name = matcher_call.name().as_slice();
-        if !EQUALITY_MATCHERS.iter().any(|m| *m == matcher_name) {
+        if !EQUALITY_MATCHERS.contains(&matcher_name) {
             return;
         }
 
@@ -158,7 +158,7 @@ impl Cop for HaveHttpStatus {
             text.to_string()
         } else if let Some(str_node) = status_arg.as_string_node() {
             let content = str_node.unescaped();
-            let s = std::str::from_utf8(content.as_ref()).unwrap_or("");
+            let s = std::str::from_utf8(content).unwrap_or("");
             // Must be purely numeric
             if !s.bytes().all(|b| b.is_ascii_digit()) || s.is_empty() {
                 return;

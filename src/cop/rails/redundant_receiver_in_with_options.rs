@@ -67,11 +67,9 @@ impl Cop for RedundantReceiverInWithOptions {
                     if let Some(params_node) = bp.parameters() {
                         let requireds: Vec<_> = params_node.requireds().iter().collect();
                         if requireds.len() == 1 {
-                            if let Some(req) = requireds[0].as_required_parameter_node() {
-                                Some(req.name().as_slice().to_vec())
-                            } else {
-                                None
-                            }
+                            requireds[0]
+                                .as_required_parameter_node()
+                                .map(|req| req.name().as_slice().to_vec())
                         } else {
                             None
                         }

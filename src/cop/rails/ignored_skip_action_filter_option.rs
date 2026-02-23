@@ -50,7 +50,7 @@ impl Cop for IgnoredSkipActionFilterOption {
         }
 
         let name = call.name().as_slice();
-        if !SKIP_METHODS.iter().any(|m| *m == name) {
+        if !SKIP_METHODS.contains(&name) {
             return;
         }
 

@@ -50,7 +50,7 @@ impl Cop for ExcessiveDocstringSpacing {
 
         // Must be receiverless or RSpec.describe / ::RSpec.describe
         if let Some(recv) = call.receiver() {
-            if util::constant_name(&recv).map_or(true, |n| n != b"RSpec") {
+            if util::constant_name(&recv).is_none_or(|n| n != b"RSpec") {
                 return;
             }
         }
@@ -85,7 +85,7 @@ impl Cop for ExcessiveDocstringSpacing {
                 let mut combined = Vec::new();
                 for part in s.parts().iter() {
                     if let Some(str_part) = part.as_string_node() {
-                        combined.extend_from_slice(&str_part.unescaped());
+                        combined.extend_from_slice(str_part.unescaped());
                     } else {
                         // Has real interpolation — use raw source fallback
                         combined.clear();
@@ -98,7 +98,7 @@ impl Cop for ExcessiveDocstringSpacing {
                         // For mixed interpolation in concat, just grab each part's source
                         for inner_part in s.parts().iter() {
                             if let Some(sp) = inner_part.as_string_node() {
-                                combined.extend_from_slice(&sp.unescaped());
+                                combined.extend_from_slice(sp.unescaped());
                             } else {
                                 // Interpolation node — include its source as-is
                                 let ploc = inner_part.location();

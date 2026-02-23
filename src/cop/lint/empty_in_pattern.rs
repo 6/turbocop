@@ -39,7 +39,7 @@ impl Cop for EmptyInPattern {
             if let Some(in_node) = condition.as_in_node() {
                 // Check if the body is empty
                 let body_empty = in_node.statements().is_none()
-                    || in_node.statements().map_or(true, |s| s.body().is_empty());
+                    || in_node.statements().is_none_or(|s| s.body().is_empty());
 
                 if body_empty {
                     let loc = in_node.in_loc();

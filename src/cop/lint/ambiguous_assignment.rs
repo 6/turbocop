@@ -51,7 +51,7 @@ impl Cop for AmbiguousAssignment {
         } else if let Some(n) = node.as_constant_write_node() {
             (n.operator_loc(), n.value())
         } else if let Some(n) = node.as_constant_path_write_node() {
-            (n.operator_loc(), n.value().into())
+            (n.operator_loc(), n.value())
         } else {
             return;
         };

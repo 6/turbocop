@@ -229,7 +229,7 @@ fn get_repeat_count_from_source(
             let is_array = if let Some(cr) = recv.as_constant_read_node() {
                 cr.name().as_slice() == b"Array"
             } else if let Some(cp) = recv.as_constant_path_node() {
-                cp.name().map_or(false, |n| n.as_slice() == b"Array")
+                cp.name().is_some_and(|n| n.as_slice() == b"Array")
             } else {
                 false
             };

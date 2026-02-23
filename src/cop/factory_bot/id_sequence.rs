@@ -65,7 +65,7 @@ impl Cop for IdSequence {
         let first = &arg_list[0];
         let is_id = first
             .as_symbol_node()
-            .map_or(false, |s| s.unescaped() == b"id");
+            .is_some_and(|s| s.unescaped() == b"id");
 
         if !is_id {
             return;

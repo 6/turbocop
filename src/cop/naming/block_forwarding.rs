@@ -111,7 +111,6 @@ impl<'pr> Visit<'pr> for BlockUsageChecker<'_> {
             if let Some(local_var) = expr.as_local_variable_read_node() {
                 if local_var.name().as_slice() == self.block_name {
                     self.has_forwarding = true;
-                    return;
                 }
             }
         }
@@ -127,7 +126,7 @@ impl<'pr> Visit<'pr> for BlockUsageChecker<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         // Check the call's block argument
         if let Some(block_arg) = node.block() {
-            self.visit(&ruby_prism::Node::from(block_arg));
+            self.visit(&block_arg);
         }
         // Visit arguments
         if let Some(args) = node.arguments() {

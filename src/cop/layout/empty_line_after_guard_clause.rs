@@ -162,10 +162,10 @@ impl Cop for EmptyLineAfterGuardClause {
 
         // Check for rubocop directive or nocov comments followed by blank line
         let next_line = lines[if_end_line];
-        if is_rubocop_directive_or_nocov(next_line) {
-            if if_end_line + 1 >= lines.len() || util::is_blank_line(lines[if_end_line + 1]) {
-                return;
-            }
+        if is_rubocop_directive_or_nocov(next_line)
+            && (if_end_line + 1 >= lines.len() || util::is_blank_line(lines[if_end_line + 1]))
+        {
+            return;
         }
 
         let (line, col) = source.offset_to_line_col(offense_offset);
@@ -195,7 +195,7 @@ impl Cop for EmptyLineAfterGuardClause {
 fn is_guard_stmt(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(call) = node.as_call_node() {
         let name = call.name().as_slice();
-        if GUARD_METHODS.iter().any(|m| *m == name) && call.receiver().is_none() {
+        if GUARD_METHODS.contains(&name) && call.receiver().is_none() {
             return true;
         }
     }

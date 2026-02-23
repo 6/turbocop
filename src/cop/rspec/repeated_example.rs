@@ -86,7 +86,7 @@ impl Cop for RepeatedExample {
             }
         }
 
-        for (_sig, locs) in &body_map {
+        for locs in body_map.values() {
             if locs.len() > 1 {
                 for (idx, &(line, col)) in locs.iter().enumerate() {
                     let other_lines: Vec<String> = locs

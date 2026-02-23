@@ -196,11 +196,11 @@ impl Cop for HttpStatus {
                 "numeric" => {
                     if let Some(sym) = status_value.as_symbol_node() {
                         let sym_name = sym.unescaped();
-                        if PERMITTED_SYMBOLS.contains(&sym_name.as_ref()) {
+                        if PERMITTED_SYMBOLS.contains(&sym_name) {
                             return None;
                         }
-                        if let Some(code) = symbol_to_status_code(&sym_name) {
-                            let sym_str = std::str::from_utf8(&sym_name).unwrap_or("?");
+                        if let Some(code) = symbol_to_status_code(sym_name) {
+                            let sym_str = std::str::from_utf8(sym_name).unwrap_or("?");
                             let val_loc = status_value.location();
                             let (line, column) = source.offset_to_line_col(val_loc.start_offset());
                             return Some(self.diagnostic(
@@ -240,7 +240,7 @@ impl Cop for HttpStatus {
         };
 
         if let Some(ref kw) = keyword_status {
-            if let Some(diag) = check_status(&kw) {
+            if let Some(diag) = check_status(kw) {
                 diagnostics.push(diag);
             }
         }

@@ -91,7 +91,7 @@ impl Cop for RedundantFactoryOption {
                 let is_factory_key = pair
                     .key()
                     .as_symbol_node()
-                    .map_or(false, |s| s.unescaped() == b"factory");
+                    .is_some_and(|s| s.unescaped() == b"factory");
 
                 if !is_factory_key {
                     continue;

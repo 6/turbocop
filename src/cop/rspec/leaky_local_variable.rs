@@ -75,7 +75,7 @@ impl Cop for LeakyLocalVariable {
         let method_name = call.name().as_slice();
 
         let is_example_group = if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
+            util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
                 && is_rspec_example_group(method_name)
         } else {
             is_rspec_example_group(method_name)

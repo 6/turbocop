@@ -161,7 +161,7 @@ impl Cop for VariableNumber {
         if check_symbols {
             if let Some(sym) = node.as_symbol_node() {
                 let name = sym.unescaped();
-                let name_str = std::str::from_utf8(&name).unwrap_or("");
+                let name_str = std::str::from_utf8(name).unwrap_or("");
                 if !is_allowed(name_str, &allowed_ids, &allowed_pats) {
                     if let Some(diag) = check_number_style(
                         self,

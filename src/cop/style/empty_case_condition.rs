@@ -43,10 +43,7 @@ impl Cop for EmptyCaseCondition {
         // Get the line text to check what precedes `case`
         let lines: Vec<_> = source.lines().collect();
         if case_line > 0 && case_line <= lines.len() {
-            let line_text = match std::str::from_utf8(lines[case_line - 1]) {
-                Ok(s) => s,
-                Err(_) => "",
-            };
+            let line_text = std::str::from_utf8(lines[case_line - 1]).unwrap_or("");
             let trimmed = line_text.trim();
             // If the line doesn't start with `case`, something precedes it
             if !trimmed.starts_with("case") {

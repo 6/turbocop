@@ -529,7 +529,7 @@ impl BinaryOperatorChecker<'_> {
 impl<'pr> Visit<'pr> for BinaryOperatorChecker<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         let name = node.name().as_slice();
-        if BINARY_OPERATORS.iter().any(|&op| op == name)
+        if BINARY_OPERATORS.contains(&name)
             && node.receiver().is_some()
             && node.arguments().is_some()
             && node.call_operator_loc().is_none()

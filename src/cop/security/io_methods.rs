@@ -42,7 +42,7 @@ impl Cop for IoMethods {
         };
 
         let method = call.name().as_slice();
-        if !DANGEROUS_METHODS.iter().any(|&m| m == method) {
+        if !DANGEROUS_METHODS.contains(&method) {
             return;
         }
 

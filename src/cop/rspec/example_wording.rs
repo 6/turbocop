@@ -60,7 +60,7 @@ impl Cop for ExampleWording {
         }
 
         let method_name = call.name().as_slice();
-        if !EXAMPLE_METHODS.iter().any(|m| method_name == *m) {
+        if !EXAMPLE_METHODS.contains(&method_name) {
             return;
         }
 

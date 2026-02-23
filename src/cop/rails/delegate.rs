@@ -155,12 +155,8 @@ impl Cop for Delegate {
             }
         } else if receiver.as_local_variable_read_node().is_some() {
             true
-        } else if receiver.as_constant_read_node().is_some()
-            || receiver.as_constant_path_node().is_some()
-        {
-            true
         } else {
-            false
+            receiver.as_constant_read_node().is_some() || receiver.as_constant_path_node().is_some()
         };
 
         if !is_delegatable_receiver {
@@ -276,19 +272,17 @@ fn is_private_or_protected(source: &SourceFile, def_offset: usize) -> bool {
         // Scope boundary: class/module at same or lower indent resets private state.
         // `end` only resets at STRICTLY lower indent — method `end` keywords share
         // the same indent as `private`/`def` and must not reset the state.
-        if indent <= def_col {
-            if trimmed.starts_with(b"class ") || trimmed.starts_with(b"module ") {
-                in_private = false;
-            }
+        if indent <= def_col && (trimmed.starts_with(b"class ") || trimmed.starts_with(b"module "))
+        {
+            in_private = false;
         }
-        if indent < def_col {
-            if trimmed == b"end"
+        if indent < def_col
+            && (trimmed == b"end"
                 || trimmed.starts_with(b"end ")
                 || trimmed.starts_with(b"end\n")
-                || trimmed.starts_with(b"end\r")
-            {
-                in_private = false;
-            }
+                || trimmed.starts_with(b"end\r"))
+        {
+            in_private = false;
         }
 
         // Only consider private/protected/public at the same indent level

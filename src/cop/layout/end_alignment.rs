@@ -144,7 +144,6 @@ impl Cop for EndAlignment {
                 "case",
                 style,
             ));
-            return;
         }
 
         // NOTE: `begin` blocks are not checked here — that's handled by

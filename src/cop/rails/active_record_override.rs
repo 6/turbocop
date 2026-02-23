@@ -51,7 +51,7 @@ impl Cop for ActiveRecordOverride {
         };
 
         let method_name = def_node.name().as_slice();
-        if !BAD_METHODS.iter().any(|m| *m == method_name) {
+        if !BAD_METHODS.contains(&method_name) {
             return;
         }
 

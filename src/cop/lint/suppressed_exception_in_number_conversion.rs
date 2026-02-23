@@ -104,7 +104,7 @@ fn is_numeric_constructor(node: &ruby_prism::Node<'_>) -> bool {
     };
 
     let method_name = call.name().as_slice();
-    if !NUMERIC_METHODS.iter().any(|m| *m == method_name) {
+    if !NUMERIC_METHODS.contains(&method_name) {
         return false;
     }
 

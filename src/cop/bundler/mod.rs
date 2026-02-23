@@ -26,7 +26,7 @@ pub fn extract_gem_name(line: &str) -> Option<&str> {
         return None;
     }
     // Find first quote
-    let quote_start = trimmed.find(|c: char| c == '\'' || c == '"')?;
+    let quote_start = trimmed.find(['\'', '"'])?;
     let rest = &trimmed[quote_start + 1..];
     let quote_char = trimmed.as_bytes()[quote_start];
     let quote_end = rest.find(|c: char| c as u8 == quote_char)?;

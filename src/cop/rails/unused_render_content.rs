@@ -102,7 +102,7 @@ impl Cop for UnusedRenderContent {
                 if key_name == b"status" {
                     // Check symbol status
                     if let Some(sym) = assoc.value().as_symbol_node() {
-                        if NON_CONTENT_SYMBOLS.contains(&sym.unescaped().as_ref()) {
+                        if NON_CONTENT_SYMBOLS.contains(&sym.unescaped()) {
                             has_non_content_status = true;
                         }
                     }
@@ -116,7 +116,7 @@ impl Cop for UnusedRenderContent {
                             }
                         }
                     }
-                } else if BODY_OPTIONS.contains(&key_name.as_ref()) {
+                } else if BODY_OPTIONS.contains(&key_name) {
                     has_content_keys = true;
                 }
             }

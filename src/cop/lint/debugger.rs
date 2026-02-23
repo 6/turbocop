@@ -141,10 +141,10 @@ impl Cop for Debugger {
                         let val = s.unescaped();
                         let custom_requires = config.get_flat_string_values("DebuggerRequires");
                         let matched = match &custom_requires {
-                            Some(r) => r.iter().any(|r| r.as_bytes() == &*val),
+                            Some(r) => r.iter().any(|r| r.as_bytes() == val),
                             None => DEFAULT_DEBUGGER_REQUIRES
                                 .iter()
-                                .any(|&r| r.as_bytes() == &*val),
+                                .any(|&r| r.as_bytes() == val),
                         };
                         if matched {
                             let loc = call.location();
@@ -206,7 +206,6 @@ impl Cop for Debugger {
                     }
                 }
             }
-            return;
         }
 
         // Custom DebuggerMethods with leaf names not in the default set are NOT

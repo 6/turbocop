@@ -119,7 +119,7 @@ impl Cop for Pending {
         // Check for :skip or :pending metadata, or skip: true/string, pending: true/string
         if call.receiver().is_none() || {
             if let Some(recv) = call.receiver() {
-                util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
+                util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
             } else {
                 false
             }

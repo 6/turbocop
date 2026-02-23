@@ -76,7 +76,7 @@ impl InclusionVisitor<'_> {
         }
 
         let method_name = call.name().as_slice();
-        if !MODULE_INCLUSION_METHODS.iter().any(|&m| m == method_name) {
+        if !MODULE_INCLUSION_METHODS.contains(&method_name) {
             return;
         }
 
@@ -253,11 +253,7 @@ impl<'pr> Visit<'pr> for InclusionVisitor<'_> {
         // Same logic as block_node: only set in_block_or_send for single-statement bodies
         if let Some(body) = node.body() {
             if let Some(stmts) = body.as_statements_node() {
-                if stmts.body().len() <= 1 {
-                    self.in_block_or_send = true;
-                } else {
-                    self.in_block_or_send = false;
-                }
+                self.in_block_or_send = stmts.body().len() <= 1;
             }
             self.visit(&body);
         }

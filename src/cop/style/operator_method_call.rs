@@ -37,7 +37,7 @@ impl Cop for OperatorMethodCall {
         let method_bytes = method_name.as_slice();
 
         // Must be an operator method
-        if !OPERATOR_METHODS.iter().any(|&m| m == method_bytes) {
+        if !OPERATOR_METHODS.contains(&method_bytes) {
             return;
         }
 

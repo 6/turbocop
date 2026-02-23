@@ -41,7 +41,7 @@ impl Cop for TrailingWhitespace {
                     .skip_while(|&b| b == b' ' || b == b'\t')
                     .collect();
                 if trimmed == *terminator
-                    || trimmed.strip_suffix(&[b'\r']).unwrap_or(&trimmed) == terminator.as_slice()
+                    || trimmed.strip_suffix(b"\r").unwrap_or(&trimmed) == terminator.as_slice()
                 {
                     heredoc_terminator = None;
                 } else if allow_in_heredoc {

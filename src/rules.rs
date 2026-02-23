@@ -82,8 +82,8 @@ pub fn build_rules(
 pub fn print_table(rules: &[RuleEntry]) {
     // Header
     println!(
-        "{:<45} {:<8} {:<12} {:<10} {}",
-        "Name", "Tier", "Implemented", "Baseline", "Default"
+        "{:<45} {:<8} {:<12} {:<10} Default",
+        "Name", "Tier", "Implemented", "Baseline"
     );
     println!("{}", "-".repeat(85));
 

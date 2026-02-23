@@ -84,7 +84,7 @@ impl<'a, 'pr> Visit<'pr> for ClassEqVisitor<'a> {
                             recv_call
                                 .receiver()
                                 .and_then(|ir| ir.as_call_node())
-                                .map_or(false, |ic| ic.name().as_slice() == b"class")
+                                .is_some_and(|ic| ic.name().as_slice() == b"class")
                         } else {
                             false
                         }

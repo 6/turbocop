@@ -88,10 +88,10 @@ impl Cop for WordArray {
                 let content_str = std::str::from_utf8(content).unwrap_or("");
                 // Simple check: if WordRegex looks like a restrictive pattern,
                 // only flag if content matches basic word chars
-                if word_regex.contains("\\A") || word_regex.contains("\\w") {
-                    if !content_str.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                        return;
-                    }
+                if (word_regex.contains("\\A") || word_regex.contains("\\w"))
+                    && !content_str.chars().all(|c| c.is_alphanumeric() || c == '_')
+                {
+                    return;
                 }
             }
         }

@@ -40,7 +40,7 @@ impl Cop for TrailingCommaInAttributeDeclaration {
         }
 
         let method_name = call.name().as_slice();
-        if !ATTR_METHODS.iter().any(|m| *m == method_name) {
+        if !ATTR_METHODS.contains(&method_name) {
             return;
         }
 

@@ -509,7 +509,7 @@ fn find_non_continuation_ancestor_line(source: &SourceFile, start_line: usize) -
     let lines: Vec<&[u8]> = source.lines().collect();
     let mut line = start_line;
     while line >= 1 {
-        if line - 1 >= lines.len() {
+        if line > lines.len() {
             break;
         }
         let line_bytes = lines[line - 1];

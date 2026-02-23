@@ -119,7 +119,7 @@ impl Cop for PredicatePrefix {
             }
             if let Some(sym) = args_list[0].as_symbol_node() {
                 let sym_bytes = sym.unescaped();
-                let sym_str = match std::str::from_utf8(&sym_bytes) {
+                let sym_str = match std::str::from_utf8(sym_bytes) {
                     Ok(s) => s,
                     Err(_) => return,
                 };
@@ -129,7 +129,6 @@ impl Cop for PredicatePrefix {
                     sym.location().start_offset(),
                     config,
                 ));
-                return;
             }
         }
     }

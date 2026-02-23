@@ -82,7 +82,7 @@ impl Cop for FactoryClassName {
                 let key_is_class = pair
                     .key()
                     .as_symbol_node()
-                    .map_or(false, |s| s.unescaped() == b"class");
+                    .is_some_and(|s| s.unescaped() == b"class");
 
                 if !key_is_class {
                     continue;

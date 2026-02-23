@@ -131,7 +131,7 @@ impl Cop for SkipsModelValidations {
                         hash.elements().iter().any(|elem| {
                             if let Some(assoc) = elem.as_assoc_node() {
                                 if let Some(sym) = assoc.key().as_symbol_node() {
-                                    let name: &[u8] = sym.unescaped().as_ref();
+                                    let name: &[u8] = sym.unescaped();
                                     return name == b"returning" || name == b"unique_by";
                                 }
                             }
@@ -141,7 +141,7 @@ impl Cop for SkipsModelValidations {
                         kw_hash.elements().iter().any(|elem| {
                             if let Some(assoc) = elem.as_assoc_node() {
                                 if let Some(sym) = assoc.key().as_symbol_node() {
-                                    let name: &[u8] = sym.unescaped().as_ref();
+                                    let name: &[u8] = sym.unescaped();
                                     return name == b"returning" || name == b"unique_by";
                                 }
                             }

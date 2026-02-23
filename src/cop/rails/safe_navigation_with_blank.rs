@@ -73,7 +73,6 @@ impl Cop for SafeNavigationWithBlank {
         if let Some(unless_node) = node.as_unless_node() {
             let predicate = unless_node.predicate();
             diagnostics.extend(check_safe_blank_predicate(source, &predicate, self));
-            return;
         }
     }
 }

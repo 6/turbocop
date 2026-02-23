@@ -46,7 +46,7 @@ impl Cop for IndentationStyle {
                     .take_while(|&&b| b == b' ' || b == b'\t')
                     .count();
                 let indent = &line[..indent_end];
-                if indent.iter().any(|&b| b == b'\t') {
+                if indent.contains(&b'\t') {
                     let tab_col = indent.iter().position(|&b| b == b'\t').unwrap_or(0);
                     let tab_offset = line_start + tab_col;
                     // Double-check the specific tab character is in a code region
@@ -85,7 +85,7 @@ impl Cop for IndentationStyle {
                     .take_while(|&&b| b == b' ' || b == b'\t')
                     .count();
                 let indent = &line[..indent_end];
-                if indent.iter().any(|&b| b == b' ') {
+                if indent.contains(&b' ') {
                     let space_col = indent.iter().position(|&b| b == b' ').unwrap_or(0);
                     let space_offset = line_start + space_col;
                     if code_map.is_code(space_offset) {

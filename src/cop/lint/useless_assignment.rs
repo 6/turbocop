@@ -129,7 +129,7 @@ impl<'pr> Visit<'pr> for WriteReadCollector {
         if node.receiver().is_none()
             && node.name().as_slice() == b"binding"
             && (node.arguments().is_none()
-                || node.arguments().map_or(true, |a| a.arguments().is_empty()))
+                || node.arguments().is_none_or(|a| a.arguments().is_empty()))
         {
             self.has_binding_call = true;
         }
@@ -306,7 +306,7 @@ impl<'pr> Visit<'pr> for ScopedCollector {
         if node.receiver().is_none()
             && node.name().as_slice() == b"binding"
             && (node.arguments().is_none()
-                || node.arguments().map_or(true, |a| a.arguments().is_empty()))
+                || node.arguments().is_none_or(|a| a.arguments().is_empty()))
         {
             let idx = self.current_scope();
             self.scopes[idx].has_binding_call = true;

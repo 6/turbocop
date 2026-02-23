@@ -180,11 +180,12 @@ impl RedundantParensVisitor<'_> {
         // parens are not flagged. We detect top-level by checking the parent
         // stack depth: at top level it's exactly 3 (Program, Statements, Parens).
         // Must be checked before `check_method_call` since comparisons are also call nodes.
-        if is_comparison(inner) && !is_chained(&self.source.content, node) {
-            if self.parent_stack.len() <= 3 {
-                self.add_offense(node, "a comparison expression");
-                return;
-            }
+        if is_comparison(inner)
+            && !is_chained(&self.source.content, node)
+            && self.parent_stack.len() <= 3
+        {
+            self.add_offense(node, "a comparison expression");
+            return;
         }
 
         // Method call

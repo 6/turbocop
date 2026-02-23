@@ -166,7 +166,7 @@ fn keyword_pair_matches(assoc: &ruby_prism::AssocNode<'_>, name: &[u8]) -> bool 
     let value = assoc.value();
     if let Some(sym) = key.as_symbol_node() {
         if let Some(lv) = value.as_local_variable_read_node() {
-            let sym_name: &[u8] = sym.unescaped().as_ref();
+            let sym_name: &[u8] = sym.unescaped();
             return sym_name == name && lv.name().as_slice() == name;
         }
     }

@@ -44,7 +44,6 @@ impl Cop for DuplicateBranch {
         // Check case/when statements
         if let Some(case_node) = node.as_case_node() {
             diagnostics.extend(check_case_branches(self, source, &case_node));
-            return;
         }
     }
 }

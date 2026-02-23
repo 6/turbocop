@@ -239,10 +239,8 @@ fn check_not_implemented_call(node: &ruby_prism::Node<'_>) -> bool {
             }
         }
         false
-    } else if name == b"fail" {
-        true
     } else {
-        false
+        name == b"fail"
     }
 }
 

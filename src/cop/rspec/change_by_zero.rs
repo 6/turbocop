@@ -44,27 +44,25 @@ impl Cop for ChangeByZero {
         let method_name = call.name().as_slice();
 
         // Check for `not_to change { }` when NegatedMatcher is set
-        if !negated_matcher.is_empty() {
-            if method_name == b"not_to" || method_name == b"to_not" {
-                if let Some(args) = call.arguments() {
-                    let arg_list: Vec<_> = args.arguments().iter().collect();
-                    if !arg_list.is_empty() {
-                        if let Some(inner) = arg_list[0].as_call_node() {
-                            let inner_name = inner.name().as_slice();
-                            if (inner_name == b"change"
-                                || inner_name == b"a_block_changing"
-                                || inner_name == b"changing")
-                                && inner.receiver().is_none()
-                            {
-                                let loc = inner.location();
-                                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                diagnostics.push(self.diagnostic(
-                                    source,
-                                    line,
-                                    column,
-                                    format!("Prefer `{negated_matcher}` over `not_to change`."),
-                                ));
-                            }
+        if !negated_matcher.is_empty() && (method_name == b"not_to" || method_name == b"to_not") {
+            if let Some(args) = call.arguments() {
+                let arg_list: Vec<_> = args.arguments().iter().collect();
+                if !arg_list.is_empty() {
+                    if let Some(inner) = arg_list[0].as_call_node() {
+                        let inner_name = inner.name().as_slice();
+                        if (inner_name == b"change"
+                            || inner_name == b"a_block_changing"
+                            || inner_name == b"changing")
+                            && inner.receiver().is_none()
+                        {
+                            let loc = inner.location();
+                            let (line, column) = source.offset_to_line_col(loc.start_offset());
+                            diagnostics.push(self.diagnostic(
+                                source,
+                                line,
+                                column,
+                                format!("Prefer `{negated_matcher}` over `not_to change`."),
+                            ));
                         }
                     }
                 }

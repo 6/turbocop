@@ -658,7 +658,7 @@ impl SafeNavigation {
                     let if_is_nil = if_node
                         .statements()
                         .and_then(|s| Self::single_stmt_from_stmts(&s))
-                        .map_or(true, |n| Self::is_nil(&n));
+                        .is_none_or(|n| Self::is_nil(&n));
                     if !if_is_nil {
                         return Vec::new();
                     }
@@ -693,7 +693,7 @@ impl SafeNavigation {
                             let if_is_nil = if_node
                                 .statements()
                                 .and_then(|s| Self::single_stmt_from_stmts(&s))
-                                .map_or(true, |n| Self::is_nil(&n));
+                                .is_none_or(|n| Self::is_nil(&n));
                             if !if_is_nil {
                                 return Vec::new();
                             }
@@ -705,7 +705,7 @@ impl SafeNavigation {
                         let if_is_nil = if_node
                             .statements()
                             .and_then(|s| Self::single_stmt_from_stmts(&s))
-                            .map_or(true, |n| Self::is_nil(&n));
+                            .is_none_or(|n| Self::is_nil(&n));
                         if !if_is_nil {
                             return Vec::new();
                         }

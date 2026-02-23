@@ -46,7 +46,7 @@ impl Cop for EmptyLinesAroundAttributeAccessor {
         }
 
         let method_name = call.name().as_slice();
-        if !ATTRIBUTE_METHODS.iter().any(|&m| m == method_name) {
+        if !ATTRIBUTE_METHODS.contains(&method_name) {
             return;
         }
 

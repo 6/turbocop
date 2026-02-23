@@ -137,7 +137,6 @@ impl Cop for Presence {
                 },
                 config,
             ));
-            return;
         }
     }
 }

@@ -46,7 +46,7 @@ impl Cop for SendWithMixinArgument {
         let method_name = call.name().as_slice();
 
         // Must be send/public_send/__send__
-        if !SEND_METHODS.iter().any(|m| *m == method_name) {
+        if !SEND_METHODS.contains(&method_name) {
             return;
         }
 

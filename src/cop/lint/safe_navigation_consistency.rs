@@ -60,7 +60,6 @@ impl Cop for SafeNavigationConsistency {
                 false,
                 &allowed_methods,
             ));
-            return;
         }
     }
 }

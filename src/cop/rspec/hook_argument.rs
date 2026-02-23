@@ -50,9 +50,9 @@ impl Cop for HookArgument {
 
         // Check both receiverless `before(...)` and `config.before(...)`
         let is_hook = if call.receiver().is_none() {
-            HOOK_METHODS.iter().any(|m| method_name == *m)
+            HOOK_METHODS.contains(&method_name)
         } else {
-            HOOK_METHODS.iter().any(|m| method_name == *m)
+            HOOK_METHODS.contains(&method_name)
         };
 
         if !is_hook {
@@ -77,7 +77,7 @@ impl Cop for HookArgument {
             } else if let Some(sym) = arg_list[0].as_symbol_node() {
                 let val = sym.unescaped();
                 // Only flag if missing expected scope arg
-                val == b"each" || val == b"example" || NON_EXAMPLE_SCOPES.iter().any(|s| val == *s)
+                val == b"each" || val == b"example" || NON_EXAMPLE_SCOPES.contains(&val)
             } else {
                 false
             };
@@ -99,7 +99,7 @@ impl Cop for HookArgument {
             if !arg_list.is_empty() {
                 if let Some(sym) = arg_list[0].as_symbol_node() {
                     let val = sym.unescaped();
-                    if NON_EXAMPLE_SCOPES.iter().any(|s| val == *s) {
+                    if NON_EXAMPLE_SCOPES.contains(&val) {
                         return; // :suite/:context/:all are fine
                     }
                     let val_str = std::str::from_utf8(val).unwrap_or("");
@@ -137,7 +137,7 @@ impl Cop for HookArgument {
             let val = sym.unescaped();
 
             // Ignore :suite, :context, :all — those are different scopes
-            if NON_EXAMPLE_SCOPES.iter().any(|s| val == *s) {
+            if NON_EXAMPLE_SCOPES.contains(&val) {
                 return;
             }
 

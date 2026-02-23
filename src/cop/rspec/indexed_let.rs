@@ -55,7 +55,7 @@ impl Cop for IndexedLet {
 
         let method_name = call.name().as_slice();
         let is_group = if let Some(recv) = call.receiver() {
-            crate::cop::util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
+            crate::cop::util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
                 && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name)
@@ -167,7 +167,7 @@ impl Cop for IndexedLet {
             groups.entry(&info.base_name).or_default().push(info);
         }
 
-        for (_base, lets) in &groups {
+        for lets in groups.values() {
             if lets.len() > max {
                 for let_info in lets {
                     diagnostics.push(self.diagnostic(

@@ -78,7 +78,7 @@ fn find_expects_in_node(
     if let Some(call) = node.as_call_node() {
         if call.receiver().is_none() {
             let name = call.name().as_slice();
-            if EXPECT_METHODS.iter().any(|m| name == *m) {
+            if EXPECT_METHODS.contains(&name) {
                 let method_str = std::str::from_utf8(name).unwrap_or("expect");
                 let loc = call.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());

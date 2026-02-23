@@ -95,7 +95,7 @@ impl Cop for CompactBlank {
             if let Some(expr) = block_arg.expression() {
                 if let Some(sym) = expr.as_symbol_node() {
                     let unescaped = sym.unescaped();
-                    if &*unescaped == expected_predicate {
+                    if unescaped == expected_predicate {
                         let loc = node.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
                         diagnostics.push(self.diagnostic(

@@ -14,7 +14,7 @@ impl FileTouch {
         }
         if let Some(cp) = node.as_constant_path_node() {
             if cp.parent().is_none() {
-                return cp.name().map_or(false, |n| n.as_slice() == b"File");
+                return cp.name().is_some_and(|n| n.as_slice() == b"File");
             }
         }
         false
@@ -92,7 +92,7 @@ impl Cop for FileTouch {
 
         // Second arg should be 'a'
         if let Some(str_node) = arg_list[1].as_string_node() {
-            let content: &[u8] = &str_node.unescaped();
+            let content: &[u8] = str_node.unescaped();
             if content != b"a" {
                 return;
             }

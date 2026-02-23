@@ -12,7 +12,7 @@ impl FileWrite {
         }
         if let Some(cp) = node.as_constant_path_node() {
             if cp.parent().is_none() {
-                return cp.name().map_or(false, |n| n.as_slice() == b"File");
+                return cp.name().is_some_and(|n| n.as_slice() == b"File");
             }
         }
         false

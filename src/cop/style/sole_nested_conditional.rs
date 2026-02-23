@@ -80,10 +80,8 @@ impl Cop for SoleNestedConditional {
 
             inner_kw.as_slice() == b"if"
         } else if let Some(inner_unless) = body[0].as_unless_node() {
-            if allow_modifier {
-                if inner_unless.end_keyword_loc().is_none() {
-                    return;
-                }
+            if allow_modifier && inner_unless.end_keyword_loc().is_none() {
+                return;
             }
 
             if inner_unless.else_clause().is_some() {

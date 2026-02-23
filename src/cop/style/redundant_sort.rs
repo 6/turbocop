@@ -106,8 +106,10 @@ impl Cop for RedundantSort {
 
         let suggestion = if is_first {
             if sorter == "sort" { "min" } else { "min_by" }
+        } else if sorter == "sort" {
+            "max"
         } else {
-            if sorter == "sort" { "max" } else { "max_by" }
+            "max_by"
         };
 
         let accessor_src = std::str::from_utf8(method_bytes).unwrap_or("");

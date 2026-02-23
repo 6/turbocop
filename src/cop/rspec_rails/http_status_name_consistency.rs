@@ -71,9 +71,9 @@ impl Cop for HttpStatusNameConsistency {
         };
 
         let sym_name = sym.unescaped();
-        let current = std::str::from_utf8(sym_name.as_ref()).unwrap_or("");
+        let current = std::str::from_utf8(sym_name).unwrap_or("");
 
-        if let Some(preferred) = preferred_status(&sym_name) {
+        if let Some(preferred) = preferred_status(sym_name) {
             let loc = arg.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             diagnostics.push(self.diagnostic(

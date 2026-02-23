@@ -11,7 +11,7 @@ const OPERATOR_METHODS: &[&[u8]] = &[
 ];
 
 fn is_operator_method(name: &[u8]) -> bool {
-    OPERATOR_METHODS.iter().any(|&op| op == name)
+    OPERATOR_METHODS.contains(&name)
 }
 
 fn is_setter_method(name: &[u8]) -> bool {

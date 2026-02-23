@@ -6,13 +6,7 @@ use crate::parse::source::SourceFile;
 pub struct RedundantRegexpEscape;
 
 /// Characters that need escaping OUTSIDE a character class in regexp
-const MEANINGFUL_ESCAPES: &[u8] = &[
-    b'.', b'|', b'(', b')', b'[', b']', b'{', b'}', b'*', b'+', b'?', b'\\', b'^', b'$', b'-',
-    b'#', // Escape sequences
-    b'n', b't', b'r', b'f', b'a', b'e', b'v', b'b', b'B', b's', b'S', b'd', b'D', b'w', b'W', b'h',
-    b'H', b'A', b'z', b'Z', b'G', b'p', b'P', b'R', b'X', b'k', b'g', // Numeric escapes
-    b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b'x', b'u', b'c', b'C', b'M',
-];
+const MEANINGFUL_ESCAPES: &[u8] = b".|()[]{}*+?\\^$-#ntrfaevbBsSdDwWhHAzZGpPRXkg0123456789xucCM";
 
 /// Characters that need escaping INSIDE a character class `[...]`.
 /// Inside a class, metacharacters like `.`, `(`, `)`, `*`, `+`, `?`, `|`, `{`, `}`
@@ -20,13 +14,7 @@ const MEANINGFUL_ESCAPES: &[u8] = &[
 /// Note: `#` is always allowed to be escaped (to prevent interpolation ambiguity).
 /// Note: `\-` is only meaningful if NOT at the start/end of the class; this is
 /// handled separately in the check logic below.
-const MEANINGFUL_ESCAPES_IN_CHAR_CLASS: &[u8] = &[
-    b'\\', b']', b'^', b'[', b'#',
-    // Escape sequences are still meaningful inside character classes
-    b'n', b't', b'r', b'f', b'a', b'e', b'v', b'b', b'B', b's', b'S', b'd', b'D', b'w', b'W', b'h',
-    b'H', b'A', b'z', b'Z', b'G', b'p', b'P', b'R', b'X', b'k', b'g', // Numeric escapes
-    b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b'x', b'u', b'c', b'C', b'M',
-];
+const MEANINGFUL_ESCAPES_IN_CHAR_CLASS: &[u8] = b"\\]^[#ntrfaevbBsSdDwWhHAzZGpPRXkg0123456789xucCM";
 
 impl Cop for RedundantRegexpEscape {
     fn name(&self) -> &'static str {

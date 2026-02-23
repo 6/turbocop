@@ -69,7 +69,7 @@ impl Cop for InferredSpecType {
 
         // Check for RSpec.describe or bare describe/context/etc.
         let is_example_group = if let Some(recv) = call.receiver() {
-            crate::cop::util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
+            crate::cop::util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
                 && (method_name == b"describe" || method_name == b"context")
         } else {
             EXAMPLE_GROUPS.contains(&method_name)
@@ -146,7 +146,7 @@ impl InferredSpecType {
             };
 
             let type_name = type_sym.unescaped();
-            let type_str = std::str::from_utf8(type_name.as_ref()).unwrap_or("");
+            let type_str = std::str::from_utf8(type_name).unwrap_or("");
 
             // Infer expected type from file path
             let file_path = source.path_str();

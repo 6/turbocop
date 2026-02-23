@@ -44,7 +44,7 @@ impl Cop for MultipleRoutePaths {
         }
 
         let name = call.name().as_slice();
-        if !HTTP_METHODS.iter().any(|m| *m == name) {
+        if !HTTP_METHODS.contains(&name) {
             return;
         }
 

@@ -17,7 +17,7 @@ const MAGIC_COMMENT_DIRECTIVES: &[&str] = &[
 
 impl MagicCommentFormat {
     fn is_magic_comment_directive(word: &str) -> bool {
-        let normalized = word.replace('-', "_").replace('_', "_").to_lowercase();
+        let normalized = word.replace(['-', '_'], "_").to_lowercase();
         MAGIC_COMMENT_DIRECTIVES
             .iter()
             .any(|&d| d.replace('-', "_").to_lowercase() == normalized)

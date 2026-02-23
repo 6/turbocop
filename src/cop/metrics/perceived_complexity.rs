@@ -235,10 +235,9 @@ impl PerceivedCounter {
                     if call
                         .call_operator_loc()
                         .is_some_and(|loc| loc.as_slice() == b"&.")
+                        && !self.discount_repeated_csend(&call)
                     {
-                        if !self.discount_repeated_csend(&call) {
-                            self.complexity += 1;
-                        }
+                        self.complexity += 1;
                     }
                     // Iterating block counts
                     if call.block().is_some_and(|b| b.as_block_node().is_some()) {

@@ -78,13 +78,13 @@ impl<'pr> Visit<'pr> for RackTestChecker {
 fn is_rack_test_methods(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(cp) = node.as_constant_path_node() {
         // Check Methods
-        if cp.name().map_or(true, |n| n.as_slice() != b"Methods") {
+        if cp.name().is_none_or(|n| n.as_slice() != b"Methods") {
             return false;
         }
         // Check parent is Rack::Test
         if let Some(parent) = cp.parent() {
             if let Some(cp2) = parent.as_constant_path_node() {
-                if cp2.name().map_or(true, |n| n.as_slice() != b"Test") {
+                if cp2.name().is_none_or(|n| n.as_slice() != b"Test") {
                     return false;
                 }
                 // Check grandparent is Rack

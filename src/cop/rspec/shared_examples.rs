@@ -53,10 +53,10 @@ impl Cop for SharedExamples {
 
         // Check for RSpec.shared_examples / ::RSpec.shared_examples as well
         let is_shared = if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
+            util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
                 && (method_name == b"shared_examples" || method_name == b"shared_examples_for")
         } else {
-            SHARED_EXAMPLE_METHODS.iter().any(|m| method_name == *m)
+            SHARED_EXAMPLE_METHODS.contains(&method_name)
         };
 
         if !is_shared {

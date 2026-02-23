@@ -192,9 +192,8 @@ fn is_annotation_or_directive(comment: &str) -> bool {
     // Annotation keywords (only if the WHOLE comment starts with one)
     let annotation_keywords = ["TODO", "FIXME", "OPTIMIZE", "HACK", "REVIEW", "NOTE"];
     for kw in &annotation_keywords {
-        if text.starts_with(kw) {
+        if let Some(rest) = text.strip_prefix(kw) {
             // Must be followed by : or whitespace or end of string
-            let rest = &text[kw.len()..];
             if rest.is_empty() || rest.starts_with(':') || rest.starts_with(' ') {
                 return true;
             }
@@ -267,21 +266,20 @@ impl<'pr> Visit<'pr> for DocumentationVisitor<'_> {
         let (has_nodoc, has_nodoc_all) = check_nodoc(self.source, start);
 
         // Check documentation requirement (only if not inside a :nodoc: all parent)
-        if self.nodoc_all_depth == 0 {
-            if !self.allowed_constants.iter().any(|c| c == &name)
-                && !has_nodoc
-                && !is_namespace_only(&node.body(), true)
-                && !is_include_only(&node.body())
-                && !has_documentation_comment(self.source, start)
-            {
-                let (line, column) = self.source.offset_to_line_col(start);
-                self.diagnostics.push(self.cop.diagnostic(
-                    self.source,
-                    line,
-                    column,
-                    "Missing top-level documentation comment for `class`.".to_string(),
-                ));
-            }
+        if self.nodoc_all_depth == 0
+            && !self.allowed_constants.iter().any(|c| c == &name)
+            && !has_nodoc
+            && !is_namespace_only(&node.body(), true)
+            && !is_include_only(&node.body())
+            && !has_documentation_comment(self.source, start)
+        {
+            let (line, column) = self.source.offset_to_line_col(start);
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                "Missing top-level documentation comment for `class`.".to_string(),
+            ));
         }
 
         // Recurse into children, tracking nodoc_all depth
@@ -301,21 +299,20 @@ impl<'pr> Visit<'pr> for DocumentationVisitor<'_> {
         let (has_nodoc, has_nodoc_all) = check_nodoc(self.source, start);
 
         // Check documentation requirement (only if not inside a :nodoc: all parent)
-        if self.nodoc_all_depth == 0 {
-            if !self.allowed_constants.iter().any(|c| c == &name)
-                && !has_nodoc
-                && !is_namespace_only(&node.body(), false)
-                && !is_include_only(&node.body())
-                && !has_documentation_comment(self.source, start)
-            {
-                let (line, column) = self.source.offset_to_line_col(start);
-                self.diagnostics.push(self.cop.diagnostic(
-                    self.source,
-                    line,
-                    column,
-                    "Missing top-level documentation comment for `module`.".to_string(),
-                ));
-            }
+        if self.nodoc_all_depth == 0
+            && !self.allowed_constants.iter().any(|c| c == &name)
+            && !has_nodoc
+            && !is_namespace_only(&node.body(), false)
+            && !is_include_only(&node.body())
+            && !has_documentation_comment(self.source, start)
+        {
+            let (line, column) = self.source.offset_to_line_col(start);
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                "Missing top-level documentation comment for `module`.".to_string(),
+            ));
         }
 
         // Recurse into children, tracking nodoc_all depth

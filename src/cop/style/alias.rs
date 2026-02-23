@@ -133,19 +133,17 @@ impl Visit<'_> for AliasVisitor<'_, '_> {
         } else {
             // prefer_alias style: if inside dynamic scope (def or block),
             // flag alias to use alias_method instead
-            if scope == ScopeType::Dynamic {
-                if self.alias_method_possible() {
-                    let loc = node.location();
-                    let kw_slice = &self.source.content[loc.start_offset()..];
-                    if kw_slice.starts_with(b"alias ") || kw_slice.starts_with(b"alias\t") {
-                        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-                        self.diagnostics.push(self.cop.diagnostic(
-                            self.source,
-                            line,
-                            column,
-                            "Use `alias_method` instead of `alias`.".to_string(),
-                        ));
-                    }
+            if scope == ScopeType::Dynamic && self.alias_method_possible() {
+                let loc = node.location();
+                let kw_slice = &self.source.content[loc.start_offset()..];
+                if kw_slice.starts_with(b"alias ") || kw_slice.starts_with(b"alias\t") {
+                    let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                    self.diagnostics.push(self.cop.diagnostic(
+                        self.source,
+                        line,
+                        column,
+                        "Use `alias_method` instead of `alias`.".to_string(),
+                    ));
                 }
             }
         }
@@ -155,17 +153,18 @@ impl Visit<'_> for AliasVisitor<'_, '_> {
         // Check for alias_method call (prefer_alias style)
         if self.enforced_style == "prefer_alias" {
             let name = node.name();
-            if name.as_slice() == b"alias_method" && node.receiver().is_none() {
-                if self.alias_keyword_possible(node) {
-                    let msg_loc = node.message_loc().unwrap_or_else(|| node.location());
-                    let (line, column) = self.source.offset_to_line_col(msg_loc.start_offset());
-                    self.diagnostics.push(self.cop.diagnostic(
-                        self.source,
-                        line,
-                        column,
-                        "Use `alias` instead of `alias_method`.".to_string(),
-                    ));
-                }
+            if name.as_slice() == b"alias_method"
+                && node.receiver().is_none()
+                && self.alias_keyword_possible(node)
+            {
+                let msg_loc = node.message_loc().unwrap_or_else(|| node.location());
+                let (line, column) = self.source.offset_to_line_col(msg_loc.start_offset());
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
+                    line,
+                    column,
+                    "Use `alias` instead of `alias_method`.".to_string(),
+                ));
             }
         }
 

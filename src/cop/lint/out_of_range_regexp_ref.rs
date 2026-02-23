@@ -292,7 +292,7 @@ fn count_captures_in_node(node: &ruby_prism::Node<'_>) -> Option<usize> {
     if let Some(regexp) = node.as_regular_expression_node() {
         // Check for interpolation — skip if present
         let content = regexp.unescaped();
-        let content_str = std::str::from_utf8(&content).ok()?;
+        let content_str = std::str::from_utf8(content).ok()?;
         Some(count_capture_groups(content_str))
     } else if let Some(interp_regexp) = node.as_interpolated_regular_expression_node() {
         // If it has interpolation, we can't reliably count captures
@@ -301,7 +301,7 @@ fn count_captures_in_node(node: &ruby_prism::Node<'_>) -> Option<usize> {
         for part in interp_regexp.parts().iter() {
             if let Some(s) = part.as_string_node() {
                 let val = s.unescaped();
-                pattern.push_str(&String::from_utf8_lossy(&val));
+                pattern.push_str(&String::from_utf8_lossy(val));
             } else {
                 has_interp = true;
             }

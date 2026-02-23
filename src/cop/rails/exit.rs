@@ -37,7 +37,7 @@ impl Cop for Exit {
         };
 
         let name = call.name().as_slice();
-        if !EXIT_METHODS.iter().any(|&m| m == name) {
+        if !EXIT_METHODS.contains(&name) {
             return;
         }
 
@@ -52,7 +52,7 @@ impl Cop for Exit {
         // Check receiver: must be nil, Kernel, or Process
         if let Some(receiver) = call.receiver() {
             let is_allowed_receiver = if let Some(name) = util::constant_name(&receiver) {
-                EXPLICIT_RECEIVERS.iter().any(|&r| r == name)
+                EXPLICIT_RECEIVERS.contains(&name)
             } else {
                 false
             };

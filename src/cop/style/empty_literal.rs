@@ -96,10 +96,11 @@ impl Cop for EmptyLiteral {
 
         // When frozen_string_literal: true is enabled, String.new is the only way
         // to create a mutable empty string. Don't flag it.
-        if const_name.as_slice() == b"String" && method_bytes == b"new" {
-            if has_frozen_string_literal(source) {
-                return;
-            }
+        if const_name.as_slice() == b"String"
+            && method_bytes == b"new"
+            && has_frozen_string_literal(source)
+        {
+            return;
         }
 
         let msg = match const_name.as_slice() {

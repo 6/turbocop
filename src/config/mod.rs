@@ -662,7 +662,7 @@ fn convert_standard_yml(standard_path: &Path) -> Result<String> {
 
     // require: always include "standard" itself, plus any plugins
     let mut requires = vec!["standard".to_string()];
-    if let Some(plugins) = map.get(&serde_yml::Value::String("plugins".into())) {
+    if let Some(plugins) = map.get(serde_yml::Value::String("plugins".into())) {
         if let Some(seq) = plugins.as_sequence() {
             for v in seq {
                 if let Some(s) = v.as_str() {
@@ -684,7 +684,7 @@ fn convert_standard_yml(standard_path: &Path) -> Result<String> {
     let mut all_cops_lines: Vec<String> = Vec::new();
 
     // ruby_version → AllCops.TargetRubyVersion
-    if let Some(rv) = map.get(&serde_yml::Value::String("ruby_version".into())) {
+    if let Some(rv) = map.get(serde_yml::Value::String("ruby_version".into())) {
         if let Some(f) = rv.as_f64() {
             all_cops_lines.push(format!("  TargetRubyVersion: {f}"));
         } else if let Some(s) = rv.as_str() {
@@ -697,7 +697,7 @@ fn convert_standard_yml(standard_path: &Path) -> Result<String> {
     // Note: .git/**/*, node_modules/**/*, vendor/**/*, tmp/**/* are already in
     // RuboCop's own AllCops.Exclude defaults, so we only need the standard-specific ones.
     let default_ignores_disabled = map
-        .get(&serde_yml::Value::String("default_ignores".into()))
+        .get(serde_yml::Value::String("default_ignores".into()))
         .and_then(|v| v.as_bool())
         == Some(false);
 
@@ -708,7 +708,7 @@ fn convert_standard_yml(standard_path: &Path) -> Result<String> {
         exclude_patterns.push("db/schema.rb".to_string());
     }
     let mut cop_disables: Vec<(String, String)> = Vec::new(); // (cop_name, glob)
-    if let Some(ignore) = map.get(&serde_yml::Value::String("ignore".into())) {
+    if let Some(ignore) = map.get(serde_yml::Value::String("ignore".into())) {
         if let Some(seq) = ignore.as_sequence() {
             for item in seq {
                 match item {
@@ -763,7 +763,7 @@ fn convert_standard_yml(standard_path: &Path) -> Result<String> {
     }
 
     // extend_config → inherit_from
-    if let Some(extend) = map.get(&serde_yml::Value::String("extend_config".into())) {
+    if let Some(extend) = map.get(serde_yml::Value::String("extend_config".into())) {
         if let Some(seq) = extend.as_sequence() {
             let files: Vec<String> = seq
                 .iter()
@@ -1086,11 +1086,11 @@ fn load_config_recursive_inner(
         // Peek at AllCops.TargetRubyVersion for version-aware standard gem config selection.
         // Needed before processing require: to select the right version-specific config file.
         let local_ruby_version: Option<f64> = map
-            .get(&Value::String("AllCops".to_string()))
+            .get(Value::String("AllCops".to_string()))
             .and_then(|ac| {
                 if let Value::Mapping(ac_map) = ac {
                     ac_map
-                        .get(&Value::String("TargetRubyVersion".to_string()))
+                        .get(Value::String("TargetRubyVersion".to_string()))
                         .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
                 } else {
                     None
@@ -1102,7 +1102,7 @@ fn load_config_recursive_inner(
         //    `require: [./custom_cop.rb]`), so we must process both.
         let mut gems = Vec::new();
         for key in &["plugins", "require"] {
-            if let Some(val) = map.get(&Value::String(key.to_string())) {
+            if let Some(val) = map.get(Value::String(key.to_string())) {
                 match val {
                     Value::String(s) => gems.push(s.clone()),
                     Value::Sequence(seq) => {
@@ -1171,10 +1171,8 @@ fn load_config_recursive_inner(
                 // Other gems (custom cops, Ruby files, etc.) are skipped.
                 let config_rel_path: Option<String> = if gem_name.starts_with("rubocop-") {
                     Some("config/default.yml".into())
-                } else if let Some(path) = standard_gem_config_path(gem_name, local_ruby_version) {
-                    Some(path.into())
                 } else {
-                    None
+                    standard_gem_config_path(gem_name, local_ruby_version).map(|path| path.into())
                 };
                 let Some(config_rel_path) = config_rel_path else {
                     continue;
@@ -1264,7 +1262,7 @@ fn load_config_recursive_inner(
         }
 
         // 1. Process inherit_gem
-        if let Some(gem_value) = map.get(&Value::String("inherit_gem".to_string())) {
+        if let Some(gem_value) = map.get(Value::String("inherit_gem".to_string())) {
             if let Value::Mapping(gem_map) = gem_value {
                 for (gem_key, gem_paths) in gem_map {
                     if let Some(gem_name) = gem_key.as_str() {
@@ -1292,7 +1290,7 @@ fn load_config_recursive_inner(
         }
 
         // 2. Process inherit_from
-        if let Some(inherit_value) = map.get(&Value::String("inherit_from".to_string())) {
+        if let Some(inherit_value) = map.get(Value::String("inherit_from".to_string())) {
             let paths = match inherit_value {
                 Value::String(s) => vec![s.clone()],
                 Value::Sequence(seq) => seq
@@ -1441,16 +1439,16 @@ fn parse_config_layer(raw: &Value) -> ConfigLayer {
                         global_excludes = excludes;
                     }
                     if let Value::Mapping(ac_map) = value {
-                        if let Some(nc) = ac_map.get(&Value::String("NewCops".to_string())) {
+                        if let Some(nc) = ac_map.get(Value::String("NewCops".to_string())) {
                             new_cops = nc.as_str().map(String::from);
                         }
                         if let Some(dbd) =
-                            ac_map.get(&Value::String("DisabledByDefault".to_string()))
+                            ac_map.get(Value::String("DisabledByDefault".to_string()))
                         {
                             disabled_by_default = dbd.as_bool();
                         }
                         if let Some(trv) =
-                            ac_map.get(&Value::String("TargetRubyVersion".to_string()))
+                            ac_map.get(Value::String("TargetRubyVersion".to_string()))
                         {
                             target_ruby_version = trv
                                 .as_f64()
@@ -1458,7 +1456,7 @@ fn parse_config_layer(raw: &Value) -> ConfigLayer {
                                 .or_else(|| trv.as_str().and_then(|s| s.parse::<f64>().ok()));
                         }
                         if let Some(trv) =
-                            ac_map.get(&Value::String("TargetRailsVersion".to_string()))
+                            ac_map.get(Value::String("TargetRailsVersion".to_string()))
                         {
                             target_rails_version = trv
                                 .as_f64()
@@ -1466,7 +1464,7 @@ fn parse_config_layer(raw: &Value) -> ConfigLayer {
                                 .or_else(|| trv.as_str().and_then(|s| s.parse::<f64>().ok()));
                         }
                         if let Some(ase) =
-                            ac_map.get(&Value::String("ActiveSupportExtensionsEnabled".to_string()))
+                            ac_map.get(Value::String("ActiveSupportExtensionsEnabled".to_string()))
                         {
                             active_support_extensions_enabled = ase.as_bool();
                         }
@@ -1715,7 +1713,7 @@ fn merge_cop_config(base: &mut CopConfig, overlay: &CopConfig, inherit_mode: Opt
         .and_then(|v| v.as_mapping())
         .map(|m| {
             let merge_keys: HashSet<String> = m
-                .get(&Value::String("merge".to_string()))
+                .get(Value::String("merge".to_string()))
                 .and_then(|v| v.as_sequence())
                 .map(|seq| {
                     seq.iter()
@@ -2556,12 +2554,12 @@ fn parse_inherit_mode(value: &Value) -> InheritMode {
     let mut mode = InheritMode::default();
 
     if let Value::Mapping(map) = value {
-        if let Some(merge_value) = map.get(&Value::String("merge".to_string())) {
+        if let Some(merge_value) = map.get(Value::String("merge".to_string())) {
             if let Some(list) = value_to_string_list(merge_value) {
                 mode.merge = list.into_iter().collect();
             }
         }
-        if let Some(override_value) = map.get(&Value::String("override".to_string())) {
+        if let Some(override_value) = map.get(Value::String("override".to_string())) {
             if let Some(list) = value_to_string_list(override_value) {
                 mode.override_keys = list.into_iter().collect();
             }
@@ -2574,7 +2572,7 @@ fn parse_inherit_mode(value: &Value) -> InheritMode {
 fn extract_string_list(value: &Value, key: &str) -> Option<Vec<String>> {
     value
         .as_mapping()?
-        .get(&Value::String(key.to_string()))?
+        .get(Value::String(key.to_string()))?
         .as_sequence()
         .map(|seq| {
             seq.iter()
@@ -2721,7 +2719,7 @@ fn resolve_ruby_version_from_gemspec(config_dir: &Path) -> Option<f64> {
             continue;
         }
         // Find the first quoted string
-        let quote_start = after.find(|c: char| c == '\'' || c == '"')?;
+        let quote_start = after.find(['\'', '"'])?;
         let qc = after.as_bytes()[quote_start] as char;
         let rest = &after[quote_start + 1..];
         let quote_end = rest.find(qc)?;

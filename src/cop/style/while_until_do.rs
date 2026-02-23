@@ -44,7 +44,6 @@ impl Cop for WhileUntilDo {
                 until_node.closing_loc(),
                 "until",
             ));
-            return;
         }
     }
 }

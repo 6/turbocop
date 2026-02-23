@@ -61,10 +61,8 @@ fn has_rel_noopener(hash_elements: &ruby_prism::NodeList<'_>) -> bool {
         let val = assoc.value();
         let val_text = if let Some(s) = val.as_string_node() {
             Some(s.unescaped().to_vec())
-        } else if let Some(sym) = val.as_symbol_node() {
-            Some(sym.unescaped().to_vec())
         } else {
-            None
+            val.as_symbol_node().map(|sym| sym.unescaped().to_vec())
         };
         if let Some(text) = val_text {
             let text_str = String::from_utf8_lossy(&text);
@@ -112,7 +110,7 @@ impl Cop for LinkToBlank {
         };
 
         let name = call.name().as_slice();
-        if !LINK_METHODS.iter().any(|m| *m == name) {
+        if !LINK_METHODS.contains(&name) {
             return;
         }
 

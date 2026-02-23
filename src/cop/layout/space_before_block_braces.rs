@@ -72,7 +72,6 @@ impl Cop for SpaceBeforeBlockBraces {
                         diag.corrected = true;
                     }
                     diagnostics.push(diag);
-                    return;
                 }
             }
             _ => {
@@ -96,7 +95,6 @@ impl Cop for SpaceBeforeBlockBraces {
                         diag.corrected = true;
                     }
                     diagnostics.push(diag);
-                    return;
                 }
             }
         }

@@ -308,7 +308,7 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
                         if !is_setter
                             && name_bytes != b"[]"
                             && name_bytes != b"[]="
-                            && !ALLOWED_METHODS.iter().any(|&m| m == name_bytes)
+                            && !ALLOWED_METHODS.contains(&name_bytes)
                             && !self.is_local_variable(name_bytes)
                             && !self.allowed_self_methods.contains(name_bytes)
                         {

@@ -89,7 +89,7 @@ impl Cop for IncompatibleIoSelectWithFiberScheduler {
             return;
         }
 
-        let call_src = node_source(source, &node);
+        let call_src = node_source(source, node);
         let preferred = if is_read {
             let io_src = single_array_element_source(read.unwrap(), source);
             let timeout = args.get(3).map(|t| node_source(source, t));

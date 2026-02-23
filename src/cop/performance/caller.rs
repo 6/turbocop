@@ -29,18 +29,18 @@ impl Cop for Caller {
             let is_caller_locations = chain.inner_method == b"caller_locations";
             if (is_caller || is_caller_locations) && chain.inner_call.receiver().is_none() {
                 // inner call is bare `caller` or `caller_locations` (no receiver)
-                if chain.inner_call.arguments().is_none() {
-                    if chain.outer_method == b"first" || chain.outer_method == b"[]" {
-                        let loc = node.location();
-                        let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        let method = if is_caller {
-                            "caller"
-                        } else {
-                            "caller_locations"
-                        };
-                        diagnostics.push(self.diagnostic(source, line, column,
+                if chain.inner_call.arguments().is_none()
+                    && (chain.outer_method == b"first" || chain.outer_method == b"[]")
+                {
+                    let loc = node.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    let method = if is_caller {
+                        "caller"
+                    } else {
+                        "caller_locations"
+                    };
+                    diagnostics.push(self.diagnostic(source, line, column,
                             format!("Use `{method}(n..n).first` instead of `{method}.first` or `{method}[n]`.")));
-                    }
                 }
             }
         }

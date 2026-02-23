@@ -87,7 +87,7 @@ impl Cop for TravelAround {
         for stmt in stmts.body().iter() {
             if let Some(travel_call) = stmt.as_call_node() {
                 let travel_name = travel_call.name().as_slice();
-                if !TRAVEL_METHODS.iter().any(|m| *m == travel_name) {
+                if !TRAVEL_METHODS.contains(&travel_name) {
                     continue;
                 }
                 if travel_call.receiver().is_some() {

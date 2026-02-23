@@ -38,19 +38,15 @@ impl Cop for ParameterAlignment {
         };
 
         let requireds: Vec<_> = params.requireds().iter().collect();
-        let optionals: Vec<_> = params
-            .optionals()
-            .iter()
-            .map(ruby_prism::Node::from)
-            .collect();
+        let optionals: Vec<_> = params.optionals().iter().collect();
         let mut all_params: Vec<ruby_prism::Node<'_>> = Vec::new();
         all_params.extend(requireds);
         all_params.extend(optionals);
         if let Some(rest) = params.rest() {
-            all_params.push(ruby_prism::Node::from(rest));
+            all_params.push(rest);
         }
         for kw in params.keywords().iter() {
-            all_params.push(ruby_prism::Node::from(kw));
+            all_params.push(kw);
         }
 
         if all_params.len() < 2 {

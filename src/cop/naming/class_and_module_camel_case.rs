@@ -62,7 +62,6 @@ impl Cop for ClassAndModuleCamelCase {
                 }
             }
             diagnostics.extend(diags);
-            return;
         }
     }
 }

@@ -115,12 +115,10 @@ impl Cop for MultilineIfThen {
                         return;
                     }
                 }
-            } else {
-                if let Some(end_loc) = unless_node.end_keyword_loc() {
-                    let end_line = source.offset_to_line_col(end_loc.start_offset()).0;
-                    if end_line == then_line {
-                        return;
-                    }
+            } else if let Some(end_loc) = unless_node.end_keyword_loc() {
+                let end_line = source.offset_to_line_col(end_loc.start_offset()).0;
+                if end_line == then_line {
+                    return;
                 }
             }
 

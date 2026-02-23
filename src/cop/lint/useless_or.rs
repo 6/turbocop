@@ -93,7 +93,7 @@ fn is_truthy_method_call(node: &ruby_prism::Node<'_>) -> bool {
     }
 
     let method_name = call.name().as_slice();
-    TRUTHY_METHODS.iter().any(|m| *m == method_name)
+    TRUTHY_METHODS.contains(&method_name)
 }
 
 fn node_source<'a>(source: &'a SourceFile, node: &ruby_prism::Node<'_>) -> &'a str {

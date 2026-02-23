@@ -92,9 +92,7 @@ impl Cop for ConditionalAssignment {
                             source,
                             line,
                             column,
-                            format!(
-                                "Use the return value of `if` expression for variable assignment and comparison."
-                            ),
+                            "Use the return value of `if` expression for variable assignment and comparison.".to_string(),
                         ));
                     }
                 }

@@ -160,11 +160,8 @@ fn resolve_column(table: &crate::schema::Table, name: &str) -> String {
 
 /// Extract a symbol name from a symbol node.
 fn extract_symbol_name(node: &ruby_prism::Node<'_>) -> Option<String> {
-    if let Some(s) = node.as_symbol_node() {
-        Some(String::from_utf8_lossy(s.unescaped()).to_string())
-    } else {
-        None
-    }
+    node.as_symbol_node()
+        .map(|s| String::from_utf8_lossy(s.unescaped()).to_string())
 }
 
 /// Find a specific key's value in keyword hash arguments.
@@ -286,10 +283,9 @@ fn extract_scope_from_node(node: &ruby_prism::Node<'_>) -> Option<Vec<String>> {
             .filter_map(|e| {
                 if let Some(sym) = e.as_symbol_node() {
                     Some(String::from_utf8_lossy(sym.unescaped()).to_string())
-                } else if let Some(s) = e.as_string_node() {
-                    Some(String::from_utf8_lossy(s.unescaped()).to_string())
                 } else {
-                    None
+                    e.as_string_node()
+                        .map(|s| String::from_utf8_lossy(s.unescaped()).to_string())
                 }
             })
             .collect();

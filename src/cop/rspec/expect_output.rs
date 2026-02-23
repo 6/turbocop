@@ -185,7 +185,6 @@ impl<'a> ExpectOutputVisitor<'a> {
                     self.visit_node(&stmt);
                 }
             }
-            return;
         }
     }
 }

@@ -64,11 +64,9 @@ impl Cop for RequiredRubyVersion {
                     if let Some(eq_pos) = after_trimmed.find('=') {
                         let rhs = &after_trimmed[eq_pos + 1..];
                         // Find the first quoted string (single or double)
-                        let quote_char = if let Some(p) = rhs.find(|c| c == '\'' || c == '"') {
-                            Some((p, rhs.as_bytes()[p] as char))
-                        } else {
-                            None
-                        };
+                        let quote_char = rhs
+                            .find(['\'', '"'])
+                            .map(|p| (p, rhs.as_bytes()[p] as char));
                         if let Some((_start, qc)) = quote_char {
                             let after_open = &rhs[_start + 1..];
                             if let Some(end) = after_open.find(qc) {

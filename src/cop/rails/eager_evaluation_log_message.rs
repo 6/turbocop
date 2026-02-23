@@ -69,7 +69,7 @@ impl Cop for EagerEvaluationLogMessage {
             cr.name().as_slice() == b"Rails"
         } else if let Some(cp) = inner_recv.as_constant_path_node() {
             // ::Rails
-            cp.parent().is_none() && cp.name().map_or(false, |n| n.as_slice() == b"Rails")
+            cp.parent().is_none() && cp.name().is_some_and(|n| n.as_slice() == b"Rails")
         } else {
             false
         };

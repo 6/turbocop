@@ -447,7 +447,6 @@ impl Cop for IndentationWidth {
                 until_node.statements(),
                 width,
             ));
-            return;
         }
     }
 }

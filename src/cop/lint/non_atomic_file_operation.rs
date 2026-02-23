@@ -80,7 +80,7 @@ impl Cop for NonAtomicFileOperation {
         };
 
         let cond_method = condition_call.name().as_slice();
-        if !EXIST_METHODS.iter().any(|m| *m == cond_method) {
+        if !EXIST_METHODS.contains(&cond_method) {
             return;
         }
 
@@ -118,9 +118,9 @@ impl Cop for NonAtomicFileOperation {
             if let Some(call) = stmt.as_call_node() {
                 let method = call.name().as_slice();
 
-                let is_file_op = MAKE_METHODS.iter().any(|m| *m == method)
-                    || REMOVE_METHODS.iter().any(|m| *m == method)
-                    || RECURSIVE_REMOVE_METHODS.iter().any(|m| *m == method);
+                let is_file_op = MAKE_METHODS.contains(&method)
+                    || REMOVE_METHODS.contains(&method)
+                    || RECURSIVE_REMOVE_METHODS.contains(&method);
 
                 if !is_file_op {
                     continue;
@@ -145,9 +145,9 @@ impl Cop for NonAtomicFileOperation {
                     continue;
                 }
 
-                let replacement = if MAKE_METHODS.iter().any(|m| *m == method) {
+                let replacement = if MAKE_METHODS.contains(&method) {
                     "mkdir_p"
-                } else if REMOVE_METHODS.iter().any(|m| *m == method) {
+                } else if REMOVE_METHODS.contains(&method) {
                     "rm_f"
                 } else {
                     "rm_rf"

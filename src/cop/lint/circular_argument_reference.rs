@@ -70,7 +70,6 @@ impl Cop for CircularArgumentReference {
                     ),
                 ));
             }
-            return;
         }
     }
 }

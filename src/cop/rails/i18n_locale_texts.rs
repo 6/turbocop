@@ -183,17 +183,15 @@ impl Cop for I18nLocaleTexts {
                     // The last argument is the assigned value
                     if let Some(args) = call.arguments() {
                         let arg_list: Vec<_> = args.arguments().iter().collect();
-                        if arg_list.len() == 2 {
-                            if is_string_literal(&arg_list[1]) {
-                                let loc = arg_list[1].location();
-                                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                diagnostics.push(self.diagnostic(
-                                    source,
-                                    line,
-                                    column,
-                                    MSG.to_string(),
-                                ));
-                            }
+                        if arg_list.len() == 2 && is_string_literal(&arg_list[1]) {
+                            let loc = arg_list[1].location();
+                            let (line, column) = source.offset_to_line_col(loc.start_offset());
+                            diagnostics.push(self.diagnostic(
+                                source,
+                                line,
+                                column,
+                                MSG.to_string(),
+                            ));
                         }
                     }
                 }

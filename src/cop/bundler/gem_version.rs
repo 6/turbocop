@@ -71,7 +71,7 @@ fn has_version_or_source_specifier(line: &str) -> bool {
     let trimmed = line.trim();
 
     // Find the end of the gem name (closing quote)
-    let first_quote = match trimmed.find(|c: char| c == '\'' || c == '"') {
+    let first_quote = match trimmed.find(['\'', '"']) {
         Some(idx) => idx,
         None => return false,
     };

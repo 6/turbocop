@@ -92,7 +92,7 @@ impl Cop for ImplicitSubject {
         if trimmed.starts_with(b"it ") || trimmed.starts_with(b"it{") {
             // Single-line pattern — check if it's actually single-line
             // by seeing if the line also has a closing `}`
-            if line_bytes.iter().any(|&b| b == b'}') {
+            if line_bytes.contains(&b'}') {
                 return;
             }
         }

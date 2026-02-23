@@ -102,7 +102,7 @@ fn parse_renamed_cops(yaml_content: &str) -> HashMap<String, String> {
         } else if let Some(inner_map) = value.as_mapping() {
             // Extended format: OldName: { new_name: NewName, severity: ... }
             inner_map
-                .get(&serde_yml::Value::String("new_name".to_string()))
+                .get(serde_yml::Value::String("new_name".to_string()))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
                 .unwrap_or_default()

@@ -142,10 +142,8 @@ fn is_ruby_file(path: &Path) -> bool {
     }
     // For extensionless files not in the known list, check for Ruby shebang.
     // This catches scripts like bin/console, bin/rails, etc.
-    if path.extension().is_none() {
-        if has_ruby_shebang(path) {
-            return true;
-        }
+    if path.extension().is_none() && has_ruby_shebang(path) {
+        return true;
     }
     false
 }

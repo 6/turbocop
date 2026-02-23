@@ -46,7 +46,7 @@ impl Cop for EmptyComment {
                 code_map,
                 self,
                 diagnostics,
-                corrections.as_deref_mut(),
+                corrections,
             );
         }
     }

@@ -115,7 +115,6 @@ impl Cop for AssignmentIndentation {
                 &n.value(),
                 width,
             ));
-            return;
         }
     }
 }

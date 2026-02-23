@@ -44,8 +44,7 @@ impl Cop for LeadingSubject {
 
         // Check for example group calls (including ::RSpec.describe)
         let is_example_group = if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
-                && method_name == b"describe"
+            util::constant_name(&recv).is_some_and(|n| n == b"RSpec") && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name)
         };
@@ -96,15 +95,14 @@ impl Cop for LeadingSubject {
                             format!("Declare `subject` above any other `{prev_str}` declarations."),
                         ));
                     }
-                } else if is_rspec_let(name)
+                } else if (is_rspec_let(name)
                     || is_rspec_hook(name)
                     || is_rspec_example(name)
                     || is_rspec_example_group(name)
-                    || is_example_include(name)
+                    || is_example_include(name))
+                    && first_relevant_name.is_none()
                 {
-                    if first_relevant_name.is_none() {
-                        first_relevant_name = Some(name);
-                    }
+                    first_relevant_name = Some(name);
                 }
             }
         }

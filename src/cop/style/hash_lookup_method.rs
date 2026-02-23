@@ -38,17 +38,18 @@ impl Cop for HashLookupMethod {
                     if let Some(args) = call.arguments() {
                         let arg_list: Vec<_> = args.arguments().iter().collect();
                         // Only flag fetch with exactly 1 argument (no default)
-                        if arg_list.len() == 1 && call.block().is_none() {
-                            if call.receiver().is_some() {
-                                let loc = call.message_loc().unwrap_or_else(|| call.location());
-                                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                                diagnostics.push(self.diagnostic(
-                                    source,
-                                    line,
-                                    column,
-                                    "Use `[]` instead of `fetch`.".to_string(),
-                                ));
-                            }
+                        if arg_list.len() == 1
+                            && call.block().is_none()
+                            && call.receiver().is_some()
+                        {
+                            let loc = call.message_loc().unwrap_or_else(|| call.location());
+                            let (line, column) = source.offset_to_line_col(loc.start_offset());
+                            diagnostics.push(self.diagnostic(
+                                source,
+                                line,
+                                column,
+                                "Use `[]` instead of `fetch`.".to_string(),
+                            ));
                         }
                     }
                 }

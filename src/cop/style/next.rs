@@ -174,7 +174,7 @@ impl<'pr> Visit<'pr> for NextVisitor<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         let method_bytes = node.name().as_slice();
 
-        if ITERATION_METHODS.iter().any(|&m| m == method_bytes) {
+        if ITERATION_METHODS.contains(&method_bytes) {
             if let Some(block) = node.block() {
                 if let Some(block_node) = block.as_block_node() {
                     if let Some(body) = block_node.body() {

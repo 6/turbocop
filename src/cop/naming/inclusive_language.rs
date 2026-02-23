@@ -172,7 +172,7 @@ fn build_flagged_terms(config: &CopConfig) -> Vec<FlaggedTerm> {
                 if let Some(term_map) = value.as_mapping() {
                     // Check for Regex key — compile as actual regex for matching
                     if let Some(regex_val) =
-                        term_map.get(&serde_yml::Value::String("Regex".to_string()))
+                        term_map.get(serde_yml::Value::String("Regex".to_string()))
                     {
                         let regex_str = regex_val.as_str().unwrap_or("");
                         if let Some(compiled) = compile_ruby_regex(regex_str) {
@@ -182,13 +182,13 @@ fn build_flagged_terms(config: &CopConfig) -> Vec<FlaggedTerm> {
                     }
 
                     if let Some(ww) =
-                        term_map.get(&serde_yml::Value::String("WholeWord".to_string()))
+                        term_map.get(serde_yml::Value::String("WholeWord".to_string()))
                     {
                         whole_word = ww.as_bool().unwrap_or(false);
                     }
 
                     if let Some(sugg) =
-                        term_map.get(&serde_yml::Value::String("Suggestions".to_string()))
+                        term_map.get(serde_yml::Value::String("Suggestions".to_string()))
                     {
                         if let Some(seq) = sugg.as_sequence() {
                             for item in seq {

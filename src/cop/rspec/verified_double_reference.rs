@@ -51,7 +51,7 @@ impl Cop for VerifiedDoubleReference {
         };
 
         let method_name = call.name().as_slice();
-        if !VERIFIED_DOUBLES.iter().any(|&d| d == method_name) {
+        if !VERIFIED_DOUBLES.contains(&method_name) {
             return;
         }
 

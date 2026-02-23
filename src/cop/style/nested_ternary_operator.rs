@@ -79,7 +79,7 @@ impl Cop for NestedTernaryOperator {
 
         // Check else_branch for nested ternaries
         if let Some(else_clause) = if_node.subsequent() {
-            let else_node: ruby_prism::Node<'_> = else_clause.into();
+            let else_node: ruby_prism::Node<'_> = else_clause;
             if let Some(else_n) = else_node.as_else_node() {
                 if let Some(stmts) = else_n.statements() {
                     for stmt in stmts.body().iter() {

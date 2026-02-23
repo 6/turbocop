@@ -37,7 +37,7 @@ impl Cop for HashCompareByIdentity {
         let method_name = call.name().as_slice();
 
         // Check if it's one of the hash key methods
-        if !HASH_KEY_METHODS.iter().any(|m| *m == method_name) {
+        if !HASH_KEY_METHODS.contains(&method_name) {
             return;
         }
 

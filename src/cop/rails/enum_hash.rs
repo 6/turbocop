@@ -76,17 +76,21 @@ impl Cop for EnumHash {
 
         // New syntax: enum :status, [:active, :archived]
         // Check if second arg is an array
-        if arg_list.len() >= 2 && arg_list[0].as_symbol_node().is_some() {
-            if arg_list[1].as_array_node().is_some() {
-                let loc = node.location();
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(self.diagnostic(
+        if arg_list.len() >= 2
+            && arg_list[0].as_symbol_node().is_some()
+            && arg_list[1].as_array_node().is_some()
+        {
+            let loc = node.location();
+            let (line, column) = source.offset_to_line_col(loc.start_offset());
+            diagnostics.push(
+                self.diagnostic(
                     source,
                     line,
                     column,
-                    "Use hash syntax for `enum` values: `enum status: { active: 0, archived: 1 }`.".to_string(),
-                ));
-            }
+                    "Use hash syntax for `enum` values: `enum status: { active: 0, archived: 1 }`."
+                        .to_string(),
+                ),
+            );
         }
     }
 }

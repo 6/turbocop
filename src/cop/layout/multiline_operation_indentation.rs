@@ -158,7 +158,6 @@ impl Cop for MultilineOperationIndentation {
                 config,
                 style,
             ));
-            return;
         }
     }
 }

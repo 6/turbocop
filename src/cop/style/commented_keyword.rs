@@ -81,20 +81,21 @@ impl Cop for CommentedKeyword {
             }
 
             // Allow RBS::Inline `#:` annotations on def and end lines
-            if after_hash_str.starts_with(':') && after_hash_str.get(1..2).is_some_and(|c| c != "[")
+            if after_hash_str.starts_with(':')
+                && after_hash_str.get(1..2).is_some_and(|c| c != "[")
+                && (starts_with_keyword(before_comment, "def")
+                    || starts_with_keyword(before_comment, "end"))
             {
-                if starts_with_keyword(before_comment, "def")
-                    || starts_with_keyword(before_comment, "end")
-                {
-                    continue;
-                }
+                continue;
             }
 
             // Check for RBS::Inline generics annotation on class with superclass: `class X < Y #[String]`
-            if after_hash_str.starts_with('[') && after_hash_str.ends_with(']') {
-                if before_comment.contains('<') && starts_with_keyword(before_comment, "class") {
-                    continue;
-                }
+            if after_hash_str.starts_with('[')
+                && after_hash_str.ends_with(']')
+                && before_comment.contains('<')
+                && starts_with_keyword(before_comment, "class")
+            {
+                continue;
             }
 
             // Check if the code before the comment starts with a keyword

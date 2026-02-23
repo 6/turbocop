@@ -74,7 +74,7 @@ impl Cop for ExponentialNotation {
             "scientific" => {
                 // Mantissa must be >= 1 and < 10
                 let abs_mantissa = mantissa.abs();
-                if abs_mantissa < 1.0 || abs_mantissa >= 10.0 {
+                if !(1.0..10.0).contains(&abs_mantissa) {
                     diagnostics.push(self.diagnostic(
                         source,
                         line,
@@ -86,7 +86,7 @@ impl Cop for ExponentialNotation {
             "engineering" => {
                 // Exponent must be divisible by 3, mantissa >= 0.1 and < 1000
                 let abs_mantissa = mantissa.abs();
-                if exponent % 3 != 0 || abs_mantissa < 0.1 || abs_mantissa >= 1000.0 {
+                if exponent % 3 != 0 || !(0.1..1000.0).contains(&abs_mantissa) {
                     diagnostics.push(
                         self.diagnostic(
                             source,

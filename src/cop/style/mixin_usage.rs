@@ -46,7 +46,7 @@ impl<'pr> Visit<'pr> for MixinUsageVisitor<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         let method_bytes = node.name().as_slice();
 
-        if MIXIN_METHODS.iter().any(|&m| m == method_bytes)
+        if MIXIN_METHODS.contains(&method_bytes)
             && node.receiver().is_none()
             && !self.in_class_or_module
             && !self.in_block

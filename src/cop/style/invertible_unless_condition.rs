@@ -78,12 +78,11 @@ impl InvertibleUnlessCondition {
                 if call.name().as_slice() == b"<" {
                     if let Some(args) = call.arguments() {
                         let arg_list: Vec<_> = args.arguments().iter().collect();
-                        if arg_list.len() == 1 {
-                            if arg_list[0].as_constant_read_node().is_some()
-                                || arg_list[0].as_constant_path_node().is_some()
-                            {
-                                return false; // Class inheritance check, not invertible
-                            }
+                        if arg_list.len() == 1
+                            && (arg_list[0].as_constant_read_node().is_some()
+                                || arg_list[0].as_constant_path_node().is_some())
+                        {
+                            return false; // Class inheritance check, not invertible
                         }
                     }
                 }

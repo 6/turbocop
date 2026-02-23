@@ -48,7 +48,7 @@ impl Cop for EmptyHook {
         };
 
         let method = call.name().as_slice();
-        if !HOOK_METHODS.iter().any(|h| *h == method) {
+        if !HOOK_METHODS.contains(&method) {
             return;
         }
 

@@ -135,12 +135,10 @@ impl Cop for EmptyLineAfterHook {
             let report_col = if is_one_liner {
                 let (_, start_col) = source.offset_to_line_col(loc.start_offset());
                 start_col
+            } else if let Some(line_bytes) = line_at(source, end_line) {
+                line_bytes.iter().take_while(|&&b| b == b' ').count()
             } else {
-                if let Some(line_bytes) = line_at(source, end_line) {
-                    line_bytes.iter().take_while(|&&b| b == b' ').count()
-                } else {
-                    0
-                }
+                0
             };
 
             diagnostics.push(self.diagnostic(

@@ -133,11 +133,9 @@ fn get_block_param_name(block: &ruby_prism::BlockNode<'_>) -> Option<Vec<u8>> {
         return None;
     }
     // Get the name of the first required parameter
-    if let Some(rp) = requireds[0].as_required_parameter_node() {
-        Some(rp.name().as_slice().to_vec())
-    } else {
-        None
-    }
+    requireds[0]
+        .as_required_parameter_node()
+        .map(|rp| rp.name().as_slice().to_vec())
 }
 
 fn body_uses_param_correctly(block: &ruby_prism::BlockNode<'_>, param_name: &[u8]) -> bool {

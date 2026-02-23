@@ -231,10 +231,10 @@ fn is_boolean_matcher(node: &ruby_prism::Node<'_>, strict: bool) -> bool {
     if !strict && (name == b"be" || name == b"eq" || name == b"eql" || name == b"equal") {
         if let Some(args) = call.arguments() {
             let arg_list: Vec<_> = args.arguments().iter().collect();
-            if arg_list.len() == 1 {
-                if arg_list[0].as_true_node().is_some() || arg_list[0].as_false_node().is_some() {
-                    return true;
-                }
+            if arg_list.len() == 1
+                && (arg_list[0].as_true_node().is_some() || arg_list[0].as_false_node().is_some())
+            {
+                return true;
             }
         }
     }

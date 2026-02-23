@@ -50,7 +50,7 @@ impl MixinGroupingVisitor<'_> {
 
             let method_bytes = call.name().as_slice();
 
-            if !MIXIN_METHODS.iter().any(|&m| m == method_bytes) {
+            if !MIXIN_METHODS.contains(&method_bytes) {
                 continue;
             }
 

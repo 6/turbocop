@@ -43,8 +43,7 @@ impl Cop for EmptyLineAfterSubject {
 
         // Check for example group calls (including ::RSpec.describe)
         let is_example_group = if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
-                && method_name == b"describe"
+            util::constant_name(&recv).is_some_and(|n| n == b"RSpec") && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name)
         };

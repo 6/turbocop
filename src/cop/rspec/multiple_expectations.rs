@@ -97,7 +97,7 @@ impl<'a, 'pr> Visit<'pr> for MultipleExpectationsVisitor<'a> {
 
         // Check if this is an example group (describe/context) with aggregate_failures
         let is_group = if let Some(recv) = node.receiver() {
-            crate::cop::util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
+            crate::cop::util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
                 && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name)

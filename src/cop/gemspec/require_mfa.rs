@@ -37,10 +37,9 @@ impl Cop for RequireMfa {
             if (trimmed.contains("metadata['rubygems_mfa_required']")
                 || trimmed.contains("metadata[\"rubygems_mfa_required\"]"))
                 && trimmed.contains("= ")
+                && (trimmed.contains("'true'") || trimmed.contains("\"true\""))
             {
-                if trimmed.contains("'true'") || trimmed.contains("\"true\"") {
-                    found_mfa = true;
-                }
+                found_mfa = true;
             }
 
             // Also check for hash-style metadata:
@@ -48,10 +47,9 @@ impl Cop for RequireMfa {
             if (trimmed.contains("'rubygems_mfa_required'")
                 || trimmed.contains("\"rubygems_mfa_required\""))
                 && trimmed.contains("=>")
+                && (trimmed.contains("'true'") || trimmed.contains("\"true\""))
             {
-                if trimmed.contains("'true'") || trimmed.contains("\"true\"") {
-                    found_mfa = true;
-                }
+                found_mfa = true;
             }
         }
 

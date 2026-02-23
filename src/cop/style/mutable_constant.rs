@@ -128,7 +128,6 @@ impl Cop for MutableConstant {
         if let Some(cpw) = node.as_constant_path_write_node() {
             let value = cpw.value();
             diagnostics.extend(self.check_value(source, &value, frozen_strings));
-            return;
         }
     }
 }

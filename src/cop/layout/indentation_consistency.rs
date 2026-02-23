@@ -222,7 +222,6 @@ impl Cop for IndentationConsistency {
                 block_node.body(),
                 indented, // indented_internal_methods applies to block bodies too (class_methods do, etc.)
             ));
-            return;
         }
     }
 }

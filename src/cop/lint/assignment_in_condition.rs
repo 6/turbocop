@@ -48,10 +48,9 @@ impl Cop for AssignmentInCondition {
             Some(while_node.predicate())
         } else if let Some(until_node) = node.as_until_node() {
             Some(until_node.predicate())
-        } else if let Some(unless_node) = node.as_unless_node() {
-            Some(unless_node.predicate())
         } else {
-            None
+            node.as_unless_node()
+                .map(|unless_node| unless_node.predicate())
         };
 
         let predicate = match predicate {

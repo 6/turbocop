@@ -54,7 +54,7 @@ struct ThreeStateBooleanVisitor<'a, 'pr> {
 impl<'pr> Visit<'pr> for ThreeStateBooleanVisitor<'_, 'pr> {
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
         let old_def_body = self.def_body.take();
-        self.def_body = node.body().map(ruby_prism::Node::from);
+        self.def_body = node.body();
         // Visit children (body of the def)
         ruby_prism::visit_def_node(self, node);
         self.def_body = old_def_body;

@@ -52,7 +52,7 @@ impl Cop for CaseIndentation {
         };
 
         let message = if indent_one_step {
-            format!("Indent `when` one step more than `case`.")
+            "Indent `when` one step more than `case`.".to_string()
         } else if style == "end" {
             "Indent `when` as deep as `end`.".to_string()
         } else {

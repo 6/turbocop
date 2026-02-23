@@ -81,7 +81,7 @@ impl Cop for MinitestAssertions {
         };
 
         let method = call.name().as_slice();
-        if !ASSERTION_METHODS.iter().any(|m| *m == method) {
+        if !ASSERTION_METHODS.contains(&method) {
             return;
         }
 
@@ -212,7 +212,7 @@ impl Cop for MinitestAssertions {
                     None => return,
                 };
                 let pred_name = pred_sym.unescaped();
-                let pred_str = std::str::from_utf8(pred_name.as_ref()).unwrap_or("");
+                let pred_str = std::str::from_utf8(pred_name).unwrap_or("");
                 if !pred_str.ends_with('?') {
                     return;
                 }

@@ -224,8 +224,7 @@ impl<'pr> ruby_prism::Visit<'pr> for FoldableVisitor<'_> {
             let end_off = loc.end_offset().saturating_sub(1).max(loc.start_offset());
             let (end_line, _) = self.source.offset_to_line_col(end_off);
             if end_line > start_line {
-                self.ranges.push((start_line, end_line));
-                return; // Don't recurse into foldable construct
+                self.ranges.push((start_line, end_line)); // Don't recurse into foldable construct
             }
         }
     }

@@ -55,9 +55,7 @@ impl Cop for CopDirectiveSyntax {
             let after_hash = directive_text[1..].trim_start();
 
             // Must start with `rubocop:` (not `"rubocop:` or `# rubocop:`)
-            if after_hash.starts_with("rubocop:") {
-                let after_rubocop_colon = &after_hash["rubocop:".len()..];
-
+            if let Some(after_rubocop_colon) = after_hash.strip_prefix("rubocop:") {
                 // Check if mode name is missing
                 if after_rubocop_colon.is_empty() || after_rubocop_colon.trim().is_empty() {
                     diagnostics.push(

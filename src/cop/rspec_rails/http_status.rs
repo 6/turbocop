@@ -235,7 +235,7 @@ impl HttpStatus {
 
         if let Some(str_node) = arg.as_string_node() {
             let content = str_node.unescaped();
-            let s = std::str::from_utf8(content.as_ref()).unwrap_or("");
+            let s = std::str::from_utf8(content).unwrap_or("");
             let loc = arg.location();
             let source_text = std::str::from_utf8(loc.as_slice()).unwrap_or("");
 
@@ -273,11 +273,11 @@ impl HttpStatus {
         if let Some(sym) = arg.as_symbol_node() {
             let sym_name = sym.unescaped();
             // Allow generic symbols
-            if PERMITTED_SYMBOLS.contains(&sym_name.as_ref()) {
+            if PERMITTED_SYMBOLS.contains(&sym_name) {
                 return Vec::new();
             }
-            if let Some(code) = symbol_to_status_code(&sym_name) {
-                let sym_str = std::str::from_utf8(&sym_name).unwrap_or("?");
+            if let Some(code) = symbol_to_status_code(sym_name) {
+                let sym_str = std::str::from_utf8(sym_name).unwrap_or("?");
                 let loc = arg.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 return vec![self.diagnostic(
@@ -292,7 +292,7 @@ impl HttpStatus {
 
         if let Some(str_node) = arg.as_string_node() {
             let content = str_node.unescaped();
-            let s = std::str::from_utf8(content.as_ref()).unwrap_or("");
+            let s = std::str::from_utf8(content).unwrap_or("");
             let loc = arg.location();
             let source_text = std::str::from_utf8(loc.as_slice()).unwrap_or("");
 
@@ -338,19 +338,19 @@ impl HttpStatus {
                 .map(|s| s.to_string())
         } else if let Some(sym) = arg.as_symbol_node() {
             let name = sym.unescaped();
-            let name_str = std::str::from_utf8(name.as_ref()).unwrap_or("");
+            let name_str = std::str::from_utf8(name).unwrap_or("");
             // Allow generic symbols
-            if PERMITTED_SYMBOLS.contains(&name.as_ref()) {
+            if PERMITTED_SYMBOLS.contains(&name) {
                 return Vec::new();
             }
-            if symbol_to_status_code(&name).is_some() {
+            if symbol_to_status_code(name).is_some() {
                 Some(name_str.to_string())
             } else {
                 None
             }
         } else if let Some(str_node) = arg.as_string_node() {
             let content = str_node.unescaped();
-            let s = std::str::from_utf8(content.as_ref()).unwrap_or("");
+            let s = std::str::from_utf8(content).unwrap_or("");
 
             // Try as numeric string
             if let Ok(code_num) = s.parse::<i64>() {

@@ -30,17 +30,15 @@ impl Cop for ArrayCoercion {
                 return;
             }
             let elements: Vec<_> = array_node.elements().iter().collect();
-            if elements.len() == 1 {
-                if elements[0].as_splat_node().is_some() {
-                    let loc = node.location();
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Use `Array(variable)` instead of `[*variable]`.".to_string(),
-                    ));
-                }
+            if elements.len() == 1 && elements[0].as_splat_node().is_some() {
+                let loc = node.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use `Array(variable)` instead of `[*variable]`.".to_string(),
+                ));
             }
         }
     }

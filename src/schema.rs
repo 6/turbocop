@@ -202,10 +202,9 @@ impl SchemaVisitor {
 fn extract_string_value(node: &ruby_prism::Node<'_>) -> Option<String> {
     if let Some(s) = node.as_string_node() {
         Some(String::from_utf8_lossy(s.unescaped()).to_string())
-    } else if let Some(s) = node.as_symbol_node() {
-        Some(String::from_utf8_lossy(s.unescaped()).to_string())
     } else {
-        None
+        node.as_symbol_node()
+            .map(|s| String::from_utf8_lossy(s.unescaped()).to_string())
     }
 }
 
@@ -339,10 +338,9 @@ fn extract_index_columns(node: &ruby_prism::Node<'_>) -> (Vec<String>, Option<St
             .filter_map(|e| {
                 if let Some(s) = e.as_string_node() {
                     Some(String::from_utf8_lossy(s.unescaped()).to_string())
-                } else if let Some(s) = e.as_symbol_node() {
-                    Some(String::from_utf8_lossy(s.unescaped()).to_string())
                 } else {
-                    None
+                    e.as_symbol_node()
+                        .map(|s| String::from_utf8_lossy(s.unescaped()).to_string())
                 }
             })
             .collect();
@@ -411,10 +409,8 @@ pub fn camel_to_snake(s: &str) -> String {
             let prev = chars[i - 1];
             if prev.is_lowercase() || prev.is_ascii_digit() {
                 result.push('_');
-            } else if prev.is_uppercase() {
-                if i + 1 < chars.len() && chars[i + 1].is_lowercase() {
-                    result.push('_');
-                }
+            } else if prev.is_uppercase() && i + 1 < chars.len() && chars[i + 1].is_lowercase() {
+                result.push('_');
             }
         }
         result.push(c.to_ascii_lowercase());

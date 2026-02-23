@@ -44,7 +44,7 @@ impl Cop for RedundantRegexpQuantifiers {
         }
 
         let content = regexp.unescaped();
-        let content_str = match std::str::from_utf8(&content) {
+        let content_str = match std::str::from_utf8(content) {
             Ok(s) => s,
             Err(_) => return,
         };

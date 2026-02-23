@@ -103,16 +103,14 @@ impl<'pr> Visit<'pr> for IrreversibleFinder {
 
         // Check conditionally irreversible methods
         for &(method, condition) in CONDITIONALLY_IRREVERSIBLE {
-            if name == method && node.receiver().is_none() {
-                if !is_condition_met(node, condition) {
-                    let method_str = std::str::from_utf8(name).unwrap_or("method");
-                    let desc = condition_desc(condition);
-                    self.offenses.push((
-                        node.location().start_offset(),
-                        format!("{method_str}({desc}) is not reversible."),
-                    ));
-                    return;
-                }
+            if name == method && node.receiver().is_none() && !is_condition_met(node, condition) {
+                let method_str = std::str::from_utf8(name).unwrap_or("method");
+                let desc = condition_desc(condition);
+                self.offenses.push((
+                    node.location().start_offset(),
+                    format!("{method_str}({desc}) is not reversible."),
+                ));
+                return;
             }
         }
 
@@ -151,22 +149,21 @@ impl IrreversibleFinder {
                     ));
                 }
                 // t.change_default without from/to is irreversible
-                if name == b"change_default" && call.receiver().is_some() {
-                    if !has_from_and_to_args(&call) {
-                        self.offenses.push((
-                            call.location().start_offset(),
-                            "change_table(with change_default) is not reversible.".to_string(),
-                        ));
-                    }
+                if name == b"change_default"
+                    && call.receiver().is_some()
+                    && !has_from_and_to_args(&call)
+                {
+                    self.offenses.push((
+                        call.location().start_offset(),
+                        "change_table(with change_default) is not reversible.".to_string(),
+                    ));
                 }
                 // t.remove without type (for Rails >= 6.1)
-                if name == b"remove" && call.receiver().is_some() {
-                    if !has_type_option(&call) {
-                        self.offenses.push((
-                            call.location().start_offset(),
-                            "t.remove (without type) is not reversible.".to_string(),
-                        ));
-                    }
+                if name == b"remove" && call.receiver().is_some() && !has_type_option(&call) {
+                    self.offenses.push((
+                        call.location().start_offset(),
+                        "t.remove (without type) is not reversible.".to_string(),
+                    ));
                 }
             }
         }

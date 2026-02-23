@@ -65,12 +65,10 @@ impl MethodMissingVisitor<'_> {
                     } else if name_bytes == b"respond_to_missing?" {
                         has_class_respond_to_missing = true;
                     }
-                } else {
-                    if name_bytes == b"method_missing" {
-                        has_instance_method_missing.push(def_node.location().start_offset());
-                    } else if name_bytes == b"respond_to_missing?" {
-                        has_instance_respond_to_missing = true;
-                    }
+                } else if name_bytes == b"method_missing" {
+                    has_instance_method_missing.push(def_node.location().start_offset());
+                } else if name_bytes == b"respond_to_missing?" {
+                    has_instance_respond_to_missing = true;
                 }
             }
 
@@ -94,13 +92,11 @@ impl MethodMissingVisitor<'_> {
                                     } else if name_bytes == b"respond_to_missing?" {
                                         has_class_respond_to_missing = true;
                                     }
-                                } else {
-                                    if name_bytes == b"method_missing" {
-                                        has_instance_method_missing
-                                            .push(def_node.location().start_offset());
-                                    } else if name_bytes == b"respond_to_missing?" {
-                                        has_instance_respond_to_missing = true;
-                                    }
+                                } else if name_bytes == b"method_missing" {
+                                    has_instance_method_missing
+                                        .push(def_node.location().start_offset());
+                                } else if name_bytes == b"respond_to_missing?" {
+                                    has_instance_respond_to_missing = true;
                                 }
                             }
                         }

@@ -117,10 +117,8 @@ impl BareSubjectFinder<'_> {
     /// Walks the stack from top to bottom, returning `true` if the nearest
     /// scope with a subject definition has a named subject.
     fn nearest_subject_is_named(&self) -> bool {
-        for entry in self.subject_named_stack.iter().rev() {
-            if let Some(named) = entry {
-                return *named;
-            }
+        for named in self.subject_named_stack.iter().rev().flatten() {
+            return *named;
         }
         false
     }

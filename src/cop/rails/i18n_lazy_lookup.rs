@@ -74,10 +74,10 @@ impl<'pr> Visit<'pr> for I18nLazyLookupVisitor<'_> {
                 if !arg_list.is_empty() {
                     let key = if let Some(s) = arg_list[0].as_string_node() {
                         Some(s.unescaped().to_vec())
-                    } else if let Some(sym) = arg_list[0].as_symbol_node() {
-                        Some(sym.unescaped().to_vec())
                     } else {
-                        None
+                        arg_list[0]
+                            .as_symbol_node()
+                            .map(|sym| sym.unescaped().to_vec())
                     };
 
                     if let Some(key) = key {

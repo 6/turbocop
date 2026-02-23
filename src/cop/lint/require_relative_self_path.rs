@@ -60,7 +60,7 @@ impl Cop for RequireRelativeSelfPath {
         };
 
         let required_path = string_node.unescaped();
-        let required_str = match std::str::from_utf8(&required_path) {
+        let required_str = match std::str::from_utf8(required_path) {
             Ok(s) => s,
             Err(_) => return,
         };

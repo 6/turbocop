@@ -83,7 +83,7 @@ impl<'pr> Visit<'pr> for NoReturnVisitor<'_, '_> {
     }
 
     fn visit_constant_path_write_node(&mut self, node: &ruby_prism::ConstantPathWriteNode<'pr>) {
-        self.check_assignment_value(&node.value().into());
+        self.check_assignment_value(&node.value());
     }
 
     fn visit_local_variable_or_write_node(

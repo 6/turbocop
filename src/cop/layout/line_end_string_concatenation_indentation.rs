@@ -98,7 +98,7 @@ impl ConcatVisitor<'_> {
             let end_offset = pair[0].location().end_offset();
             let start_offset = pair[1].location().start_offset();
             let between = &bytes[end_offset..start_offset];
-            if !between.iter().any(|&b| b == b'\\') {
+            if !between.contains(&b'\\') {
                 return; // Not backslash continuation
             }
         }

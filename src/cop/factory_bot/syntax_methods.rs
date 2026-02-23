@@ -65,7 +65,7 @@ fn is_spec_group_call(call: &ruby_prism::CallNode<'_>) -> bool {
             if let Some(cr) = recv.as_constant_read_node() {
                 cr.name().as_slice() == b"RSpec"
             } else if let Some(cp) = recv.as_constant_path_node() {
-                cp.parent().is_none() && cp.name().map_or(false, |n| n.as_slice() == b"RSpec")
+                cp.parent().is_none() && cp.name().is_some_and(|n| n.as_slice() == b"RSpec")
             } else {
                 false
             }

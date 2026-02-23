@@ -33,10 +33,8 @@ impl Cop for SafeNavigationWithEmpty {
 
         let if_node = if let Some(n) = node.as_if_node() {
             Some(n.predicate())
-        } else if let Some(n) = node.as_unless_node() {
-            Some(n.predicate())
         } else {
-            None
+            node.as_unless_node().map(|n| n.predicate())
         };
 
         let predicate = match if_node {

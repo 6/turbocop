@@ -60,7 +60,7 @@ impl Cop for RemoveConst {
 
         // First arg must be :remove_const
         let is_remove_const = if let Some(sym) = arg_list[0].as_symbol_node() {
-            &*sym.unescaped() == b"remove_const"
+            sym.unescaped() == b"remove_const"
         } else {
             false
         };

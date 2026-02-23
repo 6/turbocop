@@ -83,7 +83,7 @@ fn check_top_level_describe(
         let is_rspec = if let Some(cr) = recv.as_constant_read_node() {
             cr.name().as_slice() == b"RSpec"
         } else if let Some(cp) = recv.as_constant_path_node() {
-            cp.name().map_or(false, |n| n.as_slice() == b"RSpec") && cp.parent().is_none()
+            cp.name().is_some_and(|n| n.as_slice() == b"RSpec") && cp.parent().is_none()
         } else {
             false
         };

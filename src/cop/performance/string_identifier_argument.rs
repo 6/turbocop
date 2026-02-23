@@ -114,12 +114,12 @@ impl Cop for StringIdentifierArgument {
         };
 
         let method_name = call.name().as_slice();
-        if !ALL_METHODS.iter().any(|&m| m == method_name) {
+        if !ALL_METHODS.contains(&method_name) {
             return;
         }
 
         // Command methods are only flagged when receiverless
-        if COMMAND_METHODS.iter().any(|&m| m == method_name) && call.receiver().is_some() {
+        if COMMAND_METHODS.contains(&method_name) && call.receiver().is_some() {
             return;
         }
 
@@ -135,7 +135,7 @@ impl Cop for StringIdentifierArgument {
 
         // Determine which arguments to check
         let is_two_arg_method = method_name == TWO_ARGUMENTS_METHOD;
-        let is_multi_arg_method = MULTIPLE_ARGUMENTS_METHODS.iter().any(|&m| m == method_name);
+        let is_multi_arg_method = MULTIPLE_ARGUMENTS_METHODS.contains(&method_name);
 
         let args_to_check: Vec<_> = if is_two_arg_method {
             // Check first two arguments

@@ -56,7 +56,6 @@ impl Cop for FormatParameterMismatch {
         // Check for String#% operator
         if method_name == b"%" && call.receiver().is_some() {
             diagnostics.extend(check_string_percent(self, source, &call));
-            return;
         }
     }
 }
@@ -290,7 +289,7 @@ fn extract_format_string(node: &ruby_prism::Node<'_>) -> Option<FormatString> {
     if let Some(s) = node.as_string_node() {
         let val = s.unescaped();
         return Some(FormatString {
-            value: String::from_utf8_lossy(&val).to_string(),
+            value: String::from_utf8_lossy(val).to_string(),
             contains_interpolation: false,
             has_format_affecting_interpolation: false,
         });
@@ -303,7 +302,7 @@ fn extract_format_string(node: &ruby_prism::Node<'_>) -> Option<FormatString> {
         for part in interp.parts().iter() {
             if let Some(s) = part.as_string_node() {
                 let val = s.unescaped();
-                result.push_str(&String::from_utf8_lossy(&val));
+                result.push_str(&String::from_utf8_lossy(val));
             } else {
                 has_interp = true;
                 // Check if the interpolation could affect format parsing

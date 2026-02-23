@@ -81,7 +81,7 @@ impl Cop for AccessModifierIndentation {
             }
 
             let method_name = call.name().as_slice();
-            if !ACCESS_MODIFIERS.iter().any(|m| *m == method_name) {
+            if !ACCESS_MODIFIERS.contains(&method_name) {
                 continue;
             }
 

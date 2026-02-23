@@ -202,10 +202,7 @@ impl FirstArgVisitor<'_> {
             // of the parent. It walks up one level via node.parent. We can simulate
             // this by checking if the call_start_offset matches one of the parent's
             // argument start offsets.
-            parent
-                .arg_start_offsets
-                .iter()
-                .any(|&off| off == call_start_offset)
+            parent.arg_start_offsets.contains(&call_start_offset)
         } else {
             false
         }
@@ -236,7 +233,7 @@ fn is_single_line_base_range(
         // Strip trailing whitespace (spaces, tabs, newlines)
         let stripped = trim_end_whitespace(range_bytes);
         // Check if the stripped content contains any newline
-        !stripped.iter().any(|&b| b == b'\n')
+        !stripped.contains(&b'\n')
     } else {
         call_line == arg_line
     }

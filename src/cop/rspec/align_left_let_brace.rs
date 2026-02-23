@@ -73,7 +73,7 @@ fn chunk_adjacent_lets(lets: &[(usize, usize)]) -> Vec<Vec<(usize, usize)>> {
     let mut last_line: Option<usize> = None;
 
     for &(line, _) in lets {
-        let is_adjacent = last_line.is_none() || last_line.map_or(false, |prev| prev + 1 == line);
+        let is_adjacent = last_line.is_none() || last_line.is_some_and(|prev| prev + 1 == line);
         if is_adjacent {
             last_line = Some(line);
         } else {

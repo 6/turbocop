@@ -40,7 +40,7 @@ impl Cop for UnescapedBracketInRegexp {
         // Check RegularExpressionNode
         if let Some(regexp) = node.as_regular_expression_node() {
             let content = regexp.unescaped();
-            let content_str = match std::str::from_utf8(&content) {
+            let content_str = match std::str::from_utf8(content) {
                 Ok(s) => s,
                 Err(_) => return,
             };
@@ -69,7 +69,7 @@ impl Cop for UnescapedBracketInRegexp {
             for part in interp_regexp.parts().iter() {
                 if let Some(s) = part.as_string_node() {
                     let content = s.unescaped();
-                    let content_str = match std::str::from_utf8(&content) {
+                    let content_str = match std::str::from_utf8(content) {
                         Ok(s) => s,
                         Err(_) => continue,
                     };
@@ -82,7 +82,6 @@ impl Cop for UnescapedBracketInRegexp {
                     ));
                 }
             }
-            return;
         }
     }
 }

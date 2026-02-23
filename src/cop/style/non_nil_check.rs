@@ -78,38 +78,34 @@ impl<'pr> Visit<'pr> for NonNilCheckVisitor<'_, '_> {
         if method == b"!=" {
             if let Some(args) = node.arguments() {
                 let args_vec: Vec<_> = args.arguments().iter().collect();
-                if args_vec.len() == 1 && args_vec[0].as_nil_node().is_some() {
-                    if node.receiver().is_some() {
-                        // RuboCop skips the last expression of predicate methods (def foo?)
-                        let is_predicate_return = self.in_predicate_method
-                            && self.predicate_last_stmt_offset
-                                == Some(node.location().start_offset());
-                        if !is_predicate_return {
-                            let loc = node.location();
-                            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-                            if self.include_semantic_changes {
-                                self.diagnostics.push(self.cop.diagnostic(
-                                    self.source,
-                                    line,
-                                    column,
-                                    "Explicit non-nil checks are usually redundant.".to_string(),
-                                ));
-                            } else {
-                                let receiver_src = std::str::from_utf8(
-                                    node.receiver().unwrap().location().as_slice(),
-                                )
-                                .unwrap_or("x");
-                                let current_src = std::str::from_utf8(loc.as_slice()).unwrap_or("");
-                                self.diagnostics.push(self.cop.diagnostic(
-                                    self.source,
-                                    line,
-                                    column,
-                                    format!(
-                                        "Prefer `!{}.nil?` over `{}`.",
-                                        receiver_src, current_src
-                                    ),
-                                ));
-                            }
+                if args_vec.len() == 1
+                    && args_vec[0].as_nil_node().is_some()
+                    && node.receiver().is_some()
+                {
+                    // RuboCop skips the last expression of predicate methods (def foo?)
+                    let is_predicate_return = self.in_predicate_method
+                        && self.predicate_last_stmt_offset == Some(node.location().start_offset());
+                    if !is_predicate_return {
+                        let loc = node.location();
+                        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                        if self.include_semantic_changes {
+                            self.diagnostics.push(self.cop.diagnostic(
+                                self.source,
+                                line,
+                                column,
+                                "Explicit non-nil checks are usually redundant.".to_string(),
+                            ));
+                        } else {
+                            let receiver_src =
+                                std::str::from_utf8(node.receiver().unwrap().location().as_slice())
+                                    .unwrap_or("x");
+                            let current_src = std::str::from_utf8(loc.as_slice()).unwrap_or("");
+                            self.diagnostics.push(self.cop.diagnostic(
+                                self.source,
+                                line,
+                                column,
+                                format!("Prefer `!{}.nil?` over `{}`.", receiver_src, current_src),
+                            ));
                         }
                     }
                 }

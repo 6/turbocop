@@ -163,10 +163,7 @@ fn extract_allow_receive_info(
     let mut has_with = false;
     let mut receive_msg = String::new();
 
-    let mut current = match arg.as_call_node() {
-        Some(c) => c,
-        None => return None,
-    };
+    let mut current = arg.as_call_node()?;
 
     loop {
         let method = current.name().as_slice();

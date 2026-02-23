@@ -188,19 +188,17 @@ impl Cop for StructNewOverride {
 
         for (index, arg) in arg_list.iter().enumerate() {
             // Skip first argument if it's a string (class name)
-            if index == 0 {
-                if arg.as_string_node().is_some() {
-                    continue;
-                }
+            if index == 0 && arg.as_string_node().is_some() {
+                continue;
             }
 
             // Get the member name from symbol or string
             let member_name = if let Some(sym) = arg.as_symbol_node() {
-                std::str::from_utf8(&sym.unescaped())
+                std::str::from_utf8(sym.unescaped())
                     .ok()
                     .map(|s| s.to_string())
             } else if let Some(s) = arg.as_string_node() {
-                std::str::from_utf8(&s.unescaped())
+                std::str::from_utf8(s.unescaped())
                     .ok()
                     .map(|s| s.to_string())
             } else {

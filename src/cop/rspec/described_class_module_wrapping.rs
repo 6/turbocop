@@ -100,7 +100,7 @@ fn is_rspec_describe(node: &ruby_prism::Node<'_>) -> bool {
             return cr.name().as_slice() == b"RSpec";
         }
         if let Some(cp) = recv.as_constant_path_node() {
-            return cp.name().map_or(false, |n| n.as_slice() == b"RSpec") && cp.parent().is_none();
+            return cp.name().is_some_and(|n| n.as_slice() == b"RSpec") && cp.parent().is_none();
         }
     }
     // Receiverless describe is also an example group

@@ -92,9 +92,7 @@ fn get_loop_info(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<Loo
     }
 
     // Must have a block
-    if call.block().is_none() {
-        return None;
-    }
+    call.block()?;
 
     let receiver = call.receiver()?;
     let receiver_text = std::str::from_utf8(

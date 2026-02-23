@@ -107,10 +107,9 @@ impl Cop for ClassStructure {
             }
 
             // Skip private constants (constants followed by private_constant :NAME)
-            if category == ElementCategory::Constants {
-                if is_private_constant(stmt, &all_stmts, idx) {
-                    continue;
-                }
+            if category == ElementCategory::Constants && is_private_constant(stmt, &all_stmts, idx)
+            {
+                continue;
             }
 
             if first {

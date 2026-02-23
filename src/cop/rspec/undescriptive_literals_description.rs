@@ -56,7 +56,7 @@ impl Cop for UndescriptiveLiteralsDescription {
 
         // Must be receiverless or RSpec.describe / ::RSpec.describe
         if let Some(recv) = call.receiver() {
-            if util::constant_name(&recv).map_or(true, |n| n != b"RSpec") {
+            if util::constant_name(&recv).is_none_or(|n| n != b"RSpec") {
                 return;
             }
         }

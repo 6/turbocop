@@ -67,15 +67,9 @@ impl Cop for MessageExpectation {
                 Some(c)
             } else if let Some(recv) = c.receiver() {
                 // Check if the receiver chain eventually has `receive`
-                if let Some(inner) = recv.as_call_node() {
-                    if inner.name().as_slice() == b"receive" && inner.receiver().is_none() {
-                        Some(inner)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
+                recv.as_call_node().filter(|inner| {
+                    inner.name().as_slice() == b"receive" && inner.receiver().is_none()
+                })
             } else {
                 None
             }

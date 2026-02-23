@@ -135,10 +135,10 @@ fn find_keyword_before(before: &[u8], keyword: &[u8]) -> bool {
         return false;
     }
     for i in 0..=before.len() - keyword.len() {
-        if &before[i..i + keyword.len()] == keyword {
-            if i == 0 || !before[i - 1].is_ascii_alphanumeric() && before[i - 1] != b'_' {
-                return true;
-            }
+        if &before[i..i + keyword.len()] == keyword
+            && (i == 0 || !before[i - 1].is_ascii_alphanumeric() && before[i - 1] != b'_')
+        {
+            return true;
         }
     }
     false

@@ -131,7 +131,7 @@ impl Cop for GlobalVars {
         };
 
         // Skip built-in globals
-        if BUILTIN_GLOBALS.iter().any(|&g| g == name.as_slice()) {
+        if BUILTIN_GLOBALS.contains(&name.as_slice()) {
             return;
         }
 

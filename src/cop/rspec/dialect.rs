@@ -56,8 +56,7 @@ impl Cop for Dialect {
         };
 
         // Check if this method is a non-preferred alias
-        let preferred_name = match preferred.get(&serde_yml::Value::String(method_str.to_string()))
-        {
+        let preferred_name = match preferred.get(serde_yml::Value::String(method_str.to_string())) {
             Some(v) => match v.as_str() {
                 Some(s) => s.trim_start_matches(':'),
                 None => return,
@@ -69,7 +68,7 @@ impl Cop for Dialect {
         let is_rspec_call = if call.receiver().is_none() {
             true
         } else if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
+            util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
         } else {
             false
         };

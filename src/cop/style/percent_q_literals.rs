@@ -42,18 +42,16 @@ impl Cop for PercentQLiterals {
 
         if style == "lower_case_q" {
             // Flag %Q when %q would suffice (no interpolation)
-            if opening.starts_with(b"%Q") {
-                if node.as_string_node().is_some() {
-                    // StringNode means no interpolation -> should use %q
-                    let loc = node.location();
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Use `%q` instead of `%Q`.".to_string(),
-                    ));
-                }
+            if opening.starts_with(b"%Q") && node.as_string_node().is_some() {
+                // StringNode means no interpolation -> should use %q
+                let loc = node.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use `%q` instead of `%Q`.".to_string(),
+                ));
             }
         } else if style == "upper_case_q" {
             // Flag %q when %Q is preferred

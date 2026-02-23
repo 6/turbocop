@@ -68,7 +68,7 @@ impl Cop for TimeZone {
             let first_arg = args.arguments().iter().next();
             if let Some(arg) = first_arg {
                 if let Some(str_node) = arg.as_string_node() {
-                    let content = str_node.unescaped().as_ref();
+                    let content = str_node.unescaped();
                     if has_timezone_specifier(content) {
                         return;
                     }
@@ -77,10 +77,8 @@ impl Cop for TimeZone {
         }
 
         // Skip Time.new/at/now with `in:` keyword argument (timezone offset provided)
-        if method == b"at" || method == b"now" || method == b"new" {
-            if has_in_keyword_arg(&call) {
-                return;
-            }
+        if (method == b"at" || method == b"now" || method == b"new") && has_in_keyword_arg(&call) {
+            return;
         }
         // Time.new with 7 arguments (last is timezone offset)
         if method == b"new" {
@@ -138,7 +136,7 @@ fn has_in_keyword_arg(call: &ruby_prism::CallNode<'_>) -> bool {
             for elem in kw_hash.elements().iter() {
                 if let Some(assoc) = elem.as_assoc_node() {
                     if let Some(sym) = assoc.key().as_symbol_node() {
-                        if &*sym.unescaped() == b"in" {
+                        if sym.unescaped() == b"in" {
                             // Value must not be nil
                             if assoc.value().as_nil_node().is_none() {
                                 return true;
@@ -153,10 +151,8 @@ fn has_in_keyword_arg(call: &ruby_prism::CallNode<'_>) -> bool {
             for elem in hash.elements().iter() {
                 if let Some(assoc) = elem.as_assoc_node() {
                     if let Some(sym) = assoc.key().as_symbol_node() {
-                        if &*sym.unescaped() == b"in" {
-                            if assoc.value().as_nil_node().is_none() {
-                                return true;
-                            }
+                        if sym.unescaped() == b"in" && assoc.value().as_nil_node().is_none() {
+                            return true;
                         }
                     }
                 }
@@ -266,7 +262,7 @@ fn chain_contains_tz_safe_method(bytes: &[u8], start: usize) -> bool {
         let method = &bytes[method_start..pos];
 
         // Check if this method is timezone-safe
-        if SAFE_METHODS.iter().any(|safe| *safe == method) {
+        if SAFE_METHODS.contains(&method) {
             return true;
         }
 

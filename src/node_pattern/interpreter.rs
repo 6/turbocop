@@ -454,7 +454,7 @@ fn matches_node(pattern: &PatternNode, node: &ruby_prism::Node<'_>) -> bool {
 
         PatternNode::SymbolLiteral(name) => {
             if let Some(sym) = node.as_symbol_node() {
-                &*sym.unescaped() == name.as_bytes()
+                sym.unescaped() == name.as_bytes()
             } else {
                 false
             }
@@ -474,7 +474,7 @@ fn matches_node(pattern: &PatternNode, node: &ruby_prism::Node<'_>) -> bool {
 
         PatternNode::StringLiteral(s) => {
             if let Some(str_node) = node.as_string_node() {
-                &*str_node.unescaped() == s.as_bytes()
+                str_node.unescaped() == s.as_bytes()
             } else {
                 false
             }
@@ -508,7 +508,7 @@ fn matches_node(pattern: &PatternNode, node: &ruby_prism::Node<'_>) -> bool {
                     }
                     "sym" => {
                         if let Some(sym) = node.as_symbol_node() {
-                            return matches_name(&pattern_children[0], &*sym.unescaped());
+                            return matches_name(&pattern_children[0], sym.unescaped());
                         }
                         return false;
                     }
@@ -557,8 +557,8 @@ fn matches_absent(pattern: &PatternNode) -> bool {
     match pattern {
         PatternNode::Wildcard => true,
         PatternNode::NilPredicate => true,
-        PatternNode::Alternatives(alts) => alts.iter().any(|alt| matches_absent(alt)),
-        PatternNode::Conjunction(items) => items.iter().all(|item| matches_absent(item)),
+        PatternNode::Alternatives(alts) => alts.iter().any(matches_absent),
+        PatternNode::Conjunction(items) => items.iter().all(matches_absent),
         PatternNode::Negation(inner) => !matches_absent(inner),
         PatternNode::Capture(inner) => matches_absent(inner),
         PatternNode::HelperCall(_) => true,

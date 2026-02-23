@@ -63,11 +63,9 @@ impl Cop for KeywordParametersOrder {
         for kw in keywords.iter().rev() {
             if kw.as_required_keyword_parameter_node().is_some() {
                 seen_required = true;
-            } else if kw.as_optional_keyword_parameter_node().is_some() {
-                if seen_required {
-                    have_optional_before_required = true;
-                    break;
-                }
+            } else if kw.as_optional_keyword_parameter_node().is_some() && seen_required {
+                have_optional_before_required = true;
+                break;
             }
         }
 
@@ -80,20 +78,18 @@ impl Cop for KeywordParametersOrder {
         for kw in keywords.iter().rev() {
             if kw.as_required_keyword_parameter_node().is_some() {
                 seen_required = true;
-            } else if kw.as_optional_keyword_parameter_node().is_some() {
-                if seen_required {
-                    let loc = kw.location();
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(
-                        self.diagnostic(
-                            source,
-                            line,
-                            column,
-                            "Place optional keyword parameters at the end of the parameters list."
-                                .to_string(),
-                        ),
-                    );
-                }
+            } else if kw.as_optional_keyword_parameter_node().is_some() && seen_required {
+                let loc = kw.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                diagnostics.push(
+                    self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Place optional keyword parameters at the end of the parameters list."
+                            .to_string(),
+                    ),
+                );
             }
         }
     }

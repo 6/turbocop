@@ -35,7 +35,7 @@ impl Cop for MixedRegexpCaptureTypes {
 
         // Get the regexp content (unescaped source between delimiters)
         let content = regexp.unescaped();
-        let content_str = match std::str::from_utf8(&content) {
+        let content_str = match std::str::from_utf8(content) {
             Ok(s) => s,
             Err(_) => return,
         };
@@ -57,7 +57,6 @@ impl Cop for MixedRegexpCaptureTypes {
                 column,
                 "Do not mix named captures and numbered captures in a Regexp literal.".to_string(),
             ));
-            return;
         }
     }
 }

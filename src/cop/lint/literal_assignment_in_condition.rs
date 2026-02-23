@@ -59,10 +59,9 @@ impl Cop for LiteralAssignmentInCondition {
             Some(unless_node.predicate())
         } else if let Some(while_node) = node.as_while_node() {
             Some(while_node.predicate())
-        } else if let Some(until_node) = node.as_until_node() {
-            Some(until_node.predicate())
         } else {
-            None
+            node.as_until_node()
+                .map(|until_node| until_node.predicate())
         };
 
         let predicate = match predicate {
@@ -89,10 +88,8 @@ fn check_node_for_literal_assignment(
         Some(cv.value())
     } else if let Some(gv) = node.as_global_variable_write_node() {
         Some(gv.value())
-    } else if let Some(cw) = node.as_constant_write_node() {
-        Some(cw.value())
     } else {
-        None
+        node.as_constant_write_node().map(|cw| cw.value())
     };
 
     if let Some(rhs) = rhs {

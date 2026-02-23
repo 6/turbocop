@@ -87,7 +87,7 @@ impl HttpStatusNameConsistency {
         if let Some(sym) = node.as_symbol_node() {
             let name = sym.unescaped();
             for &(deprecated, preferred) in PREFERRED_STATUSES {
-                if AsRef::<[u8]>::as_ref(&*name) == deprecated {
+                if AsRef::<[u8]>::as_ref(name) == deprecated {
                     let loc = node.location();
                     let (line, column) = source.offset_to_line_col(loc.start_offset());
                     diagnostics.push(self.diagnostic(
@@ -109,7 +109,7 @@ impl HttpStatusNameConsistency {
             for element in hash.elements().iter() {
                 if let Some(pair) = element.as_assoc_node() {
                     if let Some(key_sym) = pair.key().as_symbol_node() {
-                        if AsRef::<[u8]>::as_ref(&*key_sym.unescaped()) == b"status" {
+                        if AsRef::<[u8]>::as_ref(key_sym.unescaped()) == b"status" {
                             self.check_for_deprecated_status(source, &pair.value(), diagnostics);
                         }
                     }
@@ -122,7 +122,7 @@ impl HttpStatusNameConsistency {
             for element in hash.elements().iter() {
                 if let Some(pair) = element.as_assoc_node() {
                     if let Some(key_sym) = pair.key().as_symbol_node() {
-                        if AsRef::<[u8]>::as_ref(&*key_sym.unescaped()) == b"status" {
+                        if AsRef::<[u8]>::as_ref(key_sym.unescaped()) == b"status" {
                             self.check_for_deprecated_status(source, &pair.value(), diagnostics);
                         }
                     }

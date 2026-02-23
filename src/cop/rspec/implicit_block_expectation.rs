@@ -107,15 +107,14 @@ fn has_block_matcher(node: &ruby_prism::Node<'_>) -> bool {
                 return true;
             }
         }
-        if call.receiver().is_none() || call.block().is_some() {
-            if name == b"change"
+        if (call.receiver().is_none() || call.block().is_some())
+            && (name == b"change"
                 || name == b"raise_error"
                 || name == b"raise_exception"
                 || name == b"throw_symbol"
-                || name == b"output"
-            {
-                return true;
-            }
+                || name == b"output")
+        {
+            return true;
         }
     }
     false

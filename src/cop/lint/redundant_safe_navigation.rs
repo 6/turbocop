@@ -128,7 +128,7 @@ impl Cop for RedundantSafeNavigation {
         let is_allowed = if let Some(ref allowed) = allowed_methods {
             allowed.iter().any(|m| m.as_bytes() == _method_name)
         } else {
-            DEFAULT_ALLOWED_METHODS.iter().any(|&m| m == _method_name)
+            DEFAULT_ALLOWED_METHODS.contains(&_method_name)
         };
 
         // Note: We'd need parent context to check if the call is in a condition.
@@ -180,7 +180,7 @@ fn is_guaranteed_instance_receiver(node: &ruby_prism::Node<'_>) -> bool {
             }
         }
         let method = call.name().as_slice();
-        GUARANTEED_INSTANCE_METHODS.iter().any(|&m| m == method)
+        GUARANTEED_INSTANCE_METHODS.contains(&method)
     } else if let Some(block) = node.as_block_node() {
         // Block wrapping: foo.to_h { ... }&.keys
         let src = block.location().as_slice();

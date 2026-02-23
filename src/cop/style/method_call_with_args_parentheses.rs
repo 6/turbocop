@@ -71,8 +71,7 @@ fn is_setter(name: &[u8]) -> bool {
 fn matches_any_pattern(name_str: &str, patterns: &[String]) -> bool {
     for pattern in patterns {
         // Simple: if pattern starts with ^ it's a prefix match, otherwise substring
-        if pattern.starts_with('^') {
-            let prefix = &pattern[1..];
+        if let Some(prefix) = pattern.strip_prefix('^') {
             if name_str.starts_with(prefix) {
                 return true;
             }

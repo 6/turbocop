@@ -112,7 +112,7 @@ impl Cop for RedundantSelfAssignment {
 
         // Method must be an in-place modification method
         let method_name = call.name().as_slice();
-        if !INPLACE_METHODS.iter().any(|m| *m == method_name) {
+        if !INPLACE_METHODS.contains(&method_name) {
             return;
         }
 

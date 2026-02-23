@@ -17,7 +17,7 @@ const PRECEDENCE: &[&[&[u8]]] = &[
 
 fn precedence_level(op: &[u8]) -> Option<usize> {
     for (i, group) in PRECEDENCE.iter().enumerate() {
-        if group.iter().any(|o| *o == op) {
+        if group.contains(&op) {
             return Some(i);
         }
     }

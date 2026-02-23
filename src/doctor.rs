@@ -50,7 +50,7 @@ fn read_inheritance_chain(config_dir: &Path) -> (Vec<String>, Vec<(String, Vec<S
     };
 
     // inherit_from
-    if let Some(val) = map.get(&serde_yml::Value::String("inherit_from".into())) {
+    if let Some(val) = map.get(serde_yml::Value::String("inherit_from".into())) {
         match val {
             serde_yml::Value::String(s) => inherit_from.push(s.clone()),
             serde_yml::Value::Sequence(seq) => {
@@ -65,7 +65,7 @@ fn read_inheritance_chain(config_dir: &Path) -> (Vec<String>, Vec<(String, Vec<S
     }
 
     // inherit_gem
-    if let Some(val) = map.get(&serde_yml::Value::String("inherit_gem".into())) {
+    if let Some(val) = map.get(serde_yml::Value::String("inherit_gem".into())) {
         if let Some(gem_map) = val.as_mapping() {
             for (k, v) in gem_map {
                 let Some(gem_name) = k.as_str() else {

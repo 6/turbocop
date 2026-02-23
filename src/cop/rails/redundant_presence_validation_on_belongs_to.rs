@@ -151,10 +151,8 @@ fn has_optional_true(call: &ruby_prism::CallNode<'_>) -> bool {
                 Some(s) => s,
                 None => continue,
             };
-            if key_sym.unescaped() == b"optional" {
-                if assoc.value().as_true_node().is_some() {
-                    return true;
-                }
+            if key_sym.unescaped() == b"optional" && assoc.value().as_true_node().is_some() {
+                return true;
             }
         }
     }

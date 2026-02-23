@@ -45,12 +45,12 @@ impl Cop for BinaryOperatorParameterName {
         let method_name = def_node.name().as_slice();
 
         // Skip excluded operators
-        if EXCLUDED_OPERATORS.iter().any(|&op| op == method_name) {
+        if EXCLUDED_OPERATORS.contains(&method_name) {
             return;
         }
 
         // Check if this is a binary operator or operator-like method
-        if !BINARY_OPERATORS.iter().any(|&op| op == method_name) {
+        if !BINARY_OPERATORS.contains(&method_name) {
             // Also accept non-word methods (operators) that aren't excluded
             let name_str = std::str::from_utf8(method_name).unwrap_or("");
             let is_op = !name_str.is_empty()

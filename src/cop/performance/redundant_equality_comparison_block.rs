@@ -46,7 +46,7 @@ impl Cop for RedundantEqualityComparisonBlock {
         };
 
         let method_name = call.name().as_slice();
-        if !FLAGGED_METHODS.iter().any(|m| *m == method_name) {
+        if !FLAGGED_METHODS.contains(&method_name) {
             return;
         }
 

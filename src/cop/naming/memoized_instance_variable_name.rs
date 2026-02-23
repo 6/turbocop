@@ -274,7 +274,7 @@ impl Cop for MemoizedInstanceVariableName {
         }
 
         // Strip trailing ? or ! from method name for matching
-        let base_name = method_name_str.trim_end_matches(|c| c == '?' || c == '!');
+        let base_name = method_name_str.trim_end_matches(['?', '!']);
 
         let body = match def_node.body() {
             Some(b) => b,

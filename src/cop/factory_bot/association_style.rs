@@ -180,17 +180,15 @@ impl Cop for AssociationStyle {
                         "Use implicit style to define associations.".to_string(),
                     ));
                 }
-            } else {
-                if is_implicit_association(child, node) {
-                    let loc = child.location();
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Use explicit style to define associations.".to_string(),
-                    ));
-                }
+            } else if is_implicit_association(child, node) {
+                let loc = child.location();
+                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use explicit style to define associations.".to_string(),
+                ));
             }
         }
     }

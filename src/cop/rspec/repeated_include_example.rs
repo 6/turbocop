@@ -165,7 +165,7 @@ fn include_signature(source: &SourceFile, call: &ruby_prism::CallNode<'_>) -> Op
                 let loc = s.location();
                 sig.extend_from_slice(&source.as_bytes()[loc.start_offset()..loc.end_offset()]);
                 sig.push(b':');
-                sig.extend_from_slice(&s.unescaped());
+                sig.extend_from_slice(s.unescaped());
             } else {
                 let loc = s.location();
                 sig.extend_from_slice(&source.as_bytes()[loc.start_offset()..loc.end_offset()]);
@@ -178,7 +178,7 @@ fn include_signature(source: &SourceFile, call: &ruby_prism::CallNode<'_>) -> Op
                 sig.push(b':');
                 for part in interp.parts().iter() {
                     if let Some(str_part) = part.as_string_node() {
-                        sig.extend_from_slice(&str_part.unescaped());
+                        sig.extend_from_slice(str_part.unescaped());
                     } else {
                         // For interpolated expressions, use source text
                         let part_loc = part.location();

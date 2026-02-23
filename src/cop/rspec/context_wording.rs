@@ -58,7 +58,7 @@ impl Cop for ContextWording {
         let content_str: String;
         if let Some(s) = arg_list[0].as_string_node() {
             let content = s.unescaped();
-            content_str = match std::str::from_utf8(&content) {
+            content_str = match std::str::from_utf8(content) {
                 Ok(s) => s.to_string(),
                 Err(_) => return,
             };
@@ -68,7 +68,7 @@ impl Cop for ContextWording {
             if let Some(first) = parts.first() {
                 if let Some(s) = first.as_string_node() {
                     let text = s.unescaped();
-                    content_str = match std::str::from_utf8(&text) {
+                    content_str = match std::str::from_utf8(text) {
                         Ok(s) => s.to_string(),
                         Err(_) => return,
                     };
@@ -106,8 +106,7 @@ impl Cop for ContextWording {
 
         // Check if description starts with any allowed prefix followed by a word boundary
         for prefix in &prefixes {
-            if content_str.starts_with(prefix) {
-                let after = &content_str[prefix.len()..];
+            if let Some(after) = content_str.strip_prefix(prefix) {
                 if after.is_empty()
                     || after.starts_with(' ')
                     || after.starts_with(',')

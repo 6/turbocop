@@ -45,7 +45,7 @@ impl Cop for EvenOdd {
         // Unwrap optional parentheses
         let modulo_call = if let Some(parens) = receiver.as_parentheses_node() {
             match parens.body() {
-                Some(body) => body.as_call_node().map(|c| c),
+                Some(body) => body.as_call_node(),
                 None => return,
             }
         } else {

@@ -101,7 +101,7 @@ impl<'pr> Visit<'pr> for StrategyFinder<'_> {
                         .parameters()
                         .and_then(|p| p.as_block_parameters_node())
                         .and_then(|bp| bp.parameters())
-                        .map_or(false, |p| p.requireds().iter().next().is_some());
+                        .is_some_and(|p| p.requireds().iter().next().is_some());
 
                     if !has_params {
                         if let Some(body) = block_node.body() {

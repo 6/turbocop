@@ -218,7 +218,7 @@ impl<'pr> Visit<'pr> for PredicateMethodVisitor<'_> {
 
 /// Check if a method name is an operator method.
 fn is_operator_method(name: &[u8]) -> bool {
-    OPERATOR_METHODS.iter().any(|op| *op == name)
+    OPERATOR_METHODS.contains(&name)
 }
 
 /// Normalize a Ruby regex pattern to Rust regex syntax.
@@ -259,13 +259,11 @@ fn all_return_values_boolean(return_types: &[ReturnType]) -> bool {
 /// Check if a predicate method (ending with ?) has non-boolean return values.
 fn potential_non_predicate(return_types: &[ReturnType], conservative: bool) -> bool {
     // In conservative mode: if any return value is boolean, the method name is acceptable
-    if conservative && return_types.iter().any(|rt| *rt == ReturnType::Boolean) {
+    if conservative && return_types.contains(&ReturnType::Boolean) {
         return false;
     }
     // Check if any return value is a non-boolean literal
-    return_types
-        .iter()
-        .any(|rt| *rt == ReturnType::NonBooleanLiteral)
+    return_types.contains(&ReturnType::NonBooleanLiteral)
 }
 
 /// Collect all return types from a method body.
@@ -609,7 +607,7 @@ fn classify_node(node: &ruby_prism::Node<'_>, wayward: &[String]) -> ReturnType 
         }
 
         // Comparison methods
-        if COMPARISON_METHODS.iter().any(|m| *m == method_name) {
+        if COMPARISON_METHODS.contains(&method_name) {
             return ReturnType::Boolean;
         }
 

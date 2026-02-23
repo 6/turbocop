@@ -110,7 +110,7 @@ impl AccessModifierCollector {
             return;
         }
         let method_name = call.name().as_slice();
-        if !ACCESS_MODIFIERS.iter().any(|&m| m == method_name) {
+        if !ACCESS_MODIFIERS.contains(&method_name) {
             return;
         }
         if call.arguments().is_some() {

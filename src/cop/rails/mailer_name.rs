@@ -47,7 +47,7 @@ impl Cop for MailerName {
 
         // Check superclass is a mailer base
         let superclass_name = util::full_constant_path(source, &superclass);
-        if !MAILER_BASES.iter().any(|base| *base == superclass_name) {
+        if !MAILER_BASES.contains(&superclass_name) {
             return;
         }
 

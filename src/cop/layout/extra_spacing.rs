@@ -348,10 +348,12 @@ fn check_alignment(line: &[u8], col: usize, token_char: u8) -> bool {
         return false;
     }
     // Mode 1: space + non-space at the same column
-    if line[col] != b' ' && line[col] != b'\t' {
-        if col > 0 && (line[col - 1] == b' ' || line[col - 1] == b'\t') {
-            return true;
-        }
+    if line[col] != b' '
+        && line[col] != b'\t'
+        && col > 0
+        && (line[col - 1] == b' ' || line[col - 1] == b'\t')
+    {
+        return true;
     }
     // Mode 2: same character at the same column
     if line[col] == token_char {

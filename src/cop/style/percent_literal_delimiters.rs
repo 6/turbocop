@@ -71,12 +71,11 @@ impl PercentLiteralDelimiters {
         if matches!(
             second,
             b'w' | b'W' | b'i' | b'I' | b'q' | b'Q' | b'r' | b's' | b'x'
-        ) {
-            if open_bytes.len() >= 3 {
-                let literal_type = format!("%{}", second as char);
-                let delimiter = open_bytes[2];
-                return Some((literal_type, delimiter));
-            }
+        ) && open_bytes.len() >= 3
+        {
+            let literal_type = format!("%{}", second as char);
+            let delimiter = open_bytes[2];
+            return Some((literal_type, delimiter));
         }
         // Bare %( is same as %Q(
         if !second.is_ascii_alphabetic() {

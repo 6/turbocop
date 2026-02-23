@@ -44,8 +44,7 @@ impl Cop for NestedGroups {
 
         // Check for RSpec.describe / ::RSpec.describe or bare describe at top level
         let is_top_level = if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
-                && method_name == b"describe"
+            util::constant_name(&recv).is_some_and(|n| n == b"RSpec") && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name)
         };
@@ -72,7 +71,7 @@ impl Cop for NestedGroups {
                 source,
                 max,
                 depth: 1, // The top-level describe is depth 1
-                diagnostics: diagnostics,
+                diagnostics,
                 cop: self,
                 parse_result,
                 allowed_groups: &allowed_groups,

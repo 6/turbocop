@@ -48,7 +48,7 @@ impl Cop for Output {
         }
 
         let name = call.name().as_slice();
-        if !OUTPUT_METHODS.iter().any(|&m| m == name) {
+        if !OUTPUT_METHODS.contains(&name) {
             return;
         }
 

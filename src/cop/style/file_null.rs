@@ -46,7 +46,7 @@ struct DevNullFinder {
 impl<'pr> Visit<'pr> for DevNullFinder {
     fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
         let content = node.unescaped();
-        if let Ok(s) = std::str::from_utf8(&content) {
+        if let Ok(s) = std::str::from_utf8(content) {
             if s.eq_ignore_ascii_case("/dev/null") {
                 self.found = true;
             }
@@ -84,7 +84,7 @@ impl<'a, 'pr> Visit<'pr> for FileNullVisitor<'a> {
         }
 
         let content_bytes = node.unescaped();
-        let content_str = match std::str::from_utf8(&content_bytes) {
+        let content_str = match std::str::from_utf8(content_bytes) {
             Ok(s) => s,
             Err(_) => return,
         };

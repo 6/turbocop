@@ -53,7 +53,7 @@ impl Cop for SubjectStub {
 
         // Only process example group methods (describe, context, etc., including ::RSpec)
         let is_rspec_describe = if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).map_or(false, |n| n == b"RSpec")
+            util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
                 && is_rspec_example_group(method_name)
         } else {
             false
@@ -190,33 +190,31 @@ fn check_for_subject_stubs(
         }
 
         // Check for `expect(subject_name).to have_received(...)`
-        if method == b"to" || method == b"not_to" || method == b"to_not" {
-            if has_have_received_matcher(&call) {
-                if let Some(recv) = call.receiver() {
-                    if let Some(recv_call) = recv.as_call_node() {
-                        if recv_call.name().as_slice() == b"expect"
-                            && recv_call.receiver().is_none()
-                        {
-                            if let Some(args) = recv_call.arguments() {
-                                let arg_list: Vec<_> = args.arguments().iter().collect();
-                                if !arg_list.is_empty() {
-                                    let arg_name = extract_simple_name(&arg_list[0]);
-                                    if let Some(name) = arg_name {
-                                        if subject_names.iter().any(|s| s == &name) {
-                                            let loc = node.location();
-                                            let (line, column) =
-                                                source.offset_to_line_col(loc.start_offset());
-                                            diagnostics.push(
-                                                cop.diagnostic(
-                                                    source,
-                                                    line,
-                                                    column,
-                                                    "Do not stub methods of the object under test."
-                                                        .to_string(),
-                                                ),
-                                            );
-                                            return;
-                                        }
+        if (method == b"to" || method == b"not_to" || method == b"to_not")
+            && has_have_received_matcher(&call)
+        {
+            if let Some(recv) = call.receiver() {
+                if let Some(recv_call) = recv.as_call_node() {
+                    if recv_call.name().as_slice() == b"expect" && recv_call.receiver().is_none() {
+                        if let Some(args) = recv_call.arguments() {
+                            let arg_list: Vec<_> = args.arguments().iter().collect();
+                            if !arg_list.is_empty() {
+                                let arg_name = extract_simple_name(&arg_list[0]);
+                                if let Some(name) = arg_name {
+                                    if subject_names.iter().any(|s| s == &name) {
+                                        let loc = node.location();
+                                        let (line, column) =
+                                            source.offset_to_line_col(loc.start_offset());
+                                        diagnostics.push(
+                                            cop.diagnostic(
+                                                source,
+                                                line,
+                                                column,
+                                                "Do not stub methods of the object under test."
+                                                    .to_string(),
+                                            ),
+                                        );
+                                        return;
                                     }
                                 }
                             }

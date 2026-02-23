@@ -85,7 +85,7 @@ impl Cop for RepeatedDescription {
             }
         }
 
-        for (_sig, locs) in &desc_map {
+        for locs in desc_map.values() {
             if locs.len() > 1 {
                 for &(line, col, start, end) in locs {
                     let _ = (start, end);

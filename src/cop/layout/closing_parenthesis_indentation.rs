@@ -55,7 +55,6 @@ impl Cop for ClosingParenthesisIndentation {
                     return;
                 }
             }
-            return;
         }
     }
 }
@@ -206,7 +205,7 @@ fn check_def_parens(
         .requireds()
         .iter()
         .next()
-        .or_else(|| params.optionals().iter().next().map(ruby_prism::Node::from));
+        .or_else(|| params.optionals().iter().next());
 
     let first_param = match first_param {
         Some(p) => p,

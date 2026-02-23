@@ -119,7 +119,7 @@ impl<'a> TrivialAccessorsVisitor<'a> {
         let is_allowed = if let Some(allowed) = self.allowed_methods {
             allowed.iter().any(|m| m.as_bytes() == name_bytes) || name_bytes == b"initialize"
         } else {
-            DEFAULT_ALLOWED.iter().any(|&m| m == name_bytes)
+            DEFAULT_ALLOWED.contains(&name_bytes)
         };
 
         if is_allowed {

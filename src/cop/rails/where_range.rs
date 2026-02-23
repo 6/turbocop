@@ -77,7 +77,7 @@ impl Cop for WhereRange {
         // - "column >= :name"
         // - "column <[=] :name"
         // - "column >= :name1 AND column <[=] :name2"
-        if !matches_where_range_pattern(&content) {
+        if !matches_where_range_pattern(content) {
             return;
         }
 

@@ -47,10 +47,8 @@ impl MissingElseVisitor<'_> {
                 Some(sub) => Self::chain_has_else(&sub),
                 None => false,
             }
-        } else if node.as_else_node().is_some() {
-            true
         } else {
-            false
+            node.as_else_node().is_some()
         }
     }
 }

@@ -31,7 +31,6 @@ impl Cop for ComparableBetween {
                 &and_node.left(),
                 &and_node.right(),
             ));
-            return;
         }
     }
 }

@@ -84,7 +84,7 @@ impl DescribedClassVisitor<'_> {
                 return cr.name().as_slice() == b"RSpec";
             }
             if let Some(cp) = recv.as_constant_path_node() {
-                return cp.name().map_or(false, |n| n.as_slice() == b"RSpec")
+                return cp.name().is_some_and(|n| n.as_slice() == b"RSpec")
                     && cp.parent().is_none();
             }
             false

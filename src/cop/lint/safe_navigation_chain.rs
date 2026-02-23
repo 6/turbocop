@@ -150,7 +150,7 @@ impl Cop for SafeNavigationChain {
         let method_name = call.name().as_slice();
 
         // Check allowed methods: nil methods are ALWAYS allowed, plus any configured AllowedMethods
-        let is_nil_method = NIL_METHODS.iter().any(|&m| m == method_name);
+        let is_nil_method = NIL_METHODS.contains(&method_name);
         if is_nil_method {
             return;
         }

@@ -153,14 +153,14 @@ fn count_node_reduction(
         }
     }
 
-    if count_as_one.iter().any(|s| s == "heredoc") {
-        if node.as_interpolated_string_node().is_some() || node.as_string_node().is_some() {
-            let span = node_line_span(source, &node.location());
-            if span > 1 {
-                reduction += span - 1;
-            }
-            return reduction;
+    if count_as_one.iter().any(|s| s == "heredoc")
+        && (node.as_interpolated_string_node().is_some() || node.as_string_node().is_some())
+    {
+        let span = node_line_span(source, &node.location());
+        if span > 1 {
+            reduction += span - 1;
         }
+        return reduction;
     }
 
     if count_as_one.iter().any(|s| s == "method_call") {
