@@ -80,8 +80,13 @@ mod tests {
     #[test]
     fn tier_for_stable_cop() {
         let map = TierMap::load();
-        // Cops allowlisted as stable in overrides
-        assert_eq!(map.tier_for("Gemspec/AddRuntimeDependency"), Tier::Stable);
+        // Pick any cop from stable overrides — test is resilient to oracle updates
+        let stable_cop = map
+            .overrides
+            .iter()
+            .find(|(_, tier)| **tier == Tier::Stable)
+            .expect("tiers.json should have at least one stable cop");
+        assert_eq!(map.tier_for(stable_cop.0), Tier::Stable);
     }
 
     #[test]
