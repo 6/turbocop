@@ -355,9 +355,7 @@ impl ForwardingCallFinder {
             }
         }
 
-        if splat_start.is_some() && block_end.is_some() {
-            let start = splat_start.unwrap();
-            let end = block_end.unwrap();
+        if let (Some(start), Some(end)) = (splat_start, block_end) {
             Some((start, end))
         } else {
             None

@@ -95,12 +95,12 @@ impl Cop for RedundantLineBreak {
             let mut combined = Vec::new();
             combined.extend_from_slice(&lines[group_start][..indent]);
 
-            for j in group_start..=group_end {
-                let t = trim_trailing_whitespace(lines[j]);
+            for (j, line) in lines[group_start..=group_end].iter().enumerate() {
+                let t = trim_trailing_whitespace(line);
                 let before_bs = trim_trailing_whitespace(&t[..t.len() - 1]);
                 let content_part = trim_leading_whitespace(before_bs);
 
-                if j == group_start {
+                if j == 0 {
                     combined.extend_from_slice(content_part);
                 } else {
                     combined.push(b' ');

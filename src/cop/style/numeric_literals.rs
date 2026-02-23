@@ -77,8 +77,8 @@ impl Cop for NumericLiterals {
         }
 
         // Strip leading minus sign if present
-        let digits_part = if text.starts_with('-') {
-            &text[1..]
+        let digits_part = if let Some(stripped) = text.strip_prefix('-') {
+            stripped
         } else {
             text
         };

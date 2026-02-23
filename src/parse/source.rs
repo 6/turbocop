@@ -28,6 +28,23 @@ impl SourceFile {
         &self.content
     }
 
+    /// Returns the byte range `[start..end)` as a `&str`, or `fallback` if the
+    /// range is out of bounds or not valid UTF-8.
+    pub fn byte_slice(&self, start: usize, end: usize, fallback: &'static str) -> &str {
+        self.content
+            .get(start..end)
+            .and_then(|b| std::str::from_utf8(b).ok())
+            .unwrap_or(fallback)
+    }
+
+    /// Returns the byte range `[start..end)` as `Option<&str>`, returning
+    /// `None` if the range is out of bounds or not valid UTF-8.
+    pub fn try_byte_slice(&self, start: usize, end: usize) -> Option<&str> {
+        self.content
+            .get(start..end)
+            .and_then(|b| std::str::from_utf8(b).ok())
+    }
+
     /// Returns an iterator over lines as byte slices (without newline terminators).
     pub fn lines(&self) -> impl Iterator<Item = &[u8]> {
         self.content.split(|&b| b == b'\n')

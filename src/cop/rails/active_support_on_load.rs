@@ -98,9 +98,11 @@ impl Cop for ActiveSupportOnLoad {
 
         let method_str = std::str::from_utf8(method_name).unwrap_or("include");
         let recv_loc = receiver.location();
-        let recv_text =
-            std::str::from_utf8(&source.as_bytes()[recv_loc.start_offset()..recv_loc.end_offset()])
-                .unwrap_or("FrameworkClass");
+        let recv_text = source.byte_slice(
+            recv_loc.start_offset(),
+            recv_loc.end_offset(),
+            "FrameworkClass",
+        );
 
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());

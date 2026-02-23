@@ -157,9 +157,7 @@ impl Cop for ExpectChange {
         }
 
         let recv_loc = recv.location();
-        let recv_text =
-            std::str::from_utf8(&source.as_bytes()[recv_loc.start_offset()..recv_loc.end_offset()])
-                .unwrap_or("");
+        let recv_text = source.byte_slice(recv_loc.start_offset(), recv_loc.end_offset(), "");
         let method = std::str::from_utf8(inner_call.name().as_slice()).unwrap_or("");
 
         let loc = call.location();

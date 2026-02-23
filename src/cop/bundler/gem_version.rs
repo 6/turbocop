@@ -90,8 +90,8 @@ fn has_version_or_source_specifier(line: &str) -> bool {
     }
 
     // Must have a comma to have additional arguments
-    let rest = if rest.starts_with(',') {
-        rest[1..].trim()
+    let rest = if let Some(stripped) = rest.strip_prefix(',') {
+        stripped.trim()
     } else {
         return false;
     };

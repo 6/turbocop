@@ -261,8 +261,7 @@ fn is_private_or_protected(source: &SourceFile, def_offset: usize) -> bool {
     // (those indicate scope boundaries).
     let lines: Vec<&[u8]> = source.lines().collect();
     let mut in_private = false;
-    for line_idx in 0..def_line {
-        let line = lines[line_idx];
+    for line in &lines[..def_line] {
         let indent = line
             .iter()
             .take_while(|&&b| b == b' ' || b == b'\t')

@@ -89,8 +89,8 @@ impl Cop for DependencyVersion {
 ///   'gem_name'
 fn parse_dependency_args(after_method: &str) -> (Option<String>, bool) {
     let s = after_method.trim_start();
-    let s = if s.starts_with('(') {
-        s[1..].trim_start()
+    let s = if let Some(stripped) = s.strip_prefix('(') {
+        stripped.trim_start()
     } else {
         s
     };
@@ -114,8 +114,8 @@ fn parse_dependency_args(after_method: &str) -> (Option<String>, bool) {
 
     // Check if there's a version argument after the gem name
     let remainder = remainder.trim_start();
-    let has_version = if remainder.starts_with(',') {
-        let after_comma = remainder[1..].trim_start();
+    let has_version = if let Some(stripped) = remainder.strip_prefix(',') {
+        let after_comma = stripped.trim_start();
         // Check for a version string: starts with quote containing version-like content
         is_version_string(after_comma)
     } else {

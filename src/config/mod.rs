@@ -373,7 +373,7 @@ fn discover_sub_config_dirs(root: &Path) -> Vec<PathBuf> {
     }
 
     // Sort deepest-first: longer paths first
-    dirs.sort_by(|a, b| b.as_os_str().len().cmp(&a.as_os_str().len()));
+    dirs.sort_by_key(|b| std::cmp::Reverse(b.as_os_str().len()));
     dirs
 }
 
@@ -1262,28 +1262,21 @@ fn load_config_recursive_inner(
         }
 
         // 1. Process inherit_gem
-        if let Some(gem_value) = map.get(Value::String("inherit_gem".to_string())) {
-            if let Value::Mapping(gem_map) = gem_value {
-                for (gem_key, gem_paths) in gem_map {
-                    if let Some(gem_name) = gem_key.as_str() {
-                        let gem_layers = resolve_inherit_gem(
-                            gem_name,
-                            gem_paths,
-                            working_dir,
-                            visited,
-                            gem_cache,
-                        )?;
-                        for layer in gem_layers {
-                            // Propagate user_mentioned from the layer's recursive loading.
-                            // Don't use cop_configs.keys() — that includes require: defaults.
-                            base_layer
-                                .user_mentioned_cops
-                                .extend(layer.user_mentioned_cops.iter().cloned());
-                            base_layer
-                                .user_mentioned_depts
-                                .extend(layer.user_mentioned_depts.iter().cloned());
-                            merge_layer_into(&mut base_layer, &layer, None);
-                        }
+        if let Some(Value::Mapping(gem_map)) = map.get(Value::String("inherit_gem".to_string())) {
+            for (gem_key, gem_paths) in gem_map {
+                if let Some(gem_name) = gem_key.as_str() {
+                    let gem_layers =
+                        resolve_inherit_gem(gem_name, gem_paths, working_dir, visited, gem_cache)?;
+                    for layer in gem_layers {
+                        // Propagate user_mentioned from the layer's recursive loading.
+                        // Don't use cop_configs.keys() — that includes require: defaults.
+                        base_layer
+                            .user_mentioned_cops
+                            .extend(layer.user_mentioned_cops.iter().cloned());
+                        base_layer
+                            .user_mentioned_depts
+                            .extend(layer.user_mentioned_depts.iter().cloned());
+                        merge_layer_into(&mut base_layer, &layer, None);
                     }
                 }
             }

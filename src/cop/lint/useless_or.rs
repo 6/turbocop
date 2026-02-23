@@ -98,7 +98,7 @@ fn is_truthy_method_call(node: &ruby_prism::Node<'_>) -> bool {
 
 fn node_source<'a>(source: &'a SourceFile, node: &ruby_prism::Node<'_>) -> &'a str {
     let loc = node.location();
-    std::str::from_utf8(&source.as_bytes()[loc.start_offset()..loc.end_offset()]).unwrap_or("...")
+    source.byte_slice(loc.start_offset(), loc.end_offset(), "...")
 }
 
 #[cfg(test)]

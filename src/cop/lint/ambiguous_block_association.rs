@@ -119,8 +119,7 @@ impl Cop for AmbiguousBlockAssociation {
             // Get the full source text of the arguments for pattern matching
             let args_start = arguments.location().start_offset();
             let args_end = arguments.location().end_offset();
-            let args_text =
-                std::str::from_utf8(&source.as_bytes()[args_start..args_end]).unwrap_or("");
+            let args_text = source.byte_slice(args_start, args_end, "");
             for pattern in patterns {
                 if let Ok(re) = regex::Regex::new(pattern) {
                     if re.is_match(args_text) {
@@ -133,8 +132,7 @@ impl Cop for AmbiguousBlockAssociation {
         // Build the param text from the inner call (method + block)
         let inner_start = inner_call.location().start_offset();
         let inner_end = inner_call.location().end_offset();
-        let param_text =
-            std::str::from_utf8(&source.as_bytes()[inner_start..inner_end]).unwrap_or("...");
+        let param_text = source.byte_slice(inner_start, inner_end, "...");
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());

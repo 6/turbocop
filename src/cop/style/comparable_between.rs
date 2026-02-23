@@ -117,18 +117,19 @@ fn parse_comparison(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<
         return None;
     }
 
-    let left_text = std::str::from_utf8(
-        &source.as_bytes()[receiver.location().start_offset()..receiver.location().end_offset()],
-    )
-    .ok()?
-    .to_string();
+    let left_text = source
+        .try_byte_slice(
+            receiver.location().start_offset(),
+            receiver.location().end_offset(),
+        )?
+        .to_string();
 
-    let right_text = std::str::from_utf8(
-        &source.as_bytes()
-            [arg_list[0].location().start_offset()..arg_list[0].location().end_offset()],
-    )
-    .ok()?
-    .to_string();
+    let right_text = source
+        .try_byte_slice(
+            arg_list[0].location().start_offset(),
+            arg_list[0].location().end_offset(),
+        )?
+        .to_string();
 
     Some(Comparison {
         left: left_text,

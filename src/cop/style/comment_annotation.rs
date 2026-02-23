@@ -98,10 +98,10 @@ impl Cop for CommentAnnotation {
 
             // RuboCop only matches "# KEYWORD" (one space) or "#KEYWORD" (no space).
             // The regex margin group is `(# ?)`, so at most one space after `#`.
-            let (margin_len, trimmed) = if after_hash.starts_with(' ') {
+            let (margin_len, trimmed) = if let Some(stripped) = after_hash.strip_prefix(' ') {
                 // One space after # — check if keyword starts at position 1
-                if after_hash.len() > 1 && after_hash.as_bytes()[1] != b' ' {
-                    (1, &after_hash[1..])
+                if !stripped.is_empty() && stripped.as_bytes()[0] != b' ' {
+                    (1, stripped)
                 } else {
                     // Two or more spaces, or just "# " — not a valid annotation position
                     continue;
@@ -147,8 +147,8 @@ impl Cop for CommentAnnotation {
                 // (\s*:)? — optional whitespace then colon
                 let has_colon = {
                     let trimmed_rest = rest.trim_start();
-                    if trimmed_rest.starts_with(':') {
-                        rest = &trimmed_rest[1..]; // consume the colon
+                    if let Some(after_colon) = trimmed_rest.strip_prefix(':') {
+                        rest = after_colon; // consume the colon
                         true
                     } else {
                         false

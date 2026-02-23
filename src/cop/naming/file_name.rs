@@ -211,7 +211,7 @@ impl Cop for FileName {
 
         // ExpectMatchingDefinition: require that the file defines a class/module matching the filename
         if expect_matching_definition {
-            let source_text = std::str::from_utf8(source.as_bytes()).unwrap_or("");
+            let source_text = std::str::from_utf8(&source.content).unwrap_or("");
 
             let expected_namespace = if check_def_path_hierarchy {
                 build_expected_namespace(path, &check_def_path_roots)

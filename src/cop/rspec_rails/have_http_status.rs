@@ -175,8 +175,7 @@ impl Cop for HaveHttpStatus {
         let bad_code_start = loc.start_offset();
         let bad_code_end =
             runner_call.location().start_offset() + runner_call.location().as_slice().len();
-        let bad_code =
-            std::str::from_utf8(&source.as_bytes()[bad_code_start..bad_code_end]).unwrap_or("...");
+        let bad_code = source.byte_slice(bad_code_start, bad_code_end, "...");
 
         diagnostics.push(self.diagnostic(
             source,

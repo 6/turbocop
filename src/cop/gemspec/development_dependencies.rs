@@ -63,8 +63,8 @@ fn is_gem_allowed(after_method: &str, allowed_gems: &[String]) -> bool {
     // Try to extract gem name from patterns like:
     //   ('gem_name', ...) or  'gem_name' or "gem_name"
     let trimmed = after_method.trim_start();
-    let trimmed = if trimmed.starts_with('(') {
-        trimmed[1..].trim_start()
+    let trimmed = if let Some(stripped) = trimmed.strip_prefix('(') {
+        stripped.trim_start()
     } else {
         trimmed
     };

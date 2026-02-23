@@ -1,19 +1,4 @@
 // Remaining clippy lints to fix (see docs/LINT_PLAN.md)
-// Batch 3 stragglers (auto-fix couldn't apply — fix manually)
-#![allow(
-    clippy::collapsible_match,
-    clippy::manual_strip,
-    clippy::match_single_binding,
-    clippy::needless_range_loop,
-    clippy::needless_return,
-    clippy::single_match,
-    clippy::string_from_utf8_as_bytes,
-    clippy::unnecessary_filter_map,
-    clippy::unnecessary_sort_by,
-    clippy::unnecessary_unwrap,
-    clippy::while_let_loop,
-    clippy::wildcard_in_or_patterns
-)]
 // Batch 4 lints (need review) + intentional keeps
 #![allow(
     clippy::cloned_ref_to_slice_refs,

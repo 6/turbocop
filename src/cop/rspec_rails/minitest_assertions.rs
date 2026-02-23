@@ -46,7 +46,7 @@ fn is_negated(method: &[u8]) -> bool {
 fn source_text<'a>(source: &'a SourceFile, node: &ruby_prism::Node<'_>) -> &'a str {
     let loc = node.location();
     let end = loc.start_offset() + loc.as_slice().len();
-    std::str::from_utf8(&source.as_bytes()[loc.start_offset()..end]).unwrap_or("?")
+    source.byte_slice(loc.start_offset(), end, "?")
 }
 
 impl Cop for MinitestAssertions {

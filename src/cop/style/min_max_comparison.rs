@@ -47,9 +47,7 @@ impl Cop for MinMaxComparison {
         }
 
         // The condition must be a comparison: a > b, a >= b, a < b, a <= b
-        let condition = match ternary.predicate() {
-            c => c,
-        };
+        let condition = ternary.predicate();
 
         let cmp_call = match condition.as_call_node() {
             Some(c) => c,

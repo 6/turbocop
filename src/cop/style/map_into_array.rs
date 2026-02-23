@@ -144,8 +144,8 @@ impl MapIntoArrayVisitor<'_> {
             // we can't guarantee it's still an empty array.
             let var_name_slice = var_name.as_slice();
             let mut has_intermediate_ref = false;
-            for j in (init_idx + 1)..i {
-                if references_variable(&stmts[j], var_name_slice) {
+            for stmt in &stmts[(init_idx + 1)..i] {
+                if references_variable(stmt, var_name_slice) {
                     has_intermediate_ref = true;
                     break;
                 }

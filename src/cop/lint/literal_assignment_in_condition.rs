@@ -95,10 +95,7 @@ fn check_node_for_literal_assignment(
     if let Some(rhs) = rhs {
         if is_literal(&rhs) {
             let rhs_loc = rhs.location();
-            let rhs_src = std::str::from_utf8(
-                &source.as_bytes()[rhs_loc.start_offset()..rhs_loc.end_offset()],
-            )
-            .unwrap_or("?");
+            let rhs_src = source.byte_slice(rhs_loc.start_offset(), rhs_loc.end_offset(), "?");
 
             // Offense location is at the operator (=)
             // We report at the assignment node start for simplicity

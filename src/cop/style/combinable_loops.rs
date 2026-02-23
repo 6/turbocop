@@ -95,11 +95,12 @@ fn get_loop_info(source: &SourceFile, node: &ruby_prism::Node<'_>) -> Option<Loo
     call.block()?;
 
     let receiver = call.receiver()?;
-    let receiver_text = std::str::from_utf8(
-        &source.as_bytes()[receiver.location().start_offset()..receiver.location().end_offset()],
-    )
-    .ok()?
-    .to_string();
+    let receiver_text = source
+        .try_byte_slice(
+            receiver.location().start_offset(),
+            receiver.location().end_offset(),
+        )?
+        .to_string();
 
     Some(LoopInfo {
         receiver: receiver_text,

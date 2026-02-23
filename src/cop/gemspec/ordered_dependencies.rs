@@ -144,8 +144,8 @@ fn sort_key(name: &str, consider_punctuation: bool) -> String {
 /// Extract the gem name from the arguments after a dependency method call.
 fn extract_gem_name(after_method: &str) -> Option<String> {
     let s = after_method.trim_start();
-    let s = if s.starts_with('(') {
-        s[1..].trim_start()
+    let s = if let Some(stripped) = s.strip_prefix('(') {
+        stripped.trim_start()
     } else {
         s
     };

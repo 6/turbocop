@@ -104,10 +104,11 @@ fn only_reraising(rescue_node: &ruby_prism::RescueNode<'_>, source: &SourceFile)
     }
 
     let first_arg = &arg_list[0];
-    let arg_src = std::str::from_utf8(
-        &source.as_bytes()[first_arg.location().start_offset()..first_arg.location().end_offset()],
-    )
-    .unwrap_or("");
+    let arg_src = source.byte_slice(
+        first_arg.location().start_offset(),
+        first_arg.location().end_offset(),
+        "",
+    );
 
     // Check if it's re-raising the same exception variable
     if arg_src == "$!" || arg_src == "$ERROR_INFO" {
@@ -116,11 +117,11 @@ fn only_reraising(rescue_node: &ruby_prism::RescueNode<'_>, source: &SourceFile)
 
     // Check if it matches the rescue variable name
     if let Some(ref_node) = rescue_node.reference() {
-        let ref_src = std::str::from_utf8(
-            &source.as_bytes()
-                [ref_node.location().start_offset()..ref_node.location().end_offset()],
-        )
-        .unwrap_or("");
+        let ref_src = source.byte_slice(
+            ref_node.location().start_offset(),
+            ref_node.location().end_offset(),
+            "",
+        );
         // The reference includes the `=> ` prefix in some cases, extract the variable name
         let var_name = ref_src.trim_start_matches("=> ").trim();
         if !var_name.is_empty() && arg_src == var_name {

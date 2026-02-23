@@ -96,11 +96,10 @@ impl HashIndentVisitor<'_> {
         };
 
         if elem_col != expected {
-            let base_indent = if left_paren_col.is_some()
-                && self.style != "consistent"
-                && self.style != "align_braces"
+            let base_indent = if let Some(paren_col) = left_paren_col
+                .filter(|_| self.style != "consistent" && self.style != "align_braces")
             {
-                left_paren_col.unwrap() + 1
+                paren_col + 1
             } else {
                 open_line_indent
             };

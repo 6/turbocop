@@ -111,7 +111,7 @@ impl Cop for SpaceInsideParens {
                     diagnostics.push(diag);
                 }
             }
-            "compact" | _ => {
+            _ => {
                 // "no_space" (default) and "compact"
                 if space_after_open && !is_multiline_after {
                     let (line, column) = source.offset_to_line_col(open_end);

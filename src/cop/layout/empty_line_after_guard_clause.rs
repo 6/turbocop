@@ -208,8 +208,7 @@ fn is_guard_stmt(node: &ruby_prism::Node<'_>) -> bool {
 /// Find the next non-blank, non-comment line starting from `start_idx` (0-indexed).
 /// Returns None if a blank line is found first or we reach EOF.
 fn find_next_code_line<'a>(lines: &[&'a [u8]], start_idx: usize) -> Option<&'a [u8]> {
-    for i in start_idx..lines.len() {
-        let line = lines[i];
+    for line in &lines[start_idx..] {
         if util::is_blank_line(line) {
             return None;
         }
@@ -284,8 +283,7 @@ fn is_multiline_guard_block(content: &[u8], lines: &[&[u8]], start_idx: usize) -
     };
 
     let mut depth: i32 = 1;
-    for i in (content_line_idx + 1)..lines.len() {
-        let line = lines[i];
+    for line in &lines[(content_line_idx + 1)..] {
         let Some(start) = line.iter().position(|&b| b != b' ' && b != b'\t') else {
             continue;
         };
@@ -325,8 +323,7 @@ fn is_multiline_guard_block(content: &[u8], lines: &[&[u8]], start_idx: usize) -
 }
 
 fn find_line_index_from(lines: &[&[u8]], from_idx: usize, content: &[u8]) -> Option<usize> {
-    for i in from_idx..lines.len() {
-        let line = lines[i];
+    for (i, line) in lines.iter().enumerate().skip(from_idx) {
         if let Some(start) = line.iter().position(|&b| b != b' ' && b != b'\t') {
             let trimmed = &line[start..];
             if std::ptr::eq(trimmed.as_ptr(), content.as_ptr()) || trimmed == content {

@@ -52,7 +52,6 @@ impl Cop for ClosingParenthesisIndentation {
                     diagnostics.extend(check_def_parens(
                         source, self, open_loc, close_loc, params, config,
                     ));
-                    return;
                 }
             }
         }

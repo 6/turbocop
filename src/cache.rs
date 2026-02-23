@@ -442,12 +442,12 @@ fn evict_old_sessions(cache_root: &Path, max_sessions: usize) -> std::io::Result
     let mut sessions: Vec<(PathBuf, SystemTime)> = dir_entries
         .iter()
         .filter(|e| e.path().extension().is_some_and(|ext| ext == "index"))
-        .filter_map(|e| {
+        .map(|e| {
             let mtime = e
                 .metadata()
                 .and_then(|m| m.modified())
                 .unwrap_or(SystemTime::UNIX_EPOCH);
-            Some((e.path(), mtime))
+            (e.path(), mtime)
         })
         .collect();
 

@@ -48,7 +48,7 @@ impl Cop for UnlessLogicalOperators {
                     ));
                 }
             }
-            "forbid_mixed_logical_operators" | _ => {
+            _ => {
                 // Flag mixed logical operators (both && and ||)
                 if contains_mixed_logical_operators(&predicate) {
                     let (line, column) =

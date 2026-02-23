@@ -78,15 +78,11 @@ impl Cop for ErbNewArguments {
             let msg = match i {
                 1 => "Passing safe_level with the 2nd argument of `ERB.new` is deprecated. Do not use it, and specify other arguments as keyword arguments.".to_string(),
                 2 => {
-                    let arg_src = std::str::from_utf8(
-                        &source.as_bytes()[arg.location().start_offset()..arg.location().end_offset()],
-                    ).unwrap_or("...");
+                    let arg_src = source.byte_slice(arg.location().start_offset(), arg.location().end_offset(), "...");
                     format!("Passing trim_mode with the 3rd argument of `ERB.new` is deprecated. Use keyword argument like `ERB.new(str, trim_mode: {})` instead.", arg_src)
                 }
                 3 => {
-                    let arg_src = std::str::from_utf8(
-                        &source.as_bytes()[arg.location().start_offset()..arg.location().end_offset()],
-                    ).unwrap_or("...");
+                    let arg_src = source.byte_slice(arg.location().start_offset(), arg.location().end_offset(), "...");
                     format!("Passing eoutvar with the 4th argument of `ERB.new` is deprecated. Use keyword argument like `ERB.new(str, eoutvar: {})` instead.", arg_src)
                 }
                 _ => continue,

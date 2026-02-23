@@ -339,8 +339,8 @@ fn emit_offense(
 
 fn node_text(source: &SourceFile, node: &ruby_prism::Node<'_>) -> String {
     let loc = node.location();
-    std::str::from_utf8(&source.as_bytes()[loc.start_offset()..loc.end_offset()])
-        .unwrap_or("")
+    source
+        .byte_slice(loc.start_offset(), loc.end_offset(), "")
         .to_string()
 }
 

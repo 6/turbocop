@@ -154,8 +154,7 @@ impl Cop for ParenthesesAsGroupedExpression {
         }
 
         // Build the argument text for the message
-        let arg_text =
-            std::str::from_utf8(&source.as_bytes()[paren_start..paren_end]).unwrap_or("(...)");
+        let arg_text = source.byte_slice(paren_start, paren_end, "(...)");
 
         let (line, column) = source.offset_to_line_col(paren_start);
         diagnostics.push(self.diagnostic(

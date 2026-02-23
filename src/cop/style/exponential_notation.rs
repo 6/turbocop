@@ -42,8 +42,8 @@ impl Cop for ExponentialNotation {
         }
 
         // Strip leading minus for mantissa analysis
-        let working = if lower.starts_with('-') {
-            &lower[1..]
+        let working = if let Some(stripped) = lower.strip_prefix('-') {
+            stripped
         } else {
             &lower
         };

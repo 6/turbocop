@@ -59,11 +59,11 @@ impl Cop for UselessTimes {
         }
 
         // Get the display text for the number
-        let recv_text = std::str::from_utf8(
-            &source.as_bytes()
-                [receiver.location().start_offset()..receiver.location().end_offset()],
-        )
-        .unwrap_or("N");
+        let recv_text = source.byte_slice(
+            receiver.location().start_offset(),
+            receiver.location().end_offset(),
+            "N",
+        );
 
         // Report on the call up to the `.times` part (excluding any block or chained methods)
         // Find the end of `.times`

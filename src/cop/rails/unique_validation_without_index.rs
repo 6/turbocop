@@ -50,13 +50,10 @@ impl Cop for UniqueValidationWithoutIndex {
         let method_name = call.name();
         let method_str = std::str::from_utf8(method_name.as_slice()).unwrap_or("");
 
-        match method_str {
-            "validates" => {
-                self.check_validates(source, &call, parse_result, schema, diagnostics);
-            }
-            // Note: RuboCop only handles `validates`, not `validates_uniqueness_of`.
-            // Skip to match RuboCop's behavior.
-            _ => {}
+        // Note: RuboCop only handles `validates`, not `validates_uniqueness_of`.
+        // Skip to match RuboCop's behavior.
+        if method_str == "validates" {
+            self.check_validates(source, &call, parse_result, schema, diagnostics);
         }
     }
 }

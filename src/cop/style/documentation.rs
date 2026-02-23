@@ -133,11 +133,7 @@ fn has_documentation_comment(source: &SourceFile, keyword_offset: usize) -> bool
     let mut line_idx = node_line - 2; // 0-indexed previous line
     let mut found_doc_comment = false;
 
-    loop {
-        let line = match lines.get(line_idx) {
-            Some(l) => l,
-            None => break,
-        };
+    while let Some(line) = lines.get(line_idx) {
         let trimmed = trim_bytes(line);
 
         if trimmed.is_empty() {

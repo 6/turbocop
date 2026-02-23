@@ -143,10 +143,9 @@ fn extract_allow_receive_info(
         return None;
     }
     let recv_loc = allow_arg_list[0].location();
-    let receiver_text =
-        std::str::from_utf8(&source.as_bytes()[recv_loc.start_offset()..recv_loc.end_offset()])
-            .unwrap_or("")
-            .to_string();
+    let receiver_text = source
+        .byte_slice(recv_loc.start_offset(), recv_loc.end_offset(), "")
+        .to_string();
 
     // Get the argument chain: receive(:y).and_return(z)
     let to_args = to_call.arguments()?;
@@ -174,11 +173,9 @@ fn extract_allow_receive_info(
                     let arg_list: Vec<_> = args.arguments().iter().collect();
                     if !arg_list.is_empty() {
                         let msg_loc = arg_list[0].location();
-                        receive_msg = std::str::from_utf8(
-                            &source.as_bytes()[msg_loc.start_offset()..msg_loc.end_offset()],
-                        )
-                        .unwrap_or("")
-                        .to_string();
+                        receive_msg = source
+                            .byte_slice(msg_loc.start_offset(), msg_loc.end_offset(), "")
+                            .to_string();
                     }
                 }
                 break;
