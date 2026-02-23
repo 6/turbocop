@@ -227,7 +227,7 @@ def main():
             "fn": total_fn,
             "overall_match_rate": round(overall_rate, 4),
         },
-        "by_cop": by_cop[:50],  # top 50 diverging
+        "by_cop": by_cop,  # all cops (gen_tiers.py needs the full list)
         "by_repo": repo_results,
     }
     args.output_json.write_text(json.dumps(json_output, indent=2) + "\n")

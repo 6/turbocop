@@ -210,6 +210,12 @@ jobs:
             --output-md corpus-results.md \
             ${COP_LIST:+--cop-list "$COP_LIST"}
 
+      - name: Generate tiers.json
+        run: |
+          python3 bench/corpus/gen_tiers.py \
+            --input corpus-results.json \
+            --output tiers.json
+
       - name: Print summary
         run: |
           cat corpus-results.md
@@ -222,4 +228,5 @@ jobs:
           path: |
             corpus-results.json
             corpus-results.md
+            tiers.json
           retention-days: 30
