@@ -64,7 +64,7 @@ fn default_args() -> Args {
         force_default_config: false,
         autocorrect: false,
         autocorrect_all: false,
-        preview: false,
+        preview: true,
         quiet_skips: false,
         strict: None,
         verify: false,
@@ -1999,7 +1999,7 @@ fn stdin_detects_trailing_whitespace() {
 #[test]
 fn stdin_clean_code_exits_zero() {
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
-        .args(["--stdin", "clean.rb", "--only", "Layout/TrailingWhitespace"])
+        .args(["--preview", "--stdin", "clean.rb", "--only", "Layout/TrailingWhitespace"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -3829,6 +3829,7 @@ fn display_cop_names_flag_accepted() {
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args([
+            "--preview",
             "-D",
             "--only",
             "Layout/TrailingWhitespace",
@@ -3857,7 +3858,7 @@ fn parallel_flag_accepted() {
     fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
-        .args(["-P", "--no-cache", dir.to_str().unwrap()])
+        .args(["--preview", "-P", "--no-cache", dir.to_str().unwrap()])
         .output()
         .expect("Failed to execute turbocop");
 
@@ -3881,6 +3882,7 @@ fn require_flag_accepted_and_ignored() {
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args([
+            "--preview",
             "-r",
             "rubocop-rspec",
             "--require",
@@ -3934,6 +3936,7 @@ fn fail_fast_stops_early() {
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args([
+            "--preview",
             "-F",
             "--only",
             "Layout/TrailingWhitespace",
@@ -3975,6 +3978,7 @@ fn fail_level_warning_ignores_conventions() {
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args([
+            "--preview",
             "--fail-level",
             "W",
             "--only",
@@ -4001,6 +4005,7 @@ fn fail_level_convention_catches_conventions() {
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args([
+            "--preview",
             "--fail-level",
             "convention",
             "--only",
@@ -4056,6 +4061,7 @@ fn force_exclusion_excludes_explicit_file() {
     // Without --force-exclusion: explicit file should be linted
     let output_no_force = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args([
+            "--preview",
             "--only",
             "Layout/TrailingWhitespace",
             "--no-cache",
@@ -4074,6 +4080,7 @@ fn force_exclusion_excludes_explicit_file() {
     // With --force-exclusion: explicit file should be excluded
     let output_force = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args([
+            "--preview",
             "--force-exclusion",
             "--only",
             "Layout/TrailingWhitespace",
@@ -4108,6 +4115,7 @@ fn ignore_disable_comments_shows_suppressed_offenses() {
     // Without flag: offense is suppressed by disable comment
     let output_normal = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args([
+            "--preview",
             "--only",
             "Layout/TrailingWhitespace",
             "--no-cache",
@@ -4124,6 +4132,7 @@ fn ignore_disable_comments_shows_suppressed_offenses() {
     // With --ignore-disable-comments: offense is shown
     let output_ignore = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args([
+            "--preview",
             "--ignore-disable-comments",
             "--only",
             "Layout/TrailingWhitespace",
@@ -4153,6 +4162,7 @@ fn ignore_disable_comments_skips_redundant_disable_check() {
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args([
+            "--preview",
             "--ignore-disable-comments",
             "--no-cache",
             dir.to_str().unwrap(),
@@ -4186,6 +4196,7 @@ fn force_default_config_ignores_config_file() {
     // Without flag: config disables the cop, no offense
     let output_normal = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args([
+            "--preview",
             "--only",
             "Layout/TrailingWhitespace",
             "--no-cache",
@@ -4204,6 +4215,7 @@ fn force_default_config_ignores_config_file() {
     // With --force-default-config: config is ignored, cop fires
     let output_force = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args([
+            "--preview",
             "--force-default-config",
             "--only",
             "Layout/TrailingWhitespace",
@@ -4904,6 +4916,7 @@ fn lint_failure_takes_priority_over_strict() {
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
         .args([
+            "--preview",
             "--strict",
             "--only",
             "Layout/TrailingWhitespace",
