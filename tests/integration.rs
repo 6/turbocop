@@ -1957,7 +1957,13 @@ fn rubocop_only_outputs_uncovered_cops() {
 #[test]
 fn stdin_detects_trailing_whitespace() {
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
-        .args(["--stdin", "test.rb", "--only", "Layout/TrailingWhitespace"])
+        .args([
+            "--stdin",
+            "test.rb",
+            "--only",
+            "Layout/TrailingWhitespace",
+            "--preview",
+        ])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -2028,7 +2034,13 @@ fn stdin_display_path_affects_include_matching() {
     );
 
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
-        .args(["--stdin", "spec/foo_spec.rb", "--only", "RSpec/Focus"])
+        .args([
+            "--stdin",
+            "spec/foo_spec.rb",
+            "--only",
+            "RSpec/Focus",
+            "--preview",
+        ])
         .current_dir(&config_dir)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -2056,7 +2068,13 @@ fn stdin_display_path_affects_include_matching() {
 
     // Same code with non-spec display path — RSpec cops should NOT run
     let mut child2 = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
-        .args(["--stdin", "app/foo.rb", "--only", "RSpec/Focus"])
+        .args([
+            "--stdin",
+            "app/foo.rb",
+            "--only",
+            "RSpec/Focus",
+            "--preview",
+        ])
         .current_dir(&config_dir)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -2131,6 +2149,7 @@ fn lint_source_directly() {
     let registry = CopRegistry::default_registry();
     let args = Args {
         only: vec!["Layout/TrailingWhitespace".to_string()],
+        preview: true,
         ..default_args()
     };
 
@@ -3041,6 +3060,7 @@ fn cache_produces_same_results_as_uncached() {
     let args_no_cache = Args {
         only: vec!["Layout/TrailingWhitespace".to_string()],
         cache: "false".to_string(),
+        preview: true,
         ..default_args()
     };
     let result_no_cache = run_linter(
@@ -3060,6 +3080,7 @@ fn cache_produces_same_results_as_uncached() {
     let args_cached = Args {
         only: vec!["Layout/TrailingWhitespace".to_string()],
         cache: "true".to_string(),
+        preview: true,
         ..default_args()
     };
     let result_cold = run_linter(
@@ -3124,6 +3145,7 @@ fn cache_invalidated_by_file_change() {
     let args = Args {
         only: vec!["Layout/TrailingWhitespace".to_string()],
         cache: "true".to_string(),
+        preview: true,
         ..default_args()
     };
 
@@ -3180,6 +3202,7 @@ fn cache_invalidated_by_config_change() {
     let args1 = Args {
         only: vec!["Layout/TrailingWhitespace".to_string()],
         cache: "true".to_string(),
+        preview: true,
         ..default_args()
     };
     let result1 = run_linter(
@@ -3196,6 +3219,7 @@ fn cache_invalidated_by_config_change() {
     let args2 = Args {
         only: vec!["Style/FrozenStringLiteralComment".to_string()],
         cache: "true".to_string(),
+        preview: true,
         ..default_args()
     };
     let result2 = run_linter(
@@ -4212,6 +4236,7 @@ fn autocorrect_fixes_file_on_disk() {
             "Layout/TrailingWhitespace".to_string(),
             "Layout/TrailingEmptyLines".to_string(),
         ],
+        preview: true,
         ..default_args()
     };
 
@@ -4249,6 +4274,7 @@ fn autocorrect_inserts_frozen_string_literal() {
     let args = Args {
         autocorrect_all: true,
         only: vec!["Style/FrozenStringLiteralComment".to_string()],
+        preview: true,
         ..default_args()
     };
 
@@ -4294,6 +4320,7 @@ fn autocorrect_safe_mode_skips_unsafe_cops() {
             "Style/FrozenStringLiteralComment".to_string(),
             "Layout/TrailingWhitespace".to_string(),
         ],
+        preview: true,
         ..default_args()
     };
 
@@ -4333,6 +4360,7 @@ fn autocorrect_all_mode_includes_unsafe_cops() {
             "Style/FrozenStringLiteralComment".to_string(),
             "Layout/TrailingWhitespace".to_string(),
         ],
+        preview: true,
         ..default_args()
     };
 
@@ -4408,6 +4436,7 @@ fn autocorrect_multi_iteration_converges() {
             "Layout/LeadingEmptyLines".to_string(),
             "Layout/TrailingWhitespace".to_string(),
         ],
+        preview: true,
         ..default_args()
     };
 
@@ -4445,6 +4474,7 @@ fn autocorrect_corrected_count_across_iterations() {
             "Layout/TrailingWhitespace".to_string(),
             "Style/FrozenStringLiteralComment".to_string(),
         ],
+        preview: true,
         ..default_args()
     };
 
@@ -4478,6 +4508,7 @@ fn autocorrect_idempotent_second_run() {
             "Layout/TrailingWhitespace".to_string(),
             "Layout/TrailingEmptyLines".to_string(),
         ],
+        preview: true,
         ..default_args()
     };
 
@@ -4595,6 +4626,7 @@ fn autocorrect_diagnostics_include_corrected_offenses() {
     let args = Args {
         autocorrect: true,
         only: vec!["Layout/TrailingWhitespace".to_string()],
+        preview: true,
         ..default_args()
     };
 
@@ -4653,6 +4685,7 @@ fn autocorrect_json_output_marks_corrected_offenses() {
     let args = Args {
         autocorrect: true,
         only: vec!["Layout/TrailingWhitespace".to_string()],
+        preview: true,
         ..default_args()
     };
 
@@ -5028,7 +5061,7 @@ fn migrate_clean_config_no_skips() {
     fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
     fs::write(
         dir.join(".rubocop.yml"),
-        "Layout/TrailingWhitespace:\n  Enabled: true\n",
+        "Lint/DeprecatedClassMethods:\n  Enabled: true\n",
     )
     .unwrap();
 
@@ -5235,7 +5268,7 @@ fn rules_tier_filter_preview() {
     );
     // Should NOT contain stable-only cops
     assert!(
-        !stdout.contains("Layout/TrailingWhitespace"),
+        !stdout.contains("Bundler/OrderedGems"),
         "Should not show stable cops when filtered to preview: {stdout}"
     );
 }
@@ -5277,6 +5310,7 @@ fn autocorrect_safe_allowlist_permits_listed_cop() {
     let args = Args {
         autocorrect: true, // -a (safe only)
         only: vec!["Layout/TrailingWhitespace".to_string()],
+        preview: true,
         ..default_args()
     };
 
@@ -5309,6 +5343,7 @@ fn autocorrect_all_bypasses_allowlist() {
     let args = Args {
         autocorrect_all: true, // -A (all)
         only: vec!["Layout/TrailingWhitespace".to_string()],
+        preview: true,
         ..default_args()
     };
 
