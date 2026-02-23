@@ -25,6 +25,7 @@ bench/private_autocorrect_validate.md
 corpus/.bundle/
 corpus/vendor/
 corpus/repos/
+__pycache__/
 corpus-results.json
 corpus-results.md
 
