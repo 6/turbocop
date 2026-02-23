@@ -2,8 +2,9 @@
 """Generate resources/tiers.json from corpus oracle results.
 
 Reads corpus-results.json (output of diff_results.py) and classifies each cop
-as stable or preview. A cop is demoted to preview if it has any false positives
-(turbocop-only offenses) across the corpus.
+as stable or preview. Default tier is preview — cops must prove 0 false
+positives across the corpus to be promoted to stable. This means new cops
+and cops with no corpus data default to preview (gated behind --preview).
 
 Usage:
     python3 bench/corpus/gen_tiers.py \
@@ -30,23 +31,23 @@ def main():
     data = json.loads(args.input.read_text())
     by_cop = data.get("by_cop", [])
 
-    preview_cops = []
     stable_cops = []
+    preview_cops = []
 
     for entry in by_cop:
         cop = entry["cop"]
         fp = entry.get("fp", 0)
-        if fp > 0:
-            preview_cops.append(cop)
-        else:
+        if fp == 0:
             stable_cops.append(cop)
+        else:
+            preview_cops.append(cop)
 
-    # Build overrides: only preview cops need overrides (default is stable)
-    overrides = {cop: "preview" for cop in sorted(preview_cops)}
+    # Default is preview; only allowlist stable cops as overrides
+    overrides = {cop: "stable" for cop in sorted(stable_cops)}
 
     tiers = {
         "schema": 1,
-        "default_tier": "stable",
+        "default_tier": "preview",
         "overrides": overrides,
     }
 
@@ -55,11 +56,11 @@ def main():
     print(f"Corpus: {len(by_cop)} cops analyzed", file=sys.stderr)
     print(f"Stable: {len(stable_cops)}, Preview: {len(preview_cops)}", file=sys.stderr)
 
-    if preview_cops:
-        print(f"\nPreview cops ({len(preview_cops)}):", file=sys.stderr)
-        for cop in sorted(preview_cops):
-            fp = next(e["fp"] for e in by_cop if e["cop"] == cop)
-            print(f"  {cop} ({fp} FP)", file=sys.stderr)
+    if stable_cops:
+        print(f"\nStable cops ({len(stable_cops)}):", file=sys.stderr)
+        for cop in sorted(stable_cops):
+            entry = next(e for e in by_cop if e["cop"] == cop)
+            print(f"  {cop} ({entry['matches']} matches, {entry['fn']} FN)", file=sys.stderr)
 
     if args.dry_run:
         print(output_str)

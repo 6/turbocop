@@ -73,35 +73,29 @@ mod tests {
     #[test]
     fn load_tiers_from_embedded_json() {
         let map = TierMap::load();
-        assert_eq!(map.default_tier, Tier::Stable);
+        assert_eq!(map.default_tier, Tier::Preview);
         assert!(!map.overrides.is_empty());
     }
 
     #[test]
     fn tier_for_stable_cop() {
         let map = TierMap::load();
-        // Cops not in overrides default to stable
-        assert_eq!(
-            map.tier_for("Style/FrozenStringLiteralComment"),
-            Tier::Stable
-        );
+        // Cops allowlisted as stable in overrides
+        assert_eq!(map.tier_for("Bundler/OrderedGems"), Tier::Stable);
     }
 
     #[test]
     fn tier_for_preview_cop() {
         let map = TierMap::load();
-        assert_eq!(
-            map.tier_for("Performance/BigDecimalWithNumericArgument"),
-            Tier::Preview
-        );
-        assert_eq!(map.tier_for("Rails/I18nLocaleAssignment"), Tier::Preview);
-        assert_eq!(map.tier_for("Rails/Pick"), Tier::Preview);
+        // Cops not in overrides default to preview
+        assert_eq!(map.tier_for("Style/StringLiterals"), Tier::Preview);
     }
 
     #[test]
     fn tier_for_unknown_cop_uses_default() {
         let map = TierMap::load();
-        assert_eq!(map.tier_for("Custom/MyCop"), Tier::Stable);
+        // New/unknown cops default to preview (must earn stable via corpus)
+        assert_eq!(map.tier_for("Custom/MyCop"), Tier::Preview);
     }
 
     #[test]
