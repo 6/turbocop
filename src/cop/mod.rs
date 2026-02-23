@@ -319,7 +319,7 @@ macro_rules! cop_fixture_tests {
         fn offense_fixture() {
             $crate::testutil::assert_cop_offenses_full(
                 &$cop,
-                include_bytes!(concat!("../../../testdata/", $path, "/offense.rb")),
+                include_bytes!(concat!("../../../tests/fixtures/", $path, "/offense.rb")),
             );
         }
 
@@ -327,7 +327,7 @@ macro_rules! cop_fixture_tests {
         fn no_offense_fixture() {
             $crate::testutil::assert_cop_no_offenses_full(
                 &$cop,
-                include_bytes!(concat!("../../../testdata/", $path, "/no_offense.rb")),
+                include_bytes!(concat!("../../../tests/fixtures/", $path, "/no_offense.rb")),
             );
         }
     };
@@ -360,7 +360,7 @@ macro_rules! cop_scenario_fixture_tests {
             fn $name() {
                 $crate::testutil::assert_cop_offenses_full(
                     &$cop,
-                    include_bytes!(concat!("../../../testdata/", $path, "/offense/", $file)),
+                    include_bytes!(concat!("../../../tests/fixtures/", $path, "/offense/", $file)),
                 );
             }
         )+
@@ -369,7 +369,7 @@ macro_rules! cop_scenario_fixture_tests {
         fn no_offense_fixture() {
             $crate::testutil::assert_cop_no_offenses_full(
                 &$cop,
-                include_bytes!(concat!("../../../testdata/", $path, "/no_offense.rb")),
+                include_bytes!(concat!("../../../tests/fixtures/", $path, "/no_offense.rb")),
             );
         }
     };
@@ -399,8 +399,8 @@ macro_rules! cop_autocorrect_fixture_tests {
         fn autocorrect_fixture() {
             $crate::testutil::assert_cop_autocorrect(
                 &$cop,
-                include_bytes!(concat!("../../../testdata/", $path, "/offense.rb")),
-                include_bytes!(concat!("../../../testdata/", $path, "/corrected.rb")),
+                include_bytes!(concat!("../../../tests/fixtures/", $path, "/offense.rb")),
+                include_bytes!(concat!("../../../tests/fixtures/", $path, "/corrected.rb")),
             );
         }
     };

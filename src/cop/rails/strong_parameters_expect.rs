@@ -124,7 +124,9 @@ mod tests {
     fn offense_fixture() {
         crate::testutil::assert_cop_offenses_full_with_config(
             &StrongParametersExpect,
-            include_bytes!("../../../testdata/cops/rails/strong_parameters_expect/offense.rb"),
+            include_bytes!(
+                "../../../tests/fixtures/cops/rails/strong_parameters_expect/offense.rb"
+            ),
             config_with_rails(8.0),
         );
     }
@@ -133,7 +135,9 @@ mod tests {
     fn no_offense_fixture() {
         crate::testutil::assert_cop_no_offenses_full_with_config(
             &StrongParametersExpect,
-            include_bytes!("../../../testdata/cops/rails/strong_parameters_expect/no_offense.rb"),
+            include_bytes!(
+                "../../../tests/fixtures/cops/rails/strong_parameters_expect/no_offense.rb"
+            ),
             config_with_rails(8.0),
         );
     }

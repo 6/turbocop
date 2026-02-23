@@ -152,7 +152,9 @@ mod tests {
     fn offense_fixture() {
         crate::testutil::assert_cop_offenses_full_with_config(
             &HttpPositionalArguments,
-            include_bytes!("../../../testdata/cops/rails/http_positional_arguments/offense.rb"),
+            include_bytes!(
+                "../../../tests/fixtures/cops/rails/http_positional_arguments/offense.rb"
+            ),
             config_with_rails(5.0),
         );
     }
@@ -161,7 +163,9 @@ mod tests {
     fn no_offense_fixture() {
         crate::testutil::assert_cop_no_offenses_full_with_config(
             &HttpPositionalArguments,
-            include_bytes!("../../../testdata/cops/rails/http_positional_arguments/no_offense.rb"),
+            include_bytes!(
+                "../../../tests/fixtures/cops/rails/http_positional_arguments/no_offense.rb"
+            ),
             config_with_rails(5.0),
         );
     }

@@ -152,7 +152,7 @@ Both tests require **zero gaps** — any new cop or config key must be fully imp
 
 ## Fixture Format
 
-Each cop has a test fixture directory under `testdata/cops/<dept>/<cop_name>/` with:
+Each cop has a test fixture directory under `tests/fixtures/cops/<dept>/<cop_name>/` with:
 
 **Standard layout** (most cops): `offense.rb` + `no_offense.rb`
 - Use `cop_fixture_tests!` macro in the cop's test module
@@ -189,7 +189,7 @@ To add a new cop department from a RuboCop plugin (e.g., rubocop-rspec, rubocop-
           ^^^^^^^^^^^^^^^^^ Use `find_by` instead of `where.take`.
    RUBY
    ```
-3. **Convert to turbocop format** — strip the heredoc wrapper, prepend the department/cop prefix to annotations, write to `testdata/cops/{dept}/{cop_name}/offense.rb`
+3. **Convert to turbocop format** — strip the heredoc wrapper, prepend the department/cop prefix to annotations, write to `tests/fixtures/cops/{dept}/{cop_name}/offense.rb`
 4. **Extract `expect_no_offenses` blocks** — combine clean Ruby snippets into `no_offense.rb` (≥5 non-empty lines)
 5. **Adapt annotations** — vendor specs use just the message after `^`; turbocop requires `Department/CopName: message` format:
    - Vendor: `^^^ Use find_by instead of where.take.`

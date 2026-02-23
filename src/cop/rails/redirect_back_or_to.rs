@@ -87,7 +87,7 @@ mod tests {
     fn offense_fixture() {
         crate::testutil::assert_cop_offenses_full_with_config(
             &RedirectBackOrTo,
-            include_bytes!("../../../testdata/cops/rails/redirect_back_or_to/offense.rb"),
+            include_bytes!("../../../tests/fixtures/cops/rails/redirect_back_or_to/offense.rb"),
             config_with_rails(7.0),
         );
     }
@@ -96,7 +96,7 @@ mod tests {
     fn no_offense_fixture() {
         crate::testutil::assert_cop_no_offenses_full_with_config(
             &RedirectBackOrTo,
-            include_bytes!("../../../testdata/cops/rails/redirect_back_or_to/no_offense.rb"),
+            include_bytes!("../../../tests/fixtures/cops/rails/redirect_back_or_to/no_offense.rb"),
             config_with_rails(7.0),
         );
     }

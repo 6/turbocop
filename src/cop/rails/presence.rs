@@ -474,7 +474,7 @@ mod tests {
     fn offense_fixture() {
         crate::testutil::assert_cop_offenses_full_with_config(
             &Presence,
-            include_bytes!("../../../testdata/cops/rails/presence/offense.rb"),
+            include_bytes!("../../../tests/fixtures/cops/rails/presence/offense.rb"),
             test_config(),
         );
     }
@@ -483,7 +483,7 @@ mod tests {
     fn no_offense_fixture() {
         crate::testutil::assert_cop_no_offenses_full_with_config(
             &Presence,
-            include_bytes!("../../../testdata/cops/rails/presence/no_offense.rb"),
+            include_bytes!("../../../tests/fixtures/cops/rails/presence/no_offense.rb"),
             test_config(),
         );
     }

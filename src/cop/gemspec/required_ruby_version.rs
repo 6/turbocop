@@ -150,7 +150,7 @@ mod tests {
         crate::testutil::assert_cop_offenses_full_with_config(
             &RequiredRubyVersion,
             include_bytes!(
-                "../../../testdata/cops/gemspec/required_ruby_version/offense/version_mismatch.rb"
+                "../../../tests/fixtures/cops/gemspec/required_ruby_version/offense/version_mismatch.rb"
             ),
             config_with_target_ruby(3.1),
         );
@@ -160,7 +160,9 @@ mod tests {
     fn version_match_no_offense() {
         crate::testutil::assert_cop_no_offenses_full_with_config(
             &RequiredRubyVersion,
-            include_bytes!("../../../testdata/cops/gemspec/required_ruby_version/no_offense.rb"),
+            include_bytes!(
+                "../../../tests/fixtures/cops/gemspec/required_ruby_version/no_offense.rb"
+            ),
             config_with_target_ruby(3.0),
         );
     }

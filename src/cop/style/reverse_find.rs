@@ -108,7 +108,7 @@ mod tests {
         let config = config_with_ruby(4.0);
         crate::testutil::assert_cop_offenses_full_with_config(
             &ReverseFind,
-            include_bytes!("../../../testdata/cops/style/reverse_find/offense.rb"),
+            include_bytes!("../../../tests/fixtures/cops/style/reverse_find/offense.rb"),
             config,
         );
     }
@@ -118,7 +118,7 @@ mod tests {
         let config = config_with_ruby(4.0);
         crate::testutil::assert_cop_no_offenses_full_with_config(
             &ReverseFind,
-            include_bytes!("../../../testdata/cops/style/reverse_find/no_offense.rb"),
+            include_bytes!("../../../tests/fixtures/cops/style/reverse_find/no_offense.rb"),
             config,
         );
     }

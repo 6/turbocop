@@ -321,7 +321,7 @@ mod tests {
     fn offense_fixture() {
         crate::testutil::assert_cop_offenses_full_with_config(
             &BulkChangeTable,
-            include_bytes!("../../../testdata/cops/rails/bulk_change_table/offense.rb"),
+            include_bytes!("../../../tests/fixtures/cops/rails/bulk_change_table/offense.rb"),
             mysql_config(),
         );
     }
@@ -330,7 +330,7 @@ mod tests {
     fn no_offense_fixture() {
         crate::testutil::assert_cop_no_offenses_full_with_config(
             &BulkChangeTable,
-            include_bytes!("../../../testdata/cops/rails/bulk_change_table/no_offense.rb"),
+            include_bytes!("../../../tests/fixtures/cops/rails/bulk_change_table/no_offense.rb"),
             mysql_config(),
         );
     }

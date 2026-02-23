@@ -117,7 +117,7 @@ mod tests {
 
     fn setup_schema() {
         let schema_bytes =
-            include_bytes!("../../../testdata/cops/rails/unused_ignored_columns/schema.rb");
+            include_bytes!("../../../tests/fixtures/cops/rails/unused_ignored_columns/schema.rb");
         let schema = Schema::parse(schema_bytes).unwrap();
         crate::schema::set_test_schema(Some(schema));
     }
@@ -127,7 +127,7 @@ mod tests {
         setup_schema();
         crate::testutil::assert_cop_offenses_full(
             &UnusedIgnoredColumns,
-            include_bytes!("../../../testdata/cops/rails/unused_ignored_columns/offense.rb"),
+            include_bytes!("../../../tests/fixtures/cops/rails/unused_ignored_columns/offense.rb"),
         );
         crate::schema::set_test_schema(None);
     }
@@ -137,7 +137,9 @@ mod tests {
         setup_schema();
         crate::testutil::assert_cop_no_offenses_full(
             &UnusedIgnoredColumns,
-            include_bytes!("../../../testdata/cops/rails/unused_ignored_columns/no_offense.rb"),
+            include_bytes!(
+                "../../../tests/fixtures/cops/rails/unused_ignored_columns/no_offense.rb"
+            ),
         );
         crate::schema::set_test_schema(None);
     }

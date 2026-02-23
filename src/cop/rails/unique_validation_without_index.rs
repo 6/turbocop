@@ -300,7 +300,7 @@ mod tests {
 
     fn setup_schema() {
         let schema_bytes = include_bytes!(
-            "../../../testdata/cops/rails/unique_validation_without_index/schema.rb"
+            "../../../tests/fixtures/cops/rails/unique_validation_without_index/schema.rb"
         );
         let schema = Schema::parse(schema_bytes).unwrap();
         crate::schema::set_test_schema(Some(schema));
@@ -312,7 +312,7 @@ mod tests {
         crate::testutil::assert_cop_offenses_full(
             &UniqueValidationWithoutIndex,
             include_bytes!(
-                "../../../testdata/cops/rails/unique_validation_without_index/offense.rb"
+                "../../../tests/fixtures/cops/rails/unique_validation_without_index/offense.rb"
             ),
         );
         crate::schema::set_test_schema(None);
@@ -324,7 +324,7 @@ mod tests {
         crate::testutil::assert_cop_no_offenses_full(
             &UniqueValidationWithoutIndex,
             include_bytes!(
-                "../../../testdata/cops/rails/unique_validation_without_index/no_offense.rb"
+                "../../../tests/fixtures/cops/rails/unique_validation_without_index/no_offense.rb"
             ),
         );
         crate::schema::set_test_schema(None);

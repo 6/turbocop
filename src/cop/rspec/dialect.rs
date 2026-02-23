@@ -117,7 +117,7 @@ mod tests {
     fn offense_fixture() {
         crate::testutil::assert_cop_offenses_full_with_config(
             &Dialect,
-            include_bytes!("../../../testdata/cops/rspec/dialect/offense.rb"),
+            include_bytes!("../../../tests/fixtures/cops/rspec/dialect/offense.rb"),
             config_with_preferred(&[("context", "describe")]),
         );
     }
@@ -126,7 +126,7 @@ mod tests {
     fn no_offense_fixture() {
         crate::testutil::assert_cop_no_offenses_full_with_config(
             &Dialect,
-            include_bytes!("../../../testdata/cops/rspec/dialect/no_offense.rb"),
+            include_bytes!("../../../tests/fixtures/cops/rspec/dialect/no_offense.rb"),
             config_with_preferred(&[("context", "describe")]),
         );
     }

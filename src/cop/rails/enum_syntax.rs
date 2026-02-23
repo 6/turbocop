@@ -113,7 +113,7 @@ mod tests {
     fn offense_fixture() {
         crate::testutil::assert_cop_offenses_full_with_config(
             &EnumSyntax,
-            include_bytes!("../../../testdata/cops/rails/enum_syntax/offense.rb"),
+            include_bytes!("../../../tests/fixtures/cops/rails/enum_syntax/offense.rb"),
             config_with_rails(7.0),
         );
     }
@@ -122,7 +122,7 @@ mod tests {
     fn no_offense_fixture() {
         crate::testutil::assert_cop_no_offenses_full_with_config(
             &EnumSyntax,
-            include_bytes!("../../../testdata/cops/rails/enum_syntax/no_offense.rb"),
+            include_bytes!("../../../tests/fixtures/cops/rails/enum_syntax/no_offense.rb"),
             config_with_rails(7.0),
         );
     }
