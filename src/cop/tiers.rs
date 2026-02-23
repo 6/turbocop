@@ -81,7 +81,7 @@ mod tests {
     fn tier_for_stable_cop() {
         let map = TierMap::load();
         // Cops allowlisted as stable in overrides
-        assert_eq!(map.tier_for("Bundler/OrderedGems"), Tier::Stable);
+        assert_eq!(map.tier_for("Gemspec/AddRuntimeDependency"), Tier::Stable);
     }
 
     #[test]
