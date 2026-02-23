@@ -407,9 +407,10 @@ pub fn camel_to_snake(s: &str) -> String {
     for (i, &c) in chars.iter().enumerate() {
         if c.is_uppercase() && i > 0 {
             let prev = chars[i - 1];
-            if prev.is_lowercase() || prev.is_ascii_digit() {
-                result.push('_');
-            } else if prev.is_uppercase() && i + 1 < chars.len() && chars[i + 1].is_lowercase() {
+            if prev.is_lowercase()
+                || prev.is_ascii_digit()
+                || (prev.is_uppercase() && i + 1 < chars.len() && chars[i + 1].is_lowercase())
+            {
                 result.push('_');
             }
         }

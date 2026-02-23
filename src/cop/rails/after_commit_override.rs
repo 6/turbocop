@@ -69,21 +69,24 @@ impl Cop for AfterCommitOverride {
             let sym = arg_list[0].as_symbol_node().unwrap();
             let name = sym.unescaped().to_vec();
 
-            if seen.contains_key(&name) {
-                let loc = call.location();
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                let name_str = String::from_utf8_lossy(&name);
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    format!(
-                        "There can only be one `after_*_commit :{}` hook defined for a model.",
-                        name_str
-                    ),
-                ));
-            } else {
-                seen.insert(name, true);
+            match seen.entry(name) {
+                std::collections::hash_map::Entry::Occupied(e) => {
+                    let loc = call.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    let name_str = String::from_utf8_lossy(e.key());
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        format!(
+                            "There can only be one `after_*_commit :{}` hook defined for a model.",
+                            name_str
+                        ),
+                    ));
+                }
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(true);
+                }
             }
         }
     }

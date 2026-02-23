@@ -120,11 +120,9 @@ impl<'a> MemoizedHelperVisitor<'a> {
             if let Some(c) = stmt.as_call_node() {
                 if c.receiver().is_none() {
                     let method_name = c.name().as_slice();
-                    if is_rspec_let(method_name) {
-                        if let Some(name) = extract_helper_name(&c) {
-                            names.insert(name);
-                        }
-                    } else if !self.allow_subject && util::is_rspec_subject(method_name) {
+                    if is_rspec_let(method_name)
+                        || (!self.allow_subject && util::is_rspec_subject(method_name))
+                    {
                         if let Some(name) = extract_helper_name(&c) {
                             names.insert(name);
                         }

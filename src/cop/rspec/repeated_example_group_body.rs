@@ -104,7 +104,7 @@ fn check_sibling_groups_iter<'a>(
     source: &SourceFile,
     stmts: impl Iterator<Item = ruby_prism::Node<'a>>,
 ) -> Vec<Diagnostic> {
-    // body_signature -> list of (line, col, group_type_name)
+    #[allow(clippy::type_complexity)] // internal collection used only in this function
     let mut body_map: HashMap<Vec<u8>, Vec<(usize, usize, Vec<u8>)>> = HashMap::new();
 
     for stmt in stmts {

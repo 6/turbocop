@@ -88,7 +88,7 @@ impl Cop for HashFetchChain {
         }
 
         // The last fetch's default must be nil
-        if !arg_list[1].as_nil_node().is_some() {
+        if arg_list[1].as_nil_node().is_none() {
             return;
         }
 

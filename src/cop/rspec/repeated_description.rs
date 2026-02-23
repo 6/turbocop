@@ -61,7 +61,8 @@ impl Cop for RepeatedDescription {
             None => return,
         };
 
-        // Collect example descriptions: signature -> list of (line, col)
+        // Collect example descriptions: signature -> list of (line, col, end_line, end_col)
+        #[allow(clippy::type_complexity)] // internal collection used only in this function
         let mut desc_map: HashMap<Vec<u8>, Vec<(usize, usize, usize, usize)>> = HashMap::new();
 
         for stmt in stmts.body().iter() {

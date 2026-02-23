@@ -2252,12 +2252,9 @@ impl ResolvedConfig {
                     // handle_disabled_by_default which re-enables default-enabled cops
                     // in explicitly-enabled departments.
                     if dept_enabled_state == EnabledState::True {
-                        if self.disabled_by_default
-                            && self.project_enabled_depts.contains(dept)
-                            && cop.default_enabled()
+                        if !self.disabled_by_default
+                            || self.project_enabled_depts.contains(dept) && cop.default_enabled()
                         {
-                            EnabledState::True
-                        } else if !self.disabled_by_default {
                             EnabledState::True
                         } else {
                             EnabledState::Unset

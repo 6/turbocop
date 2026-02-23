@@ -71,16 +71,19 @@ fn check_body_for_dup_methods(
         if let Some(def_node) = stmt.as_def_node() {
             let key = def_method_key(&def_node);
             let loc = def_node.location();
-            if seen.contains_key(&key) {
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(cop.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Duplicated method definition.".to_string(),
-                ));
-            } else {
-                seen.insert(key, loc.start_offset());
+            match seen.entry(key) {
+                std::collections::hash_map::Entry::Occupied(_) => {
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    diagnostics.push(cop.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Duplicated method definition.".to_string(),
+                    ));
+                }
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(loc.start_offset());
+                }
             }
         }
         // Per RuboCop: alias counts as defining a method
@@ -96,16 +99,19 @@ fn check_body_for_dup_methods(
                 }
                 let key = name_sym.unescaped().to_vec();
                 let loc = alias_node.location();
-                if seen.contains_key(&key) {
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(cop.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Duplicated method definition.".to_string(),
-                    ));
-                } else {
-                    seen.insert(key, loc.start_offset());
+                match seen.entry(key) {
+                    std::collections::hash_map::Entry::Occupied(_) => {
+                        let (line, column) = source.offset_to_line_col(loc.start_offset());
+                        diagnostics.push(cop.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Duplicated method definition.".to_string(),
+                        ));
+                    }
+                    std::collections::hash_map::Entry::Vacant(e) => {
+                        e.insert(loc.start_offset());
+                    }
                 }
             }
         }

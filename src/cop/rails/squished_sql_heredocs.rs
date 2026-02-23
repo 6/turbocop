@@ -85,9 +85,7 @@ impl Cop for SquishedSQLHeredocs {
         }
 
         // Extract the tag name, stripping <<, <<-, <<~
-        let tag_start = if opening_text.starts_with(b"<<~") {
-            3
-        } else if opening_text.starts_with(b"<<-") {
+        let tag_start = if opening_text.starts_with(b"<<~") || opening_text.starts_with(b"<<-") {
             3
         } else {
             2

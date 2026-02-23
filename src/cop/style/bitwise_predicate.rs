@@ -97,8 +97,9 @@ impl Cop for BitwisePredicate {
                                                     if let Ok(v) = src.parse::<i64>() {
                                                         let is_zero = v == 0;
                                                         let is_one = v == 1;
-                                                        if (method_name == ">" && is_zero)
-                                                            || (method_name == "!=" && is_zero)
+                                                        if (method_name == "!="
+                                                            || method_name == ">")
+                                                            && is_zero
                                                             || (method_name == ">=" && is_one)
                                                         {
                                                             let loc = node.location();

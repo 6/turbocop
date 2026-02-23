@@ -49,11 +49,7 @@ impl Cop for HookArgument {
         let method_name = call.name().as_slice();
 
         // Check both receiverless `before(...)` and `config.before(...)`
-        let is_hook = if call.receiver().is_none() {
-            HOOK_METHODS.contains(&method_name)
-        } else {
-            HOOK_METHODS.contains(&method_name)
-        };
+        let is_hook = HOOK_METHODS.contains(&method_name);
 
         if !is_hook {
             return;

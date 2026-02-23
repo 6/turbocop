@@ -129,6 +129,7 @@ fn find_char_class_end(chars: &[char], open: usize) -> Option<usize> {
 }
 
 /// Check a character class body for duplicate elements, emitting diagnostics.
+#[allow(clippy::too_many_arguments)] // internal helper with tightly-coupled params
 fn check_class_for_duplicates(
     cop: &DuplicateRegexpCharacterClassElement,
     source: &SourceFile,

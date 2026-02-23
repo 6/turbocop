@@ -119,7 +119,7 @@ impl Cop for RedundantReceiverInWithOptions {
         // Check every statement: must be a call with block param as receiver,
         // and no nested blocks allowed anywhere in the body.
         // Also check that no node anywhere uses a different receiver.
-        if !self.all_sends_use_param(source, &body_stmts, &param_bytes) {
+        if !self.all_sends_use_param(&body_stmts, &param_bytes) {
             return;
         }
 
@@ -133,14 +133,9 @@ impl Cop for RedundantReceiverInWithOptions {
 impl RedundantReceiverInWithOptions {
     /// Check that ALL send nodes in the block body use the block param as receiver.
     /// Returns false if any send uses a different receiver, or if there are nested blocks.
-    fn all_sends_use_param(
-        &self,
-        source: &SourceFile,
-        stmts: &[ruby_prism::Node<'_>],
-        param_name: &[u8],
-    ) -> bool {
+    fn all_sends_use_param(&self, stmts: &[ruby_prism::Node<'_>], param_name: &[u8]) -> bool {
         for stmt in stmts {
-            if !self.node_all_sends_use_param(source, stmt, param_name) {
+            if !self.node_all_sends_use_param(stmt, param_name) {
                 return false;
             }
         }
@@ -148,12 +143,7 @@ impl RedundantReceiverInWithOptions {
     }
 
     /// Recursively check that all send nodes in a subtree use the block param as receiver.
-    fn node_all_sends_use_param(
-        &self,
-        source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        param_name: &[u8],
-    ) -> bool {
+    fn node_all_sends_use_param(&self, node: &ruby_prism::Node<'_>, param_name: &[u8]) -> bool {
         if let Some(call) = node.as_call_node() {
             // Nested blocks make analysis unsafe
             if call.block().is_some() {
@@ -168,7 +158,7 @@ impl RedundantReceiverInWithOptions {
             // Check arguments recursively
             if let Some(args) = call.arguments() {
                 for arg in args.arguments().iter() {
-                    if !self.node_all_sends_use_param(source, &arg, param_name) {
+                    if !self.node_all_sends_use_param(&arg, param_name) {
                         return false;
                     }
                 }
@@ -187,10 +177,10 @@ impl RedundantReceiverInWithOptions {
         }
         // For non-call nodes, recurse into children that might contain sends
         if let Some(or_write) = node.as_instance_variable_or_write_node() {
-            return self.node_all_sends_use_param(source, &or_write.value(), param_name);
+            return self.node_all_sends_use_param(&or_write.value(), param_name);
         }
         if let Some(or_write) = node.as_local_variable_or_write_node() {
-            return self.node_all_sends_use_param(source, &or_write.value(), param_name);
+            return self.node_all_sends_use_param(&or_write.value(), param_name);
         }
         true
     }

@@ -104,7 +104,7 @@ impl LambdaWithoutLiteralBlock {
             if let Some(block_arg) = a.as_block_argument_node() {
                 // Skip symbol procs
                 if let Some(expr) = block_arg.expression() {
-                    return !expr.as_symbol_node().is_some();
+                    return expr.as_symbol_node().is_none();
                 }
                 return true;
             }

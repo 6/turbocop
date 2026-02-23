@@ -78,11 +78,7 @@ impl MultipleComparison {
                     (rhs_src, false)
                 } else if lhs.as_call_node().is_some() && rhs.as_call_node().is_some() {
                     // Both sides are method calls — lhs is the variable, rhs is the value
-                    if allow_method {
-                        (lhs_src, true)
-                    } else {
-                        (lhs_src, true)
-                    }
+                    (lhs_src, true)
                 } else {
                     return None;
                 };

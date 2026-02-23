@@ -59,7 +59,7 @@ impl Cop for SubjectStub {
             false
         };
 
-        if !is_rspec_describe && !(call.receiver().is_none() && is_rspec_example_group(method_name))
+        if !(is_rspec_describe || call.receiver().is_none() && is_rspec_example_group(method_name))
         {
             return;
         }

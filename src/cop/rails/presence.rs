@@ -207,6 +207,7 @@ fn extract_single_stmt_node<'a>(
 }
 
 /// Core logic for both if and unless: check Pattern 1 (exact match) and Pattern 2 (chain).
+#[allow(clippy::too_many_arguments)] // internal helper threading branch components
 fn check_presence_patterns(
     cop: &Presence,
     source: &SourceFile,

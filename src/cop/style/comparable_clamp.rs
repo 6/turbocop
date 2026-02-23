@@ -179,6 +179,7 @@ fn get_comparison(node: &ruby_prism::Node<'_>) -> Option<(String, u8, String)> {
 /// Check if the if/elsif/else matches any of the 8 clamp patterns:
 /// Pattern: if (x < min) then min elsif (x > max) then max else x end
 /// (or with reversed operands / operators)
+#[allow(clippy::too_many_arguments)] // pattern-matching all branch components
 fn is_clamp_pattern(
     f_left: &str,
     f_op: u8,

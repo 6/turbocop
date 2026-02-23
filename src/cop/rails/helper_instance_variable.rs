@@ -31,15 +31,13 @@ impl Cop for HelperInstanceVariable {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let loc;
-
-        if node.as_instance_variable_read_node().is_some() {
-            loc = node.location();
-        } else if node.as_instance_variable_write_node().is_some() {
-            loc = node.location();
+        let loc = if node.as_instance_variable_read_node().is_some()
+            || node.as_instance_variable_write_node().is_some()
+        {
+            node.location()
         } else {
             return;
-        }
+        };
 
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(

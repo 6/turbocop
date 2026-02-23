@@ -78,9 +78,8 @@ impl Cop for HooksBeforeExamples {
                 if c.receiver().is_none() {
                     if is_rspec_example(name)
                         || (is_rspec_example_group(name) && !is_shared_group(name))
+                        || is_example_include(name)
                     {
-                        seen_example = true;
-                    } else if is_example_include(name) {
                         seen_example = true;
                     } else if seen_example && is_rspec_hook(name) {
                         let hook_name = std::str::from_utf8(name).unwrap_or("before");

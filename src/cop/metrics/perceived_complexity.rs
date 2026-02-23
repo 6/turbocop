@@ -112,6 +112,7 @@ const KNOWN_ITERATING_METHODS: &[&[u8]] = &[
     b"rindex",
 ];
 
+#[derive(Default)]
 struct PerceivedCounter {
     complexity: usize,
     /// Tracks whether we are already inside a rescue chain to avoid
@@ -121,16 +122,6 @@ struct PerceivedCounter {
     /// RuboCop discounts repeated `&.` on the same variable — only the first counts.
     /// When the variable is reassigned, it is removed from the set (reset).
     seen_csend_vars: std::collections::HashSet<Vec<u8>>,
-}
-
-impl Default for PerceivedCounter {
-    fn default() -> Self {
-        Self {
-            complexity: 0,
-            in_rescue_chain: false,
-            seen_csend_vars: std::collections::HashSet::new(),
-        }
-    }
 }
 
 impl PerceivedCounter {

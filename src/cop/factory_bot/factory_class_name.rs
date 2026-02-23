@@ -91,9 +91,9 @@ impl Cop for FactoryClassName {
                 let value = pair.value();
 
                 // Value must be a constant (ConstantReadNode or ConstantPathNode)
-                let const_name = if value.as_constant_read_node().is_some() {
-                    Some(util::full_constant_path(source, &value))
-                } else if value.as_constant_path_node().is_some() {
+                let const_name = if value.as_constant_read_node().is_some()
+                    || value.as_constant_path_node().is_some()
+                {
                     Some(util::full_constant_path(source, &value))
                 } else {
                     None

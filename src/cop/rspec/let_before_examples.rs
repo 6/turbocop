@@ -85,9 +85,7 @@ impl Cop for LetBeforeExamples {
                     let is_example_or_group_with_block = (is_rspec_example(name)
                         || is_non_shared_example_group(name))
                         && c.block().is_some();
-                    if is_example_or_group_with_block {
-                        seen_example = true;
-                    } else if is_example_include(name) {
+                    if is_example_or_group_with_block || is_example_include(name) {
                         seen_example = true;
                     } else if seen_example && is_rspec_let(name) {
                         let let_name = std::str::from_utf8(name).unwrap_or("let");

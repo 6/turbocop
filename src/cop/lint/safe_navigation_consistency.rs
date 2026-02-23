@@ -211,16 +211,8 @@ fn extract_call_info(node: &ruby_prism::Node<'_>) -> Option<CallInfo> {
 
     let call_operator_offset = call_op.as_ref().map(|loc| loc.start_offset()).unwrap_or(0);
 
-    let dot_offset = call_op
-        .as_ref()
-        .map(|loc| {
-            if is_safe_nav {
-                loc.start_offset() // &. starts at this offset
-            } else {
-                loc.start_offset() // . is at this offset
-            }
-        })
-        .unwrap_or(0);
+    // Both &. and . start at the same call_operator offset
+    let dot_offset = call_op.as_ref().map(|loc| loc.start_offset()).unwrap_or(0);
 
     Some(CallInfo {
         receiver_name,

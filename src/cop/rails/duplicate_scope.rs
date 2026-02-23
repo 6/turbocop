@@ -49,18 +49,21 @@ impl Cop for DuplicateScope {
                 None => continue,
             };
 
-            if seen.contains_key(&name) {
-                let loc = call.message_loc().unwrap_or(call.location());
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                let name_str = String::from_utf8_lossy(&name);
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    format!("Duplicate scope `{name_str}` detected."),
-                ));
-            } else {
-                seen.insert(name, 0);
+            match seen.entry(name) {
+                std::collections::hash_map::Entry::Occupied(e) => {
+                    let loc = call.message_loc().unwrap_or(call.location());
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    let name_str = String::from_utf8_lossy(e.key());
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        format!("Duplicate scope `{name_str}` detected."),
+                    ));
+                }
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(0);
+                }
             }
         }
     }

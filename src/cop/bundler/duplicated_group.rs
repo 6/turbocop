@@ -28,11 +28,8 @@ fn extract_group_key(line: &str) -> Option<String> {
     }
 
     // Extract the part between `group` and `do`
-    let start = if trimmed.starts_with("group(") {
-        6
-    } else {
-        6 // "group "
-    };
+    // Both "group(" and "group " have the same 6-byte prefix length
+    let start = 6;
     let end = trimmed.rfind(" do")?;
     let args_str = &trimmed[start..end];
 
@@ -137,7 +134,8 @@ impl Cop for DuplicatedGroup {
 /// For `group :development, :test do` returns `:development, :test`.
 fn format_group_display(line: &str) -> String {
     let trimmed = line.trim();
-    let start = if trimmed.starts_with("group(") { 6 } else { 6 };
+    // Both "group(" and "group " have the same 6-byte prefix length
+    let start = 6;
     let end = trimmed.rfind(" do").unwrap_or(trimmed.len());
     let args = &trimmed[start..end];
     // Strip keyword args for display

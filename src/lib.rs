@@ -1,20 +1,13 @@
-// Remaining clippy lints to fix (see docs/LINT_PLAN.md)
-// Batch 4 lints (need review) + intentional keeps
+// Remaining: intentional keeps only (see docs/LINT_PLAN.md)
+// These will be moved to local #[allow] in Batch 5.
 #![allow(
     clippy::cloned_ref_to_slice_refs,
-    clippy::derivable_impls,
     clippy::doc_lazy_continuation,
     clippy::enum_variant_names,
-    clippy::if_same_then_else,
-    clippy::map_entry,
     clippy::needless_lifetimes,
     clippy::never_loop,
     clippy::new_without_default,
-    clippy::nonminimal_bool,
-    clippy::only_used_in_recursion,
-    clippy::should_implement_trait,
-    clippy::too_many_arguments,
-    clippy::type_complexity
+    clippy::should_implement_trait
 )]
 #![allow(dead_code, unused_variables, unused_assignments)]
 

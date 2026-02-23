@@ -95,15 +95,13 @@ impl<'a, 'pr> Visit<'pr> for FileNullVisitor<'a> {
 
         let lower = content_str.to_lowercase();
 
-        let matched = if lower == "/dev/null" {
-            Some(content_str)
-        } else if lower == "nul:" {
-            Some(content_str)
-        } else if lower == "nul" && self.contain_dev_null {
-            Some(content_str)
-        } else {
-            None
-        };
+        let matched =
+            if lower == "/dev/null" || lower == "nul:" || (lower == "nul" && self.contain_dev_null)
+            {
+                Some(content_str)
+            } else {
+                None
+            };
 
         if let Some(matched_str) = matched {
             let loc = node.location();

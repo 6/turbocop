@@ -72,7 +72,7 @@ impl Cop for RepeatedExampleGroupDescription {
             return;
         };
 
-        // desc_signature -> list of (line, col, group_type_name)
+        #[allow(clippy::type_complexity)] // internal collection used only in this function
         let mut desc_map: HashMap<Vec<u8>, Vec<(usize, usize, Vec<u8>)>> = HashMap::new();
 
         for stmt in stmts {

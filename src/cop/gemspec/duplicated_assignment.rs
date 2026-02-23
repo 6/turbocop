@@ -40,17 +40,24 @@ impl Cop for DuplicatedAssignment {
             // but not `spec.requirements <<` (append) or method calls without `=`
             if let Some(attr) = extract_assignment_attr(trimmed) {
                 let line_num = line_idx + 1;
-                if seen.contains_key(&attr) {
-                    // Find the position of the attribute in the original line
-                    let dot_pos = line_str.find('.').unwrap_or(0);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line_num,
-                        dot_pos + 1, // after the dot
-                        format!("Attribute `{attr}` is already set on line {}.", seen[&attr]),
-                    ));
-                } else {
-                    seen.insert(attr, line_num);
+                match seen.entry(attr) {
+                    std::collections::hash_map::Entry::Occupied(e) => {
+                        // Find the position of the attribute in the original line
+                        let dot_pos = line_str.find('.').unwrap_or(0);
+                        diagnostics.push(self.diagnostic(
+                            source,
+                            line_num,
+                            dot_pos + 1, // after the dot
+                            format!(
+                                "Attribute `{}` is already set on line {}.",
+                                e.key(),
+                                e.get()
+                            ),
+                        ));
+                    }
+                    std::collections::hash_map::Entry::Vacant(e) => {
+                        e.insert(line_num);
+                    }
                 }
             }
         }

@@ -130,13 +130,11 @@ impl Cop for Delegate {
         // - self.class (self.class.bar → delegate :bar, to: :class)
         // - Class/global variable (@@var.bar, $var.bar)
         // NOT: literals, arbitrary chained calls, etc.
-        let is_delegatable_receiver = if receiver.as_instance_variable_read_node().is_some() {
-            true
-        } else if receiver.as_self_node().is_some() {
-            true
-        } else if receiver.as_class_variable_read_node().is_some() {
-            true
-        } else if receiver.as_global_variable_read_node().is_some() {
+        let is_delegatable_receiver = if receiver.as_instance_variable_read_node().is_some()
+            || receiver.as_self_node().is_some()
+            || receiver.as_class_variable_read_node().is_some()
+            || receiver.as_global_variable_read_node().is_some()
+        {
             true
         } else if let Some(recv_call) = receiver.as_call_node() {
             // self.class → delegate to :class
@@ -290,9 +288,7 @@ fn is_private_or_protected(source: &SourceFile, def_offset: usize) -> bool {
                 || trimmed.starts_with(b"private\n")
                 || trimmed.starts_with(b"private\r")
                 || trimmed.starts_with(b"private #")
-            {
-                in_private = true;
-            } else if trimmed == b"protected"
+                || trimmed == b"protected"
                 || trimmed.starts_with(b"protected\n")
                 || trimmed.starts_with(b"protected\r")
                 || trimmed.starts_with(b"protected #")

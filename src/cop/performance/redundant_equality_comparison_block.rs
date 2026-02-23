@@ -119,7 +119,7 @@ impl Cop for RedundantEqualityComparisonBlock {
         let is_equality = eq_method == b"==";
         let is_regexp = eq_method == b"=~" || eq_method == b"match?";
 
-        if !is_equality && !(is_regexp && !allow_regexp_match) {
+        if !(is_equality || is_regexp && !allow_regexp_match) {
             return;
         }
 

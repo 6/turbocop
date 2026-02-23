@@ -351,6 +351,7 @@ pub fn run_linter(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // orchestration entry point threading shared state
 fn lint_file(
     path: &Path,
     config: &ResolvedConfig,
@@ -560,6 +561,7 @@ fn validate_corrected_bytes(
 
 /// Returns (diagnostics, corrected_bytes, corrected_count).
 /// corrected_count is the total number of offenses corrected across all iterations.
+#[allow(clippy::too_many_arguments)] // internal lint pipeline threading shared state
 fn lint_source_inner(
     source: &SourceFile,
     config: &ResolvedConfig,
@@ -660,6 +662,7 @@ fn lint_source_inner(
 }
 
 /// Run all enabled cops once on a source file. Returns (diagnostics, corrections).
+#[allow(clippy::too_many_arguments)] // internal lint pipeline threading shared state
 fn lint_source_once(
     source: &SourceFile,
     config: &ResolvedConfig,
