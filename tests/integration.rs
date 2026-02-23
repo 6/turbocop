@@ -1999,7 +1999,13 @@ fn stdin_detects_trailing_whitespace() {
 #[test]
 fn stdin_clean_code_exits_zero() {
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
-        .args(["--preview", "--stdin", "clean.rb", "--only", "Layout/TrailingWhitespace"])
+        .args([
+            "--preview",
+            "--stdin",
+            "clean.rb",
+            "--only",
+            "Layout/TrailingWhitespace",
+        ])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
