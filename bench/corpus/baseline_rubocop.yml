@@ -12,7 +12,7 @@ require:
 AllCops:
   NewCops: enable
   SuggestExtensions: false
-  TargetRubyVersion: 3.3
+  TargetRubyVersion: 3.4
   # Standard junk exclusions — same for both tools
   Exclude:
     - "vendor/**/*"
