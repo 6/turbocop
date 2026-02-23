@@ -15,7 +15,7 @@ Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (
 **Features**
 
 - **915 cops** from 6 RuboCop gems (rubocop, rubocop-rails, rubocop-performance, rubocop-rspec, rubocop-rspec_rails, rubocop-factory_bot)
-- **High conformance** against RuboCop — 14 of 14 benchmark repos at 100%
+- **93.6% conformance** against RuboCop across **500 open-source repos** (all cops enabled)
 - **Autocorrect** (`-a`/`-A`) is partial — work in progress
 - Reads your existing `.rubocop.yml` — no migration needed
 - Uses [Prism](https://github.com/ruby/prism) (Ruby's official parser) via `ruby-prism` crate
@@ -66,26 +66,31 @@ Every cop reads its RuboCop YAML config options and has fixture-based test cover
 
 ## Conformance
 
-We run both turbocop and RuboCop on 14 popular open source repos and compare every offense by file, line, and cop name. Match rate is the percentage of offenses that both tools agree on:
+We run a [corpus oracle](https://github.com/6/turbocop/actions/workflows/corpus-oracle.yml) that diffs turbocop against RuboCop on **500 open-source repos** (163k Ruby files) with all cops enabled. Every offense is compared by file, line, and cop name.
 
-| Repo | .rb files | Offenses | Match | turbocop | RuboCop |
-|------|----------:|-------:|------:|---------:|--------:|
-| [mastodon](https://github.com/mastodon/mastodon) | 2,526 | 302 | 100% | **152ms** | 2,390ms |
-| [discourse](https://github.com/discourse/discourse) | 5,831 | 0 | 100% | **499ms** | 3,500ms |
-| [rails](https://github.com/rails/rails) | 3,332 | 6 | 100% | **157ms** | 6,040ms |
-| [rubocop](https://github.com/rubocop/rubocop) | 1,665 | 0 | 100% | **316ms** | 1,190ms |
-| [chatwoot](https://github.com/chatwoot/chatwoot) | 1,900 | 251 | 100% | **218ms** | 2,550ms |
-| [errbit](https://github.com/errbit/errbit) | 207 | 1,579 | 100% | **51ms** | 1,190ms |
-| [activeadmin](https://github.com/activeadmin/activeadmin) | 354 | 3 | 100% | **35ms** | 1,090ms |
-| [good_job](https://github.com/bensheldon/good_job) | 242 | 37 | 100% | **51ms** | 1,170ms |
-| [docuseal](https://github.com/docusealco/docuseal) | 406 | 60 | 100% | **50ms** | 1,190ms |
-| [rubygems.org](https://github.com/rubygems/rubygems.org) | 1,222 | 3 | 100% | **56ms** | 1,390ms |
-| [doorkeeper](https://github.com/doorkeeper-gem/doorkeeper) | 246 | 623 | 100% | **48ms** | 1,090ms |
-| [fat_free_crm](https://github.com/fatfreecrm/fat_free_crm) | 464 | 32 | 100% | **55ms** | 1,220ms |
-| [multi_json](https://github.com/sferik/multi_json) | 116 | 2 | 100% | **21ms** | 867ms |
-| [lobsters](https://github.com/lobsters/lobsters) | 450 | 6 | 100% | **36ms** | 1,150ms |
+**Overall: 93.6% match rate** across 4.9M offenses compared.
 
-Times are with warm cache, 10% of files invalidated (capped at 50), Apple Silicon. See [bench/results.md](bench/results.md) for full details.
+Top 15 repos by GitHub stars:
+
+| Repo | Stars | Offenses | Match |
+|------|------:|---------:|------:|
+| [rails](https://github.com/rails/rails) | 58k | 144,728 | 91.0% |
+| [jekyll](https://github.com/jekyll/jekyll) | 51k | 7,697 | 92.5% |
+| [mastodon](https://github.com/mastodon/mastodon) | 50k | 22,390 | 95.6% |
+| [huginn](https://github.com/huginn/huginn) | 49k | 18,734 | 96.6% |
+| [discourse](https://github.com/discourse/discourse) | 46k | 333,429 | 97.3% |
+| [fastlane](https://github.com/fastlane/fastlane) | 41k | 62,115 | 95.5% |
+| [chatwoot](https://github.com/chatwoot/chatwoot) | 27k | 18,231 | 98.6% |
+| [vagrant](https://github.com/hashicorp/vagrant) | 27k | 50,531 | 94.8% |
+| [forem](https://github.com/forem/forem) | 23k | 60,564 | 97.7% |
+| [openproject](https://github.com/opf/openproject) | 14k | 194,365 | 97.5% |
+| [sidekiq](https://github.com/sidekiq/sidekiq) | 14k | 6,104 | 95.7% |
+| [rubocop](https://github.com/rubocop/rubocop) | 13k | 17,473 | 96.8% |
+| [sinatra](https://github.com/sinatra/sinatra) | 12k | 4,732 | 91.3% |
+| [faker](https://github.com/faker-ruby/faker) | 12k | 1,423 | 97.8% |
+| [activeadmin](https://github.com/activeadmin/activeadmin) | 10k | 8,077 | 96.5% |
+
+Remaining gaps are mostly in complex layout cops (indentation, alignment) and a few style cops. See [docs/coverage.md](docs/coverage.md) for the full breakdown.
 
 ## Hybrid Mode
 
