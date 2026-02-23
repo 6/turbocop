@@ -147,12 +147,6 @@ fn get_single_stmt_src(
     Some(String::from_utf8_lossy(src).to_string())
 }
 
-struct Comparison {
-    left: String,
-    op: u8, // b'<' or b'>'
-    right: String,
-}
-
 /// Extract comparison operands and operator from `x < y` or `x > y`.
 fn get_comparison(node: &ruby_prism::Node<'_>) -> Option<(String, u8, String)> {
     let call = node.as_call_node()?;

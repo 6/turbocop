@@ -15,6 +15,7 @@ fn receiver_source<'a>(call: &ruby_prism::CallNode<'a>) -> Option<&'a [u8]> {
 /// - `foo == nil`
 /// - `nil == foo`
 /// - `!foo`
+///
 /// Returns (receiver source bytes, left side source bytes) if matched.
 fn nil_check_receiver<'a>(node: &ruby_prism::Node<'a>) -> Option<(&'a [u8], &'a [u8])> {
     let call = node.as_call_node()?;

@@ -81,6 +81,7 @@ impl Cop for ImplicitBlockExpectation {
             None => return,
         };
 
+        #[allow(clippy::never_loop)] // intentional: find-first via early return
         for arg in args.arguments().iter() {
             if has_block_matcher(&arg) {
                 let loc = recv_call.location();

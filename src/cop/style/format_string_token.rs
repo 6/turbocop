@@ -126,13 +126,6 @@ impl FormatStringToken {
         }
         count
     }
-
-    /// Check whether the string has ONLY unannotated tokens (no template or annotated)
-    fn only_unannotated_tokens(s: &str) -> bool {
-        !Self::has_annotated_token(s)
-            && !Self::has_template_token(s)
-            && Self::count_unannotated_tokens(s) > 0
-    }
 }
 
 impl Cop for FormatStringToken {
@@ -170,7 +163,6 @@ impl Cop for FormatStringToken {
 
         // First pass: collect offsets of strings in format contexts and allowed method contexts
         let mut collector = FormatContextCollector {
-            source,
             format_context_offsets: &mut visitor.format_context_offsets,
             allowed_method_string_offsets: &mut visitor.allowed_method_string_offsets,
             allowed_methods: &visitor.allowed_methods,
@@ -187,7 +179,6 @@ impl Cop for FormatStringToken {
 /// Collects start offsets of string nodes that are in a format context
 /// (first arg to format/sprintf/printf, or LHS of %).
 struct FormatContextCollector<'a> {
-    source: &'a SourceFile,
     format_context_offsets: &'a mut HashSet<usize>,
     allowed_method_string_offsets: &'a mut HashSet<usize>,
     allowed_methods: &'a Option<Vec<String>>,

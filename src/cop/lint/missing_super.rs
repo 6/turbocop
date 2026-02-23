@@ -104,6 +104,7 @@ impl MissingSuperVisitor<'_, '_> {
     }
 
     fn is_inside_class_with_stateful_parent(&self) -> bool {
+        #[allow(clippy::never_loop)] // intentional: find-first via early return
         for ctx in self.class_stack.iter().rev() {
             match ctx {
                 ClassContext::ClassWithParent(parent) => {
@@ -128,6 +129,7 @@ impl MissingSuperVisitor<'_, '_> {
     }
 
     fn is_inside_class_or_sclass(&self) -> bool {
+        #[allow(clippy::never_loop)] // intentional: find-first via early return
         for ctx in self.class_stack.iter().rev() {
             match ctx {
                 ClassContext::ClassWithParent(_)

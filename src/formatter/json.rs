@@ -12,6 +12,8 @@ pub struct JsonFormatter {
 }
 
 impl JsonFormatter {
+    // Default impl not useful; formatter is always explicitly constructed.
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self { skip_summary: None }
     }

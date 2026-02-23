@@ -160,7 +160,7 @@ fn check_format_sprintf(
             }
         }
         FormatParseResult::Invalid => {
-            let method_str = std::str::from_utf8(method_name).unwrap_or("format");
+            let _method_str = std::str::from_utf8(method_name).unwrap_or("format");
             let loc = call.message_loc().unwrap_or(call.location());
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             return vec![cop.diagnostic(
@@ -170,7 +170,6 @@ fn check_format_sprintf(
                 "Format string is invalid because formatting sequence types (numbered, named or unnumbered) are mixed.".to_string(),
             )];
         }
-        FormatParseResult::Unknown => {}
     }
 
     Vec::new()
@@ -273,7 +272,6 @@ fn check_string_percent(
                 "Format string is invalid because formatting sequence types (numbered, named or unnumbered) are mixed.".to_string(),
             )];
         }
-        FormatParseResult::Unknown => {}
     }
 
     Vec::new()
@@ -336,7 +334,6 @@ struct FieldCount {
 enum FormatParseResult {
     Fields(FieldCount),
     Invalid,
-    Unknown,
 }
 
 fn parse_format_string(fmt: &str) -> FormatParseResult {

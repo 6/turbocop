@@ -25,23 +25,6 @@ impl EvalWithLocation {
             || node.as_x_string_node().is_some()
             || node.as_interpolated_x_string_node().is_some()
     }
-
-    fn is_heredoc_arg(node: &ruby_prism::Node<'_>) -> bool {
-        // Heredoc nodes in prism are string nodes with heredoc opening
-        if let Some(s) = node.as_string_node() {
-            if let Some(opening) = s.opening_loc() {
-                let opening_bytes = opening.as_slice();
-                return opening_bytes.starts_with(b"<<");
-            }
-        }
-        if let Some(s) = node.as_interpolated_string_node() {
-            if let Some(opening) = s.opening_loc() {
-                let opening_bytes = opening.as_slice();
-                return opening_bytes.starts_with(b"<<");
-            }
-        }
-        false
-    }
 }
 
 impl Cop for EvalWithLocation {

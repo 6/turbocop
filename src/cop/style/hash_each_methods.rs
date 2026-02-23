@@ -177,7 +177,7 @@ impl HashEachMethods {
             return;
         }
 
-        let bytes = source.as_bytes();
+        let _bytes = source.as_bytes();
         let unused_code = if value_unused {
             std::str::from_utf8(value_name).unwrap_or("_")
         } else {

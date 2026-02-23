@@ -31,7 +31,6 @@ impl Cop for ArrayLiteralInRegexp {
             cop: self,
             source,
             diagnostics: Vec::new(),
-            in_regexp: false,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -42,7 +41,6 @@ struct RegexpArrayVisitor<'a, 'src> {
     cop: &'a ArrayLiteralInRegexp,
     source: &'src SourceFile,
     diagnostics: Vec<Diagnostic>,
-    in_regexp: bool,
 }
 
 impl<'pr> Visit<'pr> for RegexpArrayVisitor<'_, '_> {

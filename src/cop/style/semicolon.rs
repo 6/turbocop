@@ -144,14 +144,6 @@ fn find_keyword_before(before: &[u8], keyword: &[u8]) -> bool {
     false
 }
 
-fn trim_bytes_start(b: &[u8]) -> &[u8] {
-    let start = b
-        .iter()
-        .position(|&c| c != b' ' && c != b'\t')
-        .unwrap_or(b.len());
-    &b[start..]
-}
-
 /// Check if a word appears as a standalone word in bytes (surrounded by word boundaries).
 fn has_word_in(bytes: &[u8], word: &[u8]) -> bool {
     if bytes.len() < word.len() {

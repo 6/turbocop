@@ -37,7 +37,7 @@ impl MultipleComparison {
                     }
                     return None;
                 }
-                (Some(result), None) | (None, Some(result)) => {
+                (Some(_result), None) | (None, Some(_result)) => {
                     // One side might be a non-comparison node; that's still OK
                     // only if the other side is all comparisons
                     return None;

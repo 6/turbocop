@@ -8,6 +8,8 @@ pub struct CopRegistry {
 }
 
 impl CopRegistry {
+    // Default impl would hide the intentional empty-registry construction.
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             cops: Vec::new(),

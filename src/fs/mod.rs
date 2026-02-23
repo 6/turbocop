@@ -40,7 +40,7 @@ pub fn discover_files(paths: &[PathBuf], config: &ResolvedConfig) -> Result<Disc
 }
 
 /// Exposed for testing only.
-fn walk_directory(dir: &Path, config: &ResolvedConfig) -> Result<Vec<PathBuf>> {
+fn walk_directory(dir: &Path, _config: &ResolvedConfig) -> Result<Vec<PathBuf>> {
     let mut builder = WalkBuilder::new(dir);
     builder.hidden(true).git_ignore(true).git_global(true);
 

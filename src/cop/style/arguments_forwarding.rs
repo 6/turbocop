@@ -292,12 +292,11 @@ fn find_forwarding_calls(
     node: &ruby_prism::Node<'_>,
     rest_name: &[u8],
     block_name: &[u8],
-    kwrest_name: Option<&[u8]>,
+    _kwrest_name: Option<&[u8]>,
 ) -> Vec<(usize, usize)> {
     let mut finder = ForwardingCallFinder {
         rest_name: rest_name.to_vec(),
         block_name: block_name.to_vec(),
-        kwrest_name: kwrest_name.map(|n| n.to_vec()),
         locations: Vec::new(),
     };
     finder.visit(node);
@@ -307,7 +306,6 @@ fn find_forwarding_calls(
 struct ForwardingCallFinder {
     rest_name: Vec<u8>,
     block_name: Vec<u8>,
-    kwrest_name: Option<Vec<u8>>,
     locations: Vec<(usize, usize)>,
 }
 
@@ -320,7 +318,7 @@ impl ForwardingCallFinder {
         block: Option<ruby_prism::Node<'_>>,
     ) -> Option<(usize, usize)> {
         let mut splat_start: Option<usize> = None;
-        let mut splat_end: Option<usize> = None;
+        let mut _splat_end: Option<usize> = None;
         let mut block_end: Option<usize> = None;
 
         if let Some(args) = &arguments {
@@ -335,7 +333,7 @@ impl ForwardingCallFinder {
                                 {
                                     splat_start = Some(loc.start_offset());
                                 }
-                                splat_end = Some(loc.end_offset());
+                                _splat_end = Some(loc.end_offset());
                             }
                         }
                     }

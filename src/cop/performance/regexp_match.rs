@@ -117,7 +117,7 @@ fn check_condition(
     cop: &RegexpMatch,
     source: &SourceFile,
     cond: &ruby_prism::Node<'_>,
-    body_range: Option<(usize, usize)>,
+    _body_range: Option<(usize, usize)>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     if let Some(call) = cond.as_call_node() {

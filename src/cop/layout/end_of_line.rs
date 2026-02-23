@@ -21,7 +21,7 @@ impl Cop for EndOfLine {
         mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let style = config.get_str("EnforcedStyle", "native");
-        let bytes = source.as_bytes();
+        let _bytes = source.as_bytes();
 
         match style {
             "lf" | "native" => {

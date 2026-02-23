@@ -52,7 +52,7 @@ impl Cop for SquishedSQLHeredocs {
         // Check for heredocs with SQL tag that don't have .squish
         // Could be a StringNode or InterpolatedStringNode
 
-        let (opening_loc, closing_loc, node_loc) = if let Some(s) = node.as_string_node() {
+        let (opening_loc, closing_loc, _node_loc) = if let Some(s) = node.as_string_node() {
             let opening = match s.opening_loc() {
                 Some(o) => o,
                 None => return,

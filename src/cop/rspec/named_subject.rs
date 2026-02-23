@@ -117,6 +117,7 @@ impl BareSubjectFinder<'_> {
     /// Walks the stack from top to bottom, returning `true` if the nearest
     /// scope with a subject definition has a named subject.
     fn nearest_subject_is_named(&self) -> bool {
+        #[allow(clippy::never_loop)] // intentional: find-first via early return
         for named in self.subject_named_stack.iter().rev().flatten() {
             return *named;
         }

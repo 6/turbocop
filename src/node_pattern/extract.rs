@@ -21,6 +21,8 @@ pub enum PatternKind {
 ///
 /// Handles both `:method_name` and `'self.method_name'` / `"self.method_name"` forms.
 /// Returns `(method_name, rest_after_comma)` or `None` if no match.
+// Lifetime is needed for clarity: the returned &str borrows from the input.
+#[allow(clippy::needless_lifetimes)]
 fn parse_method_name_and_rest<'a>(rest: &'a str) -> Option<(String, &'a str)> {
     let rest = rest.trim();
     if let Some(rest) = rest.strip_prefix(':') {

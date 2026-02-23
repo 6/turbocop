@@ -1,16 +1,3 @@
-// Remaining: intentional keeps only (see docs/LINT_PLAN.md)
-// These will be moved to local #[allow] in Batch 5.
-#![allow(
-    clippy::cloned_ref_to_slice_refs,
-    clippy::doc_lazy_continuation,
-    clippy::enum_variant_names,
-    clippy::needless_lifetimes,
-    clippy::never_loop,
-    clippy::new_without_default,
-    clippy::should_implement_trait
-)]
-#![allow(dead_code, unused_variables, unused_assignments)]
-
 pub mod cache;
 pub mod cli;
 pub mod config;
@@ -184,7 +171,7 @@ pub fn run(args: Args) -> Result<i32> {
     // --init: resolve gem paths and write lockfile
     if args.init {
         let config_start = std::time::Instant::now();
-        let config = load_config(args.config.as_deref(), target_dir, None)?;
+        let _config = load_config(args.config.as_deref(), target_dir, None)?;
         let config_elapsed = config_start.elapsed();
 
         let gem_paths = config::gem_path::drain_resolved_paths();
@@ -312,7 +299,7 @@ pub fn run(args: Args) -> Result<i32> {
         let result = lint_source(&source, &config, &registry, &args, &tier_map, &allowlist);
         let mut formatter = create_formatter(&args.format);
         formatter.set_skip_summary(result.skip_summary.clone());
-        formatter.print(&result.diagnostics, &[display_path.clone()]);
+        formatter.print(&result.diagnostics, std::slice::from_ref(display_path));
         let has_lint_failure = result.diagnostics.iter().any(|d| d.severity >= fail_level);
         let strict_failure = args.strict_scope().is_some_and(|scope| {
             let fails = strict_check_fails(scope, &result.skip_summary);

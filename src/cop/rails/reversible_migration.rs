@@ -28,6 +28,8 @@ const CONDITIONALLY_IRREVERSIBLE: &[(&[u8], IrreversibleCondition)] = &[
     (b"change_column_comment", IrreversibleCondition::NeedsFromTo),
 ];
 
+// All variants intentionally share the `Needs` prefix for readability.
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Copy)]
 enum IrreversibleCondition {
     NeedsBlock,

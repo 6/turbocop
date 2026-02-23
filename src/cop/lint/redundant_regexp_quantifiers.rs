@@ -135,10 +135,10 @@ fn check_redundant_quantifiers(
 
                                 // Report at the position of the inner quantifier end through the outer quantifier
                                 let regexp_start = regexp.location().start_offset() + 1; // skip '/'
-                                let offset = regexp_start
+                                let _offset = regexp_start
                                     + (end - inner_q_display.len() + 1 - (i + 3) + (i + 3));
                                 // Calculate more carefully
-                                let inner_q_start_in_pattern = end - inner_q_display.len() + 1 - 3; // approximate
+                                let _inner_q_start_in_pattern = end - inner_q_display.len() + 1 - 3; // approximate
                                 // Actually, let's find the column of the quantifiers in the source
                                 // The pattern starts at regexp_start offset in the source
                                 let q_start =
@@ -194,7 +194,7 @@ fn quantifier_display(q: &Quantifier) -> String {
     }
 }
 
-fn is_greedy(q: &Quantifier) -> bool {
+fn is_greedy(_q: &Quantifier) -> bool {
     // All our quantifiers are greedy by default
     true
 }

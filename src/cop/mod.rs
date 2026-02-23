@@ -120,6 +120,7 @@ impl CopConfig {
     /// Get all string values from a config key that is either:
     /// - A flat array of strings
     /// - A hash of group_name → array of strings (like DebuggerMethods)
+    ///
     /// Returns the flattened list of all strings. None if the key is absent.
     pub fn get_flat_string_values(&self, key: &str) -> Option<Vec<String>> {
         let v = self.options.get(key)?;
