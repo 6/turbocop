@@ -56,9 +56,11 @@ def parse_turbocop_json(path: Path) -> set | None:
     return offenses
 
 
-def parse_rubocop_json(path: Path) -> set | None:
+def parse_rubocop_json(path: Path) -> tuple[set, set] | None:
     """Parse RuboCop JSON output. Format: {"files": [{"path": ..., "offenses": [...]}]}
-    Returns None if the file is missing, empty, or unparseable (crash)."""
+    Returns (offenses, inspected_files) or None if the file is missing/empty/unparseable.
+    inspected_files is the set of relative file paths that RuboCop actually reported on.
+    This is needed because RuboCop silently drops files when its parser crashes mid-batch."""
     try:
         text = path.read_text()
     except FileNotFoundError:
@@ -71,14 +73,17 @@ def parse_rubocop_json(path: Path) -> set | None:
         return None
 
     offenses = set()
+    inspected_files = set()
     for f in data.get("files", []):
         filepath = strip_repo_prefix(f.get("path", ""))
+        if filepath:
+            inspected_files.add(filepath)
         for o in f.get("offenses", []):
             line = o.get("location", {}).get("line", 0)
             cop = o.get("cop_name", "")
             if filepath and cop:
                 offenses.add((filepath, line, cop))
-    return offenses
+    return offenses, inspected_files
 
 
 def load_manifest(path: Path) -> list:
@@ -148,10 +153,10 @@ def main():
             continue
 
         tc_offenses = parse_turbocop_json(tc_path)
-        rc_offenses = parse_rubocop_json(rc_path)
+        rc_result = parse_rubocop_json(rc_path)
 
         # Detect crashed/empty output — don't compare against phantom zero offenses
-        if tc_offenses is None or rc_offenses is None:
+        if tc_offenses is None or rc_result is None:
             side = "turbocop" if tc_offenses is None else "rubocop"
             repo_results.append({
                 "repo": repo_id,
@@ -164,10 +169,34 @@ def main():
             repos_error += 1
             continue
 
+        rc_offenses, rc_inspected_files = rc_result
+
         # Filter to covered cops only (drop offenses from cops turbocop doesn't implement)
         if covered_cops is not None:
             tc_offenses = {o for o in tc_offenses if o[2] in covered_cops}
             rc_offenses = {o for o in rc_offenses if o[2] in covered_cops}
+
+        # Only compare files RuboCop actually inspected. RuboCop silently drops
+        # files when its parser crashes mid-batch, producing phantom FPs for every
+        # turbocop offense on those dropped files.
+        #
+        # Root cause: Prism::Translation::Parser crashes on files with invalid
+        # multibyte regex escapes (e.g., /\x9F/ in jruby's test_regexp.rb).
+        # The unrescued RegexpError kills the worker, and all subsequent files in
+        # that batch are silently omitted from the JSON output. Only 2-3 files
+        # actually crash, but ~1000 are lost as collateral.
+        #
+        # Alternatives considered:
+        # - Exclude crashing files in baseline_rubocop.yml: too repo-specific,
+        #   and new crashing files could appear in future corpus additions.
+        # - Re-run RuboCop file-by-file on dropped files: would recover ~1000
+        #   files but adds significant CI complexity and runtime. Worth doing
+        #   if we need coverage on those files for tier decisions.
+        # - Fix upstream in parser gem / Prism translation layer: the crash is
+        #   in Parser::Builders::Default#static_regexp which doesn't rescue
+        #   RegexpError. Not something we control.
+        if rc_inspected_files:
+            tc_offenses = {o for o in tc_offenses if o[0] in rc_inspected_files}
 
         matches = tc_offenses & rc_offenses
         fp = tc_offenses - rc_offenses  # turbocop-only (false positives)

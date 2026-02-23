@@ -1,6 +1,5 @@
 // Handles both as_constant_read_node and as_constant_path_node (qualified constants like ::Fixnum)
 use crate::cop::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
-use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -33,9 +32,21 @@ impl Cop for UnifiedInteger {
         diagnostics: &mut Vec<Diagnostic>,
         mut corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let name = match constant_name(node) {
-            Some(n) => n,
-            None => return,
+        // RuboCop only flags bare `Fixnum`/`Bignum` or top-level `::Fixnum`/`::Bignum`.
+        // Qualified paths like `Bug::Bignum` should NOT be flagged.
+        let name = if let Some(cr) = node.as_constant_read_node() {
+            cr.name().as_slice()
+        } else if let Some(cp) = node.as_constant_path_node() {
+            // Only flag if parent is None (i.e., `::Fixnum` — top-level constant path)
+            if cp.parent().is_some() {
+                return;
+            }
+            match cp.name() {
+                Some(n) => n.as_slice(),
+                None => return,
+            }
+        } else {
+            return;
         };
 
         let message = if name == b"Fixnum" {
