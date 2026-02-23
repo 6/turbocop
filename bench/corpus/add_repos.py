@@ -70,23 +70,42 @@ def make_id(owner: str, repo: str, sha: str) -> str:
     return f"{owner}__{repo}__{sha[:7]}"
 
 
-def search_stars(count: int) -> list[dict]:
-    """Search GitHub for top Ruby repos by stars."""
-    repos = []
-    per_page = min(count, 100)
-    page = 1
+def search_stars(count: int, existing_urls: set[str] | None = None) -> list[dict]:
+    """Search GitHub for top Ruby repos by stars.
 
-    while len(repos) < count:
-        remaining = count - len(repos)
-        fetch = min(remaining, per_page)
-        data = run_gh([
-            f"search/repositories?q=language:ruby+stars:>500&sort=stars&order=desc&per_page={fetch}&page={page}",
-        ])
-        items = data.get("items", [])
-        if not items:
+    Searches multiple star ranges to find enough new repos beyond what's
+    already in the manifest. The GitHub search API caps at 1000 results per
+    query, so we use descending star-range buckets to reach deeper.
+    """
+    seen = set(existing_urls or ())
+    repos = []
+
+    # Start with highest stars, then go lower to find more repos
+    star_queries = [
+        "stars:>2000",
+        "stars:1000..2000",
+        "stars:500..1000",
+        "stars:200..500",
+        "stars:100..200",
+    ]
+
+    for query_stars in star_queries:
+        if len(repos) >= count:
             break
-        repos.extend(items)
-        page += 1
+        page = 1
+        while len(repos) < count and page <= 10:
+            data = run_gh([
+                f"search/repositories?q=language:ruby+{query_stars}&sort=stars&order=desc&per_page=100&page={page}",
+            ])
+            items = data.get("items", [])
+            if not items:
+                break
+            for item in items:
+                url = item.get("html_url", "").rstrip("/").lower()
+                if url not in seen:
+                    repos.append(item)
+                    seen.add(url)
+            page += 1
 
     return repos[:count]
 
@@ -170,7 +189,7 @@ def main():
 
     if args.stars:
         print(f"Searching for top {args.count} Ruby repos by stars...", file=sys.stderr)
-        candidates = search_stars(args.count)
+        candidates = search_stars(args.count, existing_urls=seen_urls)
         print(f"Found {len(candidates)} candidates", file=sys.stderr)
 
         for item in candidates:

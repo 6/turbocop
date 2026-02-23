@@ -52,7 +52,7 @@ jobs:
           path: target/release/turbocop
           retention-days: 1
 
-  # ── Compute matrix (1 repo per job) ─────────────────────────────
+  # ── Compute matrix (batched, N repos per job) ──────────────────
   compute-matrix:
     runs-on: ubuntu-24.04
     timeout-minutes: 2
@@ -66,6 +66,8 @@ jobs:
         run: |
           python3 << 'PYEOF'
           import json, os, sys
+
+          BATCH_SIZE = 4
 
           repos = []
           with open('bench/corpus/manifest.jsonl') as f:
@@ -81,16 +83,24 @@ jobs:
                   print(f"ERROR: no repo matching '{repo_filter}' in manifest", file=sys.stderr)
                   sys.exit(1)
 
-          entries = [{'id': r['id'], 'repo_url': r['repo_url'], 'sha': r['sha']} for r in repos]
-          print(f'{len(entries)} repos in matrix', file=sys.stderr)
-          matrix = {'include': entries}
+          # Build batches of repos
+          batches = []
+          for i in range(0, len(repos), BATCH_SIZE):
+              chunk = repos[i:i+BATCH_SIZE]
+              batches.append({
+                  'batch_id': str(i // BATCH_SIZE),
+                  'repos_json': json.dumps([{'id': r['id'], 'repo_url': r['repo_url'], 'sha': r['sha']} for r in chunk]),
+              })
+
+          print(f'{len(repos)} repos in {len(batches)} batches (batch_size={BATCH_SIZE})', file=sys.stderr)
+          matrix = {'include': batches}
           with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
               out.write(f'matrix={json.dumps(matrix)}\n')
           PYEOF
         env:
           REPO_FILTER: ${{ github.event.inputs.repo_filter || 'all' }}
 
-  # ── Run oracle on each repo ──────────────────────────────────────
+  # ── Run oracle on each batch of repos ────────────────────────────
   oracle-repo:
     needs: [build-turbocop, compute-matrix]
     runs-on: ubuntu-24.04
@@ -128,60 +138,67 @@ jobs:
           bundle config set --local path vendor/bundle
           bundle install --jobs 4 --retry 3
 
-      - name: Clone repo
-        run: |
-          mkdir -p repos
-          REPO_ID="${{ matrix.id }}"
-          REPO_URL="${{ matrix.repo_url }}"
-          REPO_SHA="${{ matrix.sha }}"
-          DEST="repos/${REPO_ID}"
-          echo "Cloning ${REPO_ID} at ${REPO_SHA:0:7}..."
-
-          git clone --depth 50 --no-recurse-submodules --single-branch "$REPO_URL" "$DEST"
-
-          if ! git -C "$DEST" checkout "$REPO_SHA" 2>/dev/null; then
-            echo "Shallow clone missing SHA, fetching deeper..."
-            git -C "$DEST" fetch --depth 200
-            git -C "$DEST" checkout "$REPO_SHA" || echo "WARNING: checkout failed, using HEAD"
-          fi
-
       - name: Export turbocop cop list
         run: bin/turbocop --list-cops > turbocop-cops.txt
 
-      - name: Run turbocop
+      - name: Run batch
+        env:
+          REPOS_JSON: ${{ matrix.repos_json }}
         run: |
-          REPO_ID="${{ matrix.id }}"
-          mkdir -p results/turbocop
-          echo "=== turbocop: ${REPO_ID} ==="
-          BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
-          BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
-          bin/turbocop \
-            --preview \
-            --format json \
-            --no-cache \
-            --config bench/corpus/baseline_rubocop.yml \
-            "repos/${REPO_ID}" \
-            > "results/turbocop/${REPO_ID}.json" 2>results/turbocop/${REPO_ID}.err || true
+          mkdir -p results/turbocop results/rubocop
 
-      - name: Run RuboCop
-        run: |
-          REPO_ID="${{ matrix.id }}"
-          mkdir -p results/rubocop
-          echo "=== rubocop: ${REPO_ID} ==="
-          BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
-          BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
-          bundle exec rubocop \
-            --config bench/corpus/baseline_rubocop.yml \
-            --format json \
-            --force-exclusion \
-            --cache false \
-            "repos/${REPO_ID}" \
-            > "results/rubocop/${REPO_ID}.json" 2>results/rubocop/${REPO_ID}.err || true
+          echo "$REPOS_JSON" | jq -c '.[]' | while IFS= read -r row; do
+            REPO_ID=$(echo "$row" | jq -r '.id')
+            REPO_URL=$(echo "$row" | jq -r '.repo_url')
+            REPO_SHA=$(echo "$row" | jq -r '.sha')
+
+            echo "::group::${REPO_ID}"
+
+            # Clone
+            DEST="repos/${REPO_ID}"
+            echo "Cloning ${REPO_ID} at ${REPO_SHA:0:7}..."
+            git clone --depth 50 --no-recurse-submodules --single-branch "$REPO_URL" "$DEST" || { echo "Clone failed for ${REPO_ID}"; echo "::endgroup::"; continue; }
+
+            if ! git -C "$DEST" checkout "$REPO_SHA" 2>/dev/null; then
+              echo "Shallow clone missing SHA, fetching deeper..."
+              git -C "$DEST" fetch --depth 200
+              git -C "$DEST" checkout "$REPO_SHA" || echo "WARNING: checkout failed, using HEAD"
+            fi
+
+            # turbocop
+            echo "=== turbocop: ${REPO_ID} ==="
+            BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
+            BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
+            bin/turbocop \
+              --preview \
+              --format json \
+              --no-cache \
+              --config bench/corpus/baseline_rubocop.yml \
+              "$DEST" \
+              > "results/turbocop/${REPO_ID}.json" 2>"results/turbocop/${REPO_ID}.err" || true
+
+            # rubocop
+            echo "=== rubocop: ${REPO_ID} ==="
+            BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
+            BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
+            bundle exec rubocop \
+              --config bench/corpus/baseline_rubocop.yml \
+              --format json \
+              --force-exclusion \
+              --cache false \
+              "$DEST" \
+              > "results/rubocop/${REPO_ID}.json" 2>"results/rubocop/${REPO_ID}.err" || true
+
+            # Free disk space between repos
+            rm -rf "$DEST"
+
+            echo "::endgroup::"
+          done
 
       - name: Upload results
         uses: actions/upload-artifact@v4
         with:
-          name: corpus-results-${{ matrix.id }}
+          name: corpus-results-${{ matrix.batch_id }}
           path: |
             results/
             turbocop-cops.txt
