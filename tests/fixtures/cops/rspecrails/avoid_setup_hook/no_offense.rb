@@ -9,3 +9,7 @@ end
 before(:each) do
   create_users
 end
+
+setup do |config|
+  config.client_id = "test"
+end

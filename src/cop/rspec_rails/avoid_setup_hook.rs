@@ -43,8 +43,18 @@ impl Cop for AvoidSetupHook {
         }
 
         // Must have a block
-        if call.block().is_none() {
-            return;
+        let block = match call.block() {
+            Some(b) => b,
+            None => return,
+        };
+
+        // Skip if the block has parameters — DSL methods like Karafka's
+        // `setup do |config| ... end` take a block parameter, whereas
+        // the minitest/Rails `setup` hook does not.
+        if let Some(block_node) = block.as_block_node() {
+            if block_node.parameters().is_some() {
+                return;
+            }
         }
 
         let loc = call.location();

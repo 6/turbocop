@@ -683,6 +683,16 @@ fn lint_source_once(
             .fetch_add(parse_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
     }
 
+    // Skip cops on files with parse errors — the AST from error recovery is
+    // unreliable and produces false positives (e.g., Procfile.spec parsed as Ruby).
+    // This matches RuboCop's behavior of only reporting Lint/Syntax on such files.
+    if parse_result.errors().count() > 0 {
+        if let Some(t) = timers {
+            t.codemap_ns.fetch_add(0, Ordering::Relaxed);
+        }
+        return (Vec::new(), Vec::new());
+    }
+
     let codemap_start = std::time::Instant::now();
     let code_map = CodeMap::from_parse_result(source.as_bytes(), &parse_result);
     if let Some(t) = timers {
