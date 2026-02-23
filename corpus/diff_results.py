@@ -102,11 +102,15 @@ def main():
     rc_files = {f.stem: f for f in args.rubocop_dir.glob("*.json")} if args.rubocop_dir.exists() else {}
     all_ids = sorted(set(tc_files.keys()) | set(rc_files.keys()))
 
+    multi_repo = len(all_ids) > 1
+
     # Per-repo results
     repo_results = []
     by_cop_matches = defaultdict(int)
     by_cop_fp = defaultdict(int)  # turbocop-only
     by_cop_fn = defaultdict(int)  # rubocop-only
+    by_cop_fp_examples = defaultdict(list)  # (filepath, line) per cop
+    by_cop_fn_examples = defaultdict(list)
     total_matches = 0
     total_fp = 0
     total_fn = 0
@@ -157,10 +161,14 @@ def main():
         # Per-cop aggregation
         for _, _, cop in matches:
             by_cop_matches[cop] += 1
-        for _, _, cop in fp:
+        for filepath, line, cop in fp:
             by_cop_fp[cop] += 1
-        for _, _, cop in fn:
+            loc = f"{repo_id}: {filepath}:{line}" if multi_repo else f"{filepath}:{line}"
+            by_cop_fp_examples[cop].append(loc)
+        for filepath, line, cop in fn:
             by_cop_fn[cop] += 1
+            loc = f"{repo_id}: {filepath}:{line}" if multi_repo else f"{filepath}:{line}"
+            by_cop_fn_examples[cop].append(loc)
 
         repo_results.append({
             "repo": repo_id,
@@ -188,6 +196,8 @@ def main():
             "fp": fp,
             "fn": fn,
             "match_rate": round(rate, 4),
+            "fp_examples": by_cop_fp_examples.get(cop, [])[:3],
+            "fn_examples": by_cop_fn_examples.get(cop, [])[:3],
         })
     by_cop.sort(key=lambda x: x["fp"] + x["fn"], reverse=True)
 
@@ -248,12 +258,14 @@ def main():
     if diverging:
         md.append("## Top Diverging Cops")
         md.append("")
-        md.append("| Cop | Matches | FP | FN | Match % |")
-        md.append("|-----|--------:|---:|---:|--------:|")
+        md.append("| Cop | Matches | FP | FN | Match % | FP examples | FN examples |")
+        md.append("|-----|--------:|---:|---:|--------:|-------------|-------------|")
         for c in diverging[:30]:
             total = c["matches"] + c["fn"]
             pct = f"{c['match_rate']:.1%}" if total > 0 else "N/A"
-            md.append(f"| {c['cop']} | {c['matches']} | {c['fp']} | {c['fn']} | {pct} |")
+            fp_ex = ", ".join(c.get("fp_examples", []))
+            fn_ex = ", ".join(c.get("fn_examples", []))
+            md.append(f"| {c['cop']} | {c['matches']} | {c['fp']} | {c['fn']} | {pct} | {fp_ex} | {fn_ex} |")
         md.append("")
 
     # Per-repo summary
