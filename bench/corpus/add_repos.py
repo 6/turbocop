@@ -20,6 +20,12 @@ from pathlib import Path
 
 MANIFEST_PATH = Path(__file__).parent / "manifest.jsonl"
 
+# Repos too large for the 30-minute CI job timeout (RuboCop step alone exceeds it).
+DENYLIST = {
+    "rapid7/metasploit-framework",
+    "gitlabhq/gitlabhq",
+}
+
 
 def run_gh(args: list[str]) -> dict | list:
     """Run a gh api command and return parsed JSON."""
@@ -148,7 +154,11 @@ def main():
 
     if args.repo:
         url = normalize_repo_url(args.repo)
-        if url.lower() in seen_urls:
+        parts = url.rstrip("/").split("/")
+        slug = f"{parts[-2]}/{parts[-1]}" if len(parts) >= 2 else ""
+        if slug in DENYLIST:
+            print(f"Repo is denylisted (too large for CI): {slug}", file=sys.stderr)
+        elif url.lower() in seen_urls:
             print(f"Already in manifest: {url}", file=sys.stderr)
         else:
             print(f"Adding {url}...", file=sys.stderr)
@@ -168,6 +178,9 @@ def main():
             archived = item.get("archived", False)
 
             if archived:
+                continue
+            if f"{owner}/{repo_name}" in DENYLIST:
+                print(f"  Skipping {owner}/{repo_name} (denylisted)", file=sys.stderr)
                 continue
             if normalize_repo_url(url).lower() in seen_urls:
                 continue
