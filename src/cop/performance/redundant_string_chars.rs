@@ -45,6 +45,15 @@ impl Cop for RedundantStringChars {
             return;
         }
 
+        // `.chars.last(n)` is not equivalent to a simple string slice for edge cases
+        // (e.g. empty string, negative values). RuboCop explicitly excludes this.
+        if chain.outer_method == b"last" {
+            let outer_call = node.as_call_node().unwrap();
+            if outer_call.arguments().is_some() {
+                return;
+            }
+        }
+
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(

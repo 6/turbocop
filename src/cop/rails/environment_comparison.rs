@@ -23,6 +23,11 @@ fn is_rails_env(node: &ruby_prism::Node<'_>) -> bool {
     util::constant_name(&recv) == Some(b"Rails")
 }
 
+/// Check if a node is a string or symbol literal.
+fn is_string_or_symbol_literal(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_string_node().is_some() || node.as_symbol_node().is_some()
+}
+
 impl Cop for EnvironmentComparison {
     fn name(&self) -> &'static str {
         "Rails/EnvironmentComparison"
@@ -70,11 +75,15 @@ impl Cop for EnvironmentComparison {
             return;
         }
 
-        // Check if either side is Rails.env
+        // Check if either side is Rails.env and the other side is a string/symbol literal.
+        // RuboCop only flags comparisons where one side is Rails.env and the other
+        // is a string or symbol literal (e.g., `Rails.env == "production"`), not
+        // comparisons like `variable == Rails.env` where the other side is arbitrary.
         let recv_node: ruby_prism::Node<'_> = recv;
         let arg_node = &arg_list[0];
 
-        let is_comparison = is_rails_env(&recv_node) || is_rails_env(arg_node);
+        let is_comparison = (is_rails_env(&recv_node) && is_string_or_symbol_literal(arg_node))
+            || (is_rails_env(arg_node) && is_string_or_symbol_literal(&recv_node));
 
         if !is_comparison {
             return;

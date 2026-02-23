@@ -10,3 +10,10 @@ t("admin.reports.processed_msg")
 def validate_token
   t("books.show.token_failure")
 end
+# Key has extra segments between action and final key — not a lazy lookup candidate
+def destroy
+  t("books.destroy.flash.logged_out_successfully")
+end
+def create
+  t("books.create.notices.saved_msg")
+end

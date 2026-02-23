@@ -124,13 +124,22 @@ impl I18nLazyLookupVisitor<'_> {
                     None => return,
                 };
 
-                // Check that the key matches controller_path.action_name.suffix
+                // Match RuboCop's behavior: construct a scoped key from
+                // controller_path + action_name + last segment of the given key.
+                // Only flag if the full key matches this scoped key exactly.
+                // This means keys with extra intermediate segments (e.g.,
+                // "books.create.flash.success" vs scoped "books.create.success")
+                // are NOT flagged.
                 if let Some(ref prefix) = self.controller_prefix {
-                    // Compute expected key prefix: controller_path.method_name
                     let method_str = std::str::from_utf8(method_name).unwrap_or("");
-                    let expected_prefix = format!("{}.{}.", prefix, method_str);
                     let key_str = std::str::from_utf8(key).unwrap_or("");
-                    if !key_str.starts_with(&expected_prefix) {
+                    // Extract last segment of the key
+                    let last_segment = match key_str.rsplit('.').next() {
+                        Some(s) => s,
+                        None => return,
+                    };
+                    let scoped_key = format!("{}.{}.{}", prefix, method_str, last_segment);
+                    if key_str != scoped_key {
                         return;
                     }
                 }

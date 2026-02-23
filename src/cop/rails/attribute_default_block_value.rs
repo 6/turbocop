@@ -46,10 +46,16 @@ impl Cop for AttributeDefaultBlockValue {
         // Flag mutable/dynamic default values that should use a block:
         // Arrays, Hashes, and method calls (send nodes) are flagged.
         // String/symbol/integer/float literals and constants are accepted.
+        // Calls that already have a block (e.g., `lambda { }`, `proc { }`) are
+        // NOT flagged because the block already provides lazy evaluation.
+        let is_mutable_call = match default_value.as_call_node() {
+            Some(c) => c.block().is_none(),
+            None => false,
+        };
         let is_mutable = default_value.as_array_node().is_some()
             || default_value.as_hash_node().is_some()
             || default_value.as_keyword_hash_node().is_some()
-            || default_value.as_call_node().is_some();
+            || is_mutable_call;
 
         if is_mutable {
             let loc = call.message_loc().unwrap_or(call.location());

@@ -103,13 +103,26 @@ impl Cop for HashTransformKeys {
         if reqs.len() != 2 {
             return;
         }
-        // First param must be destructured (MultiTargetNode)
-        if reqs[0].as_multi_target_node().is_none() {
+        // First param must be destructured (MultiTargetNode) with exactly 2 targets
+        let multi_target = match reqs[0].as_multi_target_node() {
+            Some(mt) => mt,
+            None => return,
+        };
+        let targets: Vec<_> = multi_target.lefts().iter().collect();
+        if targets.len() != 2 {
             return;
         }
 
+        // Extract the value parameter name (second element of the destructured pair)
+        // e.g., in |(k, v), h|, the value param is `v`
+        let value_param_name = match targets[1].as_required_parameter_node() {
+            Some(p) => p.name(),
+            None => return,
+        };
+
         // Check body has a single statement that looks like h[expr] = v
         // where expr is NOT a simple variable (key is transformed)
+        // and v is specifically the VALUE parameter from the destructured pair
         let body = match block_node.body() {
             Some(b) => b,
             None => return,
@@ -135,15 +148,22 @@ impl Cop for HashTransformKeys {
                         if key_is_simple {
                             return;
                         }
-                        if aargs[1].as_local_variable_read_node().is_some() {
-                            let loc = call.location();
-                            let (line, column) = source.offset_to_line_col(loc.start_offset());
-                            diagnostics.push(self.diagnostic(
-                                source,
-                                line,
-                                column,
-                                "Prefer `transform_keys` over `each_with_object`.".to_string(),
-                            ));
+                        // The assigned value must be a local variable matching
+                        // the VALUE parameter from the destructured pair.
+                        // This prevents flagging hash-inversion patterns like
+                        // |(id, attrs), h| h[attrs[:code]] = id
+                        // where `id` is the KEY param, not the VALUE param.
+                        if let Some(val_lvar) = aargs[1].as_local_variable_read_node() {
+                            if val_lvar.name().as_slice() == value_param_name.as_slice() {
+                                let loc = call.location();
+                                let (line, column) = source.offset_to_line_col(loc.start_offset());
+                                diagnostics.push(self.diagnostic(
+                                    source,
+                                    line,
+                                    column,
+                                    "Prefer `transform_keys` over `each_with_object`.".to_string(),
+                                ));
+                            }
                         }
                     }
                 }

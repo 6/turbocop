@@ -61,6 +61,13 @@ impl Cop for UndescriptiveLiteralsDescription {
             }
         }
 
+        // Must have a block (do...end or {...}) — plain method calls named
+        // `context`, `it`, etc. that happen to take a numeric first arg are
+        // not RSpec descriptions.
+        if call.block().is_none() {
+            return;
+        }
+
         // Get first positional argument
         let args = match call.arguments() {
             Some(a) => a,
