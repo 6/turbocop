@@ -259,12 +259,9 @@ Generates `docs/coverage.md` with:
 
 Pipeline: `bench_turbocop conform` → `bench/conform.json` → `coverage_table` → `docs/coverage.md`
 
-PROGRESS.md links to `docs/coverage.md` instead of maintaining inline tables.
-
 ## Rules
 
 - **NEVER copy code or identifiers from private repos into this codebase.** When fixing false positives found by running against private/internal repos, write generic test cases that reproduce the same pattern. Use generic names (e.g. `records`, `payload`, `User`, `name`, `role`, `status`) instead of domain-specific names from the private codebase. Do not use variable names, method names, or terminology that originated in private repo source code — even if they seem generic, if you encountered them in a private repo, replace them. Do not reference private repo names or paths in committed files. This applies to test fixtures, comments, commit messages, and any other checked-in files.
-- Keep [PROGRESS.md](PROGRESS.md) up to date when completing milestone tasks. Check off items as done and update milestone status.
 - After adding a new cop, ensure `cargo test` passes — the `all_cops_have_minimum_test_coverage` integration test enforces that every cop has at least 3 offense fixture cases and 5+ non-empty lines in no_offense.rb. There are zero exemptions; use `offense/` scenario directories and `# turbocop-expect:` annotations to handle cops that can't use the standard single-file format.
 - **Use TDD when fixing cops.** Write the failing test case first (add to `offense.rb` or `no_offense.rb`), verify it fails, then implement the fix and confirm the test passes. This applies to both new detections and false-positive fixes.
 - **Every cop fix or false-positive fix must include test coverage.** When fixing a false positive, add the previously-false-positive case to the cop's `no_offense.rb` fixture. When fixing a missed detection, add it to `offense.rb`. This prevents regressions and documents the expected behavior.
@@ -272,4 +269,3 @@ PROGRESS.md links to `docs/coverage.md` instead of maintaining inline tables.
 - **After adding or fixing cops, regenerate coverage docs.** Run the full pipeline to keep docs up to date:
   1. `cargo run --release --bin bench_turbocop -- conform` — regenerate conformance data (`bench/conform.json`)
   2. `cargo run --bin coverage_table -- --show-missing --output docs/coverage.md` — regenerate coverage table
-  3. Update [PROGRESS.md](PROGRESS.md) with new cop counts, milestone status, and any conformance changes
