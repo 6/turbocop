@@ -24,7 +24,6 @@ A single gem name (`turbocop`) has platform-specific variants. RubyGems picks th
 ```
 turbocop-X.Y.Z.gem                    ← base/fallback (no binary)
 turbocop-X.Y.Z-arm64-darwin.gem       ← macOS Apple Silicon
-turbocop-X.Y.Z-x86_64-darwin.gem      ← macOS Intel
 turbocop-X.Y.Z-x86_64-linux.gem       ← Linux x86_64 (GNU)
 turbocop-X.Y.Z-x86_64-linux-musl.gem  ← Linux x86_64 (Alpine/musl)
 turbocop-X.Y.Z-aarch64-linux.gem      ← Linux ARM64
@@ -74,7 +73,7 @@ gem uninstall turbocop
 Triggered via `workflow_dispatch` with a version input (e.g. `0.1.0`):
 
 1. **prepare** — bumps version in `Cargo.toml` and `gems/turbocop/lib/turbocop.rb`, commits, tags
-2. **build** — cross-compiles for 5 platforms, packages tarballs + platform gems
+2. **build** — cross-compiles for 4 platforms, packages tarballs + platform gems
 3. **release** — creates GitHub Release with tarballs
 4. **publish-crates** — `cargo publish` to crates.io
 5. **publish-gems** — builds base gem, then pushes base + all platform gems to RubyGems
@@ -83,8 +82,7 @@ Triggered via `workflow_dispatch` with a version input (e.g. `0.1.0`):
 
 | Platform | Rust target | CI runner |
 |----------|-------------|-----------|
-| macOS ARM64 (M1+) | `aarch64-apple-darwin` | `macos-15` |
-| macOS Intel | `x86_64-apple-darwin` | `macos-13` |
+| macOS ARM64 (M1+) | `aarch64-apple-darwin` | `macos-latest` |
 | Linux x86_64 GNU | `x86_64-unknown-linux-gnu` | `ubuntu-24.04` |
 | Linux x86_64 musl | `x86_64-unknown-linux-musl` | `ubuntu-24.04` + cross |
 | Linux ARM64 | `aarch64-unknown-linux-gnu` | `ubuntu-24.04` + cross |
