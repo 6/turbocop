@@ -11,8 +11,8 @@ on:
   # Manual trigger
   workflow_dispatch:
     inputs:
-      batch_filter:
-        description: "Run only this batch index (0-based), or 'all'"
+      repo_filter:
+        description: "Run only this repo ID (e.g. 'multi_json__multi_json__c5fa9fc'), or 'all'"
         default: "all"
   # On cop implementation changes
   pull_request:
@@ -48,7 +48,7 @@ jobs:
           path: target/release/turbocop
           retention-days: 1
 
-  # ── Compute matrix batches from manifest ───────────────────────
+  # ── Compute matrix (1 repo per job) ─────────────────────────────
   compute-matrix:
     runs-on: ubuntu-24.04
     timeout-minutes: 2
@@ -60,9 +60,8 @@ jobs:
       - name: Generate matrix
         id: matrix
         run: |
-          # Read manifest, split into batches of 5 repos each
           python3 << 'PYEOF'
-          import json, math, os, sys
+          import json, os, sys
 
           repos = []
           with open('corpus/manifest.jsonl') as f:
@@ -71,31 +70,24 @@ jobs:
                   if line:
                       repos.append(json.loads(line))
 
-          batch_size = 5
-          num_batches = math.ceil(len(repos) / batch_size)
-          batches = []
-          for i in range(num_batches):
-              chunk = repos[i*batch_size:(i+1)*batch_size]
-              batches.append({
-                  'index': i,
-                  'repos': json.dumps(chunk)
-              })
+          repo_filter = os.environ.get('REPO_FILTER', 'all')
+          if repo_filter != 'all':
+              repos = [r for r in repos if r['id'] == repo_filter]
+              if not repos:
+                  print(f"ERROR: no repo matching '{repo_filter}' in manifest", file=sys.stderr)
+                  sys.exit(1)
 
-          batch_filter = os.environ.get('BATCH_FILTER', 'all')
-          if batch_filter != 'all':
-              idx = int(batch_filter)
-              batches = [b for b in batches if b['index'] == idx]
-
-          print(f'Generated {len(batches)} batches from {len(repos)} repos', file=sys.stderr)
-          matrix = {'include': batches}
+          entries = [{'id': r['id'], 'repo_url': r['repo_url'], 'sha': r['sha']} for r in repos]
+          print(f'{len(entries)} repos in matrix', file=sys.stderr)
+          matrix = {'include': entries}
           with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
               out.write(f'matrix={json.dumps(matrix)}\n')
           PYEOF
         env:
-          BATCH_FILTER: ${{ github.event.inputs.batch_filter || 'all' }}
+          REPO_FILTER: ${{ github.event.inputs.repo_filter || 'all' }}
 
-  # ── Run oracle on each batch ───────────────────────────────────
-  oracle-batch:
+  # ── Run oracle on each repo ──────────────────────────────────────
+  oracle-repo:
     needs: [build-turbocop, compute-matrix]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -132,85 +124,58 @@ jobs:
           bundle config set --local path vendor/bundle
           bundle install --jobs 4 --retry 3
 
-      - name: Clone repos in this batch
+      - name: Clone repo
         run: |
           mkdir -p repos
-          echo '${{ matrix.repos }}' | python3 -c "
-          import json, sys, subprocess
+          REPO_ID="${{ matrix.id }}"
+          REPO_URL="${{ matrix.repo_url }}"
+          REPO_SHA="${{ matrix.sha }}"
+          DEST="repos/${REPO_ID}"
+          echo "Cloning ${REPO_ID} at ${REPO_SHA:0:7}..."
 
-          repos = json.load(sys.stdin)
-          for repo in repos:
-              name = repo['id']
-              url = repo['repo_url']
-              sha = repo['sha']
-              dest = f'repos/{name}'
-              print(f'Cloning {name} at {sha[:7]}...', file=sys.stderr)
+          git clone --depth 50 --no-recurse-submodules --single-branch "$REPO_URL" "$DEST"
 
-              # Clone then checkout exact SHA (shallow clone at SHA requires upload-pack allowReachableSHA1InWant)
-              result = subprocess.run(
-                  ['git', 'clone', '--depth', '50', '--no-recurse-submodules',
-                   '--single-branch', url, dest],
-                  capture_output=True, text=True
-              )
-              if result.returncode != 0:
-                  print(f'  Clone failed: {result.stderr.strip()}', file=sys.stderr)
-                  continue
-
-              result = subprocess.run(
-                  ['git', '-C', dest, 'checkout', sha],
-                  capture_output=True, text=True
-              )
-              if result.returncode != 0:
-                  # Shallow clone may not have the SHA; try fetching deeper
-                  subprocess.run(['git', '-C', dest, 'fetch', '--depth', '200'], capture_output=True)
-                  result = subprocess.run(
-                      ['git', '-C', dest, 'checkout', sha],
-                      capture_output=True, text=True
-                  )
-                  if result.returncode != 0:
-                      print(f'  Checkout {sha[:7]} failed, using HEAD', file=sys.stderr)
-          "
+          if ! git -C "$DEST" checkout "$REPO_SHA" 2>/dev/null; then
+            echo "Shallow clone missing SHA, fetching deeper..."
+            git -C "$DEST" fetch --depth 200
+            git -C "$DEST" checkout "$REPO_SHA" || echo "WARNING: checkout failed, using HEAD"
+          fi
 
       - name: Export turbocop cop list
-        run: |
-          bin/turbocop --list-cops > turbocop-cops.txt
+        run: bin/turbocop --list-cops > turbocop-cops.txt
 
-      - name: Run turbocop on each repo
+      - name: Run turbocop
         run: |
+          REPO_ID="${{ matrix.id }}"
           mkdir -p results/turbocop
-          for repo_dir in repos/*/; do
-            repo_name=$(basename "$repo_dir")
-            echo "=== turbocop: $repo_name ==="
-            BUNDLE_GEMFILE=$PWD/corpus/Gemfile \
-            BUNDLE_PATH=$PWD/corpus/vendor/bundle \
-            bin/turbocop \
-              --format json \
-              --config corpus/baseline_rubocop.yml \
-              "$repo_dir" \
-              > "results/turbocop/${repo_name}.json" 2>/dev/null || true
-          done
+          echo "=== turbocop: ${REPO_ID} ==="
+          BUNDLE_GEMFILE=$PWD/corpus/Gemfile \
+          BUNDLE_PATH=$PWD/corpus/vendor/bundle \
+          bin/turbocop \
+            --format json \
+            --config corpus/baseline_rubocop.yml \
+            "repos/${REPO_ID}" \
+            > "results/turbocop/${REPO_ID}.json" 2>/dev/null || true
 
-      - name: Run RuboCop on each repo
+      - name: Run RuboCop
         run: |
+          REPO_ID="${{ matrix.id }}"
           mkdir -p results/rubocop
-          for repo_dir in repos/*/; do
-            repo_name=$(basename "$repo_dir")
-            echo "=== rubocop: $repo_name ==="
-            BUNDLE_GEMFILE=$PWD/corpus/Gemfile \
-            BUNDLE_PATH=$PWD/corpus/vendor/bundle \
-            bundle exec rubocop \
-              --config corpus/baseline_rubocop.yml \
-              --format json \
-              --force-exclusion \
-              --cache false \
-              "$repo_dir" \
-              > "results/rubocop/${repo_name}.json" 2>/dev/null || true
-          done
+          echo "=== rubocop: ${REPO_ID} ==="
+          BUNDLE_GEMFILE=$PWD/corpus/Gemfile \
+          BUNDLE_PATH=$PWD/corpus/vendor/bundle \
+          bundle exec rubocop \
+            --config corpus/baseline_rubocop.yml \
+            --format json \
+            --force-exclusion \
+            --cache false \
+            "repos/${REPO_ID}" \
+            > "results/rubocop/${REPO_ID}.json" 2>/dev/null || true
 
-      - name: Upload batch results
+      - name: Upload results
         uses: actions/upload-artifact@v4
         with:
-          name: corpus-results-batch-${{ matrix.index }}
+          name: corpus-results-${{ matrix.id }}
           path: |
             results/
             turbocop-cops.txt
@@ -218,23 +183,23 @@ jobs:
 
   # ── Collect and diff all results ───────────────────────────────
   collect-results:
-    needs: [oracle-batch]
+    needs: [oracle-repo]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all batch results
+      - name: Download all results
         uses: actions/download-artifact@v4
         with:
-          pattern: corpus-results-batch-*
+          pattern: corpus-results-*
           path: all-results/
           merge-multiple: true
 
       - name: Diff and generate report
         run: |
-          # Cop list is uploaded alongside results from any batch
+          # Cop list is uploaded alongside results from any repo job
           COP_LIST=$(find all-results -name turbocop-cops.txt -print -quit)
           python3 corpus/diff_results.py \
             --turbocop-dir all-results/turbocop \
