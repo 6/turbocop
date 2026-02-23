@@ -32,12 +32,19 @@ def strip_repo_prefix(filepath: str) -> str:
     return filepath
 
 
-def parse_turbocop_json(path: Path) -> set:
-    """Parse turbocop JSON output. Format: {"offenses": [...]}"""
+def parse_turbocop_json(path: Path) -> set | None:
+    """Parse turbocop JSON output. Format: {"offenses": [...]}
+    Returns None if the file is missing, empty, or unparseable (crash)."""
     try:
-        data = json.loads(path.read_text())
-    except (json.JSONDecodeError, FileNotFoundError):
-        return set()
+        text = path.read_text()
+    except FileNotFoundError:
+        return None
+    if not text.strip():
+        return None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
 
     offenses = set()
     for o in data.get("offenses", []):
@@ -49,12 +56,19 @@ def parse_turbocop_json(path: Path) -> set:
     return offenses
 
 
-def parse_rubocop_json(path: Path) -> set:
-    """Parse RuboCop JSON output. Format: {"files": [{"path": ..., "offenses": [...]}]}"""
+def parse_rubocop_json(path: Path) -> set | None:
+    """Parse RuboCop JSON output. Format: {"files": [{"path": ..., "offenses": [...]}]}
+    Returns None if the file is missing, empty, or unparseable (crash)."""
     try:
-        data = json.loads(path.read_text())
-    except (json.JSONDecodeError, FileNotFoundError):
-        return set()
+        text = path.read_text()
+    except FileNotFoundError:
+        return None
+    if not text.strip():
+        return None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
 
     offenses = set()
     for f in data.get("files", []):
@@ -135,6 +149,20 @@ def main():
 
         tc_offenses = parse_turbocop_json(tc_path)
         rc_offenses = parse_rubocop_json(rc_path)
+
+        # Detect crashed/empty output — don't compare against phantom zero offenses
+        if tc_offenses is None or rc_offenses is None:
+            side = "turbocop" if tc_offenses is None else "rubocop"
+            repo_results.append({
+                "repo": repo_id,
+                "status": f"crashed_{side}",
+                "match_rate": 0,
+                "matches": 0,
+                "fp": 0,
+                "fn": 0,
+            })
+            repos_error += 1
+            continue
 
         # Filter to covered cops only (drop offenses from cops turbocop doesn't implement)
         if covered_cops is not None:
