@@ -1,5 +1,9 @@
 name: Corpus Oracle
 
+permissions:
+  contents: write
+  pull-requests: write
+
 concurrency:
   group: corpus-${{ github.ref }}
   cancel-in-progress: true
@@ -152,6 +156,7 @@ jobs:
           BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
           BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
           bin/turbocop \
+            --preview \
             --format json \
             --no-cache \
             --config bench/corpus/baseline_rubocop.yml \
