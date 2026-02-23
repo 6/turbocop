@@ -31,28 +31,28 @@ jobs:
         if: matrix.os == 'ubuntu-24.04'
         run: cargo fmt --check
 
-      - name: Clippy
-        if: matrix.os == 'ubuntu-24.04'
-        run: cargo clippy --release -- -D warnings
-
-      - name: Build
-        run: cargo build --release
-
-      - name: Test
-        run: cargo test --release
-
-      - name: NodePattern verifier
-        if: matrix.os == 'ubuntu-24.04'
-        run: cargo test --release verifier -- --nocapture
-
-      - name: Config audit
-        if: matrix.os == 'ubuntu-24.04'
-        run: cargo test --release config_audit -- --nocapture
-
-      - name: Prism pitfalls
-        if: matrix.os == 'ubuntu-24.04'
-        run: cargo test --release prism_pitfalls -- --nocapture
-
       - name: Gem builder tests
         if: matrix.os == 'ubuntu-24.04'
         run: ruby script/test/gem_builder_test.rb
+
+      - name: Clippy
+        if: matrix.os == 'ubuntu-24.04'
+        run: cargo clippy --profile ci -- -D warnings
+
+      - name: Build
+        run: cargo build --profile ci
+
+      - name: Test
+        run: cargo test --profile ci
+
+      - name: NodePattern verifier
+        if: matrix.os == 'ubuntu-24.04'
+        run: cargo test --profile ci verifier -- --nocapture
+
+      - name: Config audit
+        if: matrix.os == 'ubuntu-24.04'
+        run: cargo test --profile ci config_audit -- --nocapture
+
+      - name: Prism pitfalls
+        if: matrix.os == 'ubuntu-24.04'
+        run: cargo test --profile ci prism_pitfalls -- --nocapture

@@ -49,3 +49,9 @@ proptest = "1"
 lto = true
 codegen-units = 1
 strip = true
+
+[profile.ci]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
+strip = true
