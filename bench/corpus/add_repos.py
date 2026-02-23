@@ -24,6 +24,8 @@ MANIFEST_PATH = Path(__file__).parent / "manifest.jsonl"
 DENYLIST = {
     "rapid7/metasploit-framework",
     "gitlabhq/gitlabhq",
+    "aws/aws-sdk-ruby",
+    "googleapis/google-api-ruby-client",
 }
 
 
