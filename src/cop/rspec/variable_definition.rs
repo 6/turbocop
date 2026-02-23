@@ -52,6 +52,12 @@ impl Cop for VariableDefinition {
             return;
         }
 
+        // RSpec `let`/`subject` always have a block. If there's no block,
+        // it's a different DSL method (e.g., Mail's `subject 'text'`).
+        if call.block().is_none() {
+            return;
+        }
+
         let args = match call.arguments() {
             Some(a) => a,
             None => return,
