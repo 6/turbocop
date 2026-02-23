@@ -12,7 +12,7 @@ use crate::cop::tiers::{Tier, TierMap};
 /// Embedded baseline cops: cop name → default enabled (true/false).
 /// Parsed from vendor config/default.yml files.
 fn load_baseline_cops() -> BTreeMap<String, bool> {
-    serde_json::from_str(include_str!("../resources/baseline_cops.json"))
+    serde_json::from_str(include_str!("resources/baseline_cops.json"))
         .expect("resources/baseline_cops.json should be valid JSON")
 }
 

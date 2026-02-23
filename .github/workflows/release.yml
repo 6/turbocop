@@ -35,11 +35,11 @@ jobs:
       - name: Bump version and tag
         run: |
           sed -i 's/^version = ".*"/version = "${{ inputs.version }}"/' Cargo.toml
-          sed -i 's/VERSION = ".*"/VERSION = "${{ inputs.version }}"/' gems/turbocop/lib/turbocop.rb
+          sed -i 's/VERSION = ".*"/VERSION = "${{ inputs.version }}"/' gem/lib/turbocop.rb
           cargo update -p turbocop
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml Cargo.lock gems/turbocop/lib/turbocop.rb
+          git add Cargo.toml Cargo.lock gem/lib/turbocop.rb
           git commit -m "Release v${{ inputs.version }}"
           git tag "v${{ inputs.version }}"
           git push origin main --tags
@@ -101,7 +101,7 @@ jobs:
       - uses: ruby/setup-ruby@v1
 
       - name: Package platform gem
-        run: ruby script/build_gem.rb ${{ inputs.version }} --platform ${{ matrix.platform }} --binary target/${{ matrix.target }}/release/turbocop
+        run: ruby gem/build_gem.rb ${{ inputs.version }} --platform ${{ matrix.platform }} --binary target/${{ matrix.target }}/release/turbocop
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -165,7 +165,7 @@ jobs:
           merge-multiple: true
 
       - name: Build base gem
-        run: ruby script/build_gem.rb ${{ inputs.version }}
+        run: ruby gem/build_gem.rb ${{ inputs.version }}
 
       - name: Publish all gems
         env:

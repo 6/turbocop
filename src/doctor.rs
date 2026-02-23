@@ -12,7 +12,7 @@ use crate::cop::tiers::TierMap;
 
 /// Load embedded baseline versions from resources/baseline.json.
 fn load_baseline() -> BTreeMap<String, String> {
-    serde_json::from_str(include_str!("../resources/baseline.json"))
+    serde_json::from_str(include_str!("resources/baseline.json"))
         .expect("resources/baseline.json should be valid JSON")
 }
 

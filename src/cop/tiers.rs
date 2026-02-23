@@ -28,7 +28,7 @@ pub struct TierMap {
 impl TierMap {
     /// Load from the embedded resources/tiers.json.
     pub fn load() -> Self {
-        let data: TiersFile = serde_json::from_str(include_str!("../../resources/tiers.json"))
+        let data: TiersFile = serde_json::from_str(include_str!("../resources/tiers.json"))
             .expect("resources/tiers.json should be valid JSON");
         Self {
             default_tier: data.default_tier,

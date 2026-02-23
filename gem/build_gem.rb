@@ -4,12 +4,12 @@
 # Builds a turbocop gem — base (fallback) or platform-specific.
 #
 # Usage:
-#   ruby script/build_gem.rb VERSION
-#   ruby script/build_gem.rb VERSION --platform PLATFORM --binary PATH
+#   ruby gem/build_gem.rb VERSION
+#   ruby gem/build_gem.rb VERSION --platform PLATFORM --binary PATH
 #
 # Examples:
-#   ruby script/build_gem.rb 0.1.0
-#   ruby script/build_gem.rb 0.1.0 --platform arm64-darwin --binary target/aarch64-apple-darwin/release/turbocop
+#   ruby gem/build_gem.rb 0.1.0
+#   ruby gem/build_gem.rb 0.1.0 --platform arm64-darwin --binary target/aarch64-apple-darwin/release/turbocop
 
 require "optparse"
 require_relative "lib/gem_builder"

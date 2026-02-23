@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Run: ruby script/test/gem_builder_test.rb
+# Run: ruby gem/test/gem_builder_test.rb
 
 require "minitest/autorun"
 require "tmpdir"

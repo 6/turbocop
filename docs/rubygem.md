@@ -36,33 +36,37 @@ turbocop-X.Y.Z-aarch64-linux.gem      ← Linux ARM64
 ## Directory layout
 
 ```
-gems/turbocop/
+gem/
 ├── turbocop.gemspec      # Gemspec (reads version from lib/turbocop.rb)
+├── build_gem.rb          # Build script (base + platform gems)
 ├── lib/
-│   └── turbocop.rb       # VERSION constant + Turbocop.executable finder
+│   ├── turbocop.rb       # VERSION constant + Turbocop.executable finder
+│   └── gem_builder.rb    # GemBuilder class (shared build logic)
 ├── exe/
 │   └── turbocop          # Ruby binstub (finds libexec binary or shows error)
+├── test/
+│   └── gem_builder_test.rb  # GemBuilder tests
 └── libexec/
     └── turbocop          # Native binary (only in platform gems, not checked in)
 ```
 
 ## Build script
 
-`script/build_gem.rb` builds both base and platform gems. Called by `.github/workflows/release.yml`.
+`gem/build_gem.rb` builds both base and platform gems. Called by `.github/workflows/release.yml`.
 
 ```
-ruby script/build_gem.rb VERSION                                         # base gem (no binary)
-ruby script/build_gem.rb VERSION --platform PLATFORM --binary PATH       # platform gem
+ruby gem/build_gem.rb VERSION                                         # base gem (no binary)
+ruby gem/build_gem.rb VERSION --platform PLATFORM --binary PATH       # platform gem
 ```
 
-The shared logic lives in `script/lib/gem_builder.rb` (`GemBuilder` class), tested by `script/test/gem_builder_test.rb`.
+The shared logic lives in `gem/lib/gem_builder.rb` (`GemBuilder` class), tested by `gem/test/gem_builder_test.rb`.
 
 ### Local testing
 
 ```bash
 cargo build --release
-ruby script/build_gem.rb 0.1.0.dev --platform arm64-darwin --binary target/release/turbocop
-ruby script/build_gem.rb 0.1.0.dev
+ruby gem/build_gem.rb 0.1.0.dev --platform arm64-darwin --binary target/release/turbocop
+ruby gem/build_gem.rb 0.1.0.dev
 gem install turbocop-0.1.0.dev-arm64-darwin.gem
 turbocop --help
 gem uninstall turbocop
@@ -72,7 +76,7 @@ gem uninstall turbocop
 
 Triggered via `workflow_dispatch` with a version input (e.g. `0.1.0`):
 
-1. **prepare** — bumps version in `Cargo.toml` and `gems/turbocop/lib/turbocop.rb`, commits, tags
+1. **prepare** — bumps version in `Cargo.toml` and `gem/lib/turbocop.rb`, commits, tags
 2. **build** — cross-compiles for 4 platforms, packages tarballs + platform gems
 3. **release** — creates GitHub Release with tarballs
 4. **publish-crates** — `cargo publish` to crates.io

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-static ALLOWLIST_JSON: &str = include_str!("../../resources/autocorrect_safe_allowlist.json");
+static ALLOWLIST_JSON: &str = include_str!("../resources/autocorrect_safe_allowlist.json");
 
 /// Set of cop names whose autocorrect output has been verified safe.
 /// Used to restrict `-a` (safe autocorrect) to only allowlisted cops.

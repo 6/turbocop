@@ -8,7 +8,7 @@ require "tmpdir"
 # Base gem: no binary, users on unsupported platforms get a helpful error.
 # Platform gem: includes precompiled binary in libexec/.
 class GemBuilder
-  GEM_SOURCE = File.expand_path("../../gems/turbocop", __dir__)
+  GEM_SOURCE = File.expand_path("..", __dir__)
 
   attr_reader :version, :platform, :binary_path
 

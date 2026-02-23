@@ -64,7 +64,7 @@ TURBOCOP_COP_PROFILE=1 cargo run --release -- --debug bench/repos/mastodon
 - `src/cop/` — `Cop` trait (`check_lines`/`check_node`/`check_source`), `CopRegistry`, department modules (`layout/`, `lint/`, `metrics/`, `naming/`, `performance/`, `rails/`, `rspec/`, `style/`)
 - `src/testutil.rs` — `#[cfg(test)]` fixture parser (annotations, `# turbocop-expect:`, `# turbocop-filename:`) + assertion helpers + autocorrect test helpers
 - `src/config/` — `.rubocop.yml` loading with `inherit_from`, `inherit_gem`, `inherit_mode`, auto-discovery
-- `src/fs/` — File discovery via `ignore` crate (.gitignore-aware)
+- `src/fs.rs` — File discovery via `ignore` crate (.gitignore-aware)
 - `src/linter.rs` — Parallel orchestration (parse per-thread since ParseResult is !Send)
 - `src/formatter/` — Text (RuboCop-compatible), JSON, progress, pacman, GitHub, quiet, and files-only output
 - `src/cli.rs` — Clap args (`-a`/`-A` autocorrect flags, `AutocorrectMode` enum)

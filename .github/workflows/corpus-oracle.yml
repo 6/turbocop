@@ -19,7 +19,7 @@ on:
     paths:
       - "src/cop/**"
       - "src/config/**"
-      - "resources/tiers.json"
+      - "src/resources/tiers.json"
       - "corpus/**"
 
 env:
