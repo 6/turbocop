@@ -1,6 +1,6 @@
 use ruby_prism::Visit;
 
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE};
+use crate::cop::node_type::PROGRAM_NODE;
 use crate::cop::util::{
     self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_shared_group,
 };
@@ -24,7 +24,7 @@ impl Cop for NestedGroups {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE]
+        &[PROGRAM_NODE]
     }
 
     fn check_node(
@@ -36,7 +36,81 @@ impl Cop for NestedGroups {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Only trigger on top-level RSpec.describe or top-level describe
+        let program = match node.as_program_node() {
+            Some(p) => p,
+            None => return,
+        };
+
+        let max = config.get_usize("Max", 3);
+        let allowed_groups = config.get_string_array("AllowedGroups").unwrap_or_default();
+
+        // Walk top-level statements to find top-level spec groups.
+        // This mirrors RuboCop's TopLevelGroup mixin which only processes
+        // describe/shared_examples/shared_context at the file's top level
+        // (or inside module/class wrappers).
+        for stmt in program.statements().body().iter() {
+            self.check_top_level_node(
+                source,
+                &stmt,
+                parse_result,
+                max,
+                &allowed_groups,
+                diagnostics,
+            );
+        }
+    }
+}
+
+impl NestedGroups {
+    /// Check a top-level AST node for spec groups. Recurses into
+    /// module/class wrappers to find describe/shared_examples at the
+    /// logical top level, mirroring RuboCop's `TopLevelGroup#top_level_nodes`.
+    fn check_top_level_node(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        max: usize,
+        allowed_groups: &[String],
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        // Recurse into module/class wrappers (RuboCop's top_level_nodes)
+        if let Some(module_node) = node.as_module_node() {
+            if let Some(body) = module_node.body() {
+                if let Some(stmts) = body.as_statements_node() {
+                    for stmt in stmts.body().iter() {
+                        self.check_top_level_node(
+                            source,
+                            &stmt,
+                            parse_result,
+                            max,
+                            allowed_groups,
+                            diagnostics,
+                        );
+                    }
+                }
+            }
+            return;
+        }
+        if let Some(class_node) = node.as_class_node() {
+            if let Some(body) = class_node.body() {
+                if let Some(stmts) = body.as_statements_node() {
+                    for stmt in stmts.body().iter() {
+                        self.check_top_level_node(
+                            source,
+                            &stmt,
+                            parse_result,
+                            max,
+                            allowed_groups,
+                            diagnostics,
+                        );
+                    }
+                }
+            }
+            return;
+        }
+
+        // Check if this is a spec group call (describe, shared_examples, etc.)
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return,
@@ -44,14 +118,19 @@ impl Cop for NestedGroups {
 
         let method_name = call.name().as_slice();
 
-        // Check for RSpec.describe / ::RSpec.describe or bare describe at top level
-        let is_top_level = if let Some(recv) = call.receiver() {
+        // Determine if this is a shared group or example group.
+        // Shared groups are checked first because is_rspec_example_group also
+        // matches shared group names.
+        let is_shared_group = call.receiver().is_none() && is_rspec_shared_group(method_name);
+        let is_example_group = if is_shared_group {
+            false
+        } else if let Some(recv) = call.receiver() {
             util::constant_name(&recv).is_some_and(|n| n == b"RSpec") && method_name == b"describe"
         } else {
             is_rspec_example_group(method_name)
         };
 
-        if !is_top_level {
+        if !is_example_group && !is_shared_group {
             return;
         }
 
@@ -63,20 +142,22 @@ impl Cop for NestedGroups {
             None => return,
         };
 
-        let max = config.get_usize("Max", 3);
-        // Config: AllowedGroups — group method names exempt from nesting count
-        let allowed_groups = config.get_string_array("AllowedGroups").unwrap_or_default();
+        // Shared groups (shared_examples, shared_examples_for, shared_context)
+        // do NOT count toward nesting depth — they define reusable groups.
+        // RuboCop's `example_group?` returns false for shared groups, so the
+        // nesting counter does not increment for the top-level shared group.
+        let initial_depth = if is_shared_group { 0 } else { 1 };
 
         // Walk the block body looking for nested groups
         if let Some(body) = block.body() {
             let mut visitor = NestingVisitor {
                 source,
                 max,
-                depth: 1, // The top-level describe is depth 1
+                depth: initial_depth,
                 diagnostics,
                 cop: self,
                 parse_result,
-                allowed_groups: &allowed_groups,
+                allowed_groups,
             };
             visitor.visit(&body);
         }

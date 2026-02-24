@@ -77,6 +77,11 @@ impl<'pr> Visit<'pr> for StringLiteralsVisitor<'_> {
         match self.enforced_style.as_str() {
             "single_quotes" => {
                 if opening_byte == b'"' {
+                    // Skip if this string is inside a #{ } interpolation context —
+                    // RuboCop's `inside_interpolation?` check applies to both styles.
+                    if self.in_interpolation {
+                        return;
+                    }
                     // Skip multi-line strings — RuboCop doesn't flag these
                     if content.contains(&b'\n') {
                         return;

@@ -1,6 +1,7 @@
 use crate::cop::node_type::CALL_NODE;
 use crate::cop::util::{
-    RSPEC_DEFAULT_INCLUDE, is_blank_line, is_rspec_example, line_at, node_on_single_line,
+    RSPEC_DEFAULT_INCLUDE, RSPEC_EXAMPLES, is_blank_line, is_rspec_example, line_at,
+    node_on_single_line,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -184,30 +185,23 @@ fn is_single_line_block(line: &[u8]) -> bool {
     false
 }
 
+/// Check if a line starts with any RSpec example keyword followed by a
+/// delimiter (space, `(`, `{`, or ` {`).  Uses the canonical
+/// `RSPEC_EXAMPLES` list so that all example variants (`its`, `xit`, `fit`,
+/// `pending`, etc.) are recognised for the consecutive-one-liner check.
 fn starts_with_example_keyword(line: &[u8]) -> bool {
-    for keyword in &[
-        b"it " as &[u8],
-        b"it(",
-        b"it{",
-        b"it {",
-        b"specify ",
-        b"specify(",
-        b"specify{",
-        b"specify {",
-        b"example ",
-        b"example(",
-        b"example{",
-        b"example {",
-        b"scenario ",
-        b"scenario(",
-    ] {
-        if line.starts_with(keyword) {
-            return true;
+    for keyword in RSPEC_EXAMPLES {
+        let kw = keyword.as_bytes();
+        if line.starts_with(kw) {
+            // keyword must be followed by a delimiter or be the entire line
+            if line.len() == kw.len() {
+                return true;
+            }
+            let next = line[kw.len()];
+            if next == b' ' || next == b'(' || next == b'{' {
+                return true;
+            }
         }
-    }
-    // Single-line `it { ... }`
-    if line.starts_with(b"it ") || line == b"it" {
-        return true;
     }
     false
 }

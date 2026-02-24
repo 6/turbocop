@@ -43,3 +43,37 @@ describe AnotherExample do
     end
   end
 end
+
+# Top-level shared_examples_for does not count toward nesting
+# (3 nested contexts inside = nesting 3, not exceeding Max of 3)
+shared_examples_for 'reusable behavior' do
+  context 'level one' do
+    context 'level two' do
+      context 'level three' do
+        it { expect(subject).to be_valid }
+      end
+    end
+  end
+end
+
+# Top-level shared_examples does not count toward nesting
+shared_examples 'another pattern' do
+  describe 'some feature' do
+    context 'first case' do
+      context 'second case' do
+        it { expect(true).to eq(true) }
+      end
+    end
+  end
+end
+
+# Top-level shared_context does not count toward nesting
+shared_context 'with dependencies' do
+  context 'when enabled' do
+    context 'when configured' do
+      context 'when ready' do
+        it { expect(subject).to be_ready }
+      end
+    end
+  end
+end

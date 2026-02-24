@@ -31,3 +31,9 @@ d = ?/
 
 # String with escaped hash — \# is different from # in double quotes
 e = "\#"
+
+# Double-quoted strings inside interpolation should not be flagged
+# (RuboCop skips strings inside #{ } interpolation for both styles)
+msg = "hello #{data["key"]}"
+log = "value: #{record.dig("a", "b")}"
+out = "#{items.join(", ")}"
