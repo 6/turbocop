@@ -259,6 +259,10 @@ Generates `docs/coverage.md` with:
 
 Pipeline: `bench_turbocop conform` → `bench/conform.json` → `coverage_table` → `docs/coverage.md`
 
+## Corpus Oracle Triage
+
+`python3 bench/corpus/triage.py` ranks cops by FP+FN from the 500-repo corpus oracle. Auto-downloads latest CI results, or pass `--input <path>`. Supports `--department`, `--exclude-department`, `--fp-only`, `--fn-only`, `--limit` filters.
+
 ## Rules
 
 - **NEVER copy code or identifiers from private repos into this codebase.** When fixing false positives found by running against private/internal repos, write generic test cases that reproduce the same pattern. Use generic names (e.g. `records`, `payload`, `User`, `name`, `role`, `status`) instead of domain-specific names from the private codebase. Do not use variable names, method names, or terminology that originated in private repo source code — even if they seem generic, if you encountered them in a private repo, replace them. Do not reference private repo names or paths in committed files. This applies to test fixtures, comments, commit messages, and any other checked-in files.

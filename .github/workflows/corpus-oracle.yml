@@ -9,9 +9,6 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  # Weekly Sunday night
-  schedule:
-    - cron: "0 4 * * 0"
   # Manual trigger
   workflow_dispatch:
     inputs:
