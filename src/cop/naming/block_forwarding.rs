@@ -85,6 +85,7 @@ impl Cop for BlockForwarding {
             has_forwarding: false,
             has_any_reference: false,
             used_in_nested_block: false,
+            forwarding_locations: Vec::new(),
         };
 
         if let Some(body) = def_node.body() {
@@ -106,6 +107,7 @@ impl Cop for BlockForwarding {
         // - Block is forwarded (has_forwarding) and only forwarded (only_forwarded), OR
         // - Block is never referenced at all (unused param should be anonymous &)
         if checker.has_forwarding || !checker.has_any_reference {
+            // Offense on the parameter
             let loc = block_param.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             diagnostics.push(self.diagnostic(
@@ -114,6 +116,16 @@ impl Cop for BlockForwarding {
                 column,
                 "Use anonymous block forwarding.".to_string(),
             ));
+            // Offense on each &block forwarding usage in the body
+            for (start, _end) in &checker.forwarding_locations {
+                let (line, column) = source.offset_to_line_col(*start);
+                diagnostics.push(self.diagnostic(
+                    source,
+                    line,
+                    column,
+                    "Use anonymous block forwarding.".to_string(),
+                ));
+            }
         }
     }
 }
@@ -124,6 +136,8 @@ struct BlockUsageChecker<'a> {
     has_forwarding: bool,
     has_any_reference: bool,
     used_in_nested_block: bool,
+    /// (start_offset, end_offset) for each `&block` forwarding usage in the body
+    forwarding_locations: Vec<(usize, usize)>,
 }
 
 impl<'pr> Visit<'pr> for BlockUsageChecker<'_> {
@@ -134,7 +148,16 @@ impl<'pr> Visit<'pr> for BlockUsageChecker<'_> {
                 if local_var.name().as_slice() == self.block_name {
                     self.has_forwarding = true;
                     self.has_any_reference = true;
+                    // Collect the location of the &block argument for body-level offense
+                    let loc = node.location();
+                    self.forwarding_locations
+                        .push((loc.start_offset(), loc.end_offset()));
                 }
+            } else {
+                // Complex expression like &(block || fallback) — descend into children
+                // to detect local variable reads of the block param, which make it
+                // a non-forwarding use (can't use anonymous &).
+                self.visit(&expr);
             }
         }
     }
@@ -197,6 +220,17 @@ impl<'pr> Visit<'pr> for BlockUsageChecker<'_> {
             self.has_any_reference = true;
         }
         ruby_prism::visit_local_variable_operator_write_node(self, node);
+    }
+
+    fn visit_local_variable_target_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableTargetNode<'pr>,
+    ) {
+        if node.name().as_slice() == self.block_name {
+            // Multi-assignment target (e.g., `a, block = ary`) — not pure forwarding
+            self.only_forwarded = false;
+            self.has_any_reference = true;
+        }
     }
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {

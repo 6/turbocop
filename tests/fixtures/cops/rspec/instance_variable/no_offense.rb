@@ -8,10 +8,9 @@ describe MyClass do
     expect(bar).to eq(42)
   end
 
-  # Instance variables inside method definitions are OK
+  # Instance variable WRITES inside method definitions are not flagged
   def helper_method
     @internal_state = 42
-    @other_var
   end
 
   def compute
@@ -19,17 +18,48 @@ describe MyClass do
   end
 end
 
-# Instance variables inside Class.new / Struct.new blocks are OK
+# Instance variables inside Class.new blocks are OK (dynamic class)
 describe Integration do
   let(:klass) do
-    Class.new do
-      def initialize
-        @name = 'test'
+    Class.new(OtherClass) do
+      def initialize(resource)
+        @resource = resource
+      end
+
+      def serialize
+        @resource.to_json
       end
     end
   end
 
   it { expect(klass.new).to be_valid }
+end
+
+# Instance variables inside matcher blocks within describe are OK
+describe MatcherExample do
+  matcher :have_color do
+    match do |object|
+      @matcher = have_attributes(color: anything)
+      @matcher.matches?(object)
+    end
+
+    failure_message do
+      @matcher.failure_message
+    end
+  end
+end
+
+# Instance variables inside RSpec::Matchers.define within describe are OK
+describe MatcherDefineExample do
+  RSpec::Matchers.define :be_bigger_than do |first|
+    match do |actual|
+      (actual > first) && (actual < @second)
+    end
+
+    chain :and_smaller_than do |second|
+      @second = second
+    end
+  end
 end
 
 # Instance variables inside RSpec.configure are OK (not an example group)

@@ -24,3 +24,33 @@ describe AnotherClass do
            ^^^^ RSpec/InstanceVariable: Avoid instance variables - use let, a method call, or a local variable (if possible).
   end
 end
+
+# Reads inside helper methods (def) within describe blocks ARE flagged
+describe HelperMethods do
+  def helper
+    @internal
+    ^^^^^^^^^ RSpec/InstanceVariable: Avoid instance variables - use let, a method call, or a local variable (if possible).
+  end
+end
+
+# Reads inside Struct.new blocks ARE flagged (only Class.new is excluded)
+describe StructNewExample do
+  let(:klass) do
+    Struct.new(:name) do
+      def display
+        @label
+        ^^^^^^ RSpec/InstanceVariable: Avoid instance variables - use let, a method call, or a local variable (if possible).
+      end
+    end
+  end
+end
+
+# Reads inside module_eval/class_eval blocks ARE flagged
+describe EvalBlocks do
+  before do
+    described_class.class_eval do
+      @setting
+      ^^^^^^^^ RSpec/InstanceVariable: Avoid instance variables - use let, a method call, or a local variable (if possible).
+    end
+  end
+end

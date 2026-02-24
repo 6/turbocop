@@ -1,4 +1,4 @@
-use crate::cop::node_type::{IF_NODE, PARENTHESES_NODE, UNLESS_NODE};
+use crate::cop::node_type::{IF_NODE, UNLESS_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -112,7 +112,7 @@ impl Cop for IfUnlessModifier {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[IF_NODE, PARENTHESES_NODE, UNLESS_NODE]
+        &[IF_NODE, UNLESS_NODE]
     }
 
     fn check_node(
@@ -183,12 +183,6 @@ impl Cop for IfUnlessModifier {
             return;
         }
 
-        // Skip if the condition is a parenthesized assignment — these need the
-        // full if/end form to capture the assignment value used in the body
-        if predicate.as_parentheses_node().is_some() {
-            return;
-        }
-
         // Skip if the condition contains `defined?()` — converting to modifier
         // form changes semantics for undefined variables/methods.
         if condition_contains_defined(&predicate) {
@@ -220,11 +214,25 @@ impl Cop for IfUnlessModifier {
             return;
         }
 
-        // If there are comment lines between keyword and body, don't suggest modifier form.
-        // Converting would lose the comments.
+        // If there are standalone comment lines between keyword and body, don't suggest
+        // modifier form — converting would lose the comments. But blank lines and
+        // multiline condition continuation lines are OK.
         let (kw_line, _) = source.offset_to_line_col(kw_loc.start_offset());
         if body_start_line > kw_line + 1 {
-            return;
+            let lines: Vec<&[u8]> = source.lines().collect();
+            for line_num in (kw_line + 1)..body_start_line {
+                if line_num > 0 && line_num <= lines.len() {
+                    let line = lines[line_num - 1];
+                    let trimmed: Vec<u8> = line
+                        .iter()
+                        .skip_while(|&&b| b == b' ' || b == b'\t')
+                        .copied()
+                        .collect();
+                    if trimmed.starts_with(b"#") {
+                        return;
+                    }
+                }
+            }
         }
 
         // Check if body contains a heredoc argument. Prism's node location for heredoc
@@ -345,8 +353,26 @@ impl Cop for IfUnlessModifier {
             }
         };
 
+        // For multiline conditions, normalize whitespace (newlines + runs of spaces)
+        // into single spaces to estimate the modifier form length accurately.
+        let cond_len = {
+            let mut len = 0usize;
+            let mut in_ws = false;
+            for &b in cond_text {
+                if b == b' ' || b == b'\t' || b == b'\n' || b == b'\r' {
+                    if !in_ws {
+                        len += 1;
+                        in_ws = true;
+                    }
+                } else {
+                    len += 1;
+                    in_ws = false;
+                }
+            }
+            len
+        };
         let modifier_len =
-            kw_col + parens_overhead + body_text.len() + 1 + keyword.len() + 1 + cond_text.len();
+            kw_col + parens_overhead + body_text.len() + 1 + keyword.len() + 1 + cond_len;
 
         if !line_length_enabled || modifier_len <= max_line_length {
             let (line, column) = source.offset_to_line_col(kw_loc.start_offset());

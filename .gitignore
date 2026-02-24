@@ -40,6 +40,9 @@ docs/INTERNAL_*
 # OS
 .DS_Store
 
+# Claude Code worktrees
+.claude/worktrees/
+
 # Environment
 .env
 .env.*

@@ -36,13 +36,12 @@ impl Cop for InstanceVariable {
         let assignment_only = config.get_bool("AssignmentOnly", false);
 
         // When AssignmentOnly is true, first pass: collect all assigned ivar names
-        // within example groups (excluding defs, dynamic classes, custom matchers).
+        // within example groups. RuboCop's ivar_assigned? searches the entire subtree
+        // of the top-level group (including defs, classes, etc.) — only excluding
+        // nothing. We match that behavior.
         let assigned_names = if assignment_only {
             let mut collector = IvarAssignmentCollector {
                 in_example_group: false,
-                in_def: false,
-                in_dynamic_class: false,
-                in_custom_matcher: false,
                 assigned_names: HashSet::new(),
             };
             collector.visit(&parse_result.node());
@@ -55,7 +54,6 @@ impl Cop for InstanceVariable {
             source,
             cop: self,
             in_example_group: false,
-            in_def: false,
             in_dynamic_class: false,
             in_custom_matcher: false,
             assignment_only,
@@ -68,21 +66,16 @@ impl Cop for InstanceVariable {
 }
 
 /// First-pass visitor: collect all ivar names that are assigned within example groups.
+/// Matches RuboCop's `ivar_assigned?` which searches the entire subtree without
+/// excluding defs, classes, or modules.
 struct IvarAssignmentCollector {
     in_example_group: bool,
-    in_def: bool,
-    in_dynamic_class: bool,
-    in_custom_matcher: bool,
     assigned_names: HashSet<Vec<u8>>,
 }
 
 impl IvarAssignmentCollector {
-    fn in_flaggable_scope(&self) -> bool {
-        self.in_example_group && !self.in_def && !self.in_dynamic_class && !self.in_custom_matcher
-    }
-
     fn record_assignment(&mut self, name: &[u8]) {
-        if self.in_flaggable_scope() {
+        if self.in_example_group {
             self.assigned_names.insert(name.to_vec());
         }
     }
@@ -93,43 +86,16 @@ impl<'pr> Visit<'pr> for IvarAssignmentCollector {
         let name = node.name().as_slice();
         let has_block = node.block().is_some();
         let is_eg = has_block && node.receiver().is_none() && is_rspec_example_group(name);
-        let is_rspec_describe = has_block
-            && node.receiver().is_some_and(|r| {
-                r.as_constant_read_node()
-                    .is_some_and(|c| c.name().as_slice() == b"RSpec")
-            })
-            && name == b"describe";
+        let is_rspec_describe = has_block && is_rspec_receiver(node) && name == b"describe";
         let enters_example_group = is_eg || is_rspec_describe;
-        let enters_dynamic_class = has_block && is_dynamic_class_call(node);
-        let enters_custom_matcher = has_block && is_custom_matcher_call(node);
 
         let was_eg = self.in_example_group;
-        let was_dc = self.in_dynamic_class;
-        let was_cm = self.in_custom_matcher;
         if enters_example_group {
             self.in_example_group = true;
         }
-        if enters_dynamic_class {
-            self.in_dynamic_class = true;
-        }
-        if enters_custom_matcher {
-            self.in_custom_matcher = true;
-        }
         ruby_prism::visit_call_node(self, node);
         self.in_example_group = was_eg;
-        self.in_dynamic_class = was_dc;
-        self.in_custom_matcher = was_cm;
     }
-
-    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
-        let was = self.in_def;
-        self.in_def = true;
-        ruby_prism::visit_def_node(self, node);
-        self.in_def = was;
-    }
-
-    fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
-    fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
 
     fn visit_instance_variable_write_node(
         &mut self,
@@ -164,7 +130,6 @@ struct IvarChecker<'a> {
     source: &'a SourceFile,
     cop: &'a InstanceVariable,
     in_example_group: bool,
-    in_def: bool,
     in_dynamic_class: bool,
     in_custom_matcher: bool,
     assignment_only: bool,
@@ -174,7 +139,7 @@ struct IvarChecker<'a> {
 
 impl IvarChecker<'_> {
     fn should_flag(&self) -> bool {
-        self.in_example_group && !self.in_def && !self.in_dynamic_class && !self.in_custom_matcher
+        self.in_example_group && !self.in_dynamic_class && !self.in_custom_matcher
     }
 
     fn flag_ivar_read(&mut self, name: &[u8], loc: &ruby_prism::Location<'_>) {
@@ -197,30 +162,41 @@ impl IvarChecker<'_> {
     }
 }
 
-/// Check if a call is `Class.new`, `Module.new`, `Struct.new`, or `Data.define`
-fn is_dynamic_class_call(call: &ruby_prism::CallNode<'_>) -> bool {
-    let method = call.name().as_slice();
+/// Check if the receiver of a CallNode is `RSpec` (simple constant) or `::RSpec`
+/// (constant path with cbase). Matches RuboCop's `(const {nil? cbase} :RSpec)`.
+fn is_rspec_receiver(call: &ruby_prism::CallNode<'_>) -> bool {
     if let Some(recv) = call.receiver() {
+        // Simple `RSpec` constant
         if let Some(cr) = recv.as_constant_read_node() {
-            let name = cr.name().as_slice();
-            if (name == b"Class" || name == b"Module" || name == b"Struct") && method == b"new" {
-                return true;
-            }
-            if name == b"Data" && method == b"define" {
-                return true;
+            return cr.name().as_slice() == b"RSpec";
+        }
+        // Qualified `::RSpec` constant path
+        if let Some(cp) = recv.as_constant_path_node() {
+            if let Some(name) = cp.name() {
+                if name.as_slice() == b"RSpec" {
+                    // Parent must be nil (cbase ::RSpec) — no deeper nesting
+                    return cp.parent().is_none();
+                }
             }
         }
     }
-    // Also check class_eval, module_eval, instance_eval, *_exec
-    matches!(
-        method,
-        b"class_eval"
-            | b"module_eval"
-            | b"instance_eval"
-            | b"class_exec"
-            | b"module_exec"
-            | b"instance_exec"
-    )
+    false
+}
+
+/// Check if a call is `Class.new` — the only dynamic class pattern RuboCop excludes.
+/// RuboCop's pattern: `(block (send (const nil? :Class) :new ...) ...)`
+/// This matches only `Class.new`, not `Struct.new`, `Module.new`, etc.
+fn is_dynamic_class_call(call: &ruby_prism::CallNode<'_>) -> bool {
+    let method = call.name().as_slice();
+    if method != b"new" {
+        return false;
+    }
+    if let Some(recv) = call.receiver() {
+        if let Some(cr) = recv.as_constant_read_node() {
+            return cr.name().as_slice() == b"Class";
+        }
+    }
+    false
 }
 
 /// Check if a call is `RSpec::Matchers.define :name` or `matcher :name`
@@ -254,12 +230,7 @@ impl<'pr> Visit<'pr> for IvarChecker<'_> {
 
         // Check if this is an example group call with a block
         let is_eg = has_block && node.receiver().is_none() && is_rspec_example_group(name);
-        let is_rspec_describe = has_block
-            && node.receiver().is_some_and(|r| {
-                r.as_constant_read_node()
-                    .is_some_and(|c| c.name().as_slice() == b"RSpec")
-            })
-            && name == b"describe";
+        let is_rspec_describe = has_block && is_rspec_receiver(node) && name == b"describe";
 
         let enters_example_group = is_eg || is_rspec_describe;
         let enters_dynamic_class = has_block && is_dynamic_class_call(node);
@@ -286,20 +257,9 @@ impl<'pr> Visit<'pr> for IvarChecker<'_> {
         self.in_custom_matcher = was_cm;
     }
 
-    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
-        let was = self.in_def;
-        self.in_def = true;
-        ruby_prism::visit_def_node(self, node);
-        self.in_def = was;
-    }
-
-    fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {
-        // Don't descend into class definitions — scope changes
-    }
-
-    fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {
-        // Don't descend into module definitions — scope changes
-    }
+    // RuboCop's ivar_usage search descends into def, class, and module nodes.
+    // We do NOT override visit_def_node, visit_class_node, or visit_module_node
+    // so that the default visitor descends into them, matching RuboCop behavior.
 
     fn visit_instance_variable_read_node(
         &mut self,
@@ -361,10 +321,57 @@ mod tests {
     fn writes_are_never_flagged() {
         // Instance variable writes (assignments) should never be flagged
         let source = b"describe Foo do\n  before { @bar = 1 }\nend\n";
-        let diags = crate::testutil::run_cop(&InstanceVariable, source);
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
         assert!(
             diags.is_empty(),
             "Writes/assignments should never be flagged"
+        );
+    }
+
+    #[test]
+    fn ivar_read_inside_def_is_flagged() {
+        // RuboCop flags ivar reads inside def methods within describe blocks
+        let source = b"describe Foo do\n  def helper\n    @bar\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Instance variable read inside def within describe should be flagged"
+        );
+    }
+
+    #[test]
+    fn class_new_block_is_excluded() {
+        // Class.new blocks are excluded (dynamic class)
+        let source = b"describe Foo do\n  let(:klass) do\n    Class.new do\n      def init\n        @x = 1\n      end\n      def val\n        @x\n      end\n    end\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
+        assert!(
+            diags.is_empty(),
+            "Instance variables inside Class.new blocks should not be flagged"
+        );
+    }
+
+    #[test]
+    fn struct_new_block_is_not_excluded() {
+        // Struct.new blocks are NOT excluded (only Class.new is)
+        let source = b"describe Foo do\n  let(:klass) do\n    Struct.new(:name) do\n      def val\n        @x\n      end\n    end\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Instance variables inside Struct.new blocks should be flagged"
+        );
+    }
+
+    #[test]
+    fn cbase_rspec_describe_is_recognized() {
+        // ::RSpec.describe should be recognized as an example group
+        let source = b"::RSpec.describe Foo do\n  it { @bar }\nend\n";
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "::RSpec.describe should be recognized as an example group"
         );
     }
 }
