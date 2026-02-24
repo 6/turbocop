@@ -74,19 +74,19 @@ Top 15 repos by GitHub stars (offense counts are high because the corpus enables
 
 | Repo | Files | Offenses | Conformance % |
 |------|------:|---------:|--------------:|
-| [rails](https://github.com/rails/rails) | 3,498 | 145,238 | 91.6% |
+| [rails](https://github.com/rails/rails) | 3,498 | 145,291 | 91.6% |
 | [jekyll](https://github.com/jekyll/jekyll) | 190 | 7,697 | 93.0% |
 | [mastodon](https://github.com/mastodon/mastodon) | 3,101 | 22,409 | 95.7% |
 | [huginn](https://github.com/huginn/huginn) | 451 | 18,734 | 97.0% |
-| [discourse](https://github.com/discourse/discourse) | 9,124 | 334,215 | 97.7% |
-| [fastlane](https://github.com/fastlane/fastlane) | 1,302 | 62,115 | 96.0% |
+| [discourse](https://github.com/discourse/discourse) | 9,124 | 334,236 | 97.7% |
+| [fastlane](https://github.com/fastlane/fastlane) | 1,302 | 62,115 | 96.1% |
 | [devdocs](https://github.com/freeCodeCamp/devdocs) | 833 | 11,887 | 90.6% |
 | [chatwoot](https://github.com/chatwoot/chatwoot) | 2,262 | 18,231 | 98.7% |
 | [vagrant](https://github.com/hashicorp/vagrant) | 1,460 | 50,531 | 95.6% |
 | [devise](https://github.com/heartcombo/devise) | 206 | 2,721 | 91.4% |
 | [forem](https://github.com/forem/forem) | 3,390 | 60,564 | 97.7% |
 | [postal](https://github.com/postalserver/postal) | 294 | 7,309 | 96.2% |
-| [CocoaPods](https://github.com/CocoaPods/CocoaPods) | 438 | 15,067 | 96.4% |
+| [CocoaPods](https://github.com/CocoaPods/CocoaPods) | 438 | 15,067 | 96.5% |
 | [openproject](https://github.com/opf/openproject) | 9,286 | 194,365 | 97.6% |
 | [gollum](https://github.com/gollum/gollum) | 55 | 2,283 | 93.3% |
 
