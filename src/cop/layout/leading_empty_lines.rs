@@ -25,29 +25,37 @@ impl Cop for LeadingEmptyLines {
             return;
         }
 
-        if bytes[0] == b'\n' {
-            let mut diag = self.diagnostic(
-                source,
-                1,
-                0,
-                "Unnecessary blank line at the beginning of the source.".to_string(),
-            );
-            if let Some(ref mut corr) = corrections {
-                let end = bytes
-                    .iter()
-                    .position(|&b| b != b'\n')
-                    .unwrap_or(bytes.len());
-                corr.push(crate::correction::Correction {
-                    start: 0,
-                    end,
-                    replacement: String::new(),
-                    cop_name: self.name(),
-                    cop_index: 0,
-                });
-                diag.corrected = true;
-            }
-            diagnostics.push(diag);
+        // Find the first non-whitespace byte (approximates RuboCop's first token).
+        // RuboCop checks `processed_source.tokens[0]` and reports the offense
+        // at the token's position. If no tokens exist (whitespace-only file),
+        // no offense is reported.
+        let first_content = match bytes.iter().position(|&b| !b.is_ascii_whitespace()) {
+            Some(pos) => pos,
+            None => return, // whitespace-only file — no tokens, no offense
+        };
+
+        let (line, col) = source.offset_to_line_col(first_content);
+        if line <= 1 {
+            return; // first content is on line 1 — no leading blank lines
         }
+
+        let mut diag = self.diagnostic(
+            source,
+            line,
+            col,
+            "Unnecessary blank line at the beginning of the source.".to_string(),
+        );
+        if let Some(ref mut corr) = corrections {
+            corr.push(crate::correction::Correction {
+                start: 0,
+                end: first_content,
+                replacement: String::new(),
+                cop_name: self.name(),
+                cop_index: 0,
+            });
+            diag.corrected = true;
+        }
+        diagnostics.push(diag);
     }
 }
 
@@ -69,6 +77,59 @@ mod tests {
         let mut diags = Vec::new();
         LeadingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags, None);
         assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn only_newline() {
+        // A file containing only blank lines (no tokens) should not be flagged.
+        // Matches RuboCop: `expect_no_offenses("\n")`
+        let source = SourceFile::from_bytes("test.rb", b"\n".to_vec());
+        let mut diags = Vec::new();
+        LeadingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert!(
+            diags.is_empty(),
+            "File with only newlines should not be flagged"
+        );
+    }
+
+    #[test]
+    fn only_newlines() {
+        // Multiple blank lines with no content should not be flagged.
+        let source = SourceFile::from_bytes("test.rb", b"\n\n\n".to_vec());
+        let mut diags = Vec::new();
+        LeadingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert!(
+            diags.is_empty(),
+            "File with only newlines should not be flagged"
+        );
+    }
+
+    #[test]
+    fn offense_at_first_token_line() {
+        // Offense should be reported at the first non-whitespace line, not line 1.
+        // Matches RuboCop which reports at `processed_source.tokens[0].pos`.
+        let source = SourceFile::from_bytes("test.rb", b"\nx = 1\n".to_vec());
+        let mut diags = Vec::new();
+        LeadingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert_eq!(diags.len(), 1);
+        assert_eq!(
+            diags[0].location.line, 2,
+            "offense should be at line 2 (first code line)"
+        );
+        assert_eq!(diags[0].location.column, 0);
+    }
+
+    #[test]
+    fn offense_at_first_comment_line() {
+        // Comments count as "content" -- offense at comment line, not line 1.
+        let source = SourceFile::from_bytes("test.rb", b"\n# comment\n".to_vec());
+        let mut diags = Vec::new();
+        LeadingEmptyLines.check_lines(&source, &CopConfig::default(), &mut diags, None);
+        assert_eq!(diags.len(), 1);
+        assert_eq!(
+            diags[0].location.line, 2,
+            "offense should be at line 2 (first comment line)"
+        );
     }
 
     #[test]

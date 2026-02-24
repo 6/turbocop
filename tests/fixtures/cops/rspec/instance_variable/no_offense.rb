@@ -102,3 +102,29 @@ describe DirectWrites do
   before { @count += 1 }
   before { @flag &&= false }
 end
+
+# Instance variables inside describe blocks wrapped in `if` are NOT flagged
+# RuboCop's TopLevelGroup only recognizes describe at the file top level
+# (unwrapping begin, module, class). Describe inside `if` is not top-level.
+if defined?(SomeGem)
+  describe ConditionalSpec do
+    before { @foo = [] }
+    it { expect(@foo).to be_empty }
+  end
+end
+
+# Instance variables inside describe blocks wrapped in a non-RSpec method block
+some_setup_method do
+  describe BlockWrappedSpec do
+    before { @bar = 1 }
+    it { expect(@bar).to eq(1) }
+  end
+end
+
+# Instance variables inside describe blocks wrapped in an iterator
+[1, 2].each do |val|
+  describe IteratorWrappedSpec do
+    before { @val = val }
+    it { expect(@val).to eq(val) }
+  end
+end

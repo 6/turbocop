@@ -35,6 +35,17 @@ impl Cop for InstanceVariable {
         // flag ALL ivar reads. Writes/assignments are never flagged (matching RuboCop).
         let assignment_only = config.get_bool("AssignmentOnly", false);
 
+        // Pre-compute which call nodes are top-level spec groups.
+        // RuboCop's TopLevelGroup only processes describe/context blocks at the
+        // file's top level (unwrapping begin, module, and class nodes). Describe
+        // blocks nested inside `if` statements, method calls, iterators, etc. are
+        // NOT treated as top-level groups and are ignored by this cop.
+        let root = parse_result.node();
+        let top_level_offsets = root
+            .as_program_node()
+            .map(|prog| find_top_level_group_offsets(&prog))
+            .unwrap_or_default();
+
         // When AssignmentOnly is true, first pass: collect all assigned ivar names
         // within example groups. RuboCop's ivar_assigned? searches the entire subtree
         // of the top-level group (including defs, classes, etc.) — only excluding
@@ -42,6 +53,7 @@ impl Cop for InstanceVariable {
         let assigned_names = if assignment_only {
             let mut collector = IvarAssignmentCollector {
                 in_example_group: false,
+                top_level_offsets: &top_level_offsets,
                 assigned_names: HashSet::new(),
             };
             collector.visit(&parse_result.node());
@@ -58,6 +70,7 @@ impl Cop for InstanceVariable {
             in_custom_matcher: false,
             assignment_only,
             assigned_names,
+            top_level_offsets: &top_level_offsets,
             diagnostics: Vec::new(),
         };
         visitor.visit(&parse_result.node());
@@ -68,12 +81,13 @@ impl Cop for InstanceVariable {
 /// First-pass visitor: collect all ivar names that are assigned within example groups.
 /// Matches RuboCop's `ivar_assigned?` which searches the entire subtree without
 /// excluding defs, classes, or modules.
-struct IvarAssignmentCollector {
+struct IvarAssignmentCollector<'a> {
     in_example_group: bool,
+    top_level_offsets: &'a HashSet<usize>,
     assigned_names: HashSet<Vec<u8>>,
 }
 
-impl IvarAssignmentCollector {
+impl IvarAssignmentCollector<'_> {
     fn record_assignment(&mut self, name: &[u8]) {
         if self.in_example_group {
             self.assigned_names.insert(name.to_vec());
@@ -81,13 +95,12 @@ impl IvarAssignmentCollector {
     }
 }
 
-impl<'pr> Visit<'pr> for IvarAssignmentCollector {
+impl<'pr> Visit<'pr> for IvarAssignmentCollector<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        let name = node.name().as_slice();
-        let has_block = node.block().is_some();
-        let is_eg = has_block && node.receiver().is_none() && is_rspec_example_group(name);
-        let is_rspec_describe = has_block && is_rspec_receiver(node) && name == b"describe";
-        let enters_example_group = is_eg || is_rspec_describe;
+        // Only enter example group mode for top-level spec groups
+        let enters_example_group = self
+            .top_level_offsets
+            .contains(&node.location().start_offset());
 
         let was_eg = self.in_example_group;
         if enters_example_group {
@@ -134,6 +147,7 @@ struct IvarChecker<'a> {
     in_custom_matcher: bool,
     assignment_only: bool,
     assigned_names: HashSet<Vec<u8>>,
+    top_level_offsets: &'a HashSet<usize>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -159,6 +173,75 @@ impl IvarChecker<'_> {
             "Avoid instance variables - use let, a method call, or a local variable (if possible)."
                 .to_string(),
         ));
+    }
+}
+
+/// Find the byte offsets of all top-level spec group call nodes.
+///
+/// Matches RuboCop's `TopLevelGroup` concern which only recognizes describe/context
+/// blocks at the file's top level. It unwraps `begin` (sequential statements),
+/// `module`, and `class` nodes to find the actual top-level blocks, but does NOT
+/// unwrap `if`, `unless`, `case`, method calls, iterators, or any other node types.
+fn find_top_level_group_offsets(program: &ruby_prism::ProgramNode<'_>) -> HashSet<usize> {
+    let mut offsets = HashSet::new();
+    let body = program.statements();
+    for node in body.body().iter() {
+        collect_top_level_groups(&node, &mut offsets);
+    }
+    offsets
+}
+
+/// Recursively collect top-level spec group offsets, unwrapping begin/module/class nodes.
+fn collect_top_level_groups(node: &ruby_prism::Node<'_>, offsets: &mut HashSet<usize>) {
+    // Check if this node is a spec group call (describe/context/etc with a block)
+    if let Some(call) = node.as_call_node() {
+        if call.block().is_some() {
+            let name = call.name().as_slice();
+            let is_eg = call.receiver().is_none() && is_rspec_example_group(name);
+            let is_rspec_describe = is_rspec_receiver(&call) && name == b"describe";
+            if is_eg || is_rspec_describe {
+                offsets.insert(call.location().start_offset());
+                return;
+            }
+        }
+    }
+
+    // Unwrap begin nodes (sequential statements at the top level)
+    // In Prism, top-level statements are in a StatementsNode, but `begin..end` blocks
+    // become BeginNode. Multiple statements at top level are already handled by
+    // ProgramNode's statements.
+
+    // Unwrap module nodes
+    if let Some(module_node) = node.as_module_node() {
+        if let Some(body) = module_node.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                for child in stmts.body().iter() {
+                    collect_top_level_groups(&child, offsets);
+                }
+            }
+        }
+        return;
+    }
+
+    // Unwrap class nodes
+    if let Some(class_node) = node.as_class_node() {
+        if let Some(body) = class_node.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                for child in stmts.body().iter() {
+                    collect_top_level_groups(&child, offsets);
+                }
+            }
+        }
+        return;
+    }
+
+    // Unwrap begin nodes (explicit begin..end)
+    if let Some(begin_node) = node.as_begin_node() {
+        if let Some(stmts) = begin_node.statements() {
+            for child in stmts.body().iter() {
+                collect_top_level_groups(&child, offsets);
+            }
+        }
     }
 }
 
@@ -225,14 +308,15 @@ fn is_custom_matcher_call(call: &ruby_prism::CallNode<'_>) -> bool {
 
 impl<'pr> Visit<'pr> for IvarChecker<'_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        let name = node.name().as_slice();
         let has_block = node.block().is_some();
 
-        // Check if this is an example group call with a block
-        let is_eg = has_block && node.receiver().is_none() && is_rspec_example_group(name);
-        let is_rspec_describe = has_block && is_rspec_receiver(node) && name == b"describe";
-
-        let enters_example_group = is_eg || is_rspec_describe;
+        // Only enter example group mode for top-level spec groups.
+        // RuboCop's TopLevelGroup only processes describe/context blocks at the
+        // file's top level. Nested describe/context within a top-level group
+        // are already inside in_example_group and don't need separate detection.
+        let enters_example_group = self
+            .top_level_offsets
+            .contains(&node.location().start_offset());
         let enters_dynamic_class = has_block && is_dynamic_class_call(node);
         let enters_custom_matcher = has_block && is_custom_matcher_call(node);
 
@@ -372,6 +456,53 @@ mod tests {
             diags.len(),
             1,
             "::RSpec.describe should be recognized as an example group"
+        );
+    }
+
+    #[test]
+    fn describe_inside_if_is_not_flagged() {
+        // RuboCop's TopLevelGroup only recognizes describe at the file top level.
+        // Describe blocks nested inside `if` statements are not top-level groups.
+        let source = b"if defined?(SomeGem)\n  describe Foo do\n    before { @x = 1 }\n    it { @x }\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
+        assert!(
+            diags.is_empty(),
+            "Instance variable read inside describe wrapped in if should not be flagged"
+        );
+    }
+
+    #[test]
+    fn describe_inside_block_is_not_flagged() {
+        // Describe inside a non-RSpec method block is not a top-level group
+        let source = b"some_method do\n  describe Foo do\n    it { @bar }\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
+        assert!(
+            diags.is_empty(),
+            "Instance variable read inside describe wrapped in a block should not be flagged"
+        );
+    }
+
+    #[test]
+    fn describe_inside_module_is_flagged() {
+        // RuboCop's TopLevelGroup unwraps module nodes — describe inside module IS top-level
+        let source = b"module MyModule\n  describe Foo do\n    it { @bar }\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Instance variable read inside describe wrapped in module should be flagged"
+        );
+    }
+
+    #[test]
+    fn describe_inside_class_is_flagged() {
+        // RuboCop's TopLevelGroup unwraps class nodes — describe inside class IS top-level
+        let source = b"class MyClass\n  describe Foo do\n    it { @bar }\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Instance variable read inside describe wrapped in class should be flagged"
         );
     }
 }
