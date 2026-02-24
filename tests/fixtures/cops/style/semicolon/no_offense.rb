@@ -23,3 +23,22 @@ def test?;        environment == :test        end
 # Embedded single-line def with body inside a block
 mock_app { def http_status; 400 end }
 foo { def bar; x(3) end }
+
+# `when` clauses with semicolon separator (structural, not expression separator)
+case state
+when 'S'; 'Sleeping'
+when 'D'; 'Disk Sleep'
+when 'Z'; 'Zombie'
+when 'T'; 'Traced'
+when 'W'; 'Paging'
+end
+
+# Single-line if/unless/while/until/for with single expression body
+if cond; action end
+unless cond; action end
+while cond; action end
+until cond; action end
+for x in list; process(x) end
+
+# begin/rescue/ensure structural semicolons
+begin; action; rescue; fallback; end
