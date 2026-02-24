@@ -23,10 +23,15 @@ impl Cop for RequireDependency {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // minimum_target_rails_version 6.0
+        if !config.rails_version_at_least(6.0) {
+            return;
+        }
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return,
@@ -77,5 +82,5 @@ impl Cop for RequireDependency {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(RequireDependency, "cops/rails/require_dependency");
+    crate::cop_rails_fixture_tests!(RequireDependency, "cops/rails/require_dependency", 6.0);
 }

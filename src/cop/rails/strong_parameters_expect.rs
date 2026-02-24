@@ -44,13 +44,7 @@ impl Cop for StrongParametersExpect {
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // minimum_target_rails_version 8.0
-        // params.expect(...) was introduced in Rails 8.0; skip for older versions.
-        let rails_version = config
-            .options
-            .get("TargetRailsVersion")
-            .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
-            .unwrap_or(5.0);
-        if rails_version < 8.0 {
+        if !config.rails_version_at_least(8.0) {
             return;
         }
 

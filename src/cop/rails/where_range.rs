@@ -23,10 +23,15 @@ impl Cop for WhereRange {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // minimum_target_rails_version 6.0
+        if !config.rails_version_at_least(6.0) {
+            return;
+        }
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return,
@@ -205,20 +210,27 @@ fn is_column_identifier(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(WhereRange, "cops/rails/where_range");
+    crate::cop_rails_fixture_tests!(WhereRange, "cops/rails/where_range", 6.0);
 
     #[test]
     fn does_not_flag_complex_sql() {
-        use crate::testutil::assert_cop_no_offenses;
-        assert_cop_no_offenses(
+        let config = rails_config();
+        let diags = crate::testutil::run_cop_full_with_config(
             &WhereRange,
             b"User.where('COALESCE(status_stats.reblogs_count, 0) < ?', min_reblogs)\n",
+            config,
         );
+        assert!(diags.is_empty());
     }
 
     #[test]
     fn does_not_flag_non_comparison() {
-        use crate::testutil::assert_cop_no_offenses;
-        assert_cop_no_offenses(&WhereRange, b"User.where('name = ?', name)\n");
+        let config = rails_config();
+        let diags = crate::testutil::run_cop_full_with_config(
+            &WhereRange,
+            b"User.where('name = ?', name)\n",
+            config,
+        );
+        assert!(diags.is_empty());
     }
 }

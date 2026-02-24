@@ -153,6 +153,32 @@ impl CopConfig {
         }
     }
 
+    /// Whether the project has a known Rails version (i.e., `TargetRailsVersion` was
+    /// resolved from config or `Gemfile.lock`). Non-Rails projects won't have this set.
+    ///
+    /// Rails cops that use `minimum_target_rails_version` in RuboCop should call this
+    /// to skip non-Rails projects — matching RuboCop's `requires_gem 'railties'` gate.
+    pub fn has_target_rails_version(&self) -> bool {
+        self.options.contains_key("TargetRailsVersion")
+    }
+
+    /// Get the target Rails version (defaults to 5.0 if set but unparseable).
+    /// Returns `None` if `TargetRailsVersion` is not present (non-Rails project).
+    pub fn target_rails_version(&self) -> Option<f64> {
+        self.options.get("TargetRailsVersion").map(|v| {
+            v.as_f64()
+                .or_else(|| v.as_u64().map(|u| u as f64))
+                .unwrap_or(5.0)
+        })
+    }
+
+    /// Check that the target Rails version meets a minimum requirement.
+    /// Returns `false` if `TargetRailsVersion` is not set (non-Rails project) or
+    /// is below the specified minimum. Mirrors RuboCop's `minimum_target_rails_version`.
+    pub fn rails_version_at_least(&self, minimum: f64) -> bool {
+        self.target_rails_version().is_some_and(|v| v >= minimum)
+    }
+
     /// Whether the cop itself is considered safe (default: true).
     pub fn is_safe(&self) -> bool {
         self.get_bool("Safe", true)
@@ -401,6 +427,75 @@ macro_rules! cop_autocorrect_fixture_tests {
                 &$cop,
                 include_bytes!(concat!("../../../tests/fixtures/", $path, "/offense.rb")),
                 include_bytes!(concat!("../../../tests/fixtures/", $path, "/corrected.rb")),
+            );
+        }
+    };
+}
+
+/// Generate standard offense/no_offense fixture tests for a Rails cop that
+/// requires `TargetRailsVersion` to be set (matching RuboCop's
+/// `minimum_target_rails_version` / `requires_gem 'railties'` gates).
+///
+/// The `$min_version` parameter is the minimum Rails version the cop requires
+/// (e.g., `5.0`, `6.0`, `7.0`). It is injected into the test config so the
+/// cop's `config.rails_version_at_least(...)` check passes.
+///
+/// Usage:
+/// ```ignore
+/// #[cfg(test)]
+/// mod tests {
+///     use super::*;
+///     crate::cop_rails_fixture_tests!(CopStruct, "cops/rails/cop_name", 5.0);
+/// }
+/// ```
+#[macro_export]
+macro_rules! cop_rails_fixture_tests {
+    ($cop:expr, $path:literal, $min_version:expr) => {
+        fn rails_config() -> $crate::cop::CopConfig {
+            let mut options = std::collections::HashMap::new();
+            options.insert(
+                "TargetRailsVersion".to_string(),
+                serde_yml::Value::Number(serde_yml::value::Number::from($min_version as f64)),
+            );
+            $crate::cop::CopConfig {
+                options,
+                ..$crate::cop::CopConfig::default()
+            }
+        }
+
+        #[test]
+        fn offense_fixture() {
+            $crate::testutil::assert_cop_offenses_full_with_config(
+                &$cop,
+                include_bytes!(concat!("../../../tests/fixtures/", $path, "/offense.rb")),
+                rails_config(),
+            );
+        }
+
+        #[test]
+        fn no_offense_fixture() {
+            $crate::testutil::assert_cop_no_offenses_full_with_config(
+                &$cop,
+                include_bytes!(concat!("../../../tests/fixtures/", $path, "/no_offense.rb")),
+                rails_config(),
+            );
+        }
+
+        #[test]
+        fn skipped_when_no_target_rails_version() {
+            // Non-Rails projects have no TargetRailsVersion — cop should not fire.
+            let source = include_bytes!(concat!("../../../tests/fixtures/", $path, "/offense.rb"));
+            let parsed = $crate::testutil::parse_fixture(source);
+            let diagnostics = $crate::testutil::run_cop_full_internal(
+                &$cop,
+                &parsed.source,
+                $crate::cop::CopConfig::default(),
+                "test.rb",
+            );
+            assert!(
+                diagnostics.is_empty(),
+                "Should not fire when TargetRailsVersion is not set (non-Rails project), but got {} offenses",
+                diagnostics.len()
             );
         }
     };

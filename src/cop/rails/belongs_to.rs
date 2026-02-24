@@ -24,10 +24,15 @@ impl Cop for BelongsTo {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // minimum_target_rails_version 5.0
+        if !config.rails_version_at_least(5.0) {
+            return;
+        }
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return,
@@ -60,5 +65,5 @@ impl Cop for BelongsTo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(BelongsTo, "cops/rails/belongs_to");
+    crate::cop_rails_fixture_tests!(BelongsTo, "cops/rails/belongs_to", 5.0);
 }

@@ -25,9 +25,7 @@ impl Cop for Pluck {
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // minimum_target_rails_version 5.0
-        // RuboCop uses requires_gem('railties', '>= 5.0') which skips the cop
-        // when railties is not installed (non-Rails projects/gems).
-        if !config.options.contains_key("TargetRailsVersion") {
+        if !config.rails_version_at_least(5.0) {
             return;
         }
 

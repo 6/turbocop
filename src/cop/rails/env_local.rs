@@ -58,10 +58,15 @@ impl Cop for EnvLocal {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // minimum_target_rails_version 7.1
+        if !config.rails_version_at_least(7.1) {
+            return;
+        }
+
         let or_node = match node.as_or_node() {
             Some(o) => o,
             None => return,
@@ -93,5 +98,5 @@ impl Cop for EnvLocal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(EnvLocal, "cops/rails/env_local");
+    crate::cop_rails_fixture_tests!(EnvLocal, "cops/rails/env_local", 7.1);
 }

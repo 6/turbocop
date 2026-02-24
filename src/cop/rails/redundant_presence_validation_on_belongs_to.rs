@@ -36,10 +36,15 @@ impl Cop for RedundantPresenceValidationOnBelongsTo {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // minimum_target_rails_version 5.0
+        if !config.rails_version_at_least(5.0) {
+            return;
+        }
+
         let class = match node.as_class_node() {
             Some(c) => c,
             None => return,
@@ -181,8 +186,9 @@ fn extract_all_symbol_args(call: &ruby_prism::CallNode<'_>) -> Vec<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(
+    crate::cop_rails_fixture_tests!(
         RedundantPresenceValidationOnBelongsTo,
-        "cops/rails/redundant_presence_validation_on_belongs_to"
+        "cops/rails/redundant_presence_validation_on_belongs_to",
+        5.0
     );
 }

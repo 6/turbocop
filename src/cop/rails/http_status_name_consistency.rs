@@ -45,10 +45,16 @@ impl Cop for HttpStatusNameConsistency {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // requires_gem 'rack', '>= 3.1.0' — only fire in Rails projects.
+        // Non-Rails projects won't have TargetRailsVersion set.
+        if !config.has_target_rails_version() {
+            return;
+        }
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return,
@@ -175,8 +181,9 @@ impl HttpStatusNameConsistency {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(
+    crate::cop_rails_fixture_tests!(
         HttpStatusNameConsistency,
-        "cops/rails/http_status_name_consistency"
+        "cops/rails/http_status_name_consistency",
+        7.0
     );
 }

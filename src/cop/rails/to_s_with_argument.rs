@@ -23,10 +23,15 @@ impl Cop for ToSWithArgument {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // minimum_target_rails_version 7.0
+        if !config.rails_version_at_least(7.0) {
+            return;
+        }
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return,
@@ -68,5 +73,5 @@ impl Cop for ToSWithArgument {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ToSWithArgument, "cops/rails/to_s_with_argument");
+    crate::cop_rails_fixture_tests!(ToSWithArgument, "cops/rails/to_s_with_argument", 7.0);
 }

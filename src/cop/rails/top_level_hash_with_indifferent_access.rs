@@ -23,10 +23,15 @@ impl Cop for TopLevelHashWithIndifferentAccess {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // minimum_target_rails_version 5.1
+        if !config.rails_version_at_least(5.1) {
+            return;
+        }
+
         // Check for ConstantReadNode: `HashWithIndifferentAccess`
         if let Some(cr) = node.as_constant_read_node() {
             if cr.name().as_slice() == b"HashWithIndifferentAccess" {
@@ -64,8 +69,9 @@ impl Cop for TopLevelHashWithIndifferentAccess {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(
+    crate::cop_rails_fixture_tests!(
         TopLevelHashWithIndifferentAccess,
-        "cops/rails/top_level_hash_with_indifferent_access"
+        "cops/rails/top_level_hash_with_indifferent_access",
+        5.1
     );
 }

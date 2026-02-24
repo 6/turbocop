@@ -23,10 +23,15 @@ impl Cop for ExpandedDateRange {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // minimum_target_rails_version 5.1
+        if !config.rails_version_at_least(5.1) {
+            return;
+        }
+
         let range = match node.as_range_node() {
             Some(r) => r,
             None => return,
@@ -74,5 +79,5 @@ impl Cop for ExpandedDateRange {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ExpandedDateRange, "cops/rails/expanded_date_range");
+    crate::cop_rails_fixture_tests!(ExpandedDateRange, "cops/rails/expanded_date_range", 5.1);
 }

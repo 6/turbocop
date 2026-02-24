@@ -24,10 +24,15 @@ impl Cop for FreezeTime {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // minimum_target_rails_version 5.2
+        if !config.rails_version_at_least(5.2) {
+            return;
+        }
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return,
@@ -105,5 +110,5 @@ fn is_time_now_pattern(node: &ruby_prism::Node<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(FreezeTime, "cops/rails/freeze_time");
+    crate::cop_rails_fixture_tests!(FreezeTime, "cops/rails/freeze_time", 5.2);
 }

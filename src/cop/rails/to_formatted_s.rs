@@ -27,6 +27,11 @@ impl Cop for ToFormattedS {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // minimum_target_rails_version 7.0
+        if !config.rails_version_at_least(7.0) {
+            return;
+        }
+
         let style = config.get_str("EnforcedStyle", "to_fs");
 
         let call = match node.as_call_node() {
@@ -65,7 +70,7 @@ impl Cop for ToFormattedS {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ToFormattedS, "cops/rails/to_formatted_s");
+    crate::cop_rails_fixture_tests!(ToFormattedS, "cops/rails/to_formatted_s", 7.0);
 
     #[test]
     fn to_formatted_s_style_flags_to_fs() {
@@ -74,10 +79,16 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([(
-                "EnforcedStyle".to_string(),
-                serde_yml::Value::String("to_formatted_s".to_string()),
-            )]),
+            options: HashMap::from([
+                (
+                    "EnforcedStyle".to_string(),
+                    serde_yml::Value::String("to_formatted_s".to_string()),
+                ),
+                (
+                    "TargetRailsVersion".to_string(),
+                    serde_yml::Value::Number(serde_yml::value::Number::from(7.0)),
+                ),
+            ]),
             ..CopConfig::default()
         };
         let source = b"time.to_fs(:db)\n";
@@ -92,10 +103,16 @@ mod tests {
         use std::collections::HashMap;
 
         let config = CopConfig {
-            options: HashMap::from([(
-                "EnforcedStyle".to_string(),
-                serde_yml::Value::String("to_formatted_s".to_string()),
-            )]),
+            options: HashMap::from([
+                (
+                    "EnforcedStyle".to_string(),
+                    serde_yml::Value::String("to_formatted_s".to_string()),
+                ),
+                (
+                    "TargetRailsVersion".to_string(),
+                    serde_yml::Value::Number(serde_yml::value::Number::from(7.0)),
+                ),
+            ]),
             ..CopConfig::default()
         };
         let source = b"time.to_formatted_s(:db)\n";

@@ -162,10 +162,15 @@ impl Cop for WhereMissing {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // minimum_target_rails_version 6.1
+        if !config.rails_version_at_least(6.1) {
+            return;
+        }
+
         // We look for a method chain that contains both:
         // 1. left_joins(:assoc) or left_outer_joins(:assoc)
         // 2. where(assoc_table: { id: nil })
@@ -243,5 +248,5 @@ impl Cop for WhereMissing {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(WhereMissing, "cops/rails/where_missing");
+    crate::cop_rails_fixture_tests!(WhereMissing, "cops/rails/where_missing", 6.1);
 }

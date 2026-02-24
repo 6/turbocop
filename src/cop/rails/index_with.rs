@@ -222,10 +222,15 @@ impl Cop for IndexWith {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // minimum_target_rails_version 6.0
+        if !config.rails_version_at_least(6.0) {
+            return;
+        }
+
         // Pattern 1: items.map { |e| [e, value] }.to_h
         if let Some(chain) = util::as_method_chain(node) {
             if chain.outer_method == b"to_h"
@@ -327,5 +332,5 @@ impl Cop for IndexWith {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(IndexWith, "cops/rails/index_with");
+    crate::cop_rails_fixture_tests!(IndexWith, "cops/rails/index_with", 6.0);
 }

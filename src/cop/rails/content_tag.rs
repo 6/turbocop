@@ -23,10 +23,15 @@ impl Cop for ContentTag {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // minimum_target_rails_version 5.1
+        if !config.rails_version_at_least(5.1) {
+            return;
+        }
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return,
@@ -103,5 +108,5 @@ fn is_valid_tag_name(name: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ContentTag, "cops/rails/content_tag");
+    crate::cop_rails_fixture_tests!(ContentTag, "cops/rails/content_tag", 5.1);
 }

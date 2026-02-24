@@ -23,10 +23,15 @@ impl Cop for RedundantTravelBack {
         source: &SourceFile,
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::cop::CodeMap,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // minimum_target_rails_version 5.2
+        if !config.rails_version_at_least(5.2) {
+            return;
+        }
+
         let mut visitor = TravelBackVisitor {
             cop: self,
             source,
@@ -95,5 +100,5 @@ impl<'a, 'pr> Visit<'pr> for TravelBackVisitor<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(RedundantTravelBack, "cops/rails/redundant_travel_back");
+    crate::cop_rails_fixture_tests!(RedundantTravelBack, "cops/rails/redundant_travel_back", 5.2);
 }
