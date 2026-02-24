@@ -110,7 +110,8 @@ def main():
     run_date = data.get("run_date", "unknown")[:10]
 
     # Load tiers
-    project_root = Path(__file__).resolve().parent.parent.parent
+    # .claude/skills/triage/scripts/ → repo root
+    project_root = Path(__file__).resolve().parent.parent.parent.parent
     tier_overrides = load_tiers(project_root)
 
     # Filter to diverging cops

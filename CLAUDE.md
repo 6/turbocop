@@ -261,7 +261,7 @@ Pipeline: `bench_turbocop conform` → `bench/conform.json` → `coverage_table`
 
 ## Corpus Oracle Triage
 
-`python3 bench/corpus/triage.py` ranks cops by FP+FN from the 500-repo corpus oracle. Auto-downloads latest CI results, or pass `--input <path>`. Supports `--department`, `--exclude-department`, `--fp-only`, `--fn-only`, `--limit` filters.
+Use the `/triage` skill to rank cops by FP+FN from the 500-repo corpus oracle. See `.claude/skills/triage/skill.md` for details.
 
 ## Rules
 
