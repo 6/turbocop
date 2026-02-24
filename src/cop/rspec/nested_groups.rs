@@ -1,7 +1,9 @@
 use ruby_prism::Visit;
 
 use crate::cop::node_type::{BLOCK_NODE, CALL_NODE};
-use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
+use crate::cop::util::{
+    self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_shared_group,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -95,6 +97,20 @@ struct NestingVisitor<'a, 'pr> {
 impl<'pr> Visit<'pr> for NestingVisitor<'_, 'pr> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         let method_name = node.name().as_slice();
+
+        // Shared group definitions (shared_examples, shared_context) do NOT
+        // increment nesting depth — they define reusable groups with their own
+        // independent scope.  Recurse into their block body at the SAME depth.
+        if node.receiver().is_none() && is_rspec_shared_group(method_name) {
+            if let Some(block) = node.block() {
+                if let Some(bn) = block.as_block_node() {
+                    if let Some(body) = bn.body() {
+                        self.visit(&body);
+                    }
+                }
+            }
+            return;
+        }
 
         // Only count receiverless example group calls as nesting
         let is_allowed = self

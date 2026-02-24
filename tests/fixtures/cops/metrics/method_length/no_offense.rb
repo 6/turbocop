@@ -50,3 +50,35 @@ def heredoc_method
     -- still going
   SQL
 end
+
+# define_method with short body (no offense)
+define_method(:short_dynamic) do
+  a = 1
+  b = 2
+  c = 3
+end
+
+# define_method at exactly Max lines
+define_method(:ten_dynamic) do
+  a = 1
+  b = 2
+  c = 3
+  d = 4
+  e = 5
+  f = 6
+  g = 7
+  h = 8
+  i = 9
+  j = 10
+end
+
+# define_method with brace block
+define_method(:brace_dynamic) { |x|
+  a = 1
+  b = 2
+}
+
+# define_method with string name
+define_method("string_name") do
+  a = 1
+end

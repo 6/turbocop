@@ -97,15 +97,21 @@ impl<'pr> Visit<'pr> for StringLiteralsVisitor<'_> {
                     if content.contains(&b'"') {
                         return;
                     }
-                    // Skip if the content contains backslashes — in single-quoted
-                    // strings they're literal, but in double-quoted strings they
-                    // become escape sequences (changing the string's meaning).
-                    if content.contains(&b'\\') {
+                    // Skip if the content contains a backslash followed by a
+                    // character other than ' or \ — these are literal in
+                    // single-quoted strings but would become escape sequences
+                    // in double-quoted strings (\n, \t, \s, etc.).
+                    // Backslash followed by ' or \ is OK to convert: \\ → \\
+                    // and \' → '. Matches RuboCop's \\[^'\\] regex.
+                    if has_meaningful_backslash_escape(content) {
                         return;
                     }
-                    // Skip if content contains #{ — in double quotes this would
-                    // become interpolation, changing the string's meaning.
-                    if content.windows(2).any(|w| w == b"#{") {
+                    // Skip if content contains #@, #$, or #{ — in double quotes
+                    // these would become interpolation, changing the string's meaning.
+                    if content
+                        .windows(2)
+                        .any(|w| w == b"#{" || w == b"#@" || w == b"#$")
+                    {
                         return;
                     }
                     // Skip multi-line strings — RuboCop doesn't flag these
@@ -120,12 +126,34 @@ impl<'pr> Visit<'pr> for StringLiteralsVisitor<'_> {
                         return;
                     }
                     let (line, column) = self.source.offset_to_line_col(opening.start_offset());
-                    self.diagnostics.push(self.cop.diagnostic(self.source, line, column, "Prefer double-quoted strings unless you need single quotes within your string.".to_string()));
+                    self.diagnostics.push(self.cop.diagnostic(self.source, line, column, "Prefer double-quoted strings unless you need single quotes to avoid extra backslashes for escaping.".to_string()));
                 }
             }
             _ => {}
         }
     }
+}
+
+/// Check if a single-quoted string's raw source content contains a backslash
+/// followed by a character other than `'` or `\`. In single-quoted strings,
+/// `\n`, `\t`, `\s`, etc. are literal (two characters), but in double-quoted
+/// strings they'd become real escape sequences. Only `\\` and `\'` are safe
+/// to convert. Matches RuboCop's `\\[^'\\]` regex.
+fn has_meaningful_backslash_escape(content: &[u8]) -> bool {
+    let mut i = 0;
+    while i < content.len() {
+        if content[i] == b'\\' && i + 1 < content.len() {
+            let next = content[i + 1];
+            if next != b'\'' && next != b'\\' {
+                return true;
+            }
+            // Skip the pair
+            i += 2;
+            continue;
+        }
+        i += 1;
+    }
+    false
 }
 
 /// Check if a double-quoted string's raw source content contains escape
@@ -312,6 +340,141 @@ mod tests {
             diags.len(),
             1,
             "Should flag 'different' even with earlier interpolation in file: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn double_quotes_flags_escaped_backslash_in_single_quotes() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("double_quotes".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        // '\\' (escaped backslash) should be flagged — can be "\\"
+        let source = b"x = '\\\\'\n";
+        let diags = run_cop_full_with_config(&StringLiterals, source, config);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag '\\\\' with double_quotes style: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn double_quotes_flags_escaped_single_quote() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("double_quotes".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        // '\'' (escaped single quote) should be flagged — can be "'"
+        let source = b"x = '\\''\n";
+        let diags = run_cop_full_with_config(&StringLiterals, source, config);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag escaped single quote with double_quotes style: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn double_quotes_skips_hash_at_content() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("double_quotes".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        // '#@test' should NOT be flagged — would become interpolation in double quotes
+        let source = b"x = '#@test'\n";
+        let diags = run_cop_full_with_config(&StringLiterals, source, config);
+        assert!(
+            diags.is_empty(),
+            "Should not flag single-quoted string containing #@: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn double_quotes_skips_hash_dollar_content() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("double_quotes".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        // '#$test' should NOT be flagged — would become interpolation in double quotes
+        let source = b"x = '#$test'\n";
+        let diags = run_cop_full_with_config(&StringLiterals, source, config);
+        assert!(
+            diags.is_empty(),
+            "Should not flag single-quoted string containing #$: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn double_quotes_skips_backslash_n_content() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("double_quotes".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        // '\n' should NOT be flagged — in double quotes \n would be a newline
+        let source = b"x = '\\n'\n";
+        let diags = run_cop_full_with_config(&StringLiterals, source, config);
+        assert!(
+            diags.is_empty(),
+            "Should not flag single-quoted string containing \\n: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn double_quotes_flags_plain_hash() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("double_quotes".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        // 'blah #' should be flagged — plain # is safe in double quotes
+        let source = b"x = 'blah #'\n";
+        let diags = run_cop_full_with_config(&StringLiterals, source, config);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should flag single-quoted string with plain # in double_quotes style: {:?}",
             diags
         );
     }

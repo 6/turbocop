@@ -25,3 +25,34 @@ shared_examples 'throttled endpoint' do
   let(:limit) { 25 }
   let(:period) { 5 }
 end
+
+# `its` is a valid example method (rspec-its gem)
+describe Record do
+  its(:name) { is_expected.to eq('test') }
+end
+
+# `pending` without block counts as example
+describe Validator do
+  pending 'too hard to specify'
+end
+
+# examples inside iterators count
+describe 'monthly report' do
+  [1, 2, 3].each do |page|
+    it { expect(page).to be > 0 }
+  end
+end
+
+# examples inside custom blocks count
+context 'with role' do
+  with_permissions :admin do
+    it { expect(subject).to be_allowed }
+  end
+end
+
+# it_should_behave_like counts as content
+describe Integration do
+  context 'when complete' do
+    it_should_behave_like 'a valid record'
+  end
+end

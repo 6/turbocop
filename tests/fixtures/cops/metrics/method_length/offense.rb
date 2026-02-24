@@ -46,3 +46,33 @@ def verbose_method(x)
   j = 10
   k = 11
 end
+
+define_method(:dynamic_long) do
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Metrics/MethodLength: Method has too many lines. [11/10]
+  a = 1
+  b = 2
+  c = 3
+  d = 4
+  e = 5
+  f = 6
+  g = 7
+  h = 8
+  i = 9
+  j = 10
+  k = 11
+end
+
+define_method(:another_dynamic) { |x|
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Metrics/MethodLength: Method has too many lines. [11/10]
+  a = 1
+  b = 2
+  c = 3
+  d = 4
+  e = 5
+  f = 6
+  g = 7
+  h = 8
+  i = 9
+  j = 10
+  k = 11
+}

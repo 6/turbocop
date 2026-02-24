@@ -1,6 +1,6 @@
 use ruby_prism::Visit;
 
-use crate::cop::node_type::{DEF_NODE, LOCAL_VARIABLE_READ_NODE};
+use crate::cop::node_type::DEF_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -13,7 +13,7 @@ impl Cop for BlockForwarding {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[DEF_NODE, LOCAL_VARIABLE_READ_NODE]
+        &[DEF_NODE]
     }
 
     fn check_node(
@@ -69,23 +69,43 @@ impl Cop for BlockForwarding {
             None => return,
         };
 
+        // Ruby has a syntax error when using anonymous block forwarding with keyword params:
+        //   def foo(k:, &); end  => "no anonymous block parameter"
+        // This applies to all Ruby versions that support anonymous block forwarding.
+        if !params.keywords().is_empty() {
+            return;
+        }
+
         let param_name_bytes = param_name.as_slice();
 
-        // Check if the block is only used for forwarding (passed as &name to other calls)
-        let body = match def_node.body() {
-            Some(b) => b,
-            None => return,
-        };
-
-        // Check if the block parameter is only used as &name in call arguments
+        // Visit the body to check block param usage
         let mut checker = BlockUsageChecker {
             block_name: param_name_bytes,
             only_forwarded: true,
             has_forwarding: false,
+            has_any_reference: false,
+            used_in_nested_block: false,
         };
-        checker.visit(&body);
 
-        if checker.only_forwarded && checker.has_forwarding {
+        if let Some(body) = def_node.body() {
+            checker.visit(&body);
+        }
+        // If body is None, the block param is unused — still an offense
+
+        // If the block param is assigned (e.g., block ||= ...), it's not pure forwarding
+        if !checker.only_forwarded {
+            return;
+        }
+
+        // Ruby 3.1-3.3: anonymous block forwarding inside nested blocks is a syntax error
+        if target_version < 3.4 && checker.used_in_nested_block {
+            return;
+        }
+
+        // Offense if:
+        // - Block is forwarded (has_forwarding) and only forwarded (only_forwarded), OR
+        // - Block is never referenced at all (unused param should be anonymous &)
+        if checker.has_forwarding || !checker.has_any_reference {
             let loc = block_param.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             diagnostics.push(self.diagnostic(
@@ -102,6 +122,8 @@ struct BlockUsageChecker<'a> {
     block_name: &'a [u8],
     only_forwarded: bool,
     has_forwarding: bool,
+    has_any_reference: bool,
+    used_in_nested_block: bool,
 }
 
 impl<'pr> Visit<'pr> for BlockUsageChecker<'_> {
@@ -111,20 +133,74 @@ impl<'pr> Visit<'pr> for BlockUsageChecker<'_> {
             if let Some(local_var) = expr.as_local_variable_read_node() {
                 if local_var.name().as_slice() == self.block_name {
                     self.has_forwarding = true;
+                    self.has_any_reference = true;
                 }
             }
         }
     }
 
+    fn visit_yield_node(&mut self, node: &ruby_prism::YieldNode<'pr>) {
+        // `yield` forwards the block — this counts as forwarding usage
+        self.has_forwarding = true;
+        // Continue visiting children (yield arguments)
+        ruby_prism::visit_yield_node(self, node);
+    }
+
     fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
         if node.name().as_slice() == self.block_name {
-            // block variable used in non-forwarding context
+            // Block variable used in non-forwarding context (e.g., block.call, if block, block)
+            // Note: reads inside block_argument_node are handled there, not here,
+            // because visit_call_node visits block args before visiting regular args/receiver.
             self.only_forwarded = false;
+            self.has_any_reference = true;
         }
     }
 
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
+        if node.name().as_slice() == self.block_name {
+            // Block param is reassigned — not pure forwarding
+            self.only_forwarded = false;
+            self.has_any_reference = true;
+        }
+        ruby_prism::visit_local_variable_write_node(self, node);
+    }
+
+    fn visit_local_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+    ) {
+        if node.name().as_slice() == self.block_name {
+            // block ||= ... — not pure forwarding
+            self.only_forwarded = false;
+            self.has_any_reference = true;
+        }
+        ruby_prism::visit_local_variable_or_write_node(self, node);
+    }
+
+    fn visit_local_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
+    ) {
+        if node.name().as_slice() == self.block_name {
+            self.only_forwarded = false;
+            self.has_any_reference = true;
+        }
+        ruby_prism::visit_local_variable_and_write_node(self, node);
+    }
+
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        if node.name().as_slice() == self.block_name {
+            self.only_forwarded = false;
+            self.has_any_reference = true;
+        }
+        ruby_prism::visit_local_variable_operator_write_node(self, node);
+    }
+
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        // Check the call's block argument
+        // Check the call's block argument first (so block arg reads are counted as forwarding)
         if let Some(block_arg) = node.block() {
             self.visit(&block_arg);
         }
@@ -139,6 +215,32 @@ impl<'pr> Visit<'pr> for BlockUsageChecker<'_> {
             self.visit(&recv);
         }
     }
+
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        // Track whether the block param is used inside a nested block (do..end / {})
+        // On Ruby 3.1-3.3, anonymous block forwarding inside nested blocks is a syntax error.
+        let saved_forwarding = self.has_forwarding;
+        let saved_reference = self.has_any_reference;
+        ruby_prism::visit_block_node(self, node);
+        // If any forwarding or reference was added during the nested block visit,
+        // mark used_in_nested_block
+        if self.has_forwarding != saved_forwarding || self.has_any_reference != saved_reference {
+            self.used_in_nested_block = true;
+        }
+    }
+
+    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
+        // Same treatment as block_node for nested scope tracking
+        let saved_forwarding = self.has_forwarding;
+        let saved_reference = self.has_any_reference;
+        ruby_prism::visit_lambda_node(self, node);
+        if self.has_forwarding != saved_forwarding || self.has_any_reference != saved_reference {
+            self.used_in_nested_block = true;
+        }
+    }
+
+    // Don't descend into nested def nodes — they have their own scope
+    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
 }
 
 #[cfg(test)]

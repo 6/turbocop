@@ -58,14 +58,18 @@ impl AliasVisitor<'_, '_> {
     }
 
     /// Check if alias_method can be replaced with alias keyword.
-    /// Requires: not in dynamic scope, and all arguments are symbols.
+    /// Requires: not in dynamic scope, exactly 2 symbol arguments.
     fn alias_keyword_possible(&self, call: &ruby_prism::CallNode<'_>) -> bool {
         if self.current_scope() == ScopeType::Dynamic {
             return false;
         }
-        // Check that arguments are symbol literals (not interpolated symbols or other types)
+        // Must have exactly 2 symbol literal arguments
         if let Some(args) = call.arguments() {
-            for arg in args.arguments().iter() {
+            let arg_list: Vec<_> = args.arguments().iter().collect();
+            if arg_list.len() != 2 {
+                return false;
+            }
+            for arg in &arg_list {
                 if arg.as_symbol_node().is_none() {
                     return false;
                 }
@@ -170,8 +174,11 @@ impl Visit<'_> for AliasVisitor<'_, '_> {
 
         // If this call has a block, push appropriate scope for the block body
         if node.block().is_some() {
-            let scope = if node.name().as_slice() == b"instance_eval" {
+            let name = node.name().as_slice();
+            let scope = if name == b"instance_eval" {
                 ScopeType::InstanceEval
+            } else if name == b"class_eval" || name == b"module_eval" {
+                ScopeType::Lexical
             } else {
                 ScopeType::Dynamic
             };

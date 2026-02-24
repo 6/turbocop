@@ -13,3 +13,21 @@ sql = "SELECT * FROM foo
 # backslash-escape (except \\ and \") as requiring double quotes
 desc = "with a regexp containing invalid \g escape"
 note = "with an invalid \p pattern"
+
+# Unicode escape sequences need double quotes
+copyright = "\u00A9"
+hex_str = "\xf9"
+
+# Control character escapes need double quotes
+esc = "\e"
+
+# %q, %Q, and % strings should be ignored
+a = %q(hello)
+b = %Q[world]
+c = %(test)
+
+# Character literal should be ignored
+d = ?/
+
+# String with escaped hash — \# is different from # in double quotes
+e = "\#"

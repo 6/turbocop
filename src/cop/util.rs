@@ -976,6 +976,7 @@ pub const RSPEC_EXAMPLES: &[&str] = &[
     "specify",
     "example",
     "scenario",
+    "its",
     "xit",
     "xspecify",
     "xexample",
@@ -1022,6 +1023,7 @@ pub const RSPEC_ALL_METHODS: &[&str] = &[
     "specify",
     "example",
     "scenario",
+    "its",
     "xit",
     "xspecify",
     "xexample",
@@ -1042,10 +1044,22 @@ pub const RSPEC_ALL_METHODS: &[&str] = &[
     "subject!",
 ];
 
+/// Shared group definition methods — NOT counted as nesting in NestedGroups.
+pub const RSPEC_SHARED_GROUPS: &[&str] =
+    &["shared_examples", "shared_examples_for", "shared_context"];
+
 /// Check if a method name is an RSpec example group method.
 pub fn is_rspec_example_group(name: &[u8]) -> bool {
     let s = std::str::from_utf8(name).unwrap_or("");
     RSPEC_EXAMPLE_GROUPS.contains(&s)
+}
+
+/// Check if a method name is an RSpec shared group definition
+/// (shared_examples, shared_examples_for, shared_context).
+/// These are top-level groups but do NOT count toward nesting depth.
+pub fn is_rspec_shared_group(name: &[u8]) -> bool {
+    let s = std::str::from_utf8(name).unwrap_or("");
+    RSPEC_SHARED_GROUPS.contains(&s)
 }
 
 /// Check if a method name is an RSpec example method.

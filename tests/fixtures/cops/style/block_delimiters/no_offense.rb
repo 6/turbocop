@@ -41,3 +41,6 @@ expect { subject }.to change {
 get '/:path', to: redirect { |params|
   "/#{params[:path]}"
 }
+
+# Single-line do-end with rescue clause — cannot convert to braces
+foo do next unless bar; rescue StandardError; end

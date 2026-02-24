@@ -105,6 +105,12 @@ impl<'a> BlockDelimitersVisitor<'a> {
             return;
         }
 
+        // require_do_end: single-line do-end blocks with rescue/ensure clauses
+        // cannot be converted to braces (syntax error). Skip these.
+        if is_single_line && opening == b"do" && block_has_rescue_or_ensure(block_node) {
+            return;
+        }
+
         // line_count_based style
         if is_single_line && opening == b"do" {
             let (line, column) = self.source.offset_to_line_col(opening_loc.start_offset());
@@ -163,6 +169,17 @@ impl<'a> Visit<'_> for BlockDelimitersVisitor<'a> {
     }
 }
 
+/// Check if a block's body contains rescue or ensure clauses.
+/// In Prism, this manifests as a BeginNode body with rescue_clause or ensure_clause.
+fn block_has_rescue_or_ensure(block_node: &ruby_prism::BlockNode<'_>) -> bool {
+    if let Some(body) = block_node.body() {
+        if let Some(begin_node) = body.as_begin_node() {
+            return begin_node.rescue_clause().is_some() || begin_node.ensure_clause().is_some();
+        }
+    }
+    false
+}
+
 /// Recursively collect blocks inside argument expressions of non-parenthesized
 /// method calls. These blocks must be ignored because changing `{...}` to
 /// `do...end` (or vice versa) would change block binding.
@@ -216,4 +233,65 @@ fn collect_ignored_blocks(node: &ruby_prism::Node<'_>, ignored: &mut HashSet<usi
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(BlockDelimiters, "cops/style/block_delimiters");
+
+    #[test]
+    fn no_offense_proc_in_keyword_arg() {
+        // Proc block in keyword arg without parens — changing braces would change semantics
+        let source = b"my_method :arg1, arg2: proc {\n  something\n}, arg3: :another_value\n";
+        let diags = crate::testutil::run_cop_full(&BlockDelimiters, source);
+        assert!(
+            diags.is_empty(),
+            "Should not flag proc block in keyword argument position, got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn no_offense_safe_navigation_non_parenthesized() {
+        // Safe-navigation call with non-parenthesized block arg
+        let source = b"foo&.bar baz {\n  y\n}\n";
+        let diags = crate::testutil::run_cop_full(&BlockDelimiters, source);
+        assert!(
+            diags.is_empty(),
+            "Should not flag block in safe-navigation non-parenthesized call, got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn no_offense_chained_method_block_in_arg() {
+        // Block result chained and used as argument
+        let source = b"foo bar + baz {\n}.qux.quux\n";
+        let diags = crate::testutil::run_cop_full(&BlockDelimiters, source);
+        assert!(
+            diags.is_empty(),
+            "Should not flag chained block in non-parenthesized arg, got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn no_offense_lambda_in_keyword_arg_without_parens() {
+        // lambda block in keyword arg of non-parenthesized call
+        let source = b"foo :bar, :baz, qux: lambda { |a|\n  bar a\n}\n";
+        let diags = crate::testutil::run_cop_full(&BlockDelimiters, source);
+        assert!(
+            diags.is_empty(),
+            "Should not flag lambda block in keyword arg, got: {:?}",
+            diags
+        );
+    }
+
+    #[test]
+    fn no_offense_do_end_single_line_rescue_array() {
+        // Single-line do-end with rescue that has array exception type
+        // This needs do-end because {} + rescue + array creates ambiguity
+        let source = b"foo do next unless bar; rescue StandardError; end\n";
+        let diags = crate::testutil::run_cop_full(&BlockDelimiters, source);
+        assert!(
+            diags.is_empty(),
+            "Should not flag single-line do-end with rescue+semicolon, got: {:?}",
+            diags
+        );
+    }
 }
