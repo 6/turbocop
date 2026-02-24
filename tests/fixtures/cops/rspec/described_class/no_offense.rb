@@ -40,3 +40,10 @@ describe SomeApp do
     end
   end
 end
+
+# module inside describe is a scope change — class reference there is fine
+describe MyClass do
+  module MyHelper
+    MyClass.do_something
+  end
+end

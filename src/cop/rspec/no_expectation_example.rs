@@ -127,6 +127,7 @@ impl<'pr> Visit<'pr> for ExpectationFinder<'_> {
             && (name == b"expect"
                 || name == b"expect_any_instance_of"
                 || name == b"is_expected"
+                || name == b"are_expected"
                 || name.starts_with(b"assert")
                 || name == b"pending"
                 || name == b"skip")
@@ -134,8 +135,14 @@ impl<'pr> Visit<'pr> for ExpectationFinder<'_> {
             self.found = true;
             return;
         }
-        // Check for `should` and `should_not` (with any receiver)
-        if name == b"should" || name == b"should_not" {
+        // Check for `should`, `should_not`, `should_receive`, `should_not_receive`
+        // RuboCop requires these to have NO receiver (send nil? ...)
+        if node.receiver().is_none()
+            && (name == b"should"
+                || name == b"should_not"
+                || name == b"should_receive"
+                || name == b"should_not_receive")
+        {
             self.found = true;
             return;
         }

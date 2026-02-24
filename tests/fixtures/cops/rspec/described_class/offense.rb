@@ -28,3 +28,13 @@ RSpec.describe Clearer do
     ^^^^^^^ RSpec/DescribedClass: Use `described_class` instead of `Clearer`.
   end
 end
+
+# describe wrapped in a module (e.g., module Pod)
+module Wrapper
+  describe Target do
+    it 'creates' do
+      Target.new
+      ^^^^^^ RSpec/DescribedClass: Use `described_class` instead of `Target`.
+    end
+  end
+end

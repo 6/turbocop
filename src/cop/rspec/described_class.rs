@@ -284,9 +284,21 @@ impl<'pr> Visit<'pr> for DescribedClassVisitor<'_> {
         // Don't recurse into children — the constant path is handled as a whole
     }
 
-    // Don't descend into class/module/def definitions — they change scope
-    fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {}
-    fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {}
+    // Don't descend into class/module/def definitions when inside a describe block
+    // (they change scope). But when outside a describe block, recurse to find
+    // describe blocks nested inside module/class wrappers.
+    fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
+        if self.described_class_name.is_some() {
+            return; // Inside describe: class is a scope change
+        }
+        ruby_prism::visit_class_node(self, node); // Outside: recurse to find describe
+    }
+    fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
+        if self.described_class_name.is_some() {
+            return; // Inside describe: module is a scope change
+        }
+        ruby_prism::visit_module_node(self, node); // Outside: recurse to find describe
+    }
     fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {}
 }
 
