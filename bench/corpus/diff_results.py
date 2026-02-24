@@ -130,6 +130,7 @@ def main():
     by_cop_fn = defaultdict(int)  # rubocop-only
     by_cop_fp_examples = defaultdict(list)  # (filepath, line) per cop
     by_cop_fn_examples = defaultdict(list)
+    by_repo_cop = defaultdict(lambda: defaultdict(lambda: {"fp": 0, "fn": 0}))
     total_matches = 0
     total_fp = 0
     total_fn = 0
@@ -224,10 +225,14 @@ def main():
             by_cop_fp[cop] += 1
             loc = f"{repo_id}: {filepath}:{line}" if multi_repo else f"{filepath}:{line}"
             by_cop_fp_examples[cop].append(loc)
+            if multi_repo:
+                by_repo_cop[repo_id][cop]["fp"] += 1
         for filepath, line, cop in fn:
             by_cop_fn[cop] += 1
             loc = f"{repo_id}: {filepath}:{line}" if multi_repo else f"{filepath}:{line}"
             by_cop_fn_examples[cop].append(loc)
+            if multi_repo:
+                by_repo_cop[repo_id][cop]["fn"] += 1
 
         repo_results.append({
             "repo": repo_id,
@@ -256,8 +261,8 @@ def main():
             "fp": fp,
             "fn": fn,
             "match_rate": round(rate, 4),
-            "fp_examples": by_cop_fp_examples.get(cop, [])[:5],
-            "fn_examples": by_cop_fn_examples.get(cop, [])[:5],
+            "fp_examples": by_cop_fp_examples.get(cop, []),
+            "fn_examples": by_cop_fn_examples.get(cop, []),
         })
     by_cop.sort(key=lambda x: x["fp"] + x["fn"], reverse=True)
 
@@ -290,6 +295,7 @@ def main():
         },
         "by_cop": by_cop,  # all cops (gen_tiers.py needs the full list)
         "by_repo": repo_results,
+        "by_repo_cop": {repo: dict(cops) for repo, cops in by_repo_cop.items()},
     }
     args.output_json.write_text(json.dumps(json_output, indent=2) + "\n")
 
@@ -334,7 +340,8 @@ def main():
             md.append(f"| {c['cop']} | {c['matches']:,} | {c['fp']:,} | {c['fn']:,} | {pct} |")
         md.append("")
 
-        # Expandable details per cop
+        # Expandable details per cop (show up to 20 examples in markdown)
+        MD_EXAMPLE_LIMIT = 20
         for c in diverging:
             fp_list = c.get("fp_examples", [])
             fn_list = c.get("fn_examples", [])
@@ -348,14 +355,18 @@ def main():
             if fp_list:
                 md.append("**False positives** (turbocop reports, RuboCop does not):")
                 md.append("")
-                for ex in fp_list:
+                for ex in fp_list[:MD_EXAMPLE_LIMIT]:
                     md.append(f"- `{ex}`")
+                if len(fp_list) > MD_EXAMPLE_LIMIT:
+                    md.append(f"- ... and {len(fp_list) - MD_EXAMPLE_LIMIT:,} more (see corpus-results.json for full list)")
                 md.append("")
             if fn_list:
                 md.append("**False negatives** (RuboCop reports, turbocop does not):")
                 md.append("")
-                for ex in fn_list:
+                for ex in fn_list[:MD_EXAMPLE_LIMIT]:
                     md.append(f"- `{ex}`")
+                if len(fn_list) > MD_EXAMPLE_LIMIT:
+                    md.append(f"- ... and {len(fn_list) - MD_EXAMPLE_LIMIT:,} more (see corpus-results.json for full list)")
                 md.append("")
             md.append("</details>")
             md.append("")

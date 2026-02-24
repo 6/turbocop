@@ -169,6 +169,8 @@ def main():
                         help="Run per-repo and show which repos have excess offenses")
     parser.add_argument("--threshold", type=int, default=0,
                         help="Allowed excess offenses before FAIL (default: 0)")
+    parser.add_argument("--rerun", action="store_true",
+                        help="Force re-execution of turbocop (ignore cached corpus data)")
     args = parser.parse_args()
 
     # Load corpus results
@@ -204,7 +206,42 @@ def main():
     print(f"Expected RuboCop offenses: {expected_rubocop:,}")
     print()
 
-    if args.verbose:
+    # Check if enriched per-repo-per-cop data is available in corpus results
+    by_repo_cop = data.get("by_repo_cop", {})
+    has_enriched = bool(by_repo_cop)
+
+    if args.verbose and has_enriched and not args.rerun:
+        # Use cached corpus data instead of re-running turbocop
+        print("Using cached corpus data (pass --rerun to re-execute turbocop)", file=sys.stderr)
+
+        # Reconstruct per-repo counts from by_repo_cop
+        # turbocop count = rubocop count + FP - FN per repo
+        by_repo = data.get("by_repo", [])
+        repo_by_id = {r["repo"]: r for r in by_repo if r.get("status") == "ok"}
+
+        repos_with_offenses = {}
+        for repo_id, cops in by_repo_cop.items():
+            if args.cop in cops:
+                entry = cops[args.cop]
+                fp = entry.get("fp", 0)
+                fn = entry.get("fn", 0)
+                if fp > 0 or fn > 0:
+                    repos_with_offenses[repo_id] = {"fp": fp, "fn": fn}
+
+        if repos_with_offenses:
+            print(f"Repos with divergence ({len(repos_with_offenses)}):")
+            sorted_repos = sorted(repos_with_offenses.items(),
+                                  key=lambda x: x[1]["fp"] + x[1]["fn"],
+                                  reverse=True)
+            for repo_id, counts in sorted_repos[:30]:
+                print(f"  FP:{counts['fp']:>5}  FN:{counts['fn']:>5}  {repo_id}")
+            if len(sorted_repos) > 30:
+                print(f"  ... and {len(sorted_repos) - 30} more")
+            print()
+
+        # For cached mode, use baseline FP/FN directly
+        turbocop_total = expected_rubocop + baseline_fp
+    elif args.verbose:
         print("Running turbocop per-repo...", file=sys.stderr)
         per_repo = run_turbocop_per_repo(args.cop)
         turbocop_total = sum(c for c in per_repo.values() if c >= 0)

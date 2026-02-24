@@ -259,21 +259,39 @@ Generates `docs/coverage.md` with:
 
 Pipeline: `bench_turbocop conform` → `bench/conform.json` → `coverage_table` → `docs/coverage.md`
 
-## Corpus Oracle Triage
+## Corpus Fix Loop
 
-Use the `/triage` skill to rank cops by FP+FN from the 500-repo corpus oracle. See `.claude/skills/triage/skill.md` for details.
+After a corpus oracle CI run, use `/fix-cops` to auto-fix a batch of high-FP cops in parallel. It triages, investigates, spawns worktree-isolated teammates to fix each cop, and collects results. See `.claude/skills/fix-cops/SKILL.md`.
+
+Use `/triage` to just view the ranked cop list without fixing. See `.claude/skills/triage/SKILL.md`.
+
+## Corpus Investigation
+
+To investigate a cop's false positives/negatives without re-running turbocop, use `investigate-cop.py`. It reads pre-computed data from `corpus-results.json` (downloaded from CI) and shows all FP/FN locations grouped by repo:
+
+```
+python3 scripts/investigate-cop.py Department/CopName                # all FP/FN grouped by repo
+python3 scripts/investigate-cop.py Department/CopName --repos-only   # just repo breakdown table
+python3 scripts/investigate-cop.py Department/CopName --context      # show source lines from vendor/corpus/
+python3 scripts/investigate-cop.py Department/CopName --fp-only      # only false positives
+python3 scripts/investigate-cop.py Department/CopName --fn-only      # only false negatives
+python3 scripts/investigate-cop.py Department/CopName --input f.json # use local corpus-results.json
+```
+
+Use this as the **first step** when investigating a cop — it's instant (reads cached JSON) and shows every FP/FN location with source context from `vendor/corpus/`. No need to re-run turbocop.
 
 ## Corpus Regression Testing
 
-After fixing any cop, run the corpus check to verify no FP regression against 500 real-world repos (~60-90s):
+After fixing any cop, run the corpus check to verify no FP regression against 500 real-world repos:
 
 ```
-python3 scripts/check-cop.py Department/CopName                    # aggregate check
-python3 scripts/check-cop.py Department/CopName --verbose           # per-repo breakdown
+python3 scripts/check-cop.py Department/CopName                    # aggregate check (re-runs turbocop)
+python3 scripts/check-cop.py Department/CopName --verbose           # per-repo breakdown (uses cached data if available)
+python3 scripts/check-cop.py Department/CopName --verbose --rerun   # force re-execution after a fix
 python3 scripts/check-cop.py Department/CopName --input results.json # use local corpus-results.json
 ```
 
-The script compares turbocop offense counts against the RuboCop baseline from the latest CI corpus oracle run. `FAIL` means turbocop produces more offenses than RuboCop (false positives). Always use a fresh temp directory when manually downloading CI artifacts with `gh run download` (`mktemp -d`) to avoid stale data contamination.
+The script compares turbocop offense counts against the RuboCop baseline from the latest CI corpus oracle run. `FAIL` means turbocop produces more offenses than RuboCop (false positives). With `--verbose`, it uses enriched per-repo data from `corpus-results.json` when available (instant). Pass `--rerun` to force re-execution of turbocop after making code changes.
 
 ## Rules
 

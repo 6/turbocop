@@ -20,4 +20,10 @@ Common invocations:
 - `/triage --fp-only` — only cops with false positives
 - `/triage --input /tmp/corpus-report/corpus-results.json` — use local file
 
-After identifying targets, read the cop source in `src/cop/<dept>/<cop>.rs` and the vendor spec at `vendor/rubocop*/spec/` to understand the root cause before fixing.
+After identifying targets, use `investigate-cop.py` to see all FP/FN locations with source context:
+
+```bash
+python3 scripts/investigate-cop.py Department/CopName --context --fp-only
+```
+
+Then read the cop source in `src/cop/<dept>/<cop>.rs` and the vendor spec at `vendor/rubocop*/spec/` to understand the root cause before fixing.

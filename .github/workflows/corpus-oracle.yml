@@ -9,19 +9,12 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  # Manual trigger
+  # Manual trigger only — corpus oracle is expensive (~2h, 500 repos)
   workflow_dispatch:
     inputs:
       repo_filter:
         description: "Run only this repo ID (e.g. 'multi_json__multi_json__c5fa9fc'), or 'all'"
         default: "all"
-  # On cop implementation changes
-  pull_request:
-    paths:
-      - "src/cop/**"
-      - "src/config/**"
-      - "src/resources/tiers.json"
-      - "bench/corpus/**"
 
 env:
   CARGO_TERM_COLOR: always
