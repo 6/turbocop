@@ -256,21 +256,26 @@ jobs:
             tiers.json
           retention-days: 30
 
-      - name: Open PR if tiers or README changed
+      - name: Update corpus report
+        run: cp corpus-results.md docs/corpus.md
+
+      - name: Open PR if tiers, README, or corpus report changed
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TIERS_CHANGED=false
-          README_CHANGED=false
+          CHANGED=false
 
           if ! diff -q tiers.json src/resources/tiers.json >/dev/null 2>&1; then
-            TIERS_CHANGED=true
+            CHANGED=true
           fi
           if ! git diff --quiet README.md; then
-            README_CHANGED=true
+            CHANGED=true
+          fi
+          if ! git diff --quiet docs/corpus.md; then
+            CHANGED=true
           fi
 
-          if [ "$TIERS_CHANGED" = false ] && [ "$README_CHANGED" = false ]; then
+          if [ "$CHANGED" = false ]; then
             echo "No changes to commit"
             exit 0
           fi
@@ -280,15 +285,13 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B "$BRANCH"
 
-          if [ "$TIERS_CHANGED" = true ]; then
+          if ! diff -q tiers.json src/resources/tiers.json >/dev/null 2>&1; then
             cp tiers.json src/resources/tiers.json
             git add src/resources/tiers.json
           fi
-          if [ "$README_CHANGED" = true ]; then
-            git add README.md
-          fi
+          git add -f README.md docs/corpus.md
 
-          git commit -m "Update tiers.json and README from corpus oracle results"
+          git commit -m "Update tiers.json, README, and corpus report from corpus oracle results"
           git push origin "$BRANCH"
 
           gh pr create \
@@ -303,6 +306,8 @@ jobs:
 
           **README**: Conformance percentages and top-15 repo table updated
           from latest corpus results.
+
+          **Corpus report**: Full 500-repo conformance breakdown at docs/corpus.md.
 
           CI will validate the changes compile and pass tests.
 

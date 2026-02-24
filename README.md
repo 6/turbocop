@@ -90,7 +90,7 @@ Top 15 repos by GitHub stars (offense counts are high because the corpus enables
 | [openproject](https://github.com/opf/openproject) | 9,286 | 194,365 | 97.6% |
 | [gollum](https://github.com/gollum/gollum) | 55 | 2,283 | 93.3% |
 
-Remaining gaps are mostly in complex layout cops (indentation, alignment) and a few style cops. See [docs/coverage.md](docs/coverage.md) for the full breakdown.
+Remaining gaps are mostly in complex layout cops (indentation, alignment) and a few style cops. See [docs/corpus.md](docs/corpus.md) for the full 500-repo breakdown.
 
 ## Hybrid Mode
 
