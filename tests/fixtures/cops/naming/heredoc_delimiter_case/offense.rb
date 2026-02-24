@@ -1,12 +1,20 @@
 x = <<~sql
-       ^^^ Naming/HeredocDelimiterCase: Use uppercase heredoc delimiters.
   SELECT 1
 sql
-y = <<~html
-       ^^^^ Naming/HeredocDelimiterCase: Use uppercase heredoc delimiters.
+^^^ Naming/HeredocDelimiterCase: Use uppercase heredoc delimiters.
+y = <<-html
   <div>
 html
-z = <<~text
-       ^^^^ Naming/HeredocDelimiterCase: Use uppercase heredoc delimiters.
+^^^^ Naming/HeredocDelimiterCase: Use uppercase heredoc delimiters.
+z = <<text
   hello
 text
+^^^^ Naming/HeredocDelimiterCase: Use uppercase heredoc delimiters.
+a = <<~'sql'
+  SELECT 1
+sql
+^^^ Naming/HeredocDelimiterCase: Use uppercase heredoc delimiters.
+b = <<-"Sql"
+  foo
+Sql
+^^^ Naming/HeredocDelimiterCase: Use uppercase heredoc delimiters.

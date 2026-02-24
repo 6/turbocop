@@ -13,3 +13,11 @@ responses.map { |r| r.map { |e| e[:timestamp] } }
 5.times do
   users.map { |u| u[:name] }
 end
+# Key is a regexp — skip
+items.map { |item| item[/pattern/] }
+# Key references the block argument — not a simple pluck
+records.map { |r| r[r] }
+# Key uses block arg in a nested expression
+entries.map { |e| e[transform(e)] }
+# Multiple arguments to [] — not a simple key lookup
+items.map { |item| item[1, 2] }

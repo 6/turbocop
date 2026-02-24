@@ -1,9 +1,17 @@
 x = <<~SQL
   SELECT 1
 SQL
-y = <<~HTML
+y = <<-HTML
   <div>
 HTML
-z = <<~TEXT
+z = <<TEXT
   hello
 TEXT
+a = <<~'SQL'
+  SELECT 1
+SQL
+b = <<-"SQL"
+  foo
+SQL
+c = "not a heredoc"
+d = 'also not a heredoc'

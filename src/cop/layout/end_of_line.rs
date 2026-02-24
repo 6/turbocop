@@ -23,6 +23,7 @@ impl Cop for EndOfLine {
         let style = config.get_str("EnforcedStyle", "native");
         let _bytes = source.as_bytes();
 
+        // RuboCop reports only 1 offense per file then breaks out of the loop.
         match style {
             "lf" | "native" => {
                 // Flag lines ending with \r (i.e., CRLF or bare CR) — delete the \r
@@ -47,6 +48,7 @@ impl Cop for EndOfLine {
                             diag.corrected = true;
                         }
                         diagnostics.push(diag);
+                        break;
                     }
                     byte_offset += line.len() + 1; // +1 for \n
                 }
@@ -78,6 +80,7 @@ impl Cop for EndOfLine {
                             diag.corrected = true;
                         }
                         diagnostics.push(diag);
+                        break;
                     }
                     byte_offset += line.len() + 1;
                 }
@@ -105,6 +108,7 @@ impl Cop for EndOfLine {
                             diag.corrected = true;
                         }
                         diagnostics.push(diag);
+                        break;
                     }
                     byte_offset += line.len() + 1;
                 }
@@ -118,20 +122,25 @@ mod tests {
     use super::*;
     use crate::parse::source::SourceFile;
 
-    crate::cop_fixture_tests!(EndOfLine, "cops/layout/end_of_line");
+    crate::cop_scenario_fixture_tests!(
+        EndOfLine,
+        "cops/layout/end_of_line",
+        single_crlf = "single_crlf.rb",
+        assignment_crlf = "assignment_crlf.rb",
+        method_call_crlf = "method_call_crlf.rb",
+    );
     crate::cop_autocorrect_fixture_tests!(EndOfLine, "cops/layout/end_of_line");
 
     #[test]
     fn crlf_detected() {
+        // RuboCop reports only 1 offense per file, then breaks
         let source = SourceFile::from_bytes("test.rb", b"x = 1\r\ny = 2\r\n".to_vec());
         let mut diags = Vec::new();
         EndOfLine.check_lines(&source, &CopConfig::default(), &mut diags, None);
-        assert_eq!(diags.len(), 2);
+        assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].location.line, 1);
         assert_eq!(diags[0].location.column, 5);
         assert_eq!(diags[0].message, "Carriage return character detected.");
-        assert_eq!(diags[1].location.line, 2);
-        assert_eq!(diags[1].location.column, 5);
     }
 
     #[test]
@@ -183,16 +192,18 @@ mod tests {
 
     #[test]
     fn autocorrect_remove_cr() {
+        // Only 1 correction (first CRLF line) since cop breaks after first offense
         let input = b"x = 1\r\ny = 2\r\n";
         let (_diags, corrections) = crate::testutil::run_cop_autocorrect(&EndOfLine, input);
-        assert!(!corrections.is_empty());
+        assert_eq!(corrections.len(), 1);
         let cs = crate::correction::CorrectionSet::from_vec(corrections);
         let corrected = cs.apply(input);
-        assert_eq!(corrected, b"x = 1\ny = 2\n");
+        assert_eq!(corrected, b"x = 1\ny = 2\r\n");
     }
 
     #[test]
     fn autocorrect_insert_cr_crlf_style() {
+        // Only 1 correction (first LF-only line) since cop breaks after first offense
         use std::collections::HashMap;
         let config = CopConfig {
             options: HashMap::from([(
@@ -204,10 +215,10 @@ mod tests {
         let input = b"x = 1\ny = 2\n";
         let (_diags, corrections) =
             crate::testutil::run_cop_autocorrect_with_config(&EndOfLine, input, config);
-        assert!(!corrections.is_empty());
+        assert_eq!(corrections.len(), 1);
         let cs = crate::correction::CorrectionSet::from_vec(corrections);
         let corrected = cs.apply(input);
-        assert_eq!(corrected, b"x = 1\r\ny = 2\r\n");
+        assert_eq!(corrected, b"x = 1\r\ny = 2\n");
     }
 
     #[test]
@@ -223,7 +234,7 @@ mod tests {
         let source = SourceFile::from_bytes("test.rb", b"x = 1\ny = 2\n".to_vec());
         let mut diags = Vec::new();
         EndOfLine.check_lines(&source, &config, &mut diags, None);
-        assert_eq!(diags.len(), 2, "crlf style should flag LF-only lines");
+        assert_eq!(diags.len(), 1, "crlf style should flag first LF-only line");
         assert_eq!(diags[0].message, "Carriage return character missing.");
     }
 }

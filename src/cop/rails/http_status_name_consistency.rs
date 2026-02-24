@@ -20,7 +20,11 @@ impl Cop for HttpStatusNameConsistency {
     }
 
     fn default_severity(&self) -> Severity {
-        Severity::Convention
+        Severity::Warning
+    }
+
+    fn default_include(&self) -> &'static [&'static str] {
+        &["**/app/controllers/**/*.rb"]
     }
 
     fn interested_node_types(&self) -> &'static [u8] {

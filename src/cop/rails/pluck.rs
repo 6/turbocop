@@ -20,10 +20,17 @@ impl Cop for Pluck {
         source: &SourceFile,
         parse_result: &ruby_prism::ParseResult<'_>,
         _code_map: &crate::parse::codemap::CodeMap,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // minimum_target_rails_version 5.0
+        // RuboCop uses requires_gem('railties', '>= 5.0') which skips the cop
+        // when railties is not installed (non-Rails projects/gems).
+        if !config.options.contains_key("TargetRailsVersion") {
+            return;
+        }
+
         let mut visitor = PluckVisitor {
             cop: self,
             source,
@@ -123,6 +130,27 @@ impl PluckVisitor<'_, '_> {
             return None;
         }
 
+        // Must have exactly one argument to [] (e.g., x[:key], not x[1, 2])
+        let args = inner_call.arguments()?;
+        let arg_list: Vec<_> = args.arguments().iter().collect();
+        if arg_list.len() != 1 {
+            return None;
+        }
+        let key = &arg_list[0];
+
+        // Skip regexp keys (RuboCop: `next if key.regexp_type?`)
+        if key.as_regular_expression_node().is_some()
+            || key.as_interpolated_regular_expression_node().is_some()
+        {
+            return None;
+        }
+
+        // Skip if the key references the block argument (RuboCop: `use_block_argument_in_key?`)
+        // e.g., `map { |x| x[x] }` or `map { |x| x[transform(x)] }` are not pluck candidates
+        if node_references_lvar(key, param_name) {
+            return None;
+        }
+
         let loc = call.location();
         let (line, column) = self.source.offset_to_line_col(loc.start_offset());
         Some(self.cop.diagnostic(
@@ -134,8 +162,78 @@ impl PluckVisitor<'_, '_> {
     }
 }
 
+/// Visitor that checks if any descendant node is a local variable read
+/// matching the given name. Used to implement RuboCop's `use_block_argument_in_key?`.
+struct LvarFinder<'a> {
+    name: &'a [u8],
+    found: bool,
+}
+
+impl<'pr> Visit<'pr> for LvarFinder<'_> {
+    fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
+        if node.name().as_slice() == self.name {
+            self.found = true;
+        }
+    }
+}
+
+/// Check if a node or any of its descendants references a local variable with the given name.
+fn node_references_lvar(node: &ruby_prism::Node<'_>, name: &[u8]) -> bool {
+    // Direct check for the node itself
+    if let Some(lvar) = node.as_local_variable_read_node() {
+        if lvar.name().as_slice() == name {
+            return true;
+        }
+    }
+    // Recursive check via visitor
+    let mut finder = LvarFinder { name, found: false };
+    finder.visit(node);
+    finder.found
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(Pluck, "cops/rails/pluck");
+    use std::collections::HashMap;
+
+    fn config_with_rails(version: f64) -> CopConfig {
+        let mut options = HashMap::new();
+        options.insert(
+            "TargetRailsVersion".to_string(),
+            serde_yml::Value::Number(serde_yml::Number::from(version)),
+        );
+        CopConfig {
+            options,
+            ..CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn offense_fixture() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &Pluck,
+            include_bytes!("../../../tests/fixtures/cops/rails/pluck/offense.rb"),
+            config_with_rails(5.0),
+        );
+    }
+
+    #[test]
+    fn no_offense_fixture() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &Pluck,
+            include_bytes!("../../../tests/fixtures/cops/rails/pluck/no_offense.rb"),
+            config_with_rails(5.0),
+        );
+    }
+
+    #[test]
+    fn skipped_when_no_target_rails_version() {
+        let source = b"users.map { |u| u[:name] }\n";
+        let diagnostics =
+            crate::testutil::run_cop_full_internal(&Pluck, source, CopConfig::default(), "test.rb");
+        assert!(
+            diagnostics.is_empty(),
+            "Should not fire when TargetRailsVersion is not set (non-Rails project)"
+        );
+    }
 }

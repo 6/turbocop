@@ -42,6 +42,7 @@ struct VoidVisitor<'a, 'src> {
 }
 
 fn is_void_expression(node: &ruby_prism::Node<'_>) -> bool {
+    // Simple literals
     node.as_integer_node().is_some()
         || node.as_float_node().is_some()
         || node.as_string_node().is_some()
@@ -50,6 +51,66 @@ fn is_void_expression(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_nil_node().is_some()
         || node.as_true_node().is_some()
         || node.as_false_node().is_some()
+        || node.as_rational_node().is_some()
+        || node.as_imaginary_node().is_some()
+        // Interpolated literals
+        || node.as_interpolated_string_node().is_some()
+        || node.as_interpolated_symbol_node().is_some()
+        // Variable reads
+        || node.as_local_variable_read_node().is_some()
+        || node.as_instance_variable_read_node().is_some()
+        || node.as_class_variable_read_node().is_some()
+        || node.as_global_variable_read_node().is_some()
+        // Constants
+        || node.as_constant_read_node().is_some()
+        || node.as_constant_path_node().is_some()
+        // Containers
+        || node.as_range_node().is_some()
+        || node.as_array_node().is_some()
+        || node.as_hash_node().is_some()
+        || node.as_keyword_hash_node().is_some()
+        || node.as_regular_expression_node().is_some()
+        || node.as_interpolated_regular_expression_node().is_some()
+        // Keywords
+        || node.as_source_file_node().is_some()
+        || node.as_source_line_node().is_some()
+        || node.as_source_encoding_node().is_some()
+        // defined?
+        || node.as_defined_node().is_some()
+        // Operators (binary/unary) via CallNode
+        || is_void_operator(node)
+}
+
+fn is_void_operator(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(call) = node.as_call_node() {
+        let name = call.name().as_slice();
+        matches!(
+            name,
+            b"+" | b"-"
+                | b"*"
+                | b"/"
+                | b"%"
+                | b"**"
+                | b"=="
+                | b"!="
+                | b"<"
+                | b">"
+                | b"<="
+                | b">="
+                | b"<=>"
+                | b"<<"
+                | b">>"
+                | b"&"
+                | b"|"
+                | b"^"
+                | b"!"
+                | b"~"
+                | b"-@"
+                | b"+@"
+        )
+    } else {
+        false
+    }
 }
 
 impl<'pr> Visit<'pr> for VoidVisitor<'_, '_> {

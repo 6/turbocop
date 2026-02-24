@@ -36,7 +36,7 @@ impl Cop for Eval {
             return;
         }
 
-        // Allow: no receiver (bare eval) or receiver is Kernel
+        // Allow: no receiver (bare eval), receiver is Kernel/::Kernel, or receiver is bare `binding`
         let allowed = match call.receiver() {
             None => true,
             Some(recv) => {
@@ -52,11 +52,25 @@ impl Cop for Eval {
                                     .ends_with(b"::Kernel")
                         })
                         .unwrap_or(false)
+                    || recv
+                        .as_call_node()
+                        .map(|c| c.name().as_slice() == b"binding" && c.receiver().is_none())
+                        .unwrap_or(false)
             }
         };
 
         if !allowed {
             return;
+        }
+
+        // RuboCop skips when the first argument is a plain string literal
+        if let Some(args) = call.arguments() {
+            let args_list = args.arguments();
+            if let Some(first_arg) = args_list.iter().next() {
+                if first_arg.as_string_node().is_some() {
+                    return;
+                }
+            }
         }
 
         let msg_loc = call.message_loc().unwrap();

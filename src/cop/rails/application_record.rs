@@ -28,17 +28,27 @@ impl Cop for ApplicationRecord {
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        _config: &CopConfig,
+        config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // minimum_target_rails_version 5.0
+        // RuboCop uses requires_gem('railties', '>= 5.0') which skips the cop
+        // when railties is not installed (non-Rails projects/gems).
+        if !config.options.contains_key("TargetRailsVersion") {
+            return;
+        }
+
         let class = match node.as_class_node() {
             Some(c) => c,
             None => return,
         };
 
+        // RuboCop's pattern: (const _ !:ApplicationRecord) checks the constant's
+        // own name, not the full path. So Admin::ApplicationRecord has name
+        // :ApplicationRecord and should NOT be flagged.
         let class_name = full_constant_path(source, &class.constant_path());
-        if class_name == b"ApplicationRecord" {
+        if class_name == b"ApplicationRecord" || class_name.ends_with(b"::ApplicationRecord") {
             return;
         }
 
@@ -69,5 +79,50 @@ impl Cop for ApplicationRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ApplicationRecord, "cops/rails/application_record");
+    use std::collections::HashMap;
+
+    fn config_with_rails(version: f64) -> CopConfig {
+        let mut options = HashMap::new();
+        options.insert(
+            "TargetRailsVersion".to_string(),
+            serde_yml::Value::Number(serde_yml::Number::from(version)),
+        );
+        CopConfig {
+            options,
+            ..CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn offense_fixture() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &ApplicationRecord,
+            include_bytes!("../../../tests/fixtures/cops/rails/application_record/offense.rb"),
+            config_with_rails(5.0),
+        );
+    }
+
+    #[test]
+    fn no_offense_fixture() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &ApplicationRecord,
+            include_bytes!("../../../tests/fixtures/cops/rails/application_record/no_offense.rb"),
+            config_with_rails(5.0),
+        );
+    }
+
+    #[test]
+    fn skipped_when_no_target_rails_version() {
+        let source = b"class User < ActiveRecord::Base\nend\n";
+        let diagnostics = crate::testutil::run_cop_full_internal(
+            &ApplicationRecord,
+            source,
+            CopConfig::default(),
+            "test.rb",
+        );
+        assert!(
+            diagnostics.is_empty(),
+            "Should not fire when TargetRailsVersion is not set (non-Rails project)"
+        );
+    }
 }
