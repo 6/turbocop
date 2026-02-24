@@ -52,25 +52,21 @@ impl Cop for TrailingCommaInArrayLiteral {
         let bytes = source.as_bytes();
 
         // For heredoc elements (or method calls on heredocs), the node's
-        // location.end_offset() might be on the opening line (before the
+        // location.end_offset() is at the heredoc opening tag (before the
         // heredoc body), while the closing `]` is after the heredoc body.
-        // In this case, scanning from last_end to closing_start would scan
-        // through heredoc content and find false commas. Instead, scan only
-        // the line just before the closing bracket for a trailing comma.
-        let effective_last_end = {
-            let closing_line = source.offset_to_line_col(closing_start).0;
-            let last_end_line = source.offset_to_line_col(last_end).0;
-            if closing_line > last_end_line + 1 {
-                // Gap between last element end and closing bracket -- likely heredoc content.
-                // Scan from the start of the closing bracket's line instead.
-                let mut pos = closing_start;
-                while pos > 0 && bytes[pos - 1] != b'\n' {
-                    pos -= 1;
-                }
-                pos
-            } else {
-                last_end
+        // Scanning from last_end to closing_start would include heredoc
+        // content and find false commas. When any element is a heredoc,
+        // only scan the line of the closing bracket for a trailing comma,
+        // matching RuboCop's heredoc-aware regex (no newlines allowed).
+        let effective_last_end = if any_heredoc(&elements) {
+            // Scan backwards from the closing bracket to the start of its line
+            let mut pos = closing_start;
+            while pos > 0 && bytes[pos - 1] != b'\n' {
+                pos -= 1;
             }
+            pos
+        } else {
+            last_end
         };
         let has_comma = has_trailing_comma(bytes, effective_last_end, closing_start);
 
@@ -93,16 +89,23 @@ impl Cop for TrailingCommaInArrayLiteral {
             close_line > open_line
         };
 
+        // Helper: find the absolute offset of the trailing comma for diagnostics.
+        // Uses effective_last_end to avoid scanning through heredoc content.
+        let find_comma_offset = || -> Option<usize> {
+            let search_range = &bytes[effective_last_end..closing_start];
+            search_range
+                .iter()
+                .position(|&b| b == b',')
+                .map(|off| effective_last_end + off)
+        };
+
         match style {
             "comma" => {
                 let each_on_own_line =
                     no_elements_on_same_line(source, &elements[..], closing_start);
                 let should_have = is_multiline && each_on_own_line;
                 if has_comma && !should_have {
-                    // Trailing comma present but not wanted (single-line or elements share lines)
-                    let search_range = &bytes[last_end..closing_start];
-                    if let Some(comma_offset) = search_range.iter().position(|&b| b == b',') {
-                        let abs_offset = last_end + comma_offset;
+                    if let Some(abs_offset) = find_comma_offset() {
                         let (line, column) = source.offset_to_line_col(abs_offset);
                         diagnostics.push(self.diagnostic(
                             source,
@@ -123,10 +126,7 @@ impl Cop for TrailingCommaInArrayLiteral {
             }
             "consistent_comma" => {
                 if has_comma && !is_multiline {
-                    // Trailing comma on single-line array
-                    let search_range = &bytes[last_end..closing_start];
-                    if let Some(comma_offset) = search_range.iter().position(|&b| b == b',') {
-                        let abs_offset = last_end + comma_offset;
+                    if let Some(abs_offset) = find_comma_offset() {
                         let (line, column) = source.offset_to_line_col(abs_offset);
                         diagnostics.push(self.diagnostic(
                             source,
@@ -145,11 +145,32 @@ impl Cop for TrailingCommaInArrayLiteral {
                     ));
                 }
             }
+            "diff_comma" => {
+                let last_precedes_newline =
+                    is_multiline && last_item_precedes_newline(bytes, last_end, closing_start);
+                if has_comma && !last_precedes_newline {
+                    if let Some(abs_offset) = find_comma_offset() {
+                        let (line, column) = source.offset_to_line_col(abs_offset);
+                        diagnostics.push(self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Avoid comma after the last item of an array, unless that item immediately precedes a newline.".to_string(),
+                        ));
+                    }
+                } else if !has_comma && last_precedes_newline {
+                    let (line, column) = source.offset_to_line_col(last_end);
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Put a comma after the last item of a multiline array.".to_string(),
+                    ));
+                }
+            }
             _ => {
                 if has_comma {
-                    let search_range = &bytes[last_end..closing_start];
-                    if let Some(comma_offset) = search_range.iter().position(|&b| b == b',') {
-                        let abs_offset = last_end + comma_offset;
+                    if let Some(abs_offset) = find_comma_offset() {
                         let (line, column) = source.offset_to_line_col(abs_offset);
                         diagnostics.push(self.diagnostic(
                             source,
@@ -162,6 +183,61 @@ impl Cop for TrailingCommaInArrayLiteral {
             }
         }
     }
+}
+
+/// Returns true if any element in the list is or contains a heredoc.
+fn any_heredoc(elements: &[ruby_prism::Node<'_>]) -> bool {
+    elements.iter().any(|e| is_heredoc_element(e))
+}
+
+/// Returns true if a node is a heredoc or wraps one (e.g., method call on heredoc).
+fn is_heredoc_element(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(s) = node.as_interpolated_string_node() {
+        if let Some(open) = s.opening_loc() {
+            if open.as_slice().starts_with(b"<<") {
+                return true;
+            }
+        }
+    }
+    if let Some(s) = node.as_string_node() {
+        if let Some(open) = s.opening_loc() {
+            if open.as_slice().starts_with(b"<<") {
+                return true;
+            }
+        }
+    }
+    // Check method calls on heredocs (e.g., <<~SQL.strip.chomp)
+    if let Some(call) = node.as_call_node() {
+        if let Some(recv) = call.receiver() {
+            return is_heredoc_element(&recv);
+        }
+    }
+    false
+}
+
+/// Returns true if the last item immediately precedes a newline (possibly with
+/// an optional comma and inline comment in between). Matches RuboCop's
+/// `last_item_precedes_newline?` for the `diff_comma` style.
+fn last_item_precedes_newline(bytes: &[u8], last_end: usize, closing_start: usize) -> bool {
+    // Check the text after the last element: ,?\s*(#.*)?\n
+    let region = &bytes[last_end..closing_start];
+    let mut i = 0;
+    // Skip optional comma
+    if i < region.len() && region[i] == b',' {
+        i += 1;
+    }
+    // Skip spaces/tabs (but not newlines)
+    while i < region.len() && (region[i] == b' ' || region[i] == b'\t') {
+        i += 1;
+    }
+    // Skip optional comment
+    if i < region.len() && region[i] == b'#' {
+        while i < region.len() && region[i] != b'\n' {
+            i += 1;
+        }
+    }
+    // Must end with a newline
+    i < region.len() && region[i] == b'\n'
 }
 
 /// Returns true if no two consecutive items (including the closing bracket)
@@ -251,6 +327,82 @@ mod tests {
             &TrailingCommaInArrayLiteral,
             fixture,
             comma_config(),
+        );
+    }
+
+    fn diff_comma_config() -> CopConfig {
+        let mut options = HashMap::new();
+        options.insert(
+            "EnforcedStyleForMultiline".to_string(),
+            serde_yml::Value::String("diff_comma".to_string()),
+        );
+        CopConfig {
+            options,
+            ..CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn diff_comma_style_single_line_trailing_comma_offense() {
+        let fixture = b"[1, 2, 3,]\n        ^ Style/TrailingCommaInArrayLiteral: Avoid comma after the last item of an array, unless that item immediately precedes a newline.\n";
+        assert_cop_offenses_full_with_config(
+            &TrailingCommaInArrayLiteral,
+            fixture,
+            diff_comma_config(),
+        );
+    }
+
+    #[test]
+    fn diff_comma_style_multiline_last_on_own_line_missing_comma_offense() {
+        // Last element is followed by newline — should require comma
+        let fixture = b"# turbocop-expect: 3:3 Style/TrailingCommaInArrayLiteral: Put a comma after the last item of a multiline array.\nx = [\n  1,\n  2\n]\n";
+        assert_cop_offenses_full_with_config(
+            &TrailingCommaInArrayLiteral,
+            fixture,
+            diff_comma_config(),
+        );
+    }
+
+    #[test]
+    fn diff_comma_style_multiline_with_comma_no_offense() {
+        // Last element has trailing comma and precedes newline — fine
+        let fixture = b"x = [\n  1,\n  2,\n]\n";
+        assert_cop_no_offenses_full_with_config(
+            &TrailingCommaInArrayLiteral,
+            fixture,
+            diff_comma_config(),
+        );
+    }
+
+    #[test]
+    fn diff_comma_style_multiline_elements_sharing_lines_with_comma_no_offense() {
+        // Multiple elements per line, last element precedes newline, has comma
+        let fixture = b"x = [\n  1, 2,\n  3,\n]\n";
+        assert_cop_no_offenses_full_with_config(
+            &TrailingCommaInArrayLiteral,
+            fixture,
+            diff_comma_config(),
+        );
+    }
+
+    #[test]
+    fn diff_comma_style_closing_on_same_line_trailing_comma_offense() {
+        // Closing bracket on same line as last element — comma is unwanted
+        let fixture = b"[1, 2,\n     3,]\n      ^ Style/TrailingCommaInArrayLiteral: Avoid comma after the last item of an array, unless that item immediately precedes a newline.\n";
+        assert_cop_offenses_full_with_config(
+            &TrailingCommaInArrayLiteral,
+            fixture,
+            diff_comma_config(),
+        );
+    }
+
+    #[test]
+    fn diff_comma_style_single_line_no_comma_no_offense() {
+        let fixture = b"[1, 2, 3]\n";
+        assert_cop_no_offenses_full_with_config(
+            &TrailingCommaInArrayLiteral,
+            fixture,
+            diff_comma_config(),
         );
     }
 }

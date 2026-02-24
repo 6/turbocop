@@ -1,9 +1,235 @@
-use crate::cop::node_type::HASH_NODE;
+use crate::cop::node_type::{HASH_NODE, HASH_PATTERN_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct SpaceInsideHashLiteralBraces;
+
+struct BraceSpan {
+    open_start: usize,
+    open_end: usize,
+    close_start: usize,
+    has_elements: bool,
+}
+
+impl SpaceInsideHashLiteralBraces {
+    /// Check a hash-like node given its opening and closing brace locations.
+    /// Works for both HashNode and HashPatternNode.
+    #[allow(clippy::too_many_arguments)]
+    fn check_hash(
+        &self,
+        source: &SourceFile,
+        span: &BraceSpan,
+        config: &CopConfig,
+        diagnostics: &mut Vec<Diagnostic>,
+        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+    ) {
+        let BraceSpan {
+            open_start,
+            open_end,
+            close_start,
+            has_elements,
+        } = *span;
+        let bytes = source.as_bytes();
+        let empty_style = config.get_str("EnforcedStyleForEmptyBraces", "no_space");
+
+        // Determine if the hash body is empty (only whitespace between braces)
+        if !has_elements {
+            let content = &bytes[open_end..close_start];
+            let is_whitespace_only = content
+                .iter()
+                .all(|&b| matches!(b, b' ' | b'\t' | b'\n' | b'\r'));
+
+            if is_whitespace_only {
+                if content.is_empty() {
+                    // Truly empty: {}
+                    if empty_style == "space" {
+                        let (line, column) = source.offset_to_line_col(open_start);
+                        let mut diag = self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Space inside empty hash literal braces missing.".to_string(),
+                        );
+                        if let Some(ref mut corr) = corrections {
+                            corr.push(crate::correction::Correction {
+                                start: open_end,
+                                end: open_end,
+                                replacement: " ".to_string(),
+                                cop_name: self.name(),
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                        diagnostics.push(diag);
+                    }
+                    return;
+                }
+                // Has whitespace: { }, {  }, or multiline empty
+                if empty_style == "no_space" {
+                    let (line, column) = source.offset_to_line_col(open_end);
+                    let mut diag = self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Space inside empty hash literal braces detected.".to_string(),
+                    );
+                    if let Some(ref mut corr) = corrections {
+                        corr.push(crate::correction::Correction {
+                            start: open_end,
+                            end: close_start,
+                            replacement: String::new(),
+                            cop_name: self.name(),
+                            cop_index: 0,
+                        });
+                        diag.corrected = true;
+                    }
+                    diagnostics.push(diag);
+                }
+                return;
+            }
+        }
+
+        let enforced = config.get_str("EnforcedStyle", "space");
+
+        let space_after_open = bytes.get(open_end) == Some(&b' ');
+        let space_before_close =
+            close_start > open_end && bytes.get(close_start - 1) == Some(&b' ');
+
+        // Check opening brace: skip if there's a line break between brace and first content,
+        // or if there's a comment after the brace (also indicates line break).
+        let skip_open = {
+            // Scan past spaces/tabs after the opening brace
+            let mut pos = open_end;
+            while pos < close_start && matches!(bytes[pos], b' ' | b'\t') {
+                pos += 1;
+            }
+            // Skip if we hit a newline or a comment (comment always precedes a line break)
+            pos >= close_start || bytes[pos] == b'\n' || bytes[pos] == b'\r' || bytes[pos] == b'#'
+        };
+
+        // Check closing brace: skip if there's a line break between last content and brace
+        let skip_close = {
+            // Scan past spaces/tabs before the closing brace
+            let mut pos = close_start;
+            while pos > open_end && matches!(bytes[pos - 1], b' ' | b'\t') {
+                pos -= 1;
+            }
+            // Skip if we hit a newline
+            pos <= open_end || bytes[pos - 1] == b'\n' || bytes[pos - 1] == b'\r'
+        };
+
+        if !skip_open {
+            match enforced {
+                "space" | "compact" => {
+                    if !space_after_open {
+                        let (line, column) = source.offset_to_line_col(open_start);
+                        let mut diag = self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Space inside { missing.".to_string(),
+                        );
+                        if let Some(ref mut corr) = corrections {
+                            corr.push(crate::correction::Correction {
+                                start: open_end,
+                                end: open_end,
+                                replacement: " ".to_string(),
+                                cop_name: self.name(),
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                        diagnostics.push(diag);
+                    }
+                }
+                "no_space" => {
+                    if space_after_open {
+                        let (line, column) = source.offset_to_line_col(open_end);
+                        let mut diag = self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Space inside { detected.".to_string(),
+                        );
+                        if let Some(ref mut corr) = corrections {
+                            // Find the end of spaces/tabs after the brace
+                            let mut end = open_end + 1;
+                            while end < close_start && matches!(bytes[end], b' ' | b'\t') {
+                                end += 1;
+                            }
+                            corr.push(crate::correction::Correction {
+                                start: open_end,
+                                end,
+                                replacement: String::new(),
+                                cop_name: self.name(),
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                        diagnostics.push(diag);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if !skip_close {
+            match enforced {
+                "space" | "compact" => {
+                    if !space_before_close {
+                        let (line, column) = source.offset_to_line_col(close_start);
+                        let mut diag = self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Space inside } missing.".to_string(),
+                        );
+                        if let Some(ref mut corr) = corrections {
+                            corr.push(crate::correction::Correction {
+                                start: close_start,
+                                end: close_start,
+                                replacement: " ".to_string(),
+                                cop_name: self.name(),
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                        diagnostics.push(diag);
+                    }
+                }
+                "no_space" => {
+                    if space_before_close {
+                        // Find the start of spaces/tabs before the brace
+                        let mut start = close_start - 1;
+                        while start > open_end && matches!(bytes[start - 1], b' ' | b'\t') {
+                            start -= 1;
+                        }
+                        let (line, column) = source.offset_to_line_col(start);
+                        let mut diag = self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Space inside } detected.".to_string(),
+                        );
+                        if let Some(ref mut corr) = corrections {
+                            corr.push(crate::correction::Correction {
+                                start,
+                                end: close_start,
+                                replacement: String::new(),
+                                cop_name: self.name(),
+                                cop_index: 0,
+                            });
+                            diag.corrected = true;
+                        }
+                        diagnostics.push(diag);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
 
 impl Cop for SpaceInsideHashLiteralBraces {
     fn name(&self) -> &'static str {
@@ -11,7 +237,7 @@ impl Cop for SpaceInsideHashLiteralBraces {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[HASH_NODE]
+        &[HASH_NODE, HASH_PATTERN_NODE]
     }
 
     fn supports_autocorrect(&self) -> bool {
@@ -25,182 +251,59 @@ impl Cop for SpaceInsideHashLiteralBraces {
         _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
-        mut corrections: Option<&mut Vec<crate::correction::Correction>>,
+        corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Note: keyword_hash_node (keyword args like `foo(a: 1)`) intentionally not
-        // handled — this cop only applies to hash literals with `{ }` braces.
-        let hash = match node.as_hash_node() {
-            Some(h) => h,
-            None => return,
-        };
+        if let Some(hash) = node.as_hash_node() {
+            // Note: keyword_hash_node (keyword args like `foo(a: 1)`) intentionally not
+            // handled — this cop only applies to hash literals with `{ }` braces.
+            let opening = hash.opening_loc();
+            let closing = hash.closing_loc();
 
-        let opening = hash.opening_loc();
-        let closing = hash.closing_loc();
-
-        // Only check hash literals with { }
-        if opening.as_slice() != b"{" || closing.as_slice() != b"}" {
-            return;
-        }
-
-        let bytes = source.as_bytes();
-        let open_end = opening.end_offset();
-        let close_start = closing.start_offset();
-
-        let empty_style = config.get_str("EnforcedStyleForEmptyBraces", "no_space");
-
-        // Handle empty hashes {}
-        if close_start == open_end {
-            match empty_style {
-                "space" => {
-                    let (line, column) = source.offset_to_line_col(opening.start_offset());
-                    let mut diag = self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Space inside empty hash literal braces missing.".to_string(),
-                    );
-                    if let Some(ref mut corr) = corrections {
-                        corr.push(crate::correction::Correction {
-                            start: open_end,
-                            end: open_end,
-                            replacement: " ".to_string(),
-                            cop_name: self.name(),
-                            cop_index: 0,
-                        });
-                        diag.corrected = true;
-                    }
-                    diagnostics.push(diag);
-                    return;
-                }
-                _ => return,
+            // Only check hash literals with { }
+            if opening.as_slice() != b"{" || closing.as_slice() != b"}" {
+                return;
             }
-        }
-        // Check for { } (empty with space)
-        if close_start == open_end + 1 && bytes.get(open_end) == Some(&b' ') {
-            match empty_style {
-                "no_space" => {
-                    let (line, column) = source.offset_to_line_col(open_end);
-                    let mut diag = self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Space inside empty hash literal braces detected.".to_string(),
-                    );
-                    if let Some(ref mut corr) = corrections {
-                        corr.push(crate::correction::Correction {
-                            start: open_end,
-                            end: open_end + 1,
-                            replacement: String::new(),
-                            cop_name: self.name(),
-                            cop_index: 0,
-                        });
-                        diag.corrected = true;
-                    }
-                    diagnostics.push(diag);
-                    return;
-                }
-                _ => return,
+
+            self.check_hash(
+                source,
+                &BraceSpan {
+                    open_start: opening.start_offset(),
+                    open_end: opening.end_offset(),
+                    close_start: closing.start_offset(),
+                    has_elements: !hash.elements().is_empty(),
+                },
+                config,
+                diagnostics,
+                corrections,
+            );
+        } else if let Some(hash_pattern) = node.as_hash_pattern_node() {
+            // Hash pattern matching: `case foo; in { a: 1 }; end` or `foo in { a: 1 }`
+            let opening = match hash_pattern.opening_loc() {
+                Some(loc) => loc,
+                None => return,
+            };
+            let closing = match hash_pattern.closing_loc() {
+                Some(loc) => loc,
+                None => return,
+            };
+
+            // Only check patterns with { } braces (not Foo[...] syntax)
+            if opening.as_slice() != b"{" || closing.as_slice() != b"}" {
+                return;
             }
-        }
 
-        // Skip multiline hashes (opening and closing on different lines)
-        let (open_line, _) = source.offset_to_line_col(opening.start_offset());
-        let (close_line, _) = source.offset_to_line_col(closing.start_offset());
-        if open_line != close_line {
-            return;
-        }
-
-        let enforced = config.get_str("EnforcedStyle", "space");
-
-        let space_after_open = bytes.get(open_end) == Some(&b' ');
-        let space_before_close = close_start > 0 && bytes.get(close_start - 1) == Some(&b' ');
-
-        match enforced {
-            "space" => {
-                if !space_after_open {
-                    let (line, column) = source.offset_to_line_col(opening.start_offset());
-                    let mut diag = self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Space inside { missing.".to_string(),
-                    );
-                    if let Some(ref mut corr) = corrections {
-                        corr.push(crate::correction::Correction {
-                            start: open_end,
-                            end: open_end,
-                            replacement: " ".to_string(),
-                            cop_name: self.name(),
-                            cop_index: 0,
-                        });
-                        diag.corrected = true;
-                    }
-                    diagnostics.push(diag);
-                }
-                if !space_before_close {
-                    let (line, column) = source.offset_to_line_col(closing.start_offset());
-                    let mut diag = self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Space inside } missing.".to_string(),
-                    );
-                    if let Some(ref mut corr) = corrections {
-                        corr.push(crate::correction::Correction {
-                            start: close_start,
-                            end: close_start,
-                            replacement: " ".to_string(),
-                            cop_name: self.name(),
-                            cop_index: 0,
-                        });
-                        diag.corrected = true;
-                    }
-                    diagnostics.push(diag);
-                }
-            }
-            "no_space" => {
-                if space_after_open {
-                    let (line, column) = source.offset_to_line_col(open_end);
-                    let mut diag = self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Space inside { detected.".to_string(),
-                    );
-                    if let Some(ref mut corr) = corrections {
-                        corr.push(crate::correction::Correction {
-                            start: open_end,
-                            end: open_end + 1,
-                            replacement: String::new(),
-                            cop_name: self.name(),
-                            cop_index: 0,
-                        });
-                        diag.corrected = true;
-                    }
-                    diagnostics.push(diag);
-                }
-                if space_before_close {
-                    let (line, column) = source.offset_to_line_col(close_start - 1);
-                    let mut diag = self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Space inside } detected.".to_string(),
-                    );
-                    if let Some(ref mut corr) = corrections {
-                        corr.push(crate::correction::Correction {
-                            start: close_start - 1,
-                            end: close_start,
-                            replacement: String::new(),
-                            cop_name: self.name(),
-                            cop_index: 0,
-                        });
-                        diag.corrected = true;
-                    }
-                    diagnostics.push(diag);
-                }
-            }
-            _ => {}
+            self.check_hash(
+                source,
+                &BraceSpan {
+                    open_start: opening.start_offset(),
+                    open_end: opening.end_offset(),
+                    close_start: closing.start_offset(),
+                    has_elements: !hash_pattern.elements().is_empty(),
+                },
+                config,
+                diagnostics,
+                corrections,
+            );
         }
     }
 }
@@ -262,5 +365,96 @@ mod tests {
         // Hash without spaces should be clean with no_space style
         let source2 = b"x = {a: 1}\n";
         assert_cop_no_offenses_full_with_config(&SpaceInsideHashLiteralBraces, source2, config);
+    }
+
+    #[test]
+    fn hash_pattern_matching_space_style() {
+        // Default style (space) should flag missing spaces in hash patterns
+        let source = b"case foo\nin {k1: 0, k2: 1}\n  nil\nend\n";
+        let diags =
+            run_cop_full_with_config(&SpaceInsideHashLiteralBraces, source, CopConfig::default());
+        assert_eq!(diags.len(), 2, "Should flag both braces in hash pattern");
+    }
+
+    #[test]
+    fn hash_pattern_matching_no_offense() {
+        let source = b"case foo\nin { k1: 0, k2: 1 }\n  nil\nend\n";
+        let diags =
+            run_cop_full_with_config(&SpaceInsideHashLiteralBraces, source, CopConfig::default());
+        assert_eq!(
+            diags.len(),
+            0,
+            "Should not flag properly spaced hash pattern"
+        );
+    }
+
+    #[test]
+    fn multiline_empty_hash_no_space_style() {
+        // Multiline empty hash should be flagged with default no_space style for empty braces
+        let source = b"h = {\n}\n";
+        let diags =
+            run_cop_full_with_config(&SpaceInsideHashLiteralBraces, source, CopConfig::default());
+        assert_eq!(
+            diags.len(),
+            1,
+            "Multiline empty hash with no_space should fire"
+        );
+    }
+
+    #[test]
+    fn empty_hash_with_multiple_spaces() {
+        // {    } should be flagged with no_space style (default for empty braces)
+        let source = b"h = {    }\n";
+        let diags =
+            run_cop_full_with_config(&SpaceInsideHashLiteralBraces, source, CopConfig::default());
+        assert_eq!(
+            diags.len(),
+            1,
+            "Empty hash with multiple spaces should fire"
+        );
+    }
+
+    #[test]
+    fn compact_style_non_nested() {
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("compact".into()),
+            )]),
+            ..CopConfig::default()
+        };
+
+        // Non-nested hash should be fine with spaces
+        let source = b"h = { a: 1, b: 2 }\n";
+        let diags = run_cop_full_with_config(&SpaceInsideHashLiteralBraces, source, config.clone());
+        assert_eq!(
+            diags.len(),
+            0,
+            "Non-nested hash in compact style should be ok"
+        );
+
+        // Hash without spaces should require them in compact style
+        let source2 = b"h = {a: 1}\n";
+        let diags2 = run_cop_full_with_config(&SpaceInsideHashLiteralBraces, source2, config);
+        assert_eq!(
+            diags2.len(),
+            2,
+            "Compact should require spaces for non-nested hashes"
+        );
+    }
+
+    #[test]
+    fn multiline_hash_with_comment_after_brace() {
+        // { # Comment should not flag the opening brace
+        let source = b"h = { # Comment\n  a: 1,\n}\n";
+        let diags =
+            run_cop_full_with_config(&SpaceInsideHashLiteralBraces, source, CopConfig::default());
+        assert_eq!(
+            diags.len(),
+            0,
+            "Hash with comment after brace should not flag"
+        );
     }
 }

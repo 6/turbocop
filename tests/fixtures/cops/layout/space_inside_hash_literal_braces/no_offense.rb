@@ -3,3 +3,12 @@
 {}
 x = { foo: :bar }
 { "key" => "value" }
+{ a: 1,
+  b: 2 }
+x = {
+  a: 1,
+  b: 2,
+}
+h = { # Comment
+  a: 1,
+}

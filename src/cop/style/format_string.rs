@@ -45,15 +45,28 @@ impl Cop for FormatString {
                 if style == "percent" {
                     return;
                 }
-                // Must have a string receiver
+                // Must have a non-nil receiver
                 let receiver = match call.receiver() {
                     Some(r) => r,
                     None => return,
                 };
-                if receiver.as_string_node().is_none()
-                    && receiver.as_interpolated_string_node().is_none()
-                {
-                    return;
+
+                let is_string_receiver = receiver.as_string_node().is_some()
+                    || receiver.as_interpolated_string_node().is_some();
+
+                if !is_string_receiver {
+                    // For non-string receivers, only flag when RHS is an array or hash literal
+                    // RuboCop pattern: (send !nil? $:% {array hash})
+                    let has_array_or_hash_arg = call.arguments().is_some_and(|args| {
+                        let arg_list: Vec<_> = args.arguments().iter().collect();
+                        arg_list.len() == 1
+                            && (arg_list[0].as_array_node().is_some()
+                                || arg_list[0].as_hash_node().is_some()
+                                || arg_list[0].as_keyword_hash_node().is_some())
+                    });
+                    if !has_array_or_hash_arg {
+                        return;
+                    }
                 }
 
                 // RuboCop points at the % operator (node.loc.selector), not the whole expression
@@ -81,6 +94,14 @@ impl Cop for FormatString {
                         return;
                     }
                 }
+                // RuboCop requires at least 2 arguments: (send nil? :format _ _ ...)
+                let arg_count = call
+                    .arguments()
+                    .map(|a| a.arguments().iter().count())
+                    .unwrap_or(0);
+                if arg_count < 2 {
+                    return;
+                }
 
                 // RuboCop points at the method name (node.loc.selector), not the whole expression
                 let loc = call.message_loc().unwrap_or_else(|| call.location());
@@ -106,6 +127,14 @@ impl Cop for FormatString {
                     if !is_kernel_constant(&recv) {
                         return;
                     }
+                }
+                // RuboCop requires at least 2 arguments: (send nil? :sprintf _ _ ...)
+                let arg_count = call
+                    .arguments()
+                    .map(|a| a.arguments().iter().count())
+                    .unwrap_or(0);
+                if arg_count < 2 {
+                    return;
                 }
 
                 // RuboCop points at the method name (node.loc.selector), not the whole expression

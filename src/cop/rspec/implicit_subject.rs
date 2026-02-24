@@ -85,6 +85,7 @@ impl Cop for ImplicitSubject {
                 column,
                 "Don't use implicit subject.".to_string(),
             ));
+            return;
         }
 
         // If the line starts with `it {` or `it{`, it's a single-line example — OK
