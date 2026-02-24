@@ -92,9 +92,10 @@ impl SpaceInsideHashLiteralBraces {
 
         let enforced = config.get_str("EnforcedStyle", "space");
 
-        let space_after_open = bytes.get(open_end) == Some(&b' ');
+        // RuboCop treats both spaces and tabs as valid whitespace for this check
+        let space_after_open = matches!(bytes.get(open_end), Some(b' ' | b'\t'));
         let space_before_close =
-            close_start > open_end && bytes.get(close_start - 1) == Some(&b' ');
+            close_start > open_end && matches!(bytes.get(close_start - 1), Some(b' ' | b'\t'));
 
         // Check opening brace: skip if there's a line break between brace and first content,
         // or if there's a comment after the brace (also indicates line break).

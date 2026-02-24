@@ -38,3 +38,16 @@
     The `Style/PredicateName` cop has been renamed, please update it
   OUTPUT
 ]
+
+# Single-line array with heredoc element — no trailing comma
+cmd = ['-W0', '-e', <<-RB]
+  puts 'foo'
+  print 'bar'
+RB
+
+# Single-line array with multiple heredoc elements
+x = [<<EOS1, <<EOS2]
+first content
+EOS1
+second content
+EOS2

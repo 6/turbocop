@@ -57,8 +57,13 @@ def void_containers
   ^^^^^^^^^ Lint/Void: Void value expression detected.
   {a: 1}
   ^^^^^^ Lint/Void: Void value expression detected.
-  1..10
-  ^^^^^ Lint/Void: Void value expression detected.
+  "done"
+end
+
+def void_operator_triple_equals
+  a = Object.new
+  a === "test"
+  ^^^^^^^^^^^^ Lint/Void: Void value expression detected.
   "done"
 end
 

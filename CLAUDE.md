@@ -263,6 +263,18 @@ Pipeline: `bench_turbocop conform` → `bench/conform.json` → `coverage_table`
 
 Use the `/triage` skill to rank cops by FP+FN from the 500-repo corpus oracle. See `.claude/skills/triage/skill.md` for details.
 
+## Corpus Regression Testing
+
+After fixing any cop, run the corpus check to verify no FP regression against 500 real-world repos (~60-90s):
+
+```
+python3 scripts/check-cop.py Department/CopName                    # aggregate check
+python3 scripts/check-cop.py Department/CopName --verbose           # per-repo breakdown
+python3 scripts/check-cop.py Department/CopName --input results.json # use local corpus-results.json
+```
+
+The script compares turbocop offense counts against the RuboCop baseline from the latest CI corpus oracle run. `FAIL` means turbocop produces more offenses than RuboCop (false positives). Always use a fresh temp directory when manually downloading CI artifacts with `gh run download` (`mktemp -d`) to avoid stale data contamination.
+
 ## Rules
 
 - **NEVER copy code or identifiers from private repos into this codebase.** When fixing false positives found by running against private/internal repos, write generic test cases that reproduce the same pattern. Use generic names (e.g. `records`, `payload`, `User`, `name`, `role`, `status`) instead of domain-specific names from the private codebase. Do not use variable names, method names, or terminology that originated in private repo source code — even if they seem generic, if you encountered them in a private repo, replace them. Do not reference private repo names or paths in committed files. This applies to test fixtures, comments, commit messages, and any other checked-in files.

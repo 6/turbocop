@@ -51,20 +51,34 @@ impl Cop for TrailingCommaInArrayLiteral {
         let closing_start = closing_loc.start_offset();
         let bytes = source.as_bytes();
 
-        // For heredoc elements (or method calls on heredocs), the node's
-        // location.end_offset() is at the heredoc opening tag (before the
-        // heredoc body), while the closing `]` is after the heredoc body.
-        // Scanning from last_end to closing_start would include heredoc
-        // content and find false commas. When any element is a heredoc,
-        // only scan the line of the closing bracket for a trailing comma,
-        // matching RuboCop's heredoc-aware regex (no newlines allowed).
+        // For heredoc elements, Prism's location.end_offset() is at the
+        // heredoc opening tag (e.g., `<<-RB`), not the closing tag. In
+        // multiline arrays, the heredoc body sits between last_end and
+        // closing_start, so scanning that range could find commas inside
+        // heredoc content. For multiline arrays with heredocs, scan only
+        // from the start of the closing bracket's line.
+        //
+        // For single-line arrays like `['-W0', '-e', <<-RB]`, the heredoc
+        // body extends below the line and doesn't appear between the last
+        // element and `]`. Using last_end is safe and correct; the
+        // start-of-line scan would incorrectly pick up inter-element commas.
         let effective_last_end = if any_heredoc(&elements) {
-            // Scan backwards from the closing bracket to the start of its line
-            let mut pos = closing_start;
-            while pos > 0 && bytes[pos - 1] != b'\n' {
-                pos -= 1;
+            let open_line = array_node
+                .opening_loc()
+                .map(|l| source.offset_to_line_col(l.start_offset()).0)
+                .unwrap_or(0);
+            let close_line = source.offset_to_line_col(closing_start).0;
+            if open_line == close_line {
+                // Single-line brackets: heredoc bodies are below, safe to use last_end
+                last_end
+            } else {
+                // Multiline brackets: scan from start of `]`'s line
+                let mut pos = closing_start;
+                while pos > 0 && bytes[pos - 1] != b'\n' {
+                    pos -= 1;
+                }
+                pos
             }
-            pos
         } else {
             last_end
         };

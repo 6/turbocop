@@ -12,3 +12,7 @@ x = {
 h = { # Comment
   a: 1,
 }
+x = {	:name=>"test",
+	:value => "data" }
+y = {	:key => "value",
+	:other => 42 }

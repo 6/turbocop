@@ -53,9 +53,6 @@ fn is_void_expression(node: &ruby_prism::Node<'_>) -> bool {
         || node.as_false_node().is_some()
         || node.as_rational_node().is_some()
         || node.as_imaginary_node().is_some()
-        // Interpolated literals
-        || node.as_interpolated_string_node().is_some()
-        || node.as_interpolated_symbol_node().is_some()
         // Variable reads
         || node.as_local_variable_read_node().is_some()
         || node.as_instance_variable_read_node().is_some()
@@ -64,13 +61,11 @@ fn is_void_expression(node: &ruby_prism::Node<'_>) -> bool {
         // Constants
         || node.as_constant_read_node().is_some()
         || node.as_constant_path_node().is_some()
-        // Containers
-        || node.as_range_node().is_some()
-        || node.as_array_node().is_some()
-        || node.as_hash_node().is_some()
-        || node.as_keyword_hash_node().is_some()
+        // Containers — only when ALL elements are literals (matches RuboCop's entirely_literal?)
+        // Note: ranges are excluded (RuboCop's check_literal skips range_type?)
+        || is_entirely_literal_container(node)
         || node.as_regular_expression_node().is_some()
-        || node.as_interpolated_regular_expression_node().is_some()
+        // Note: interpolated strings/symbols/regexps are NOT void (interpolation may have side effects)
         // Keywords
         || node.as_source_file_node().is_some()
         || node.as_source_line_node().is_some()
@@ -81,9 +76,52 @@ fn is_void_expression(node: &ruby_prism::Node<'_>) -> bool {
         || is_void_operator(node)
 }
 
+/// Check if a node is an entirely-literal container (array or hash where all
+/// elements are literals). Matches RuboCop's `entirely_literal?` method.
+fn is_entirely_literal_container(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(arr) = node.as_array_node() {
+        arr.elements().iter().all(|e| is_entirely_literal(&e))
+    } else if let Some(hash) = node.as_hash_node() {
+        hash.elements().iter().all(|e| {
+            if let Some(assoc) = e.as_assoc_node() {
+                is_entirely_literal(&assoc.key()) && is_entirely_literal(&assoc.value())
+            } else {
+                false
+            }
+        })
+    } else if let Some(hash) = node.as_keyword_hash_node() {
+        hash.elements().iter().all(|e| {
+            if let Some(assoc) = e.as_assoc_node() {
+                is_entirely_literal(&assoc.key()) && is_entirely_literal(&assoc.value())
+            } else {
+                false
+            }
+        })
+    } else {
+        false
+    }
+}
+
+/// Recursively check if a node is entirely literal (no variables, method calls, etc.)
+fn is_entirely_literal(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_integer_node().is_some()
+        || node.as_float_node().is_some()
+        || node.as_string_node().is_some()
+        || node.as_symbol_node().is_some()
+        || node.as_nil_node().is_some()
+        || node.as_true_node().is_some()
+        || node.as_false_node().is_some()
+        || node.as_rational_node().is_some()
+        || node.as_imaginary_node().is_some()
+        || node.as_regular_expression_node().is_some()
+        || is_entirely_literal_container(node)
+}
+
 fn is_void_operator(node: &ruby_prism::Node<'_>) -> bool {
     if let Some(call) = node.as_call_node() {
         let name = call.name().as_slice();
+        // RuboCop's BINARY_OPERATORS + UNARY_OPERATORS
+        // Note: << >> & | ^ are NOT void — they are mutation/bitwise operators with side effects
         matches!(
             name,
             b"+" | b"-"
@@ -92,17 +130,13 @@ fn is_void_operator(node: &ruby_prism::Node<'_>) -> bool {
                 | b"%"
                 | b"**"
                 | b"=="
+                | b"==="
                 | b"!="
                 | b"<"
                 | b">"
                 | b"<="
                 | b">="
                 | b"<=>"
-                | b"<<"
-                | b">>"
-                | b"&"
-                | b"|"
-                | b"^"
                 | b"!"
                 | b"~"
                 | b"-@"
