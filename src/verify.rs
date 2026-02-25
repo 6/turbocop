@@ -40,7 +40,7 @@ struct RubocopLocation {
 
 #[derive(Debug, serde::Serialize)]
 pub struct VerifyResult {
-    pub turbocop_count: usize,
+    pub nitrocop_count: usize,
     pub rubocop_count: usize,
     pub matches: usize,
     pub false_positives: usize,
@@ -101,10 +101,10 @@ pub fn run_verify(
     tier_map: &TierMap,
     allowlist: &AutocorrectAllowlist,
 ) -> Result<VerifyResult> {
-    // 1. Run turbocop internally
+    // 1. Run nitrocop internally
     let discovered = discover_files(&args.paths, config)?;
     let lint_result = run_linter(&discovered, config, registry, args, tier_map, allowlist);
-    let turbocop_set = diagnostics_to_set(&lint_result.diagnostics);
+    let nitrocop_set = diagnostics_to_set(&lint_result.diagnostics);
 
     // 2. Run RuboCop subprocess
     let rubocop_json = run_rubocop(args)?;
@@ -116,10 +116,10 @@ pub fn run_verify(
     let rubocop_set = rubocop_to_set(&rubocop_output, &covered);
 
     // 4. Compute set operations
-    let matches: HashSet<&Offense> = turbocop_set.intersection(&rubocop_set).collect();
-    let fps: HashSet<&Offense> = turbocop_set.difference(&rubocop_set).collect();
-    let fns: HashSet<&Offense> = rubocop_set.difference(&turbocop_set).collect();
-    let total = turbocop_set.union(&rubocop_set).count();
+    let matches: HashSet<&Offense> = nitrocop_set.intersection(&rubocop_set).collect();
+    let fps: HashSet<&Offense> = nitrocop_set.difference(&rubocop_set).collect();
+    let fns: HashSet<&Offense> = rubocop_set.difference(&nitrocop_set).collect();
+    let total = nitrocop_set.union(&rubocop_set).count();
     let match_rate = if total == 0 {
         100.0
     } else {
@@ -139,7 +139,7 @@ pub fn run_verify(
     }
 
     Ok(VerifyResult {
-        turbocop_count: turbocop_set.len(),
+        nitrocop_count: nitrocop_set.len(),
         rubocop_count: rubocop_set.len(),
         matches: matches.len(),
         false_positives: fps.len(),
@@ -212,11 +212,11 @@ fn run_rubocop(args: &Args) -> Result<String> {
 // ---------- Output ----------
 
 pub fn print_text(result: &VerifyResult) {
-    println!("turbocop verify:");
-    println!("  turbocop: {} offenses", result.turbocop_count);
+    println!("nitrocop verify:");
+    println!("  nitrocop: {} offenses", result.nitrocop_count);
     println!("  rubocop:  {} offenses", result.rubocop_count);
     println!("  matches:  {} ({:.1}%)", result.matches, result.match_rate);
-    println!("  FP:       {} (turbocop-only)", result.false_positives);
+    println!("  FP:       {} (nitrocop-only)", result.false_positives);
     println!("  FN:       {} (rubocop-only)", result.false_negatives);
 
     // Per-cop diffs (only cops with FP or FN, sorted by total diffs descending)

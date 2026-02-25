@@ -30,7 +30,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::process;
 
-use turbocop::node_pattern::{
+use nitrocop::node_pattern::{
     ExtractedPattern, Lexer, NodeMapping, Parser, PatternKind, PatternNode, build_mapping_table,
     extract_patterns, pattern_summary, walk_vendor_patterns,
 };

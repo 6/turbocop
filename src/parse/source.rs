@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn from_path_reads_file() {
-        let dir = std::env::temp_dir().join("turbocop_test_source");
+        let dir = std::env::temp_dir().join("nitrocop_test_source");
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("test.rb");
         std::fs::write(&file, b"x = 1\n").unwrap();

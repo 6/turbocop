@@ -1,22 +1,22 @@
 [package]
-name = "turbocop"
+name = "nitrocop"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-default-run = "turbocop"
+default-run = "nitrocop"
 description = "Experimental RuboCop rewrite in Rust — 900+ cops, drop-in compatible"
 license = "MIT"
-repository = "https://github.com/6/turbocop"
+repository = "https://github.com/6/nitrocop"
 readme = "README.md"
 keywords = ["ruby", "linter", "rubocop", "lint"]
 categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
-name = "turbocop"
+name = "nitrocop"
 path = "src/main.rs"
 
 [[bin]]
-name = "bench_turbocop"
+name = "bench_nitrocop"
 path = "bench/bench.rs"
 
 [[bin]]

@@ -7,7 +7,7 @@
 [:foo, :bar,]
            ^ Style/TrailingCommaInArrayLiteral: Avoid comma after the last item of an array.
 
-# turbocop-expect: 10:3 Style/TrailingCommaInArrayLiteral: Avoid comma after the last item of an array.
+# nitrocop-expect: 10:3 Style/TrailingCommaInArrayLiteral: Avoid comma after the last item of an array.
 # Multiline array with trailing comma and blank line before closing bracket
 [
   1,
@@ -15,7 +15,7 @@
 
 ]
 
-# turbocop-expect: 17:5 Style/TrailingCommaInArrayLiteral: Avoid comma after the last item of an array.
+# nitrocop-expect: 17:5 Style/TrailingCommaInArrayLiteral: Avoid comma after the last item of an array.
 # Multiline array with trailing comma and comment before closing bracket
 [
   "x",

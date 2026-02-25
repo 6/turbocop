@@ -1,12 +1,12 @@
-# turbocop-expect: 4:0 Layout/EmptyLinesAroundArguments: Empty line detected around arguments.
-# turbocop-expect: 11:0 Layout/EmptyLinesAroundArguments: Empty line detected around arguments.
-# turbocop-expect: 18:0 Layout/EmptyLinesAroundArguments: Empty line detected around arguments.
-# turbocop-expect: 25:0 Layout/EmptyLinesAroundArguments: Empty line detected around arguments.
-# turbocop-expect: 32:0 Layout/EmptyLinesAroundArguments: Empty line detected around arguments.
-# turbocop-expect: 37:0 Layout/EmptyLinesAroundArguments: Empty line detected around arguments.
-# turbocop-expect: 43:0 Layout/EmptyLinesAroundArguments: Empty line detected around arguments.
-# turbocop-expect: 45:0 Layout/EmptyLinesAroundArguments: Empty line detected around arguments.
-# turbocop-expect: 47:0 Layout/EmptyLinesAroundArguments: Empty line detected around arguments.
+# nitrocop-expect: 4:0 Layout/EmptyLinesAroundArguments: Empty line detected around arguments.
+# nitrocop-expect: 11:0 Layout/EmptyLinesAroundArguments: Empty line detected around arguments.
+# nitrocop-expect: 18:0 Layout/EmptyLinesAroundArguments: Empty line detected around arguments.
+# nitrocop-expect: 25:0 Layout/EmptyLinesAroundArguments: Empty line detected around arguments.
+# nitrocop-expect: 32:0 Layout/EmptyLinesAroundArguments: Empty line detected around arguments.
+# nitrocop-expect: 37:0 Layout/EmptyLinesAroundArguments: Empty line detected around arguments.
+# nitrocop-expect: 43:0 Layout/EmptyLinesAroundArguments: Empty line detected around arguments.
+# nitrocop-expect: 45:0 Layout/EmptyLinesAroundArguments: Empty line detected around arguments.
+# nitrocop-expect: 47:0 Layout/EmptyLinesAroundArguments: Empty line detected around arguments.
 # Empty line between args
 foo(
   bar,

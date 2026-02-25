@@ -1,6 +1,6 @@
 # Autocorrect Validation Report
 
-Validates that `turbocop -A` corrections are recognized as clean by `rubocop`.
+Validates that `nitrocop -A` corrections are recognized as clean by `rubocop`.
 
 ## Autocorrect Validation
 

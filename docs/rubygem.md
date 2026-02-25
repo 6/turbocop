@@ -1,35 +1,35 @@
 # RubyGem Distribution
 
-turbocop is distributed as a RubyGem with precompiled platform-specific binaries, following the same pattern as [sorbet-static](https://rubygems.org/gems/sorbet-static) and [Nokogiri](https://rubygems.org/gems/nokogiri).
+nitrocop is distributed as a RubyGem with precompiled platform-specific binaries, following the same pattern as [sorbet-static](https://rubygems.org/gems/sorbet-static) and [Nokogiri](https://rubygems.org/gems/nokogiri).
 
 ## Installation
 
 ```ruby
 # Gemfile
-gem "turbocop", group: :development
+gem "nitrocop", group: :development
 ```
 
 Or install directly:
 
 ```bash
-gem install turbocop
+gem install nitrocop
 ```
 
-RubyGems automatically resolves the correct platform variant. Users with Rust installed can also `cargo install turbocop`.
+RubyGems automatically resolves the correct platform variant. Users with Rust installed can also `cargo install nitrocop`.
 
 ## How it works
 
-A single gem name (`turbocop`) has platform-specific variants. RubyGems picks the right one at install time:
+A single gem name (`nitrocop`) has platform-specific variants. RubyGems picks the right one at install time:
 
 ```
-turbocop-X.Y.Z.gem                    ← base/fallback (no binary)
-turbocop-X.Y.Z-arm64-darwin.gem       ← macOS Apple Silicon
-turbocop-X.Y.Z-x86_64-linux.gem       ← Linux x86_64 (GNU)
-turbocop-X.Y.Z-x86_64-linux-musl.gem  ← Linux x86_64 (Alpine/musl)
-turbocop-X.Y.Z-aarch64-linux.gem      ← Linux ARM64
+nitrocop-X.Y.Z.gem                    ← base/fallback (no binary)
+nitrocop-X.Y.Z-arm64-darwin.gem       ← macOS Apple Silicon
+nitrocop-X.Y.Z-x86_64-linux.gem       ← Linux x86_64 (GNU)
+nitrocop-X.Y.Z-x86_64-linux-musl.gem  ← Linux x86_64 (Alpine/musl)
+nitrocop-X.Y.Z-aarch64-linux.gem      ← Linux ARM64
 ```
 
-**Platform gems** contain the native binary at `libexec/turbocop`. The Ruby binstub at `exe/turbocop` finds and execs it.
+**Platform gems** contain the native binary at `libexec/nitrocop`. The Ruby binstub at `exe/nitrocop` finds and execs it.
 
 **Base gem** (fallback) has no binary — the binstub prints a helpful error with install-from-source instructions.
 
@@ -37,17 +37,17 @@ turbocop-X.Y.Z-aarch64-linux.gem      ← Linux ARM64
 
 ```
 gem/
-├── turbocop.gemspec      # Gemspec (reads version from lib/turbocop.rb)
+├── nitrocop.gemspec      # Gemspec (reads version from lib/nitrocop.rb)
 ├── build_gem.rb          # Build script (base + platform gems)
 ├── lib/
-│   ├── turbocop.rb       # VERSION constant + Turbocop.executable finder
+│   ├── nitrocop.rb       # VERSION constant + Nitrocop.executable finder
 │   └── gem_builder.rb    # GemBuilder class (shared build logic)
 ├── exe/
-│   └── turbocop          # Ruby binstub (finds libexec binary or shows error)
+│   └── nitrocop          # Ruby binstub (finds libexec binary or shows error)
 ├── test/
 │   └── gem_builder_test.rb  # GemBuilder tests
 └── libexec/
-    └── turbocop          # Native binary (only in platform gems, not checked in)
+    └── nitrocop          # Native binary (only in platform gems, not checked in)
 ```
 
 ## Build script
@@ -65,18 +65,18 @@ The shared logic lives in `gem/lib/gem_builder.rb` (`GemBuilder` class), tested 
 
 ```bash
 cargo build --release
-ruby gem/build_gem.rb 0.1.0.dev --platform arm64-darwin --binary target/release/turbocop
+ruby gem/build_gem.rb 0.1.0.dev --platform arm64-darwin --binary target/release/nitrocop
 ruby gem/build_gem.rb 0.1.0.dev
-gem install turbocop-0.1.0.dev-arm64-darwin.gem
-turbocop --help
-gem uninstall turbocop
+gem install nitrocop-0.1.0.dev-arm64-darwin.gem
+nitrocop --help
+gem uninstall nitrocop
 ```
 
 ## Release workflow
 
 Triggered via `workflow_dispatch` with a version input (e.g. `0.1.0`):
 
-1. **prepare** — bumps version in `Cargo.toml` and `gem/lib/turbocop.rb`, commits, tags
+1. **prepare** — bumps version in `Cargo.toml` and `gem/lib/nitrocop.rb`, commits, tags
 2. **build** — cross-compiles for 4 platforms, packages tarballs + platform gems
 3. **release** — creates GitHub Release with tarballs
 4. **publish-crates** — `cargo publish` to crates.io

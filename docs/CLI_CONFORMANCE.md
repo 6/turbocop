@@ -1,10 +1,10 @@
 # CLI Conformance with RuboCop
 
-RuboCop CLI flags that turbocop should accept for drop-in compatibility.
+RuboCop CLI flags that nitrocop should accept for drop-in compatibility.
 
 ## Implemented
 
-| Flag | turbocop | Notes |
+| Flag | nitrocop | Notes |
 |------|----------|-------|
 | `[PATHS]...` | `paths` | Same behavior |
 | `-c` / `--config FILE` | `--config` | Same |
@@ -33,16 +33,16 @@ RuboCop CLI flags that turbocop should accept for drop-in compatibility.
 
 ## Format Values
 
-RuboCop accepts 14 format values. turbocop implements the most useful subset.
+RuboCop accepts 14 format values. nitrocop implements the most useful subset.
 
 ### Implemented
 
 | Format | Default? | Description | Example Output |
 |--------|----------|-------------|----------------|
-| `progress` | **Yes** (turbocop + RuboCop default) | One char per file: `.` = clean, `C`/`W`/`E`/`F` = worst severity. Offense details + summary follow. | `..C.W...` |
-| `text` | | Alias for `emacs`/`simple`. Per-offense lines with file path, line, column, severity, cop name, and message. Summary at end. Legacy turbocop default. | `foo.rb:3:5: C: Style/Foo: msg` |
+| `progress` | **Yes** (nitrocop + RuboCop default) | One char per file: `.` = clean, `C`/`W`/`E`/`F` = worst severity. Offense details + summary follow. | `..C.W...` |
+| `text` | | Alias for `emacs`/`simple`. Per-offense lines with file path, line, column, severity, cop name, and message. Summary at end. Legacy nitrocop default. | `foo.rb:3:5: C: Style/Foo: msg` |
 | `emacs` | | Same as `text`. Machine-parsable, one offense per line. `path:line:col: SEVERITY: Cop/Name: message`. | `foo.rb:3:5: C: Style/Foo: msg` |
-| `simple` | | Same as `text`/`emacs` in turbocop. (In RuboCop, `simple` omits file path and groups by file; turbocop treats as alias.) | `foo.rb:3:5: C: Style/Foo: msg` |
+| `simple` | | Same as `text`/`emacs` in nitrocop. (In RuboCop, `simple` omits file path and groups by file; nitrocop treats as alias.) | `foo.rb:3:5: C: Style/Foo: msg` |
 | `json` | | Structured JSON with `metadata` (file count, offense count) and `offenses` array. | `{"metadata": {...}, "offenses": [...]}` |
 | `github` | | GitHub Actions workflow annotations. Convention/Warning → `::warning`, Error/Fatal → `::error`. No summary line. | `::warning file=foo.rb,line=3,col=5::Style/Foo: msg` |
 | `pacman` | | Pac-Man visual format. `ᗧ` eats `•` (clean files), `ᗣ` (ghost) for files with offenses. Offense details + summary follow. | `ᗧ••ᗣ•••ᗣ••` |

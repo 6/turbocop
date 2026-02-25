@@ -1,4 +1,4 @@
-# turbocop-filename: spec/models/user_spec.rb
+# nitrocop-filename: spec/models/user_spec.rb
 describe User do
   it 'works' do
     expect(true).to eq(true)

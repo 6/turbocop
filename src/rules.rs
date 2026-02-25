@@ -1,4 +1,4 @@
-//! `--rules` command: list all cops turbocop knows about.
+//! `--rules` command: list all cops nitrocop knows about.
 //!
 //! Shows name, tier, implementation status, baseline presence, and default enabled.
 

@@ -1,6 +1,6 @@
 # Remaining Cop Coverage: Rails Schema Cops
 
-2 cops remain to reach 100% coverage across all gems. Both require `db/schema.rb` parsing, which turbocop doesn't have yet.
+2 cops remain to reach 100% coverage across all gems. Both require `db/schema.rb` parsing, which nitrocop doesn't have yet.
 
 **Current conformance impact: none.** Neither cop fires on any bench repo today — our no-op stubs match RuboCop's output perfectly. This is a completeness goal, not a conformance fix.
 
@@ -97,7 +97,7 @@ Schema data is per-project (not per-file), so it should be:
 
 - Uncomment registrations in `src/cop/rails/mod.rs`
 - Implement `check_node` using the schema data
-- Add test fixtures using `# turbocop-schema:` directive or similar mechanism to provide inline schema for tests
+- Add test fixtures using `# nitrocop-schema:` directive or similar mechanism to provide inline schema for tests
 
 ## Suggested order
 
@@ -109,13 +109,13 @@ Schema data is per-project (not per-file), so it should be:
 
 # Excluded Cops in Conformance
 
-Cops excluded from per-repo conformance comparison via `per_repo_excluded_cops()` in `bench/bench.rs`. Each exclusion represents a known divergence between turbocop and RuboCop that isn't a turbocop bug.
+Cops excluded from per-repo conformance comparison via `per_repo_excluded_cops()` in `bench/bench.rs`. Each exclusion represents a known divergence between nitrocop and RuboCop that isn't a nitrocop bug.
 
 ## fat_free_crm
 
 **Cops:** `Style/RedundantRegexpEscape`, `Layout/FirstArrayElementIndentation`, `Layout/MultilineMethodCallIndentation`, `Style/TrailingCommaInHashLiteral`
 
-**Reason:** RuboCop reports 0 offenses on these cops even when run with `--only`, but the source code contains patterns that match the cop specifications. turbocop correctly flags them. These are RuboCop quirks (likely autocorrect artifacts in RuboCop's cache or parser differences), not turbocop bugs.
+**Reason:** RuboCop reports 0 offenses on these cops even when run with `--only`, but the source code contains patterns that match the cop specifications. nitrocop correctly flags them. These are RuboCop quirks (likely autocorrect artifacts in RuboCop's cache or parser differences), not nitrocop bugs.
 
 ## multi_json
 
@@ -127,9 +127,9 @@ Cops excluded from per-repo conformance comparison via `per_repo_excluded_cops()
 - RuboCop's `config/default.yml` sets `Enabled: pending` (cop added in v1.84)
 - multi_json's `.rubocop.yml` sets `NewCops: enable`
 - RuboCop's `--show-cops` shows `Enabled: pending` (not `false`), meaning standard's explicit disable is being ignored
-- RuboCop fires the cop (1 offense); turbocop does not
+- RuboCop fires the cop (1 offense); nitrocop does not
 
-This appears to be a RuboCop quirk where `require:` extensions inject config at a different stage than YAML inheritance. The `NewCops: enable` setting sees the default `pending` state rather than standard's `false`. turbocop correctly applies the YAML config chain (standard's `false` wins) and disables the cop.
+This appears to be a RuboCop quirk where `require:` extensions inject config at a different stage than YAML inheritance. The `NewCops: enable` setting sees the default `pending` state rather than standard's `false`. nitrocop correctly applies the YAML config chain (standard's `false` wins) and disables the cop.
 
 **Resolution options:**
 1. Match RuboCop's behavior by treating `NewCops: enable` as promoting `pending` even when an inherited config explicitly sets `Enabled: false` — risky, may cause FPs in other repos
@@ -149,7 +149,7 @@ This appears to be a RuboCop quirk where `require:` extensions inject config at 
 ## Problem
 
 RuboCop prints progress characters (`.`, `C`, `W`, etc.) as each file finishes linting.
-turbocop waits for all files to complete, then dumps the entire progress line at once.
+nitrocop waits for all files to complete, then dumps the entire progress line at once.
 On large repos this means several seconds of silence before any output appears.
 
 ## Current Architecture
@@ -376,7 +376,7 @@ well-understood. The tricky parts are:
    either inspecting the write buffer between calls or just testing
    `file_finished()` in isolation. Not hard, but more test surface.
 
-4. **Debug timing.** The `--debug` phase timing and `TURBOCOP_COP_PROFILE`
+4. **Debug timing.** The `--debug` phase timing and `NITROCOP_COP_PROFILE`
    re-run currently live inside `run_linter`. They'll need to coexist with
    the channel approach. The profiler re-runs files single-threaded, so it
    can stay as-is (it doesn't need streaming).

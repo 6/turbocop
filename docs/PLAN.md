@@ -1,4 +1,4 @@
-# turbocop Plan (Authoritative)
+# nitrocop Plan (Authoritative)
 
 > Plan history (v1 iterations) has been removed. See git history for earlier versions.
 
@@ -6,37 +6,37 @@
 
 ## 0) Product contract (must be in README + `--help`)
 
-### What turbocop is
+### What nitrocop is
 
 * A **fast Ruby linter** with a **RuboCop-inspired ruleset** and **RuboCop-style configuration syntax** (reads `.rubocop.yml`).
-* turbocop behavior is defined by the **turbocop baseline** (the vendored RuboCop + plugins snapshot), not the project's Gemfile.lock.
+* nitrocop behavior is defined by the **nitrocop baseline** (the vendored RuboCop + plugins snapshot), not the project's Gemfile.lock.
 
-### What turbocop is not
+### What nitrocop is not
 
 * Not "perfect drop-in parity for arbitrary RuboCop/plugin versions."
 * Per-repo version detection (Gemfile.lock) may be used for **warnings**, not emulation.
 
 ### Hard guarantees
 
-* turbocop reads `.rubocop.yml` (RuboCop-style config) and supports a documented subset of RuboCop config semantics.
-* turbocop's behavior is defined against turbocop's **baseline versions**, not the repo's Gemfile.lock.
-* turbocop supports two tiers: `stable` (default) and `preview` (opt-in).
+* nitrocop reads `.rubocop.yml` (RuboCop-style config) and supports a documented subset of RuboCop config semantics.
+* nitrocop's behavior is defined against nitrocop's **baseline versions**, not the repo's Gemfile.lock.
+* nitrocop supports two tiers: `stable` (default) and `preview` (opt-in).
 
 ### Explicit non-guarantees
 
 * Not guaranteed to match RuboCop for arbitrary plugin versions or edge cases.
-* `verify` requires Ruby (and/or Bundler); turbocop remains single-binary for `check`.
+* `verify` requires Ruby (and/or Bundler); nitrocop remains single-binary for `check`.
 
 ### Bridge for skeptics
 
-* `turbocop verify` runs RuboCop as an **oracle** and shows diffs (requires Ruby). This is the "don't trust us? prove it" path.
-* `turbocop migrate` gives a clear answer to "what will run?" before you commit to anything.
+* `nitrocop verify` runs RuboCop as an **oracle** and shows diffs (requires Ruby). This is the "don't trust us? prove it" path.
+* `nitrocop migrate` gives a clear answer to "what will run?" before you commit to anything.
 
 ---
 
 ## Glossary
 
-* **Baseline**: the vendored RuboCop + plugin snapshot turbocop targets (versions are part of turbocop's identity).
+* **Baseline**: the vendored RuboCop + plugin snapshot nitrocop targets (versions are part of nitrocop's identity).
 * **Cop**: a rule.
 * **Tier**: `stable` or `preview`.
 * **Skipped cop**: referenced/enabled by config but not run (preview-gated, unimplemented, outside baseline).
@@ -48,16 +48,16 @@
 ### Config file support (Phase 1)
 
 * Read **`.rubocop.yml` directly** (no conversion).
-* **No `.turbocop.yml`** initially. Prefer CLI flags/env vars until there's clear demand.
+* **No `.nitrocop.yml`** initially. Prefer CLI flags/env vars until there's clear demand.
 
 ### Cop resolution categories (must be user-visible)
 
-When `.rubocop.yml` enables a cop, turbocop classifies it:
+When `.rubocop.yml` enables a cop, nitrocop classifies it:
 
 1. **Implemented & Stable** → runs
 2. **Implemented but Preview-gated** → skipped unless `--preview`
 3. **Known in baseline but not implemented** → skipped + warned
-4. **Outside baseline (unknown to this turbocop release)** → skipped + warned
+4. **Outside baseline (unknown to this nitrocop release)** → skipped + warned
 
 **Default behavior:** run what you can, skip what you can't, **tell the user once**.
 
@@ -65,7 +65,7 @@ When `.rubocop.yml` enables a cop, turbocop classifies it:
 
 At end of run, print a single grouped line if anything was skipped:
 
-> Skipped 41 cops (22 preview-gated, 11 unimplemented, 8 outside baseline). Run `turbocop migrate` for details.
+> Skipped 41 cops (22 preview-gated, 11 unimplemented, 8 outside baseline). Run `nitrocop migrate` for details.
 
 Add `--quiet-skips` to suppress.
 
@@ -73,7 +73,7 @@ Add `--quiet-skips` to suppress.
 
 ## 2) CLI surface (exact behavior)
 
-### `turbocop check [PATH]`
+### `nitrocop check [PATH]`
 
 **Purpose**: run linting using `.rubocop.yml`.
 
@@ -108,9 +108,9 @@ Add `--quiet-skips` to suppress.
 **Grouped skip notice (exact contract)**
 Printed once per run if any skipped:
 
-> Skipped N cops (A preview-gated, B unimplemented, C outside baseline). Run `turbocop migrate` for details.
+> Skipped N cops (A preview-gated, B unimplemented, C outside baseline). Run `nitrocop migrate` for details.
 
-### `turbocop migrate [PATH]`
+### `nitrocop migrate [PATH]`
 
 **Purpose**: first-run evaluator. No linting required; purely config analysis.
 
@@ -143,21 +143,21 @@ Add `--format json` with schema:
 }
 ```
 
-### `turbocop doctor`
+### `nitrocop doctor`
 
 **Purpose**: support/debug output.
 
 Must include:
 
-* Baseline versions (vendored RuboCop + plugin versions turbocop targets)
+* Baseline versions (vendored RuboCop + plugin versions nitrocop targets)
 * Config root + config files loaded (full inheritance chain)
 * Gem version mismatch warnings: compare Gemfile.lock plugin versions against baseline and warn if they differ
 * Summary of skipped cops (same 4 categories as `check`)
 * Autocorrect mode (if relevant)
 
-### `turbocop rules`
+### `nitrocop rules`
 
-**Purpose**: list all cops turbocop knows about.
+**Purpose**: list all cops nitrocop knows about.
 
 **Flags**
 
@@ -166,7 +166,7 @@ Must include:
 
 **Output columns**: name, tier, implemented?, baseline presence, short description, default enabled?, known divergence count (if corpus data available).
 
-### `turbocop verify [PATH]` (Ruby required)
+### `nitrocop verify [PATH]` (Ruby required)
 
 **Purpose**: "oracle mode" for skeptical teams. Not part of core single-binary story.
 
@@ -178,7 +178,7 @@ Must include:
 
 **Behavior**
 
-1. Run turbocop with `--format json` for PATH.
+1. Run nitrocop with `--format json` for PATH.
 2. Run RuboCop producing JSON (`rubocop --format json`) on same PATH.
 3. Normalize both outputs and diff:
 
@@ -264,7 +264,7 @@ Before corpus oracle exists:
 * Maintain a small curated preview override list:
 
   * cops with known divergence reports
-  * cops recently changed/bugfixed in turbocop
+  * cops recently changed/bugfixed in nitrocop
   * cops with known Prism-vs-Parser sensitivity
   * cops with risky/autocorrect complexity
 
@@ -279,7 +279,7 @@ A cop may be promoted to **Stable** only when all applicable gates pass:
 
 #### Gate A: End-to-end parity (required)
 
-Run turbocop vs the **pinned RuboCop baseline** on the corpus. For this cop:
+Run nitrocop vs the **pinned RuboCop baseline** on the corpus. For this cop:
 
 * **True diffs = 0** across the corpus (FP = 0, FN = 0, excluding noise buckets)
 * **Crashes/timeouts = 0** attributable to this cop
@@ -302,7 +302,7 @@ If the cop can autocorrect, it may enter `autocorrect_safe_allowlist.json` only 
 * **Parse gate**: every file changed by autocorrect parses successfully with Prism.
 * **Idempotence gate**: running autocorrect twice yields no further edits.
 * **Non-overlap gate**: edits don't overlap and have valid byte ranges.
-* **Oracle parity gate**: on the corpus, turbocop's corrected output matches RuboCop baseline output with **0 mismatches**.
+* **Oracle parity gate**: on the corpus, nitrocop's corrected output matches RuboCop baseline output with **0 mismatches**.
 
 Any autocorrect bug report immediately removes the cop from the allowlist until fixed.
 
@@ -352,12 +352,12 @@ A Stable cop is demoted to **Preview** immediately if any of the following occur
 `--strict` accepts a scope (default: `coverage`):
 
 * **`--strict=coverage`** (default when bare `--strict` is used):
-  Fail (exit 2) for cops turbocop implements (Stable or Preview) that were
+  Fail (exit 2) for cops nitrocop implements (Stable or Preview) that were
   skipped (e.g., preview-gated cops without `--preview`). Unimplemented and
   outside-baseline cops are informational — they don't trigger failure.
 
 * **`--strict=implemented-only`**:
-  Ignore unknown/outside-baseline cops entirely. Only fail if a cop turbocop
+  Ignore unknown/outside-baseline cops entirely. Only fail if a cop nitrocop
   implements (Stable or Preview) was skipped.
 
 * **`--strict=all`**:
@@ -439,12 +439,12 @@ Assert equal over a node corpus. On mismatch, dump cop name, pattern string, nod
 
 **Execution model**: runs in **GitHub Actions CI**, not locally. Public repos get unlimited free minutes on standard runners. Matrix jobs fan out per repo batch. Results are uploaded as workflow artifacts (`results.md` + `corpus_results.json`). See `docs/CORPUS_PLAN.md` for full CI workflow design.
 
-**Existing infrastructure**: `bench/bench.rs` (`bench_turbocop` binary) already implements `setup`, `bench`, `conform`, `report`, `autocorrect-conform`, and `autocorrect-validate` subcommands. Extend this for use in CI, don't rewrite.
+**Existing infrastructure**: `bench/bench.rs` (`bench_nitrocop` binary) already implements `setup`, `bench`, `conform`, `report`, `autocorrect-conform`, and `autocorrect-validate` subcommands. Extend this for use in CI, don't rewrite.
 
 ### New subcommands to add
 
-* `bench_turbocop corpus fetch --list repos.txt` — clone/update repos from manifest
-* `bench_turbocop gen-tiers --diff bench/conform.json --out resources/tiers.json` — generate tier assignments from conformance data
+* `bench_nitrocop corpus fetch --list repos.txt` — clone/update repos from manifest
+* `bench_nitrocop gen-tiers --diff bench/conform.json --out resources/tiers.json` — generate tier assignments from conformance data
 
 ### Corpus scale (phased)
 
@@ -456,7 +456,7 @@ Core frozen set (~50 repos) pinned to exact commit hashes; rotating set (~50) re
 
 ### RuboCop invocation
 
-* Pin RuboCop versions to turbocop baseline (preferred) OR run `bundle exec rubocop` and accept noise.
+* Pin RuboCop versions to nitrocop baseline (preferred) OR run `bundle exec rubocop` and accept noise.
 * The existing bench harness already handles both modes and detects version mismatches.
 
 ### Two passes (separates bug categories)
@@ -493,7 +493,7 @@ Output artifacts:
 
 Autocorrect is higher risk than linting: a wrong rewrite can silently break code. Treat it as an independent oracle lane with stricter gates and conservative defaults.
 
-**Existing infrastructure**: `bench_turbocop autocorrect-conform` already copies each bench repo, runs `rubocop -A` on one copy and `turbocop -A` on the other, and diffs all `.rb` files.
+**Existing infrastructure**: `bench_nitrocop autocorrect-conform` already copies each bench repo, runs `rubocop -A` on one copy and `nitrocop -A` on the other, and diffs all `.rb` files.
 
 ### Harness workflow per repo
 
@@ -501,28 +501,28 @@ Autocorrect is higher risk than linting: a wrong rewrite can silently break code
 2. **Capture pre-state** — enumerate Ruby files, record per-file SHA-256 hash.
 3. **Run oracle autocorrect** (RuboCop baseline bundle) — restrict to allowlisted cops only.
 4. **Capture oracle post-state** — per-file hash + unified diff of changed files.
-5. **Reset to pre-state**, run turbocop autocorrect with same file set + cop allowlist.
-6. **Capture turbocop post-state** similarly.
+5. **Reset to pre-state**, run nitrocop autocorrect with same file set + cop allowlist.
+6. **Capture nitrocop post-state** similarly.
 7. **Compare** — primary: file content equality (hash match).
 8. **On mismatch** — bucket as `autocorrect_mismatch`, store repro artifact.
 
 ### Safety gates (must-pass before oracle equality)
 
-For turbocop's autocorrect output:
+For nitrocop's autocorrect output:
 
 * **Parse gate**: every changed file must parse successfully with Prism.
-* **Idempotence gate**: running turbocop autocorrect twice yields no further edits.
+* **Idempotence gate**: running nitrocop autocorrect twice yields no further edits.
 * **Non-overlap gate**: edits must not overlap and must have valid byte ranges.
-* **No-op gate**: if turbocop reports edits, at least one file hash must change.
+* **No-op gate**: if nitrocop reports edits, at least one file hash must change.
 
 If any gate fails, bucket as `autocorrect_invalid_output` (higher severity than mismatch).
 
 ### Noise buckets (autocorrect-specific)
 
-* `autocorrect_mismatch` — RuboCop and turbocop outputs differ
+* `autocorrect_mismatch` — RuboCop and nitrocop outputs differ
 * `autocorrect_invalid_output` — parse/idempotence/non-overlap gate failed
 * `autocorrect_oracle_failed` — RuboCop crashed during autocorrect
-* `autocorrect_tool_failed` — turbocop crashed during autocorrect
+* `autocorrect_tool_failed` — nitrocop crashed during autocorrect
 
 ### Result storage
 
@@ -530,11 +530,11 @@ If any gate fails, bucket as `autocorrect_invalid_output` (higher severity than 
 results/
   autocorrect/
     rubocop/baseline_safe/<repo_id>.json
-    turbocop/baseline_safe/<repo_id>.json
+    nitrocop/baseline_safe/<repo_id>.json
   autocorrect_artifacts/
     <repo_id>/<cop_name>/
-      pre.rb / rubocop_post.rb / turbocop_post.rb
-      diff_rubocop.patch / diff_turbocop.patch
+      pre.rb / rubocop_post.rb / nitrocop_post.rb
+      diff_rubocop.patch / diff_nitrocop.patch
       meta.json
 ```
 
@@ -573,7 +573,7 @@ MVP: store the whole file first; minimizing comes after.
 
 * Baseline-defined behavior ("RuboCop-inspired" not perfect drop-in)
 * Stable vs Preview contract + how to enable preview
-* `turbocop migrate` and `turbocop verify` as the first-run answers
+* `nitrocop migrate` and `nitrocop verify` as the first-run answers
 
 ### Compatibility table
 
@@ -601,7 +601,7 @@ Deliverables:
 
 Acceptance:
 
-* Running `turbocop migrate` on a repo answers "what will run?" clearly.
+* Running `nitrocop migrate` on a repo answers "what will run?" clearly.
 * `check` produces deterministic skip summaries.
 * `--strict=coverage` correctly distinguishes implemented-but-skipped from unimplemented.
 * Verifier catches intentional mismatch in a test case.
@@ -612,7 +612,7 @@ Acceptance:
 Deliverables:
 
 * Corpus manifest + fetch tooling for ~100 repos
-* Extend `bench_turbocop conform` with noise bucketing
+* Extend `bench_nitrocop conform` with noise bucketing
 * `gen-tiers` subcommand to produce `tiers.json` from conformance data
 * Generated compatibility table (`docs/compatibility.md`)
 * Start promoting/demoting cops based on data
@@ -665,10 +665,10 @@ Acceptance:
 1. User runs:
 
 ```bash
-turbocop check .
+nitrocop check .
 ```
 
-* turbocop reads `.rubocop.yml`
+* nitrocop reads `.rubocop.yml`
 * runs Stable cops
 * skips Preview cops unless `--preview`
 * prints one grouped skip summary
@@ -676,7 +676,7 @@ turbocop check .
 2. User runs:
 
 ```bash
-turbocop migrate .
+nitrocop migrate .
 ```
 
 * sees a table: "these will run, these need --preview, these aren't implemented, these are outside baseline"
@@ -685,7 +685,7 @@ turbocop migrate .
 3. Skeptical team runs:
 
 ```bash
-turbocop verify .
+nitrocop verify .
 ```
 
 * gets a diff against RuboCop oracle (Ruby required), per cop

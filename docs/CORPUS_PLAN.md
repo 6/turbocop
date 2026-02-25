@@ -1,12 +1,12 @@
-# turbocop Corpus & Oracle Harness Spec
+# nitrocop Corpus & Oracle Harness Spec
 
 ## Goals
 
 Build a repeatable, apples-to-apples correctness harness that:
 
 * Assembles a **large, diverse Ruby code corpus** (~100 repos, scaling to 300+) pinned to **immutable commits**.
-* Runs a **pinned RuboCop "oracle"** (same baseline versions turbocop targets) **without installing each repo's dependencies**.
-* Runs turbocop on the same corpus and **diffs results per cop** to drive **Stable/Preview tiering** and regression fixtures.
+* Runs a **pinned RuboCop "oracle"** (same baseline versions nitrocop targets) **without installing each repo's dependencies**.
+* Runs nitrocop on the same corpus and **diffs results per cop** to drive **Stable/Preview tiering** and regression fixtures.
 * Runs entirely in **GitHub Actions CI** — no local setup required, sandboxing handled by ephemeral VMs.
 
 ## Non-goals
@@ -29,11 +29,11 @@ Running the corpus harness in CI rather than locally solves several problems:
 
 ### CI budget
 
-For **public repos** (turbocop is open source): GitHub Actions minutes are **unlimited** on standard runners. No budget constraints — run as often as needed.
+For **public repos** (nitrocop is open source): GitHub Actions minutes are **unlimited** on standard runners. No budget constraints — run as often as needed.
 
 For private forks: 2000 min/month on the free tier. A full 100-repo run takes ~200–500 min (RuboCop is the bottleneck at ~30s–5min per repo), so ~4–10 runs/month.
 
-Since turbocop is a public repo, this is effectively free. Run nightly, on cop-changing PRs, and on manual trigger without worrying about budget.
+Since nitrocop is a public repo, this is effectively free. Run nightly, on cop-changing PRs, and on manual trigger without worrying about budget.
 
 ---
 
@@ -118,7 +118,7 @@ The manifest is checked into the repo. Adding repos = adding lines to this file.
 
 ```
 ┌─────────────────────┐
-│   build-turbocop    │  Build release binary, upload as artifact
+│   build-nitrocop    │  Build release binary, upload as artifact
 └──────────┬──────────┘
            │
 ┌──────────▼──────────┐
@@ -129,7 +129,7 @@ The manifest is checked into the repo. Adding repos = adding lines to this file.
 │  corpus-matrix      │  Matrix: one job per repo (or batch of ~5 repos)
 │  [repo_1]           │  - Shallow clone repo at pinned SHA
 │  [repo_2]           │  - Run RuboCop baseline + repo-config (if eligible)
-│  [repo_3]           │  - Run turbocop baseline + repo-config (if eligible)
+│  [repo_3]           │  - Run nitrocop baseline + repo-config (if eligible)
 │  ...                │  - Upload per-repo JSON results as artifacts
 └──────────┬──────────┘
            │
@@ -154,15 +154,15 @@ Start with Option B (20 jobs × 5 repos) to stay within reasonable job counts. S
 ### Caching
 
 * **Bench bundle**: `actions/cache` keyed on `bench/Gemfile.lock` hash. Saves ~2 min/job.
-* **turbocop binary**: built once in `build-turbocop` job, shared via `actions/upload-artifact`.
+* **nitrocop binary**: built once in `build-nitrocop` job, shared via `actions/upload-artifact`.
 * **Repo checkouts**: NOT cached (shallow clones are fast, and caching 100 repos uses too much cache space).
 
 ### Per-repo job steps
 
 ```yaml
 # Inside each matrix job:
-- uses: actions/checkout@v4          # turbocop repo (for bench config)
-- uses: actions/download-artifact@v4  # turbocop binary
+- uses: actions/checkout@v4          # nitrocop repo (for bench config)
+- uses: actions/download-artifact@v4  # nitrocop binary
 - uses: ruby/setup-ruby@v1           # Ruby for RuboCop
 - name: Restore bench bundle
   uses: actions/cache@v4
@@ -197,10 +197,10 @@ Start with Option B (20 jobs × 5 repos) to stay within reasonable job counts. S
   run: |
     # Similar, but use repo's .rubocop.yml for eligible repos
 
-- name: Run turbocop (both modes)
+- name: Run nitrocop (both modes)
   run: |
     for repo in repos/*/; do
-      ./turbocop --format json "$repo" > "results/turbocop/baseline/$(basename $repo).json" 2>&1 || true
+      ./nitrocop --format json "$repo" > "results/nitrocop/baseline/$(basename $repo).json" 2>&1 || true
     done
 
 - name: Upload per-repo results
@@ -228,7 +228,7 @@ The final `collect-results` job:
 
 ---
 
-## Oracle: running RuboCop at turbocop's baseline
+## Oracle: running RuboCop at nitrocop's baseline
 
 ### Baseline bundle
 
@@ -241,7 +241,7 @@ gem "rubocop", "1.xx.x"
 gem "rubocop-rails", "2.yy.y"
 gem "rubocop-rspec", "3.zz.z"
 gem "rubocop-performance", "1.aa.a"
-# add any baseline plugins turbocop vendors
+# add any baseline plugins nitrocop vendors
 ```
 
 All oracle runs use `BUNDLE_GEMFILE=bench/Gemfile` + `BUNDLE_PATH=bench/vendor/bundle`. Never the repo's Gemfile.
@@ -297,7 +297,7 @@ Compare offenses by: `file + line + column + cop_name`
 
 * `syntax_or_parse` — Prism vs Parser recovery differences
 * `gem_version_mismatch` — cop behavior differs due to version gap (already detected by bench harness)
-* `outside_baseline` — cop not in turbocop's baseline
+* `outside_baseline` — cop not in nitrocop's baseline
 * `unimplemented` — cop in baseline but not implemented
 * `config_deps_missing_or_unsafe` — repo-config mode skipped
 * `true_behavior_diff` — genuine implementation divergence
@@ -316,7 +316,7 @@ Only `true_behavior_diff` counts against Stable promotion.
 
 **Corpus**: 100 repos (50 frozen + 50 rotating)
 **Baseline**: rubocop 1.xx.x, rubocop-rails 2.yy.y, ...
-**turbocop**: v0.x.x (commit abc1234)
+**nitrocop**: v0.x.x (commit abc1234)
 
 ## Overall
 | Metric | Count |
@@ -354,8 +354,8 @@ Only `true_behavior_diff` counts against Stable promotion.
   "schema": 1,
   "run_date": "2026-02-21T...",
   "baseline": {"rubocop": "1.xx.x", "...": "..."},
-  "turbocop_version": "0.x.x",
-  "turbocop_commit": "abc1234",
+  "nitrocop_version": "0.x.x",
+  "nitrocop_commit": "abc1234",
   "summary": {
     "total_repos": 100,
     "repos_100pct_match": 72,
@@ -396,7 +396,7 @@ Appended to both `results.md` and `corpus_results.json`:
 
 Autocorrect is higher risk — a wrong rewrite silently breaks code. Runs as a separate CI job or workflow.
 
-**Existing infrastructure**: `bench_turbocop autocorrect-conform` already copies bench repos, runs both tools with `-A`, and diffs `.rb` files. The CI lane extends this to the full corpus with per-cop granularity and safety gates.
+**Existing infrastructure**: `bench_nitrocop autocorrect-conform` already copies bench repos, runs both tools with `-A`, and diffs `.rb` files. The CI lane extends this to the full corpus with per-cop granularity and safety gates.
 
 ### CI workflow addition
 
@@ -405,9 +405,9 @@ Add an `autocorrect-oracle` job (or separate workflow) that:
 1. For each repo, creates a temp copy of the checkout.
 2. Runs RuboCop `--autocorrect` (safe only) with the bench bundle, restricted to allowlisted cops.
 3. Captures post-state file hashes.
-4. Resets to pre-state, runs turbocop `-a` with the same cop set.
+4. Resets to pre-state, runs nitrocop `-a` with the same cop set.
 5. Diffs post-state file hashes between the two tools.
-6. Runs safety gates on turbocop output: parse, idempotence, non-overlap.
+6. Runs safety gates on nitrocop output: parse, idempotence, non-overlap.
 7. Uploads per-repo autocorrect results as artifacts.
 
 ### Safety gates
@@ -424,7 +424,7 @@ Gate failures are bucketed as `autocorrect_invalid_output` (higher severity than
 * `autocorrect_mismatch` — outputs differ
 * `autocorrect_invalid_output` — safety gate failed
 * `autocorrect_oracle_failed` — RuboCop crashed
-* `autocorrect_tool_failed` — turbocop crashed
+* `autocorrect_tool_failed` — nitrocop crashed
 
 ### Allowlist promotion
 
@@ -438,7 +438,7 @@ Cops enter `autocorrect_safe_allowlist.json` only after 0 mismatches + 0 gate fa
 
 * [x] **Define baseline versions** in one place
 
-  * `bench/corpus/Gemfile` pins RuboCop + plugins to turbocop baseline
+  * `bench/corpus/Gemfile` pins RuboCop + plugins to nitrocop baseline
   * **Done when**: `bench/corpus/Gemfile` versions match vendor submodule tags.
 
 * [x] **Create `bench/corpus/manifest.jsonl`** with initial ~20 repos
@@ -456,7 +456,7 @@ Cops enter `autocorrect_safe_allowlist.json` only after 0 mismatches + 0 gate fa
 
 ### Phase 1: CI workflow MVP (~20 repos)
 
-* [x] **`build-turbocop` job**
+* [x] **`build-nitrocop` job**
 
   * Build release binary on `ubuntu-24.04`.
   * Upload as artifact.

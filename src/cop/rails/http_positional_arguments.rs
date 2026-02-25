@@ -175,7 +175,7 @@ mod tests {
     fn skipped_when_no_target_rails_version() {
         // Non-Rails projects (e.g. sinatra) have no TargetRailsVersion.
         // RuboCop uses `requires_gem('railties', '>= 5.0')` which skips the cop
-        // entirely when railties is not installed. Turbocop should do the same.
+        // entirely when railties is not installed. Nitrocop should do the same.
         let source = b"get :index, { user_id: 1 }, { \"ACCEPT\" => \"text/html\" }\n";
         let diagnostics = crate::testutil::run_cop_full_internal(
             &HttpPositionalArguments,

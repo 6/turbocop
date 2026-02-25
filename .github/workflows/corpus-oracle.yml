@@ -24,8 +24,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # ── Build turbocop release binary ──────────────────────────────
-  build-turbocop:
+  # ── Build nitrocop release binary ──────────────────────────────
+  build-nitrocop:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -42,8 +42,8 @@ jobs:
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: turbocop-binary
-          path: target/release/turbocop
+          name: nitrocop-binary
+          path: target/release/nitrocop
           retention-days: 1
 
   # ── Compute matrix (batched, N repos per job) ──────────────────
@@ -103,7 +103,7 @@ jobs:
 
   # ── Run oracle on each batch of repos ────────────────────────────
   oracle-repo:
-    needs: [build-turbocop, compute-matrix]
+    needs: [build-nitrocop, compute-matrix]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -114,14 +114,14 @@ jobs:
         with:
           submodules: true
 
-      - name: Download turbocop binary
+      - name: Download nitrocop binary
         uses: actions/download-artifact@v4
         with:
-          name: turbocop-binary
+          name: nitrocop-binary
           path: bin/
 
       - name: Make binary executable
-        run: chmod +x bin/turbocop
+        run: chmod +x bin/nitrocop
 
       # Ruby version read from mise.toml
       - uses: ruby/setup-ruby@v1
@@ -138,8 +138,8 @@ jobs:
           bundle config set --local path vendor/bundle
           bundle install --jobs 4 --retry 3
 
-      - name: Export turbocop cop list
-        run: bin/turbocop --list-cops > turbocop-cops.txt
+      - name: Export nitrocop cop list
+        run: bin/nitrocop --list-cops > nitrocop-cops.txt
 
       - name: Restore rubocop baseline cache
         if: ${{ github.event.inputs.force_full != 'true' }}
@@ -154,7 +154,7 @@ jobs:
           REPOS_JSON: ${{ matrix.repos_json }}
           RUBOCOP_CACHED: ${{ steps.rubocop-cache.outputs.cache-hit }}
         run: |
-          mkdir -p results/turbocop results/rubocop
+          mkdir -p results/nitrocop results/rubocop
 
           echo "$REPOS_JSON" | jq -c '.[]' | while IFS= read -r row; do
             REPO_ID=$(echo "$row" | jq -r '.id')
@@ -174,17 +174,17 @@ jobs:
               git -C "$DEST" checkout "$REPO_SHA" || echo "WARNING: checkout failed, using HEAD"
             fi
 
-            # turbocop (always runs — this is what we're testing)
-            echo "=== turbocop: ${REPO_ID} ==="
+            # nitrocop (always runs — this is what we're testing)
+            echo "=== nitrocop: ${REPO_ID} ==="
             BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
             BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
-            bin/turbocop \
+            bin/nitrocop \
               --preview \
               --format json \
               --no-cache \
               --config bench/corpus/baseline_rubocop.yml \
               "$DEST" \
-              > "results/turbocop/${REPO_ID}.json" 2>"results/turbocop/${REPO_ID}.err" || true
+              > "results/nitrocop/${REPO_ID}.json" 2>"results/nitrocop/${REPO_ID}.err" || true
 
             # rubocop (skip if cached baseline exists)
             if [[ -f "results/rubocop/${REPO_ID}.json" ]]; then
@@ -221,7 +221,7 @@ jobs:
           name: corpus-results-${{ matrix.batch_id }}
           path: |
             results/
-            turbocop-cops.txt
+            nitrocop-cops.txt
           retention-days: 7
 
   # ── Collect and diff all results ───────────────────────────────
@@ -243,9 +243,9 @@ jobs:
       - name: Diff and generate report
         run: |
           # Cop list is uploaded alongside results from any repo job
-          COP_LIST=$(find all-results -name turbocop-cops.txt -print -quit)
+          COP_LIST=$(find all-results -name nitrocop-cops.txt -print -quit)
           python3 bench/corpus/diff_results.py \
-            --turbocop-dir all-results/results/turbocop \
+            --nitrocop-dir all-results/results/nitrocop \
             --rubocop-dir all-results/results/rubocop \
             --manifest bench/corpus/manifest.jsonl \
             --output-json corpus-results.json \

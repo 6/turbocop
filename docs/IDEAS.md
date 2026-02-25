@@ -16,7 +16,7 @@ so the speed is there. Main work is the protocol layer and incremental re-lint o
 ## Strict Mode
 
 `--mode=strict` — exit non-zero if any enabled cops are external (not implemented in
-turbocop). For teams that want CI to enforce full coverage. Currently turbocop silently
+nitrocop). For teams that want CI to enforce full coverage. Currently nitrocop silently
 skips unimplemented cops.
 
 ## External Cop Reporting
@@ -26,12 +26,12 @@ external cops with `--show-external`. Helps users understand coverage gaps.
 
 ## Doctor Command
 
-`turbocop doctor` — diagnose common problems: stale lockfile, missing gems,
+`nitrocop doctor` — diagnose common problems: stale lockfile, missing gems,
 unsupported config keys, external cops breakdown by source (plugin vs custom require).
 
 ## Hybrid Wrapper
 
-A `bin/lint` recipe that runs turbocop for covered cops, then `bundle exec rubocop --only <remaining>`
+A `bin/lint` recipe that runs nitrocop for covered cops, then `bundle exec rubocop --only <remaining>`
 for the rest. Documents the incremental adoption path for teams that can't drop RuboCop yet.
 
 ---
@@ -40,7 +40,7 @@ for the rest. Documents the incremental adoption path for teams that can't drop 
 
 ## Current Performance Profile (2026-02-19)
 
-Benchmarked with `.turbocop.cache` (no bundler calls), batched single-pass AST walker,
+Benchmarked with `.nitrocop.cache` (no bundler calls), batched single-pass AST walker,
 node-type dispatch table (915 cops annotated), pre-computed cop configs, and
 optimized hot cops (Lint/Debugger, RSpec/NoExpectationExample).
 
@@ -71,7 +71,7 @@ The `filter+config` phase includes four distinct costs, profiled per-repo:
 - **check_lines**: Line-by-line scanning (42 cops have implementations).
 - **check_source**: Byte-level source scanning (130 cops have implementations).
 
-### Per-Cop Hot Spots (TURBOCOP_COP_PROFILE=1)
+### Per-Cop Hot Spots (NITROCOP_COP_PROFILE=1)
 
 Top cops by cumulative single-threaded time on the rubocop repo (1669 files):
 
@@ -203,16 +203,16 @@ Three fixes applied:
 ### Optimization 10: File-Level Result Caching (Incremental Linting) ✅ DONE
 
 **Status:** Implemented
-**Measured impact:** 983ms → 356ms warm re-run on turbocop repo (4369 files), ~2.8x speedup
+**Measured impact:** 983ms → 356ms warm re-run on nitrocop repo (4369 files), ~2.8x speedup
 
 Opt-in `--cache` flag enables per-file result caching. Two-level directory hierarchy:
-`~/.cache/turbocop/<session_hash>/<file_hash>`. Session hash incorporates turbocop version,
+`~/.cache/nitrocop/<session_hash>/<file_hash>`. Session hash incorporates nitrocop version,
 deterministic config fingerprint (sorted HashMap keys), and `--only`/`--except` args.
 File hash uses path + content SHA-256.
 
 - Cache entries are compact JSON (no path field — implied by key)
 - Atomic writes via temp file + rename for parallel safety
-- XDG-compliant storage (`$TURBOCOP_CACHE_DIR` > `$XDG_CACHE_HOME/turbocop/` > `~/.cache/turbocop/`)
+- XDG-compliant storage (`$NITROCOP_CACHE_DIR` > `$XDG_CACHE_HOME/nitrocop/` > `~/.cache/nitrocop/`)
 - Age-based eviction at 20K files (delete oldest 50% of session directories)
 - `--cache-clear` removes the entire cache directory
 
@@ -226,14 +226,14 @@ File hash uses path + content SHA-256.
 ## Investigated & Rejected
 
 - **Skip fully-disabled departments** — cops already short-circuit on boolean flag (~10ns). Would save ~12ms total.
-- **Faster YAML parser** — config loading is only 13-162ms with `.turbocop.cache`. Diminishing returns.
+- **Faster YAML parser** — config loading is only 13-162ms with `.nitrocop.cache`. Diminishing returns.
 - **mmap for file I/O** — 98.4% of files under 32KB. Kernel page cache means `read()` already serves from memory. No measurable difference.
 
 ---
 
 ## Historical Baseline (2026-02-18, pre-optimization)
 
-Before `.turbocop.cache` and the batched AST walker, bundler shell-outs dominated wall time.
+Before `.nitrocop.cache` and the batched AST walker, bundler shell-outs dominated wall time.
 
 ### Bundler overhead
 
@@ -247,12 +247,12 @@ Each `bundle info --path <gem>` spawned a Ruby process (130-440ms each). A proje
 
 ### RuboCop comparison (pre-optimization)
 
-| Repo | turbocop | RuboCop | Speedup |
+| Repo | nitrocop | RuboCop | Speedup |
 |------|-------:|--------:|--------:|
 | Discourse (with bundler) | 2.9s | 3.45s | 1.2x |
 | Mastodon (with bundler) | 3.3s | 2.49s | 0.8x (slower) |
 | Discourse (linting only) | 723ms | ~3.0s | 4.1x |
 | Mastodon (linting only) | 1.0s | ~2.0s | 2.0x |
 
-The `.turbocop.cache` mechanism (resolves gem paths once, caches to disk) eliminated
+The `.nitrocop.cache` mechanism (resolves gem paths once, caches to disk) eliminated
 bundler from the hot path entirely.

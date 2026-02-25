@@ -2,7 +2,7 @@
 
 ## Overview
 
-turbocop currently only detects offenses — it cannot fix them. RuboCop's `-a` (safe autocorrect) and `-A` (all autocorrect) flags are among its most-used features. This document covers the architecture, difficulty assessment, phased implementation roadmap, and conformance testing strategy for adding autocorrect to turbocop.
+nitrocop currently only detects offenses — it cannot fix them. RuboCop's `-a` (safe autocorrect) and `-A` (all autocorrect) flags are among its most-used features. This document covers the architecture, difficulty assessment, phased implementation roadmap, and conformance testing strategy for adding autocorrect to nitrocop.
 
 For the complete catalog of every autocorrectable cop (664 cops across 4 gems, with safety classifications and extraction scripts), see **[AUTOCORRECT_COPS.md](AUTOCORRECT_COPS.md)**.
 
@@ -228,7 +228,7 @@ Files are independent — rayon parallelism at file level. Per-file iterations a
 
 After the iteration loop converges (or hits max iterations), the final corrected bytes are validated by re-parsing with Prism before writing to disk. If `parse_result.errors()` reports any syntax errors, the corrections are **discarded entirely** and the original file is preserved, with a warning emitted to stderr.
 
-This is stricter than RuboCop, which writes the (potentially broken) corrected source to disk and only stops further iterations on parse failure. Since turbocop holds corrected bytes in memory until the loop finishes, it can avoid writing invalid Ruby at no additional risk.
+This is stricter than RuboCop, which writes the (potentially broken) corrected source to disk and only stops further iterations on parse failure. Since nitrocop holds corrected bytes in memory until the loop finishes, it can avoid writing invalid Ruby at no additional risk.
 
 **Cost:** One Prism parse per corrected file. Prism parses typical Ruby files in microseconds, so this is negligible relative to the multi-iteration lint passes that precede it.
 
@@ -240,7 +240,7 @@ This is stricter than RuboCop, which writes the (potentially broken) corrected s
 
 ### Phase 0: Infrastructure ✅ COMPLETE
 
-**Goal:** The autocorrect framework works end-to-end with zero cops. Running `turbocop -a .` accepts the flag, applies no corrections (since no cop implements `supports_autocorrect`), and exits cleanly.
+**Goal:** The autocorrect framework works end-to-end with zero cops. Running `nitrocop -a .` accepts the flag, applies no corrections (since no cop implements `supports_autocorrect`), and exits cleanly.
 
 **Status:** Implemented in commit `b370fa5`. 935 files changed (1507 insertions, 145 deletions). All tests pass.
 
@@ -333,16 +333,16 @@ This is stricter than RuboCop, which writes the (potentially broken) corrected s
 
 ### Phase 3: Conformance Testing Harness
 
-**Goal:** Automated way to measure how well turbocop's autocorrect matches RuboCop, per-cop and per-file.
+**Goal:** Automated way to measure how well nitrocop's autocorrect matches RuboCop, per-cop and per-file.
 
 **Difficulty: Moderate.** Not algorithmically hard, but substantial plumbing (temp dirs, running both tools, diffing, reporting).
 
-- Add `autocorrect-conform` subcommand to `bench_turbocop`
-- For each bench repo: copy to two temp dirs, run `rubocop -A` on one and `turbocop -A` on the other, diff results
+- Add `autocorrect-conform` subcommand to `bench_nitrocop`
+- For each bench repo: copy to two temp dirs, run `rubocop -A` on one and `nitrocop -A` on the other, diff results
 - Report per-cop match rate and overall file-level match rate
 - Integrate into the conformance pipeline alongside existing detection conformance
 
-**Verification:** Running `cargo run --release --bin bench_turbocop -- autocorrect-conform` produces a report.
+**Verification:** Running `cargo run --release --bin bench_nitrocop -- autocorrect-conform` produces a report.
 
 ### Phase 4: AST-Based Corrections (Moderate)
 
@@ -417,10 +417,10 @@ If `corrected.rb` doesn't exist, the macro silently skips (backward-compatible).
 
 ### 5.2 Integration Tests: autocorrect-conform
 
-**Single-cop isolation approach.** Rather than comparing full `turbocop -A` vs `rubocop -A` output (which conflates all cops and makes it hard to attribute failures), the harness tests autocorrect conformance **one cop at a time**:
+**Single-cop isolation approach.** Rather than comparing full `nitrocop -A` vs `rubocop -A` output (which conflates all cops and makes it hard to attribute failures), the harness tests autocorrect conformance **one cop at a time**:
 
 ```bash
-cargo run --release --bin bench_turbocop -- autocorrect-conform
+cargo run --release --bin bench_nitrocop -- autocorrect-conform
 ```
 
 For each bench repo, for each cop that `supports_autocorrect`:
@@ -429,7 +429,7 @@ For each bench repo, for each cop that `supports_autocorrect`:
 2. Run `rubocop -A --only Department/CopName --format json` on the copy
 3. Record which files were corrected and the corrected content
 4. Reset the copy (restore originals)
-5. Run `turbocop -A --only Department/CopName` on the same copy
+5. Run `nitrocop -A --only Department/CopName` on the same copy
 6. Diff the corrected files
 
 **Why single-cop?**
@@ -444,7 +444,7 @@ For each bench repo, for each cop that `supports_autocorrect`:
   "mastodon": {
     "Style/StringLiterals": {
       "files_corrected_rubocop": 42,
-      "files_corrected_turbocop": 42,
+      "files_corrected_nitrocop": 42,
       "files_match": 41,
       "files_differ": 1,
       "match_rate": 97.6

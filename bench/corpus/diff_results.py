@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Diff turbocop vs RuboCop JSON results and produce a corpus report.
+"""Diff nitrocop vs RuboCop JSON results and produce a corpus report.
 
 Usage:
     python3 bench/corpus/diff_results.py \
-        --turbocop-dir results/turbocop \
+        --nitrocop-dir results/nitrocop \
         --rubocop-dir results/rubocop \
         --manifest bench/corpus/manifest.jsonl \
         --output-json corpus-results.json \
@@ -32,8 +32,8 @@ def strip_repo_prefix(filepath: str) -> str:
     return filepath
 
 
-def parse_turbocop_json(path: Path) -> set | None:
-    """Parse turbocop JSON output. Format: {"offenses": [...]}
+def parse_nitrocop_json(path: Path) -> set | None:
+    """Parse nitrocop JSON output. Format: {"offenses": [...]}
     Returns None if the file is missing, empty, or unparseable (crash)."""
     try:
         text = path.read_text()
@@ -99,7 +99,7 @@ def load_manifest(path: Path) -> list:
 
 def main():
     parser = argparse.ArgumentParser(description="Diff corpus oracle results")
-    parser.add_argument("--turbocop-dir", required=True, type=Path)
+    parser.add_argument("--nitrocop-dir", required=True, type=Path)
     parser.add_argument("--rubocop-dir", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--output-json", required=True, type=Path)
@@ -110,14 +110,14 @@ def main():
     manifest = load_manifest(args.manifest)
     manifest_ids = {r["id"] for r in manifest}
 
-    # Load cop filter (only compare offenses from cops turbocop knows about)
+    # Load cop filter (only compare offenses from cops nitrocop knows about)
     covered_cops = None
     if args.cop_list and args.cop_list.exists():
         covered_cops = {line.strip() for line in args.cop_list.read_text().splitlines() if line.strip()}
         print(f"Filtering to {len(covered_cops)} covered cops", file=sys.stderr)
 
     # Collect all repo IDs that have results
-    tc_files = {f.stem: f for f in args.turbocop_dir.glob("*.json")} if args.turbocop_dir.exists() else {}
+    tc_files = {f.stem: f for f in args.nitrocop_dir.glob("*.json")} if args.nitrocop_dir.exists() else {}
     rc_files = {f.stem: f for f in args.rubocop_dir.glob("*.json")} if args.rubocop_dir.exists() else {}
     all_ids = sorted(set(tc_files.keys()) | set(rc_files.keys()))
 
@@ -126,7 +126,7 @@ def main():
     # Per-repo results
     repo_results = []
     by_cop_matches = defaultdict(int)
-    by_cop_fp = defaultdict(int)  # turbocop-only
+    by_cop_fp = defaultdict(int)  # nitrocop-only
     by_cop_fn = defaultdict(int)  # rubocop-only
     by_cop_fp_examples = defaultdict(list)  # (filepath, line) per cop
     by_cop_fn_examples = defaultdict(list)
@@ -154,12 +154,12 @@ def main():
             repos_error += 1
             continue
 
-        tc_offenses = parse_turbocop_json(tc_path)
+        tc_offenses = parse_nitrocop_json(tc_path)
         rc_result = parse_rubocop_json(rc_path)
 
         # Detect crashed/empty output — don't compare against phantom zero offenses
         if tc_offenses is None or rc_result is None:
-            side = "turbocop" if tc_offenses is None else "rubocop"
+            side = "nitrocop" if tc_offenses is None else "rubocop"
             repo_results.append({
                 "repo": repo_id,
                 "status": f"crashed_{side}",
@@ -174,14 +174,14 @@ def main():
         rc_offenses, rc_inspected_files = rc_result
         total_files += len(rc_inspected_files)
 
-        # Filter to covered cops only (drop offenses from cops turbocop doesn't implement)
+        # Filter to covered cops only (drop offenses from cops nitrocop doesn't implement)
         if covered_cops is not None:
             tc_offenses = {o for o in tc_offenses if o[2] in covered_cops}
             rc_offenses = {o for o in rc_offenses if o[2] in covered_cops}
 
         # Only compare files RuboCop actually inspected. RuboCop silently drops
         # files when its parser crashes mid-batch, producing phantom FPs for every
-        # turbocop offense on those dropped files.
+        # nitrocop offense on those dropped files.
         #
         # Root cause: Prism::Translation::Parser crashes on files with invalid
         # multibyte regex escapes (e.g., /\x9F/ in jruby's test_regexp.rb).
@@ -202,7 +202,7 @@ def main():
             tc_offenses = {o for o in tc_offenses if o[0] in rc_inspected_files}
 
         matches = tc_offenses & rc_offenses
-        fp = tc_offenses - rc_offenses  # turbocop-only (false positives)
+        fp = tc_offenses - rc_offenses  # nitrocop-only (false positives)
         fn = rc_offenses - tc_offenses  # rubocop-only (false negatives)
 
         n_matches = len(matches)
@@ -241,7 +241,7 @@ def main():
             "matches": n_matches,
             "fp": n_fp,
             "fn": n_fn,
-            "turbocop_total": len(tc_offenses),
+            "nitrocop_total": len(tc_offenses),
             "rubocop_total": len(rc_offenses),
             "files_inspected": len(rc_inspected_files),
         })
@@ -306,7 +306,7 @@ def main():
     md.append("> Auto-generated by the [corpus oracle workflow](../.github/workflows/corpus-oracle.yml).")
     md.append(f"> Last updated: {datetime.now(timezone.utc).strftime('%Y-%m-%d')}")
     md.append("")
-    md.append("Compares turbocop against RuboCop on 500 open-source Ruby repos (167k files).")
+    md.append("Compares nitrocop against RuboCop on 500 open-source Ruby repos (167k files).")
     md.append("Every offense is compared by file path, line number, and cop name.")
     md.append("")
 
@@ -319,8 +319,8 @@ def main():
     md.append(f"| Files inspected | {total_files:,} |")
     md.append(f"| Offenses compared | {oracle_total:,} |")
     md.append(f"| Matches (both agree) | {total_matches:,} |")
-    md.append(f"| FP (turbocop extra) | {total_fp:,} |")
-    md.append(f"| FN (turbocop missing) | {total_fn:,} |")
+    md.append(f"| FP (nitrocop extra) | {total_fp:,} |")
+    md.append(f"| FN (nitrocop missing) | {total_fn:,} |")
     md.append(f"| **Match rate** | **{overall_rate:.1%}** |")
     md.append("")
 
@@ -353,7 +353,7 @@ def main():
             md.append(f"<summary><strong>{c['cop']}</strong> — {c['matches']:,} matches, {c['fp']:,} FP, {c['fn']:,} FN ({pct})</summary>")
             md.append("")
             if fp_list:
-                md.append("**False positives** (turbocop reports, RuboCop does not):")
+                md.append("**False positives** (nitrocop reports, RuboCop does not):")
                 md.append("")
                 for ex in fp_list[:MD_EXAMPLE_LIMIT]:
                     md.append(f"- `{ex}`")
@@ -361,7 +361,7 @@ def main():
                     md.append(f"- ... and {len(fp_list) - MD_EXAMPLE_LIMIT:,} more (see corpus-results.json for full list)")
                 md.append("")
             if fn_list:
-                md.append("**False negatives** (RuboCop reports, turbocop does not):")
+                md.append("**False negatives** (RuboCop reports, nitrocop does not):")
                 md.append("")
                 for ex in fn_list[:MD_EXAMPLE_LIMIT]:
                     md.append(f"- `{ex}`")

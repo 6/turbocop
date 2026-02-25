@@ -120,7 +120,7 @@ def load_fixed_cops(exclude_file: Path | None) -> set[str]:
 
 
 def get_registry_cops() -> set[str]:
-    """Get all cop names from turbocop's registry via --list-cops."""
+    """Get all cop names from nitrocop's registry via --list-cops."""
     project_root = find_project_root()
     result = subprocess.run(
         ["cargo", "run", "--release", "--", "--list-cops"],

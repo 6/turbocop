@@ -19,9 +19,9 @@ class GemBuilderTest < Minitest::Test
       assert File.directory?(File.join(dir, "exe")), "exe/ should exist"
       refute File.directory?(File.join(dir, "libexec")), "libexec/ should NOT exist for base gem"
 
-      assert File.file?(File.join(dir, "turbocop.gemspec")), "gemspec should exist"
-      assert File.file?(File.join(dir, "lib", "turbocop.rb")), "lib/turbocop.rb should exist"
-      assert File.file?(File.join(dir, "exe", "turbocop")), "exe/turbocop should exist"
+      assert File.file?(File.join(dir, "nitrocop.gemspec")), "gemspec should exist"
+      assert File.file?(File.join(dir, "lib", "nitrocop.rb")), "lib/nitrocop.rb should exist"
+      assert File.file?(File.join(dir, "exe", "nitrocop")), "exe/nitrocop should exist"
     end
   end
 
@@ -31,7 +31,7 @@ class GemBuilderTest < Minitest::Test
     Dir.mktmpdir do |dir|
       builder.assemble(dir)
 
-      content = File.read(File.join(dir, "lib", "turbocop.rb"))
+      content = File.read(File.join(dir, "lib", "nitrocop.rb"))
       assert_includes content, 'VERSION = "1.2.3"'
       refute_includes content, "0.0.1.pre"
     end
@@ -42,7 +42,7 @@ class GemBuilderTest < Minitest::Test
     content = builder.gemspec_content
 
     refute_includes content, "spec.platform"
-    assert_includes content, 'spec.name     = "turbocop"'
+    assert_includes content, 'spec.name     = "nitrocop"'
     assert_includes content, 'spec.authors  = ["6"]'
     assert_includes content, "runs 900+ cops."
   end
@@ -50,7 +50,7 @@ class GemBuilderTest < Minitest::Test
   def test_platform_gem_assembles_binary
     Dir.mktmpdir do |dir|
       # Create a fake binary
-      binary = File.join(dir, "fake_turbocop")
+      binary = File.join(dir, "fake_nitrocop")
       File.write(binary, "#!/bin/sh\necho hello\n")
 
       builder = GemBuilder.new(version: "2.0.0", platform: "arm64-darwin", binary_path: binary)
@@ -60,7 +60,7 @@ class GemBuilderTest < Minitest::Test
       builder.assemble(out)
 
       assert File.directory?(File.join(out, "libexec")), "libexec/ should exist for platform gem"
-      installed_bin = File.join(out, "libexec", "turbocop")
+      installed_bin = File.join(out, "libexec", "nitrocop")
       assert File.file?(installed_bin), "binary should be copied to libexec/"
       assert File.executable?(installed_bin), "binary should be executable"
     end
@@ -68,7 +68,7 @@ class GemBuilderTest < Minitest::Test
 
   def test_platform_gem_patches_version
     Dir.mktmpdir do |dir|
-      binary = File.join(dir, "fake_turbocop")
+      binary = File.join(dir, "fake_nitrocop")
       File.write(binary, "fake")
 
       builder = GemBuilder.new(version: "3.0.0", platform: "x86_64-linux", binary_path: binary)
@@ -77,7 +77,7 @@ class GemBuilderTest < Minitest::Test
       FileUtils.mkdir_p(out)
       builder.assemble(out)
 
-      content = File.read(File.join(out, "lib", "turbocop.rb"))
+      content = File.read(File.join(out, "lib", "nitrocop.rb"))
       assert_includes content, 'VERSION = "3.0.0"'
     end
   end
@@ -107,21 +107,21 @@ class GemBuilderTest < Minitest::Test
       dest = builder.build(output_dir: dir)
 
       assert File.file?(dest), ".gem file should be created"
-      assert_match(/turbocop-0\.1\.0\.gem$/, dest)
+      assert_match(/nitrocop-0\.1\.0\.gem$/, dest)
     end
   end
 
   def test_platform_gem_builds_gem_file
     Dir.mktmpdir do |dir|
       # Create a fake binary
-      binary = File.join(dir, "fake_turbocop")
+      binary = File.join(dir, "fake_nitrocop")
       File.write(binary, "fake")
 
       builder = GemBuilder.new(version: "0.1.0", platform: "arm64-darwin", binary_path: binary)
       dest = builder.build(output_dir: dir)
 
       assert File.file?(dest), ".gem file should be created"
-      assert_match(/turbocop-0\.1\.0-arm64-darwin\.gem$/, dest)
+      assert_match(/nitrocop-0\.1\.0-arm64-darwin\.gem$/, dest)
     end
   end
 end

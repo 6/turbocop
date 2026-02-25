@@ -1,4 +1,4 @@
-//! Integration tests for the turbocop linting pipeline.
+//! Integration tests for the nitrocop linting pipeline.
 //!
 //! These tests exercise the full linter: file reading, config loading,
 //! cop registry, cop execution, and diagnostic collection. They write
@@ -7,24 +7,24 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use turbocop::cli::Args;
-use turbocop::config::load_config;
-use turbocop::cop::autocorrect_allowlist::AutocorrectAllowlist;
-use turbocop::cop::registry::CopRegistry;
-use turbocop::cop::tiers::TierMap;
-use turbocop::fs::DiscoveredFiles;
-use turbocop::linter::run_linter;
+use nitrocop::cli::Args;
+use nitrocop::config::load_config;
+use nitrocop::cop::autocorrect_allowlist::AutocorrectAllowlist;
+use nitrocop::cop::registry::CopRegistry;
+use nitrocop::cop::tiers::TierMap;
+use nitrocop::fs::DiscoveredFiles;
+use nitrocop::linter::run_linter;
 
 /// Create a temporary directory with a unique name for each test.
 fn temp_dir(test_name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("turbocop_integration_{test_name}"));
+    let dir = std::env::temp_dir().join(format!("nitrocop_integration_{test_name}"));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
 }
 
 /// Write a tiers.json to `dir` that marks the given cop as preview (everything else stable).
-/// Returns the path for use with `TURBOCOP_TIERS_FILE` env var.
+/// Returns the path for use with `NITROCOP_TIERS_FILE` env var.
 fn write_preview_tiers(dir: &Path, cop_name: &str) -> PathBuf {
     let path = dir.join("tiers.json");
     fs::write(
@@ -1585,7 +1585,7 @@ fn to_snake_case(s: &str) -> String {
     result
 }
 
-/// Count annotations in fixture content: both `^` markers and `# turbocop-expect:` lines.
+/// Count annotations in fixture content: both `^` markers and `# nitrocop-expect:` lines.
 fn count_annotations(content: &str) -> usize {
     content
         .lines()
@@ -1594,7 +1594,7 @@ fn count_annotations(content: &str) -> usize {
             // Standard ^ annotations
             (trimmed.starts_with('^') && trimmed.contains(": ") && trimmed.contains('/'))
             // Explicit expect annotations
-            || line.starts_with("# turbocop-expect: ")
+            || line.starts_with("# nitrocop-expect: ")
         })
         .count()
 }
@@ -1924,10 +1924,10 @@ fn diamond_dependency_does_not_error() {
 fn rubocop_only_outputs_uncovered_cops() {
     let config_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/config/rubocop_only/mixed.yml");
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args(["--rubocop-only", "--config", config_path.to_str().unwrap()])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1947,7 +1947,7 @@ fn rubocop_only_outputs_uncovered_cops() {
         "Output should contain Vendor/SpecialCop, got: {stdout}"
     );
 
-    // Should NOT contain turbocop-covered cops
+    // Should NOT contain nitrocop-covered cops
     assert!(
         !stdout.contains("Style/FrozenStringLiteralComment"),
         "Output should NOT contain covered cop Style/FrozenStringLiteralComment"
@@ -1968,7 +1968,7 @@ fn rubocop_only_outputs_uncovered_cops() {
 
 #[test]
 fn stdin_detects_trailing_whitespace() {
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--stdin",
             "test.rb",
@@ -1980,7 +1980,7 @@ fn stdin_detects_trailing_whitespace() {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .expect("Failed to start turbocop");
+        .expect("Failed to start nitrocop");
 
     // Write source with trailing whitespace to stdin
     {
@@ -1991,7 +1991,7 @@ fn stdin_detects_trailing_whitespace() {
 
     let output = child
         .wait_with_output()
-        .expect("Failed to wait for turbocop");
+        .expect("Failed to wait for nitrocop");
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
@@ -2010,7 +2010,7 @@ fn stdin_detects_trailing_whitespace() {
 
 #[test]
 fn stdin_clean_code_exits_zero() {
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--preview",
             "--stdin",
@@ -2022,7 +2022,7 @@ fn stdin_clean_code_exits_zero() {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .expect("Failed to start turbocop");
+        .expect("Failed to start nitrocop");
 
     {
         use std::io::Write;
@@ -2032,7 +2032,7 @@ fn stdin_clean_code_exits_zero() {
 
     let output = child
         .wait_with_output()
-        .expect("Failed to wait for turbocop");
+        .expect("Failed to wait for nitrocop");
 
     assert!(
         output.status.success(),
@@ -2051,7 +2051,7 @@ fn stdin_display_path_affects_include_matching() {
         b"plugins:\n  - rubocop-rspec\n",
     );
 
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--stdin",
             "spec/foo_spec.rb",
@@ -2064,7 +2064,7 @@ fn stdin_display_path_affects_include_matching() {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .expect("Failed to start turbocop");
+        .expect("Failed to start nitrocop");
 
     {
         use std::io::Write;
@@ -2076,7 +2076,7 @@ fn stdin_display_path_affects_include_matching() {
 
     let output = child
         .wait_with_output()
-        .expect("Failed to wait for turbocop");
+        .expect("Failed to wait for nitrocop");
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
@@ -2085,7 +2085,7 @@ fn stdin_display_path_affects_include_matching() {
     );
 
     // Same code with non-spec display path — RSpec cops should NOT run
-    let mut child2 = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let mut child2 = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--stdin",
             "app/foo.rb",
@@ -2098,7 +2098,7 @@ fn stdin_display_path_affects_include_matching() {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .expect("Failed to start turbocop");
+        .expect("Failed to start nitrocop");
 
     {
         use std::io::Write;
@@ -2110,7 +2110,7 @@ fn stdin_display_path_affects_include_matching() {
 
     let output2 = child2
         .wait_with_output()
-        .expect("Failed to wait for turbocop");
+        .expect("Failed to wait for nitrocop");
     let stdout2 = String::from_utf8_lossy(&output2.stdout);
 
     assert!(
@@ -2159,8 +2159,8 @@ fn inherited_config_affects_linting() {
 
 #[test]
 fn lint_source_directly() {
-    use turbocop::linter::lint_source;
-    use turbocop::parse::source::SourceFile;
+    use nitrocop::linter::lint_source;
+    use nitrocop::parse::source::SourceFile;
 
     let source = SourceFile::from_string(PathBuf::from("test.rb"), "x = 1   \n".to_string());
     let config = load_config(None, None, None).unwrap();
@@ -2192,10 +2192,10 @@ fn lint_source_directly() {
 
 #[test]
 fn list_cops_prints_all_registered_cops() {
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args(["--list-cops"])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -2492,7 +2492,7 @@ fn collect_rb_files(dir: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
-/// Ensure every turbocop cop that has a `minimum_target_ruby_version` or
+/// Ensure every nitrocop cop that has a `minimum_target_ruby_version` or
 /// `maximum_target_ruby_version` in the vendor RuboCop source also has a
 /// corresponding `TargetRubyVersion` check in its Rust implementation.
 ///
@@ -2636,7 +2636,7 @@ fn ruby_version_gates() {
             } else if rust_file_alt.exists() {
                 rust_file_alt
             } else {
-                continue; // Cop not implemented in turbocop yet
+                continue; // Cop not implemented in nitrocop yet
             };
 
             let rust_content = fs::read_to_string(&rust_path).unwrap();
@@ -2843,7 +2843,7 @@ fn codegen_exits_nonzero_without_args() {
 // The implementation is conservative: it only flags directives for cops
 // that are UNKNOWN in a known department (likely renamed/removed) or
 // cops that are DISABLED/EXCLUDED for this file. It does NOT flag
-// directives for cops that ARE running, since turbocop might have gaps
+// directives for cops that ARE running, since nitrocop might have gaps
 // in its detection vs. RuboCop.
 
 #[test]
@@ -3397,7 +3397,7 @@ fn cache_produces_same_results_as_uncached() {
     let cache_dir = dir.join("cache");
     fs::create_dir_all(&cache_dir).unwrap();
     // SAFETY: test-only, set env var for cache root
-    unsafe { std::env::set_var("TURBOCOP_CACHE_DIR", &cache_dir) };
+    unsafe { std::env::set_var("NITROCOP_CACHE_DIR", &cache_dir) };
     let args_cached = Args {
         only: vec!["Layout/TrailingWhitespace".to_string()],
         cache: "true".to_string(),
@@ -3423,7 +3423,7 @@ fn cache_produces_same_results_as_uncached() {
         &AutocorrectAllowlist::load(),
     );
 
-    unsafe { std::env::remove_var("TURBOCOP_CACHE_DIR") };
+    unsafe { std::env::remove_var("NITROCOP_CACHE_DIR") };
 
     // All three runs should produce identical diagnostics
     assert_eq!(
@@ -3459,7 +3459,7 @@ fn cache_invalidated_by_file_change() {
 
     let cache_dir = dir.join("cache");
     fs::create_dir_all(&cache_dir).unwrap();
-    unsafe { std::env::set_var("TURBOCOP_CACHE_DIR", &cache_dir) };
+    unsafe { std::env::set_var("NITROCOP_CACHE_DIR", &cache_dir) };
 
     let config = load_config(None, Some(dir.as_path()), None).unwrap();
     let registry = CopRegistry::default_registry();
@@ -3503,7 +3503,7 @@ fn cache_invalidated_by_file_change() {
         "After fix, should find no offenses"
     );
 
-    unsafe { std::env::remove_var("TURBOCOP_CACHE_DIR") };
+    unsafe { std::env::remove_var("NITROCOP_CACHE_DIR") };
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -3514,7 +3514,7 @@ fn cache_invalidated_by_config_change() {
 
     let cache_dir = dir.join("cache");
     fs::create_dir_all(&cache_dir).unwrap();
-    unsafe { std::env::set_var("TURBOCOP_CACHE_DIR", &cache_dir) };
+    unsafe { std::env::set_var("NITROCOP_CACHE_DIR", &cache_dir) };
 
     let config = load_config(None, Some(dir.as_path()), None).unwrap();
     let registry = CopRegistry::default_registry();
@@ -3559,17 +3559,17 @@ fn cache_invalidated_by_config_change() {
         );
     }
 
-    unsafe { std::env::remove_var("TURBOCOP_CACHE_DIR") };
+    unsafe { std::env::remove_var("NITROCOP_CACHE_DIR") };
     let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn cache_preserves_all_severity_types() {
-    use turbocop::cache::{CacheLookup, ResultCache};
-    use turbocop::diagnostic::{Diagnostic, Location, Severity};
+    use nitrocop::cache::{CacheLookup, ResultCache};
+    use nitrocop::diagnostic::{Diagnostic, Location, Severity};
 
     let tmp = tempfile::tempdir().unwrap();
-    let configs = vec![turbocop::cop::CopConfig::default()];
+    let configs = vec![nitrocop::cop::CopConfig::default()];
     let args = default_args();
     let cache = ResultCache::with_root(tmp.path(), "0.1.0-test", &configs, &args);
 
@@ -3891,7 +3891,7 @@ fn redundant_disable_mixed_excluded_and_active() {
 #[test]
 fn no_redundant_disable_executed_cop_no_offense() {
     // A cop that is enabled and executes on the file but produces no offense.
-    // Conservative: we don't flag this because turbocop may have detection gaps.
+    // Conservative: we don't flag this because nitrocop may have detection gaps.
     let dir = temp_dir("no_redundant_disable_exec_no_off");
     // Style/FrozenStringLiteralComment fires on missing frozen_string_literal
     // but this file HAS it, so no offense. The disable is unused but the cop ran.
@@ -4092,10 +4092,10 @@ fn list_target_files_prints_discovered_files() {
     fs::write(dir.join("b.rb"), "y = 2\n").unwrap();
     fs::write(dir.join("c.txt"), "not ruby\n").unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args(["-L", "--no-cache", dir.to_str().unwrap()])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -4122,10 +4122,10 @@ fn list_target_files_exits_without_linting() {
     let dir = temp_dir("list_target_nolint");
     fs::write(dir.join("bad.rb"), "x = 1   \n").unwrap(); // trailing whitespace
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args(["-L", "--no-cache", dir.to_str().unwrap()])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -4148,7 +4148,7 @@ fn display_cop_names_flag_accepted() {
     let dir = temp_dir("display_cop_names");
     fs::write(dir.join("test.rb"), "x = 1   \n").unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--preview",
             "-D",
@@ -4158,7 +4158,7 @@ fn display_cop_names_flag_accepted() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -4178,10 +4178,10 @@ fn parallel_flag_accepted() {
     let dir = temp_dir("parallel_flag");
     fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args(["--preview", "-P", "--no-cache", dir.to_str().unwrap()])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -4201,7 +4201,7 @@ fn require_flag_accepted_and_ignored() {
     let dir = temp_dir("require_flag");
     fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--preview",
             "-r",
@@ -4212,7 +4212,7 @@ fn require_flag_accepted_and_ignored() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -4232,10 +4232,10 @@ fn require_flag_accepted_and_ignored() {
 #[test]
 fn require_multiple_values_accepted() {
     // Test that multiple -r flags work (common in .rubocop files)
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args(["-r", "rubocop-rspec", "-r", "rubocop-rails", "--list-cops"])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -4255,7 +4255,7 @@ fn fail_fast_stops_early() {
         fs::write(dir.join(format!("file_{i:02}.rb")), "x = 1   \n").unwrap();
     }
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--preview",
             "-F",
@@ -4265,7 +4265,7 @@ fn fail_fast_stops_early() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -4297,7 +4297,7 @@ fn fail_level_warning_ignores_conventions() {
     // FrozenStringLiteralComment is convention severity
     fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--preview",
             "--fail-level",
@@ -4308,7 +4308,7 @@ fn fail_level_warning_ignores_conventions() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     // Convention-level offense should NOT cause exit 1 when fail-level is warning
     assert!(
@@ -4324,7 +4324,7 @@ fn fail_level_convention_catches_conventions() {
     let dir = temp_dir("fail_level_c");
     fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--preview",
             "--fail-level",
@@ -4335,7 +4335,7 @@ fn fail_level_convention_catches_conventions() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     assert_eq!(
         output.status.code(),
@@ -4348,10 +4348,10 @@ fn fail_level_convention_catches_conventions() {
 
 #[test]
 fn fail_level_invalid_value_errors() {
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args(["--fail-level", "bogus", "--no-cache", "."])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -4380,7 +4380,7 @@ fn force_exclusion_excludes_explicit_file() {
     .unwrap();
 
     // Without --force-exclusion: explicit file should be linted
-    let output_no_force = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output_no_force = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--preview",
             "--only",
@@ -4391,7 +4391,7 @@ fn force_exclusion_excludes_explicit_file() {
             vendor_file.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
     let stdout_no_force = String::from_utf8_lossy(&output_no_force.stdout);
     assert!(
         stdout_no_force.contains("TrailingWhitespace"),
@@ -4399,7 +4399,7 @@ fn force_exclusion_excludes_explicit_file() {
     );
 
     // With --force-exclusion: explicit file should be excluded
-    let output_force = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output_force = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--preview",
             "--force-exclusion",
@@ -4411,7 +4411,7 @@ fn force_exclusion_excludes_explicit_file() {
             vendor_file.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
     let stdout_force = String::from_utf8_lossy(&output_force.stdout);
     assert!(
         !stdout_force.contains("TrailingWhitespace"),
@@ -4434,7 +4434,7 @@ fn ignore_disable_comments_shows_suppressed_offenses() {
     .unwrap();
 
     // Without flag: offense is suppressed by disable comment
-    let output_normal = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output_normal = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--preview",
             "--only",
@@ -4443,7 +4443,7 @@ fn ignore_disable_comments_shows_suppressed_offenses() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
     let stdout_normal = String::from_utf8_lossy(&output_normal.stdout);
     assert!(
         !stdout_normal.contains("Layout/TrailingWhitespace"),
@@ -4451,7 +4451,7 @@ fn ignore_disable_comments_shows_suppressed_offenses() {
     );
 
     // With --ignore-disable-comments: offense is shown
-    let output_ignore = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output_ignore = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--preview",
             "--ignore-disable-comments",
@@ -4461,7 +4461,7 @@ fn ignore_disable_comments_shows_suppressed_offenses() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
     let stdout_ignore = String::from_utf8_lossy(&output_ignore.stdout);
     assert!(
         stdout_ignore.contains("Layout/TrailingWhitespace"),
@@ -4481,7 +4481,7 @@ fn ignore_disable_comments_skips_redundant_disable_check() {
     )
     .unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--preview",
             "--ignore-disable-comments",
@@ -4489,7 +4489,7 @@ fn ignore_disable_comments_skips_redundant_disable_check() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // Should NOT report redundant disable when ignoring disable comments
@@ -4515,7 +4515,7 @@ fn force_default_config_ignores_config_file() {
     fs::write(dir.join("test.rb"), "x = 1   \n").unwrap();
 
     // Without flag: config disables the cop, no offense
-    let output_normal = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output_normal = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--preview",
             "--only",
@@ -4526,7 +4526,7 @@ fn force_default_config_ignores_config_file() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
     let stdout_normal = String::from_utf8_lossy(&output_normal.stdout);
     assert!(
         !stdout_normal.contains("TrailingWhitespace"),
@@ -4534,7 +4534,7 @@ fn force_default_config_ignores_config_file() {
     );
 
     // With --force-default-config: config is ignored, cop fires
-    let output_force = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output_force = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--preview",
             "--force-default-config",
@@ -4543,7 +4543,7 @@ fn force_default_config_ignores_config_file() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
     let stdout_force = String::from_utf8_lossy(&output_force.stdout);
     assert!(
         stdout_force.contains("TrailingWhitespace"),
@@ -4944,7 +4944,7 @@ fn autocorrect_no_write_when_no_corrections() {
 
 #[test]
 fn autocorrect_diagnostics_include_corrected_offenses() {
-    // When turbocop -A corrects an offense, the returned diagnostics should
+    // When nitrocop -A corrects an offense, the returned diagnostics should
     // include that offense with `corrected: true`. Previously, the autocorrect
     // loop would re-lint the corrected source and return only the remaining
     // (uncorrected) diagnostics, losing the corrected ones from the output.
@@ -5056,10 +5056,10 @@ fn autocorrect_json_output_marks_corrected_offenses() {
 
 #[test]
 fn internal_error_exits_three() {
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args(["--no-cache", "/nonexistent/path/that/does/not/exist"])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     assert_eq!(
         output.status.code(),
@@ -5071,10 +5071,10 @@ fn internal_error_exits_three() {
 
 #[test]
 fn strict_flag_accepted() {
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args(["--strict", "--list-cops"])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     assert!(
         output.status.success(),
@@ -5085,7 +5085,7 @@ fn strict_flag_accepted() {
 
 #[test]
 fn strict_coverage_exits_two_for_preview_gated() {
-    // Force the cop into preview tier via TURBOCOP_TIERS_FILE.
+    // Force the cop into preview tier via NITROCOP_TIERS_FILE.
     // Enable it in config, run without --preview → it's preview-gated → --strict exits 2.
     let dir = temp_dir("strict_coverage_preview");
     let tiers = write_preview_tiers(&dir, "Performance/BigDecimalWithNumericArgument");
@@ -5096,8 +5096,8 @@ fn strict_coverage_exits_two_for_preview_gated() {
     )
     .unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
-        .env("TURBOCOP_TIERS_FILE", &tiers)
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
+        .env("NITROCOP_TIERS_FILE", &tiers)
         .args([
             "--strict",
             "--only",
@@ -5108,7 +5108,7 @@ fn strict_coverage_exits_two_for_preview_gated() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(
@@ -5136,8 +5136,8 @@ fn strict_coverage_with_preview_exits_zero() {
     )
     .unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
-        .env("TURBOCOP_TIERS_FILE", &tiers)
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
+        .env("NITROCOP_TIERS_FILE", &tiers)
         .args([
             "--strict",
             "--preview",
@@ -5149,7 +5149,7 @@ fn strict_coverage_with_preview_exits_zero() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -5172,7 +5172,7 @@ fn strict_all_exits_two_for_unimplemented() {
     )
     .unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--strict=all",
             "--only",
@@ -5183,7 +5183,7 @@ fn strict_all_exits_two_for_unimplemented() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(
@@ -5206,7 +5206,7 @@ fn strict_implemented_only_ignores_unimplemented() {
     )
     .unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--strict=implemented-only",
             "--only",
@@ -5217,7 +5217,7 @@ fn strict_implemented_only_ignores_unimplemented() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -5240,8 +5240,8 @@ fn lint_failure_takes_priority_over_strict() {
     )
     .unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
-        .env("TURBOCOP_TIERS_FILE", &tiers)
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
+        .env("NITROCOP_TIERS_FILE", &tiers)
         .args([
             "--preview",
             "--strict",
@@ -5253,7 +5253,7 @@ fn lint_failure_takes_priority_over_strict() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     assert_eq!(
         output.status.code(),
@@ -5266,10 +5266,10 @@ fn lint_failure_takes_priority_over_strict() {
 
 #[test]
 fn strict_invalid_value_errors() {
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args(["--strict=bogus", "--no-cache", "."])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(
@@ -5296,8 +5296,8 @@ fn migrate_text_output() {
     )
     .unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
-        .env("TURBOCOP_TIERS_FILE", &tiers)
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
+        .env("NITROCOP_TIERS_FILE", &tiers)
         .args([
             "--migrate",
             "--no-cache",
@@ -5306,7 +5306,7 @@ fn migrate_text_output() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -5352,7 +5352,7 @@ fn migrate_json_output() {
     )
     .unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--migrate",
             "--format",
@@ -5363,7 +5363,7 @@ fn migrate_json_output() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -5407,7 +5407,7 @@ fn migrate_clean_config_no_skips() {
     )
     .unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--migrate",
             "--no-cache",
@@ -5416,7 +5416,7 @@ fn migrate_clean_config_no_skips() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
@@ -5432,10 +5432,10 @@ fn migrate_clean_config_no_skips() {
 
 #[test]
 fn doctor_shows_baseline_and_registry() {
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args(["--doctor", "--force-default-config", "."])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -5471,7 +5471,7 @@ fn doctor_shows_config_root() {
     )
     .unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--doctor",
             "--no-cache",
@@ -5480,7 +5480,7 @@ fn doctor_shows_config_root() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
@@ -5507,8 +5507,8 @@ fn doctor_shows_skip_summary() {
     )
     .unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
-        .env("TURBOCOP_TIERS_FILE", &tiers)
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
+        .env("NITROCOP_TIERS_FILE", &tiers)
         .args([
             "--doctor",
             "--no-cache",
@@ -5517,7 +5517,7 @@ fn doctor_shows_skip_summary() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
@@ -5545,7 +5545,7 @@ fn doctor_detects_gem_version_mismatch() {
     )
     .unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args([
             "--doctor",
             "--no-cache",
@@ -5554,7 +5554,7 @@ fn doctor_detects_gem_version_mismatch() {
             dir.to_str().unwrap(),
         ])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
@@ -5574,10 +5574,10 @@ fn doctor_detects_gem_version_mismatch() {
 
 #[test]
 fn rules_table_output() {
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args(["--rules"])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -5598,10 +5598,10 @@ fn rules_table_output() {
 
 #[test]
 fn rules_tier_filter_preview() {
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args(["--rules", "--tier", "preview"])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
@@ -5619,10 +5619,10 @@ fn rules_tier_filter_preview() {
 
 #[test]
 fn rules_json_output() {
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
         .args(["--rules", "--format", "json"])
         .output()
-        .expect("Failed to execute turbocop");
+        .expect("Failed to execute nitrocop");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
@@ -5719,9 +5719,9 @@ fn autocorrect_all_bypasses_allowlist() {
 /// handle every pattern we've curated from vendor RuboCop source.
 #[test]
 fn verifier_all_patterns_parse() {
-    use turbocop::node_pattern::lexer::Lexer;
-    use turbocop::node_pattern::parser::Parser;
-    use turbocop::node_pattern::pattern_db::PATTERNS;
+    use nitrocop::node_pattern::lexer::Lexer;
+    use nitrocop::node_pattern::parser::Parser;
+    use nitrocop::node_pattern::pattern_db::PATTERNS;
 
     let mut failures = Vec::new();
 
@@ -5759,7 +5759,7 @@ fn verifier_all_patterns_parse() {
 /// behavior.
 #[test]
 fn verifier_known_matches() {
-    use turbocop::node_pattern::interpreter::interpret_pattern;
+    use nitrocop::node_pattern::interpreter::interpret_pattern;
 
     struct Case {
         pattern: &'static str,
@@ -5973,8 +5973,8 @@ fn verifier_known_matches() {
 
 #[test]
 fn verifier_vendor_pattern_parse_coverage() {
+    use nitrocop::node_pattern::{Lexer, Parser, walk_vendor_patterns};
     use std::collections::HashMap;
-    use turbocop::node_pattern::{Lexer, Parser, walk_vendor_patterns};
 
     let vendor_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("vendor");
     if !vendor_root.is_dir() {

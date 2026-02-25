@@ -1,4 +1,4 @@
-# turbocop-filename: example.gemspec
+# nitrocop-filename: example.gemspec
 Gem::Specification.new do |spec|
   spec.add_runtime_dependency 'foo'
        ^^^^^^^^^^^^^^^^^^^^^^ Gemspec/AddRuntimeDependency: Use `add_dependency` instead of `add_runtime_dependency`.

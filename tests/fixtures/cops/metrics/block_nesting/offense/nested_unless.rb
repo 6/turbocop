@@ -1,4 +1,4 @@
-# turbocop-expect: 5:8 Metrics/BlockNesting: Avoid more than 3 levels of block nesting.
+# nitrocop-expect: 5:8 Metrics/BlockNesting: Avoid more than 3 levels of block nesting.
 def bar
   unless a
     if b

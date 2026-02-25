@@ -261,8 +261,8 @@ pub fn run_linter(
         cache.evict(50);
     }
 
-    // Per-cop timing: enabled by TURBOCOP_COP_PROFILE=1
-    if std::env::var("TURBOCOP_COP_PROFILE").is_ok() {
+    // Per-cop timing: enabled by NITROCOP_COP_PROFILE=1
+    if std::env::var("NITROCOP_COP_PROFILE").is_ok() {
         use std::sync::Mutex;
         let cop_timings: Vec<Mutex<(u64, u64, u64)>> = (0..registry.cops().len())
             .map(|_| Mutex::new((0u64, 0u64, 0u64)))
@@ -460,7 +460,7 @@ const REDUNDANT_DISABLE_COP: &str = "Lint/RedundantCopDisableDirective";
 /// The logic is conservative to avoid false positives:
 ///   - "all" or department-only directives: never flag (too broad to check)
 ///   - Known cop that is explicitly disabled (Enabled: false): flag as redundant
-///   - Known cop that is enabled: don't flag (turbocop may have detection gaps)
+///   - Known cop that is enabled: don't flag (nitrocop may have detection gaps)
 ///   - Renamed cop (per obsoletion.yml) whose new name IS in the registry:
 ///     flag as redundant (the old name is obsolete)
 ///   - Cop NOT in the registry but known from gem config (has Include/Exclude):

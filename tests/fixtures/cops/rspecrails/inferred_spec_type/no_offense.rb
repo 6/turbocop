@@ -1,4 +1,4 @@
-# turbocop-filename: spec/models/user_spec.rb
+# nitrocop-filename: spec/models/user_spec.rb
 RSpec.describe User do
 end
 

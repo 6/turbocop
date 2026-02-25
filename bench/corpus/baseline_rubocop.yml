@@ -33,7 +33,7 @@ AllCops:
 # ============================================================================
 # Cops with Enabled: false in vendor defaults — explicitly enable for corpus.
 # These are opt-in cops that won't fire under standard configs. Enabling them
-# ensures turbocop's implementations are tested against real-world code.
+# ensures nitrocop's implementations are tested against real-world code.
 # ============================================================================
 
 # rubocop core (54 cops)

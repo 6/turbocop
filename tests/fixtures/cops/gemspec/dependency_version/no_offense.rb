@@ -1,4 +1,4 @@
-# turbocop-filename: example.gemspec
+# nitrocop-filename: example.gemspec
 Gem::Specification.new do |spec|
   spec.name = 'example'
   spec.version = '1.0'

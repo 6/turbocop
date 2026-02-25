@@ -1,5 +1,5 @@
 #![allow(clippy::manual_contains)]
-//! Generate a Markdown coverage table showing turbocop cop coverage vs vendor RuboCop.
+//! Generate a Markdown coverage table showing nitrocop cop coverage vs vendor RuboCop.
 //!
 //! Usage:
 //!   cargo run --bin coverage_table                                  # print to stdout
@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use clap::Parser;
 
 #[derive(Parser)]
-#[command(about = "Generate turbocop cop coverage table")]
+#[command(about = "Generate nitrocop cop coverage table")]
 struct Args {
     /// Output file path (default: stdout)
     #[arg(long)]
@@ -75,7 +75,7 @@ static VENDOR_SOURCES: &[VendorSource] = &[
     },
 ];
 
-/// Repo display order for conformance table (matches bench_turbocop REPOS order).
+/// Repo display order for conformance table (matches bench_nitrocop REPOS order).
 const REPO_ORDER: &[&str] = &[
     "mastodon",
     "discourse",
@@ -93,11 +93,11 @@ const REPO_ORDER: &[&str] = &[
     "lobsters",
 ];
 
-// --- Conformance JSON types (must match bench_turbocop) ---
+// --- Conformance JSON types (must match bench_nitrocop) ---
 
 #[derive(serde::Deserialize)]
 struct ConformResult {
-    turbocop_count: usize,
+    nitrocop_count: usize,
     rubocop_count: usize,
     matches: usize,
     false_positives: usize,
@@ -206,9 +206,9 @@ fn render_conformance(project_root: &Path, cop_count: usize) -> Option<String> {
     let mut out = String::new();
     writeln!(out, "## Conformance").unwrap();
     writeln!(out).unwrap();
-    writeln!(out, "Location-level comparison: file + line + cop_name. Only cops implemented by turbocop ({cop_count}) are compared.").unwrap();
+    writeln!(out, "Location-level comparison: file + line + cop_name. Only cops implemented by nitrocop ({cop_count}) are compared.").unwrap();
     writeln!(out).unwrap();
-    writeln!(out, "| Repo | turbocop | rubocop | Matches | FP (turbocop only) | FN (rubocop only) | Match rate |").unwrap();
+    writeln!(out, "| Repo | nitrocop | rubocop | Matches | FP (nitrocop only) | FN (rubocop only) | Match rate |").unwrap();
     writeln!(
         out,
         "|------|-------:|--------:|--------:|-----------------:|------------------:|-----------:|"
@@ -220,7 +220,7 @@ fn render_conformance(project_root: &Path, cop_count: usize) -> Option<String> {
             writeln!(
                 out,
                 "| {repo} | {} | {} | {} | {} | {} | **{:.1}%** |",
-                c.turbocop_count,
+                c.nitrocop_count,
                 c.rubocop_count,
                 c.matches,
                 c.false_positives,
@@ -291,12 +291,12 @@ fn main() {
         }
     }
 
-    // 2. turbocop cops per department from registry
-    let registry = turbocop::cop::registry::CopRegistry::default_registry();
-    let mut turbocop_cops: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    // 2. nitrocop cops per department from registry
+    let registry = nitrocop::cop::registry::CopRegistry::default_registry();
+    let mut nitrocop_cops: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for name in registry.names() {
         if let Some(slash) = name.find('/') {
-            turbocop_cops
+            nitrocop_cops
                 .entry(name[..slash].to_string())
                 .or_default()
                 .insert(name.to_string());
@@ -306,13 +306,13 @@ fn main() {
     // 3. Sorted departments
     let mut all_depts: BTreeSet<String> = BTreeSet::new();
     all_depts.extend(vendor_cops.keys().cloned());
-    all_depts.extend(turbocop_cops.keys().cloned());
+    all_depts.extend(nitrocop_cops.keys().cloned());
     let mut sorted_depts: Vec<String> = all_depts.into_iter().collect();
     sorted_depts.sort_by_key(|d| dept_order(d));
 
     // 4. Generate cop coverage table
     let mut out = String::new();
-    writeln!(out, "# turbocop Coverage Report").unwrap();
+    writeln!(out, "# nitrocop Coverage Report").unwrap();
     writeln!(out).unwrap();
     writeln!(
         out,
@@ -322,7 +322,7 @@ fn main() {
     writeln!(out).unwrap();
     writeln!(out, "## Cop Coverage").unwrap();
     writeln!(out).unwrap();
-    writeln!(out, "**turbocop cops:** {}", registry.len()).unwrap();
+    writeln!(out, "**nitrocop cops:** {}", registry.len()).unwrap();
     writeln!(out).unwrap();
 
     // Gem-level summary table
@@ -330,7 +330,7 @@ fn main() {
     writeln!(out).unwrap();
     writeln!(
         out,
-        "| Gem | Version | Departments | RuboCop | turbocop | Coverage |"
+        "| Gem | Version | Departments | RuboCop | nitrocop | Coverage |"
     )
     .unwrap();
     writeln!(
@@ -350,7 +350,7 @@ fn main() {
         let r: usize = source
             .owned_departments
             .iter()
-            .map(|d| turbocop_cops.get(*d).map_or(0, |s| s.len()))
+            .map(|d| nitrocop_cops.get(*d).map_or(0, |s| s.len()))
             .sum();
         let pct = if r >= v && v > 0 {
             "**100%**".to_string()
@@ -372,7 +372,7 @@ fn main() {
     // Per-department detail table
     writeln!(out, "### By Department").unwrap();
     writeln!(out).unwrap();
-    writeln!(out, "| Department | RuboCop | turbocop | Coverage |").unwrap();
+    writeln!(out, "| Department | RuboCop | nitrocop | Coverage |").unwrap();
     writeln!(out, "|------------|--------:|-------:|---------:|").unwrap();
 
     let mut total_v = 0usize;
@@ -380,7 +380,7 @@ fn main() {
 
     for dept in &sorted_depts {
         let v = vendor_cops.get(dept).map_or(0, |s| s.len());
-        let r = turbocop_cops.get(dept).map_or(0, |s| s.len());
+        let r = nitrocop_cops.get(dept).map_or(0, |s| s.len());
         total_v += v;
         total_r += r;
         let pct = if r >= v && v > 0 {
@@ -412,7 +412,7 @@ fn main() {
         let mut any = false;
         for dept in &sorted_depts {
             if let Some(vs) = vendor_cops.get(dept) {
-                let rs = turbocop_cops.get(dept).cloned().unwrap_or_default();
+                let rs = nitrocop_cops.get(dept).cloned().unwrap_or_default();
                 let missing: Vec<_> = vs.difference(&rs).collect();
                 if !missing.is_empty() {
                     any = true;
@@ -438,13 +438,13 @@ fn main() {
         let mut extras: Vec<String> = Vec::new();
         for dept in &sorted_depts {
             let vs = vendor_cops.get(dept).cloned().unwrap_or_default();
-            if let Some(rs) = turbocop_cops.get(dept) {
+            if let Some(rs) = nitrocop_cops.get(dept) {
                 extras.extend(rs.difference(&vs).cloned());
             }
         }
         if !extras.is_empty() {
             writeln!(out).unwrap();
-            writeln!(out, "### Extra Cops (in turbocop, not in vendor)").unwrap();
+            writeln!(out, "### Extra Cops (in nitrocop, not in vendor)").unwrap();
             writeln!(out).unwrap();
             for cop in &extras {
                 writeln!(out, "- `{cop}`").unwrap();
@@ -460,7 +460,7 @@ fn main() {
     } else {
         writeln!(out, "## Conformance").unwrap();
         writeln!(out).unwrap();
-        writeln!(out, "*No data. Run `cargo run --release --bin bench_turbocop -- conform` to generate bench/conform.json.*").unwrap();
+        writeln!(out, "*No data. Run `cargo run --release --bin bench_nitrocop -- conform` to generate bench/conform.json.*").unwrap();
     }
 
     // 7. Output

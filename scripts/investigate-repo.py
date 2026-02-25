@@ -2,7 +2,7 @@
 """Investigate a repo's conformance from the corpus oracle data.
 
 Answers "why is repo X at Y%?" by showing the top diverging cops for that repo.
-Reads corpus-results.json (downloaded from CI or local) — no turbocop execution needed.
+Reads corpus-results.json (downloaded from CI or local) — no nitrocop execution needed.
 
 Usage:
     python3 scripts/investigate-repo.py rails                    # fuzzy match repo name

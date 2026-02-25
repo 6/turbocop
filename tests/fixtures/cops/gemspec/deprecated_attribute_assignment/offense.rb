@@ -1,4 +1,4 @@
-# turbocop-filename: example.gemspec
+# nitrocop-filename: example.gemspec
 Gem::Specification.new do |spec|
   spec.test_files = ['test/test_helper.rb']
        ^^^^^^^^^^ Gemspec/DeprecatedAttributeAssignment: Do not set `test_files` in gemspec.

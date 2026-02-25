@@ -56,7 +56,7 @@ isolated git worktree) to investigate and fix them.
 ### Phase 3: Teammate Workflow (paste this into each teammate's prompt)
 
 ```
-You are fixing false positives in a single turbocop cop. Follow the CLAUDE.md rules strictly.
+You are fixing false positives in a single nitrocop cop. Follow the CLAUDE.md rules strictly.
 
 **NEVER use git stash or git stash pop.** You are in an isolated git worktree — just commit directly.
 
@@ -70,12 +70,12 @@ You are fixing false positives in a single turbocop cop. Follow the CLAUDE.md ru
 
 3. **Add test cases (TDD)**:
    - Add the FP pattern to `tests/fixtures/cops/<dept>/<cop_name>/no_offense.rb`
-   - Run `cargo test --release -p turbocop --lib -- <cop_name_snake>` to verify the test FAILS (proving the FP exists)
+   - Run `cargo test --release -p nitrocop --lib -- <cop_name_snake>` to verify the test FAILS (proving the FP exists)
 
 4. **Fix the cop implementation** in `src/cop/<dept>/<cop_name>.rs`
 
 5. **Verify**:
-   - `cargo test --release -p turbocop --lib -- <cop_name_snake>` — all tests pass
+   - `cargo test --release -p nitrocop --lib -- <cop_name_snake>` — all tests pass
    - `cargo fmt`
    - `cargo clippy --release -- -D warnings`
 

@@ -35,11 +35,11 @@ jobs:
       - name: Bump version and tag
         run: |
           sed -i 's/^version = ".*"/version = "${{ inputs.version }}"/' Cargo.toml
-          sed -i 's/VERSION = ".*"/VERSION = "${{ inputs.version }}"/' gem/lib/turbocop.rb
-          cargo update -p turbocop
+          sed -i 's/VERSION = ".*"/VERSION = "${{ inputs.version }}"/' gem/lib/nitrocop.rb
+          cargo update -p nitrocop
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml Cargo.lock gem/lib/turbocop.rb
+          git add Cargo.toml Cargo.lock gem/lib/nitrocop.rb
           git commit -m "Release v${{ inputs.version }}"
           git tag "v${{ inputs.version }}"
           git push origin main --tags
@@ -87,29 +87,29 @@ jobs:
 
       - name: Build with cargo
         if: ${{ !matrix.cross }}
-        run: cargo build --release --target ${{ matrix.target }} --bin turbocop
+        run: cargo build --release --target ${{ matrix.target }} --bin nitrocop
 
       - name: Build with cross
         if: matrix.cross
-        run: cross build --release --target ${{ matrix.target }} --bin turbocop
+        run: cross build --release --target ${{ matrix.target }} --bin nitrocop
 
       - name: Package tarball
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf ../../../turbocop-${{ matrix.target }}.tar.gz turbocop
+          tar czf ../../../nitrocop-${{ matrix.target }}.tar.gz nitrocop
 
       - uses: ruby/setup-ruby@v1
 
       - name: Package platform gem
-        run: ruby gem/build_gem.rb ${{ inputs.version }} --platform ${{ matrix.platform }} --binary target/${{ matrix.target }}/release/turbocop
+        run: ruby gem/build_gem.rb ${{ inputs.version }} --platform ${{ matrix.platform }} --binary target/${{ matrix.target }}/release/nitrocop
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: build-${{ matrix.target }}
           path: |
-            turbocop-${{ matrix.target }}.tar.gz
-            turbocop-*.gem
+            nitrocop-${{ matrix.target }}.tar.gz
+            nitrocop-*.gem
 
   release:
     needs: build
@@ -126,7 +126,7 @@ jobs:
           merge-multiple: true
 
       - name: Create GitHub release
-        run: gh release create "v${{ inputs.version }}" turbocop-*.tar.gz --generate-notes
+        run: gh release create "v${{ inputs.version }}" nitrocop-*.tar.gz --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -171,7 +171,7 @@ jobs:
         env:
           GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
         run: |
-          gem push turbocop-${{ inputs.version }}.gem
-          for f in turbocop-${{ inputs.version }}-*.gem; do
+          gem push nitrocop-${{ inputs.version }}.gem
+          for f in nitrocop-${{ inputs.version }}-*.gem; do
             gem push "$f"
           done

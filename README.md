@@ -1,4 +1,4 @@
-# turbocop
+# nitrocop
 
 Experimental RuboCop rewrite in Rust. 900+ cops.
 
@@ -7,7 +7,7 @@ Experimental RuboCop rewrite in Rust. 900+ cops.
 
 Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (1,222 files), Apple Silicon:
 
-| Scenario | turbocop | RuboCop | Speedup |
+| Scenario | nitrocop | RuboCop | Speedup |
 |----------|-------:|--------:|--------:|
 | Local dev (50 files changed) | **64ms** | 1.39s | **21.7x** |
 | CI (no cache) | **207ms** | 18.21s | **87.8x** |
@@ -26,18 +26,18 @@ Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (
 Requires Rust 1.85+ (edition 2024).
 
 ```bash
-cargo install turbocop   # not yet published — build from source for now
+cargo install nitrocop   # not yet published — build from source for now
 ```
 
 Then run it in your Ruby project:
 
 ```bash
-turbocop
+nitrocop
 ```
 
 ## Configuration
 
-turbocop reads `.rubocop.yml` with full support for:
+nitrocop reads `.rubocop.yml` with full support for:
 
 - **`inherit_from`** — local files, recursive
 - **`inherit_gem`** — resolves gem paths via `bundle info`
@@ -51,7 +51,7 @@ Config auto-discovery walks up from the target directory to find `.rubocop.yml`.
 
 ## Cops
 
-turbocop supports 915 cops from 6 RuboCop gems:
+nitrocop supports 915 cops from 6 RuboCop gems:
 
 | Gem | Version | Cops | Coverage | Departments |
 |-----|---------|-----:|---------:|-------------|
@@ -66,7 +66,7 @@ Every cop reads its RuboCop YAML config options and has fixture-based test cover
 
 ## Conformance
 
-We run a [corpus oracle](https://github.com/6/turbocop/actions/workflows/corpus-oracle.yml) that diffs turbocop against RuboCop on **500 open-source repos** (164k Ruby files) with all cops enabled. Every offense is compared by file, line, and cop name.
+We run a [corpus oracle](https://github.com/6/nitrocop/actions/workflows/corpus-oracle.yml) that diffs nitrocop against RuboCop on **500 open-source repos** (164k Ruby files) with all cops enabled. Every offense is compared by file, line, and cop name.
 
 **Overall: 95.3% match rate** across 9.0M offenses compared.
 
@@ -94,14 +94,14 @@ Remaining gaps are mostly in complex layout cops (indentation, alignment) and a 
 
 ## Hybrid Mode
 
-Use `--rubocop-only` to run turbocop alongside RuboCop for cops it doesn't cover yet:
+Use `--rubocop-only` to run nitrocop alongside RuboCop for cops it doesn't cover yet:
 
 ```bash
 #!/usr/bin/env bash
 # bin/lint — fast hybrid linter
-turbocop "$@"
+nitrocop "$@"
 
-REMAINING=$(turbocop --rubocop-only)
+REMAINING=$(nitrocop --rubocop-only)
 if [ -n "$REMAINING" ]; then
   bundle exec rubocop --only "$REMAINING" "$@"
 fi
@@ -110,7 +110,7 @@ fi
 ## CLI
 
 ```
-turbocop [OPTIONS] [PATHS]...
+nitrocop [OPTIONS] [PATHS]...
 
 Arguments:
   [PATHS]...    Files or directories to lint [default: .]
@@ -122,7 +122,7 @@ Options:
   -f, --format <FORMAT>     Output format: text, json [default: text]
       --only <COPS>         Run only specified cops (comma-separated)
       --except <COPS>       Skip specified cops (comma-separated)
-      --rubocop-only        Print cops NOT covered by turbocop
+      --rubocop-only        Print cops NOT covered by nitrocop
       --stdin <PATH>        Read source from stdin, use PATH for display
       --debug               Print timing and debug info
       --list-cops           List all registered cops
@@ -150,8 +150,8 @@ cargo test config_audit     # all YAML config keys implemented
 cargo test prism_pitfalls   # no missing node type handling
 
 # Benchmarks
-cargo run --release --bin bench_turbocop          # full: setup + bench + conform
-cargo run --release --bin bench_turbocop -- bench # timing only
+cargo run --release --bin bench_nitrocop          # full: setup + bench + conform
+cargo run --release --bin bench_nitrocop -- bench # timing only
 ```
 
 ## How It Works

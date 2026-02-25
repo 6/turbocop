@@ -1,4 +1,4 @@
-# turbocop Config Loading Time Analysis: Where Does 389ms Go?
+# nitrocop Config Loading Time Analysis: Where Does 389ms Go?
 
 ## Summary
 For a project like Discourse with a lockfile (gem_cache provided), config loading takes approximately **389ms out of 775ms total** (50% of total time). This is while YAML parsing happens via only **3 direct `serde_yml::from_str` calls**. The 389ms is **NOT dominated by YAML parsing alone** — it's a combination of multiple file I/O, parsing, and merging operations.
@@ -142,7 +142,7 @@ merge_layer_into(&mut base, &project_layer, None);
 
 ## Key Insight: Without Lockfile, Add Bundle Calls
 
-If `.turbocop.lock` did NOT exist, config loading would add:
+If `.nitrocop.lock` did NOT exist, config loading would add:
 - 7-8 × `bundle info --path <gem>` subprocess calls
 - Each bundle call: ~30-100ms depending on Gemfile.lock size
 - **Total additional cost:** ~280-800ms (!)
@@ -241,13 +241,13 @@ load_config(with lockfile)
 
 ## What Changes With Cache vs. Without?
 
-**Without .turbocop.cache (using bundle):**
+**Without .nitrocop.cache (using bundle):**
 - All file I/O timings stay the same
 - All YAML parsing timings stay the same
 - **Add:** 7-8 bundle subprocess calls (~130-440ms each = ~1-2s total)
 - **Total: 1-2.5s just for config loading**
 
-**With .turbocop.cache (gem_cache HashMap):**
+**With .nitrocop.cache (gem_cache HashMap):**
 - Eliminate all bundle calls
 - Direct HashMap lookup for gem paths
 - **Total: ~140ms** (warm cache, see measured values below)
@@ -256,7 +256,7 @@ load_config(with lockfile)
 
 ## Measured Config Loading Times (2026-02-19, post-optimization)
 
-After implementing `.turbocop.cache` and the batched AST walker, measured config
+After implementing `.nitrocop.cache` and the batched AST walker, measured config
 loading with warm filesystem cache (median of 3 runs):
 
 | Repo | Plugins | Nested configs | Config loading | Total wall | Config % |
@@ -297,7 +297,7 @@ most of that is spread across 40 small files where per-file overhead (filesystem
 parser would only save ~70-100ms on Discourse and ~10-30ms on most other repos.
 
 The `ryml` Rust crate (rapidyaml bindings) is GPLv3-licensed, which is
-incompatible with turbocop's license. Writing custom bindings to the MIT-licensed
+incompatible with nitrocop's license. Writing custom bindings to the MIT-licensed
 C++ rapidyaml library is possible but high effort for marginal gain.
 
 ### `GEM_HOME`/`GEM_PATH` investigation
@@ -314,7 +314,7 @@ $ echo $GEM_PATH
 
 These variables are **not set** by mise (formerly rtx), which is a popular Ruby
 version manager. Without them, there's no way to find gem install directories
-without calling a Ruby subprocess. This confirms the `.turbocop.cache` approach
+without calling a Ruby subprocess. This confirms the `.nitrocop.cache` approach
 (one-time `bundle info` calls cached to disk) is the right design.
 
 ---
@@ -377,7 +377,7 @@ walker: -15%) are already shipped.
 Config loading is effectively solved:
 - **Most repos:** 35-60ms (3-7% of total) — not worth optimizing further
 - **Discourse:** 140ms (18% of total) — dominated by nested config tree walk
-- **Without cache:** would be 1-2.5s — the `.turbocop.cache` is essential
+- **Without cache:** would be 1-2.5s — the `.nitrocop.cache` is essential
 
 The performance bottleneck is now squarely in **cop execution** (75-95% of
 linting time). Further speedups require optimizing the per-node dispatch loop

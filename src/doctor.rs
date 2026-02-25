@@ -152,7 +152,7 @@ pub fn run_doctor(
                 "warning: Gem version mismatches may cause different cop availability or behavior."
             );
             println!(
-                "  turbocop targets the baseline versions above. Run `turbocop --migrate` for details."
+                "  nitrocop targets the baseline versions above. Run `nitrocop --migrate` for details."
             );
         }
     } else {
@@ -174,7 +174,7 @@ pub fn run_doctor(
         }
         if !summary.unimplemented.is_empty() {
             println!(
-                "  Unimplemented: {} (in baseline, not in turbocop)",
+                "  Unimplemented: {} (in baseline, not in nitrocop)",
                 summary.unimplemented.len()
             );
         }

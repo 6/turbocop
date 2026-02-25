@@ -35,7 +35,7 @@ pub fn lockfile_path(project_dir: &Path) -> PathBuf {
 
 /// Write the lockfile for the given project directory.
 ///
-/// The lockfile is stored at `~/.cache/turbocop/lockfiles/<hash>.json`,
+/// The lockfile is stored at `~/.cache/nitrocop/lockfiles/<hash>.json`,
 /// keyed by the canonical project directory path.
 pub fn write_lock(gems: &HashMap<String, PathBuf>, project_dir: &Path) -> Result<()> {
     let gemfile_lock_sha256 = hash_file(&project_dir.join("Gemfile.lock"));
@@ -63,7 +63,7 @@ pub fn read_lock(dir: &Path) -> Result<TurboCopLock> {
     let cache_path = lockfile_path(dir);
     if !cache_path.exists() {
         anyhow::bail!(
-            "No lockfile found for {}. Run 'turbocop --init' first.",
+            "No lockfile found for {}. Run 'nitrocop --init' first.",
             dir.display()
         );
     }
@@ -74,7 +74,7 @@ pub fn read_lock(dir: &Path) -> Result<TurboCopLock> {
         .with_context(|| format!("Failed to parse {}", cache_path.display()))?;
     if lock.version != 1 {
         anyhow::bail!(
-            "Lockfile has version {} (expected 1). Run 'turbocop --init' to regenerate.",
+            "Lockfile has version {} (expected 1). Run 'nitrocop --init' to regenerate.",
             lock.version
         );
     }
@@ -86,14 +86,14 @@ pub fn read_lock(dir: &Path) -> Result<TurboCopLock> {
 pub fn check_freshness(lock: &TurboCopLock, dir: &Path) -> Result<()> {
     let current_hash = hash_file(&dir.join("Gemfile.lock"));
     if lock.gemfile_lock_sha256 != current_hash {
-        anyhow::bail!("Stale lockfile (Gemfile.lock changed). Run 'turbocop --init' to refresh.");
+        anyhow::bail!("Stale lockfile (Gemfile.lock changed). Run 'nitrocop --init' to refresh.");
     }
     // Verify cached gem paths still exist (catches Ruby version switches,
     // gem reinstalls, rbenv rehash, etc.)
     for (name, path) in &lock.gems {
         if !path.exists() {
             anyhow::bail!(
-                "Stale lockfile (gem path for '{name}' no longer exists: {}). Run 'turbocop --init' to refresh.",
+                "Stale lockfile (gem path for '{name}' no longer exists: {}). Run 'nitrocop --init' to refresh.",
                 path.display()
             );
         }
@@ -165,21 +165,21 @@ mod tests {
 
     use std::sync::Mutex;
 
-    /// Mutex to serialize tests that mutate TURBOCOP_CACHE_DIR.
+    /// Mutex to serialize tests that mutate NITROCOP_CACHE_DIR.
     static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
-    /// Run a closure with TURBOCOP_CACHE_DIR pointed at a temp directory.
+    /// Run a closure with NITROCOP_CACHE_DIR pointed at a temp directory.
     /// Serialized via ENV_MUTEX to prevent races with other tests.
     fn with_cache_dir(tmp: &Path, f: impl FnOnce()) {
         let _guard = ENV_MUTEX.lock().unwrap();
-        let prev = std::env::var("TURBOCOP_CACHE_DIR").ok();
+        let prev = std::env::var("NITROCOP_CACHE_DIR").ok();
         // SAFETY: holding ENV_MUTEX ensures no other test is concurrently
         // reading/writing this env var.
-        unsafe { std::env::set_var("TURBOCOP_CACHE_DIR", tmp) };
+        unsafe { std::env::set_var("NITROCOP_CACHE_DIR", tmp) };
         f();
         match prev {
-            Some(v) => unsafe { std::env::set_var("TURBOCOP_CACHE_DIR", v) },
-            None => unsafe { std::env::remove_var("TURBOCOP_CACHE_DIR") },
+            Some(v) => unsafe { std::env::set_var("NITROCOP_CACHE_DIR", v) },
+            None => unsafe { std::env::remove_var("NITROCOP_CACHE_DIR") },
         }
     }
 
@@ -265,8 +265,8 @@ mod tests {
                 expected.display()
             );
 
-            // Verify no .turbocop.cache was created in project dir
-            assert!(!project.path().join(".turbocop.cache").exists());
+            // Verify no .nitrocop.cache was created in project dir
+            assert!(!project.path().join(".nitrocop.cache").exists());
 
             // Read it back
             let lock = read_lock(project.path()).unwrap();
@@ -289,7 +289,7 @@ mod tests {
             let err = read_lock(project.path()).unwrap_err();
             let msg = err.to_string();
             assert!(msg.contains("No lockfile found"), "unexpected error: {msg}");
-            assert!(msg.contains("turbocop --init"), "unexpected error: {msg}");
+            assert!(msg.contains("nitrocop --init"), "unexpected error: {msg}");
         });
     }
 }

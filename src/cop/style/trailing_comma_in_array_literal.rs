@@ -322,7 +322,7 @@ mod tests {
     #[test]
     fn comma_style_multiline_each_on_own_line_missing_comma_offense() {
         // Multiline array with each element on its own line, missing trailing comma
-        let fixture = b"# turbocop-expect: 4:3 Style/TrailingCommaInArrayLiteral: Put a comma after the last item of a multiline array.\nx = [\n  1,\n  2,\n  3\n]\n";
+        let fixture = b"# nitrocop-expect: 4:3 Style/TrailingCommaInArrayLiteral: Put a comma after the last item of a multiline array.\nx = [\n  1,\n  2,\n  3\n]\n";
         assert_cop_offenses_full_with_config(&TrailingCommaInArrayLiteral, fixture, comma_config());
     }
 
@@ -369,7 +369,7 @@ mod tests {
     #[test]
     fn diff_comma_style_multiline_last_on_own_line_missing_comma_offense() {
         // Last element is followed by newline — should require comma
-        let fixture = b"# turbocop-expect: 3:3 Style/TrailingCommaInArrayLiteral: Put a comma after the last item of a multiline array.\nx = [\n  1,\n  2\n]\n";
+        let fixture = b"# nitrocop-expect: 3:3 Style/TrailingCommaInArrayLiteral: Put a comma after the last item of a multiline array.\nx = [\n  1,\n  2\n]\n";
         assert_cop_offenses_full_with_config(
             &TrailingCommaInArrayLiteral,
             fixture,

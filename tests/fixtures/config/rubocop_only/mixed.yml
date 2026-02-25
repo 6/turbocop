@@ -1,11 +1,11 @@
-# Mix of cops turbocop covers and cops it doesn't
+# Mix of cops nitrocop covers and cops it doesn't
 Style/FrozenStringLiteralComment:
   Enabled: true
 
 Layout/TrailingWhitespace:
   Enabled: true
 
-# These cops don't exist in turbocop
+# These cops don't exist in nitrocop
 Custom/MyCop:
   Enabled: true
 

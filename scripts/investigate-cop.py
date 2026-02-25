@@ -4,7 +4,7 @@
 Reads corpus-results.json (downloaded from CI or local) and shows all FP/FN
 locations grouped by repo with optional source context from vendor/corpus/.
 
-No turbocop execution needed — this reads pre-computed data.
+No nitrocop execution needed — this reads pre-computed data.
 
 Usage:
     python3 scripts/investigate-cop.py Style/PercentQLiterals

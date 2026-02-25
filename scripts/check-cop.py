@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check a single cop against the 500-repo corpus for FP regressions.
 
-Compares turbocop's offense count against the RuboCop baseline from the
+Compares nitrocop's offense count against the RuboCop baseline from the
 latest corpus oracle CI run. Catches real-world false positive regressions
 that fixture tests miss.
 
@@ -21,7 +21,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CORPUS_DIR = PROJECT_ROOT / "vendor" / "corpus"
-TURBOCOP_BIN = PROJECT_ROOT / "target" / "release" / "turbocop"
+NITROCOP_BIN = PROJECT_ROOT / "target" / "release" / "nitrocop"
 BASELINE_CONFIG = PROJECT_ROOT / "bench" / "corpus" / "baseline_rubocop.yml"
 
 
@@ -63,30 +63,30 @@ def download_corpus_results() -> Path:
 
 def ensure_binary():
     """Ensure release binary exists."""
-    if TURBOCOP_BIN.exists():
+    if NITROCOP_BIN.exists():
         return
     print("Release binary not found. Run: cargo build --release", file=sys.stderr)
     sys.exit(1)
 
 
 def clear_file_cache():
-    """Clear turbocop's file-level result cache to avoid stale results after rebuild."""
+    """Clear nitrocop's file-level result cache to avoid stale results after rebuild."""
     import shutil
-    cache_dir = Path.home() / ".cache" / "turbocop"
+    cache_dir = Path.home() / ".cache" / "nitrocop"
     if cache_dir.exists():
         shutil.rmtree(cache_dir)
-        print("Cleared file cache at ~/.cache/turbocop", file=sys.stderr)
+        print("Cleared file cache at ~/.cache/nitrocop", file=sys.stderr)
 
 
-def turbocop_cmd(cop_name: str, target: str) -> list[str]:
-    """Build the turbocop command for corpus checking.
+def nitrocop_cmd(cop_name: str, target: str) -> list[str]:
+    """Build the nitrocop command for corpus checking.
 
     Uses --config with the baseline config to match CI corpus oracle exactly.
     This ensures disabled-by-default cops are enabled the same way as in CI.
     """
     baseline_config = str(Path(__file__).parent.parent / "bench" / "corpus" / "baseline_rubocop.yml")
     return [
-        str(TURBOCOP_BIN), "--only", cop_name, "--preview",
+        str(NITROCOP_BIN), "--only", cop_name, "--preview",
         "--format", "json", "--no-cache",
         "--config", baseline_config,
         target,
@@ -106,31 +106,31 @@ def count_deduplicated_offenses(json_data: dict) -> int:
     return len(seen)
 
 
-def run_turbocop_aggregate(cop_name: str) -> int:
-    """Run turbocop --only on the full corpus, return offense count."""
+def run_nitrocop_aggregate(cop_name: str) -> int:
+    """Run nitrocop --only on the full corpus, return offense count."""
     result = subprocess.run(
-        turbocop_cmd(cop_name, str(CORPUS_DIR)),
+        nitrocop_cmd(cop_name, str(CORPUS_DIR)),
         capture_output=True, text=True, timeout=300,
     )
     if result.returncode not in (0, 1):  # 1 = offenses found
-        print(f"turbocop failed: {result.stderr[:500]}", file=sys.stderr)
+        print(f"nitrocop failed: {result.stderr[:500]}", file=sys.stderr)
         return -1
 
     try:
         data = json.loads(result.stdout)
         return count_deduplicated_offenses(data)
     except json.JSONDecodeError:
-        print(f"Failed to parse turbocop JSON output", file=sys.stderr)
+        print(f"Failed to parse nitrocop JSON output", file=sys.stderr)
         return -1
 
 
 def _run_one_repo(args: tuple[str, str]) -> tuple[str, int]:
-    """Run turbocop on a single repo. Used by the parallel executor."""
+    """Run nitrocop on a single repo. Used by the parallel executor."""
     cop_name, repo_dir = args
     repo_id = Path(repo_dir).name
     try:
         result = subprocess.run(
-            turbocop_cmd(cop_name, repo_dir),
+            nitrocop_cmd(cop_name, repo_dir),
             capture_output=True, text=True, timeout=120,
         )
     except subprocess.TimeoutExpired:
@@ -146,8 +146,8 @@ def _run_one_repo(args: tuple[str, str]) -> tuple[str, int]:
         return (repo_id, -1)
 
 
-def run_turbocop_per_repo(cop_name: str) -> dict[str, int]:
-    """Run turbocop --only on each corpus repo in parallel, return {repo_id: count}."""
+def run_nitrocop_per_repo(cop_name: str) -> dict[str, int]:
+    """Run nitrocop --only on each corpus repo in parallel, return {repo_id: count}."""
     from concurrent.futures import ProcessPoolExecutor, as_completed
 
     repos = sorted(d for d in CORPUS_DIR.iterdir() if d.is_dir())
@@ -181,7 +181,7 @@ def main():
     parser.add_argument("--threshold", type=int, default=0,
                         help="Allowed excess offenses before FAIL (default: 0)")
     parser.add_argument("--rerun", action="store_true",
-                        help="Force re-execution of turbocop (ignore cached corpus data)")
+                        help="Force re-execution of nitrocop (ignore cached corpus data)")
     args = parser.parse_args()
 
     # Load corpus results
@@ -222,11 +222,11 @@ def main():
     has_enriched = bool(by_repo_cop)
 
     if args.verbose and has_enriched and not args.rerun:
-        # Use cached corpus data instead of re-running turbocop
-        print("Using cached corpus data (pass --rerun to re-execute turbocop)", file=sys.stderr)
+        # Use cached corpus data instead of re-running nitrocop
+        print("Using cached corpus data (pass --rerun to re-execute nitrocop)", file=sys.stderr)
 
         # Reconstruct per-repo counts from by_repo_cop
-        # turbocop count = rubocop count + FP - FN per repo
+        # nitrocop count = rubocop count + FP - FN per repo
         by_repo = data.get("by_repo", [])
         repo_by_id = {r["repo"]: r for r in by_repo if r.get("status") == "ok"}
 
@@ -251,11 +251,11 @@ def main():
             print()
 
         # For cached mode, use baseline FP/FN directly
-        turbocop_total = expected_rubocop + baseline_fp
+        nitrocop_total = expected_rubocop + baseline_fp
     elif args.verbose:
-        print("Running turbocop per-repo...", file=sys.stderr)
-        per_repo = run_turbocop_per_repo(args.cop)
-        turbocop_total = sum(c for c in per_repo.values() if c >= 0)
+        print("Running nitrocop per-repo...", file=sys.stderr)
+        per_repo = run_nitrocop_per_repo(args.cop)
+        nitrocop_total = sum(c for c in per_repo.values() if c >= 0)
 
         # Show repos with offenses, sorted by count descending
         repos_with_offenses = {k: v for k, v in per_repo.items() if v > 0}
@@ -268,18 +268,18 @@ def main():
                 print(f"  ... and {len(repos_with_offenses) - 30} more")
             print()
     else:
-        print("Running turbocop on full corpus...", file=sys.stderr)
-        turbocop_total = run_turbocop_aggregate(args.cop)
-        if turbocop_total < 0:
-            print("FAIL: turbocop execution failed", file=sys.stderr)
+        print("Running nitrocop on full corpus...", file=sys.stderr)
+        nitrocop_total = run_nitrocop_aggregate(args.cop)
+        if nitrocop_total < 0:
+            print("FAIL: nitrocop execution failed", file=sys.stderr)
             sys.exit(2)
 
-    excess = max(0, turbocop_total - expected_rubocop)
-    missing = max(0, expected_rubocop - turbocop_total)
+    excess = max(0, nitrocop_total - expected_rubocop)
+    missing = max(0, expected_rubocop - nitrocop_total)
 
     print(f"Results:")
     print(f"  Expected (RuboCop):   {expected_rubocop:>10,}")
-    print(f"  Actual (turbocop):    {turbocop_total:>10,}")
+    print(f"  Actual (nitrocop):    {nitrocop_total:>10,}")
     print(f"  Excess (potential FP):{excess:>10,}")
     print(f"  Missing (potential FN):{missing:>9,}")
     print()

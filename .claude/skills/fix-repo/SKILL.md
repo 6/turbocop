@@ -89,7 +89,7 @@ Summarize: cop name, repo-specific FP/FN, global FP/FN, root cause hypothesis.
 ### Phase 3: Teammate Workflow (paste this into each teammate's prompt)
 
 ```
-You are fixing false positives/negatives in a single turbocop cop to improve corpus
+You are fixing false positives/negatives in a single nitrocop cop to improve corpus
 conformance for a target repo. Follow the CLAUDE.md rules strictly.
 
 **NEVER use git stash or git stash pop.** You are in an isolated git worktree — just commit directly.
@@ -105,12 +105,12 @@ conformance for a target repo. Follow the CLAUDE.md rules strictly.
 3. **Add test cases (TDD)**:
    - For FP fixes: add the false-positive pattern to `tests/fixtures/cops/<dept>/<cop_name>/no_offense.rb`
    - For FN fixes: add the missed detection to `tests/fixtures/cops/<dept>/<cop_name>/offense.rb`
-   - Run `cargo test --release -p turbocop --lib -- <cop_name_snake>` to verify the test FAILS
+   - Run `cargo test --release -p nitrocop --lib -- <cop_name_snake>` to verify the test FAILS
 
 4. **Fix the cop implementation** in `src/cop/<dept>/<cop_name>.rs`
 
 5. **Verify**:
-   - `cargo test --release -p turbocop --lib -- <cop_name_snake>` — all tests pass
+   - `cargo test --release -p nitrocop --lib -- <cop_name_snake>` — all tests pass
    - `cargo fmt`
    - `cargo clippy --release -- -D warnings`
 

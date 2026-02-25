@@ -5,14 +5,14 @@
     clippy::unnecessary_filter_map,
     clippy::redundant_closure
 )]
-//! Benchmark turbocop vs rubocop on real-world codebases.
+//! Benchmark nitrocop vs rubocop on real-world codebases.
 //!
 //! Usage:
-//!   cargo run --release --bin bench_turbocop          # full run (bench + conform + report)
-//!   cargo run --release --bin bench_turbocop -- bench  # timing only
-//!   cargo run --release --bin bench_turbocop -- conform # conformance only
-//!   cargo run --release --bin bench_turbocop -- report  # regenerate results.md from cached data
-//!   cargo run --release --bin bench_turbocop -- autocorrect-conform  # autocorrect conformance
+//!   cargo run --release --bin bench_nitrocop          # full run (bench + conform + report)
+//!   cargo run --release --bin bench_nitrocop -- bench  # timing only
+//!   cargo run --release --bin bench_nitrocop -- conform # conformance only
+//!   cargo run --release --bin bench_nitrocop -- report  # regenerate results.md from cached data
+//!   cargo run --release --bin bench_nitrocop -- autocorrect-conform  # autocorrect conformance
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
@@ -26,7 +26,7 @@ use clap::Parser;
 // --- CLI ---
 
 #[derive(Parser)]
-#[command(about = "Benchmark turbocop vs rubocop. Writes results to bench/results.md.")]
+#[command(about = "Benchmark nitrocop vs rubocop. Writes results to bench/results.md.")]
 struct Args {
     /// Subcommand: bench, conform, report, quick, or omit for all
     #[arg(default_value = "all")]
@@ -174,8 +174,8 @@ fn results_dir() -> PathBuf {
     bench_dir().join("results")
 }
 
-fn turbocop_binary() -> PathBuf {
-    project_root().join("target/release/turbocop")
+fn nitrocop_binary() -> PathBuf {
+    project_root().join("target/release/nitrocop")
 }
 
 fn shell_output(cmd: &str, args: &[&str]) -> String {
@@ -465,14 +465,14 @@ fn setup_repos() {
 
 // --- Build ---
 
-fn build_turbocop() {
-    eprintln!("Building turbocop (release)...");
+fn build_nitrocop() {
+    eprintln!("Building nitrocop (release)...");
     let status = Command::new("cargo")
         .args([
             "build",
             "--release",
             "--bin",
-            "turbocop",
+            "nitrocop",
             "--manifest-path",
             project_root().join("Cargo.toml").to_str().unwrap(),
         ])
@@ -484,9 +484,9 @@ fn build_turbocop() {
 // --- Init lockfiles ---
 
 fn init_lockfiles(repos: &[RepoRef]) {
-    let turbocop = turbocop_binary();
-    if !turbocop.exists() {
-        eprintln!("turbocop binary not found. Build first.");
+    let nitrocop = nitrocop_binary();
+    if !nitrocop.exists() {
+        eprintln!("nitrocop binary not found. Build first.");
         return;
     }
 
@@ -495,7 +495,7 @@ fn init_lockfiles(repos: &[RepoRef]) {
     // When the binary changes (new cops, different detection logic), stale
     // cached results diverge from fresh results. Clearing once avoids
     // accidentally deleting lockfiles created by earlier repos in this loop.
-    let _ = Command::new(turbocop.as_os_str())
+    let _ = Command::new(nitrocop.as_os_str())
         .args(["--cache-clear", "."])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -508,12 +508,12 @@ fn init_lockfiles(repos: &[RepoRef]) {
 
         eprintln!("Generating lockfile for {}...", repo.name);
         let start = Instant::now();
-        let output = Command::new(turbocop.as_os_str())
+        let output = Command::new(nitrocop.as_os_str())
             .args(["--init", repo.dir.to_str().unwrap()])
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .output()
-            .expect("failed to run turbocop --init");
+            .expect("failed to run nitrocop --init");
 
         if output.status.success() {
             eprintln!("  OK ({:.1}s)", start.elapsed().as_secs_f64());
@@ -542,7 +542,7 @@ struct HyperfineResult {
 }
 
 struct BenchResult {
-    turbocop: HyperfineResult,
+    nitrocop: HyperfineResult,
     rubocop: HyperfineResult,
     rb_count: usize,
     /// Number of files mtime-invalidated before each run.
@@ -578,7 +578,7 @@ fn preflight_check(name: &str, cmd: &str, repo_name: &str) -> bool {
 }
 
 fn run_bench(args: &Args, repos: &[RepoRef]) -> HashMap<String, BenchResult> {
-    let turbocop = turbocop_binary();
+    let nitrocop = nitrocop_binary();
 
     if !has_command("hyperfine") {
         eprintln!("Error: hyperfine not found. Install via: mise install");
@@ -603,7 +603,7 @@ fn run_bench(args: &Args, repos: &[RepoRef]) -> HashMap<String, BenchResult> {
         );
 
         // Pre-flight: verify both tools run without fatal errors before benchmarking
-        let turbocop_cmd_str = format!("{} {} --no-color", turbocop.display(), repo.dir.display());
+        let nitrocop_cmd_str = format!("{} {} --no-color", nitrocop.display(), repo.dir.display());
         let rubocop_cmd_str = if needs_mise(&repo.dir) {
             format!(
                 "cd {} && mise exec -- bundle exec rubocop --no-color",
@@ -616,7 +616,7 @@ fn run_bench(args: &Args, repos: &[RepoRef]) -> HashMap<String, BenchResult> {
             )
         };
 
-        if !preflight_check("turbocop", &turbocop_cmd_str, &repo.name) {
+        if !preflight_check("nitrocop", &nitrocop_cmd_str, &repo.name) {
             continue;
         }
         if !preflight_check("rubocop", &rubocop_cmd_str, &repo.name) {
@@ -645,8 +645,8 @@ fn run_bench(args: &Args, repos: &[RepoRef]) -> HashMap<String, BenchResult> {
                 "--export-json",
                 json_file.to_str().unwrap(),
                 "--command-name",
-                "turbocop",
-                &turbocop_cmd_str,
+                "nitrocop",
+                &nitrocop_cmd_str,
                 "--command-name",
                 "rubocop",
                 &rubocop_cmd_str,
@@ -662,10 +662,10 @@ fn run_bench(args: &Args, repos: &[RepoRef]) -> HashMap<String, BenchResult> {
         let json_content = fs::read_to_string(&json_file).unwrap();
         let parsed: HyperfineOutput = serde_json::from_str(&json_content).unwrap();
 
-        let turbocop_result = parsed
+        let nitrocop_result = parsed
             .results
             .iter()
-            .find(|r| r.command == "turbocop")
+            .find(|r| r.command == "nitrocop")
             .unwrap();
         let rubocop_result = parsed
             .results
@@ -676,13 +676,13 @@ fn run_bench(args: &Args, repos: &[RepoRef]) -> HashMap<String, BenchResult> {
         bench_results.insert(
             repo.name.clone(),
             BenchResult {
-                turbocop: HyperfineResult {
-                    command: turbocop_result.command.clone(),
-                    mean: turbocop_result.mean,
-                    stddev: turbocop_result.stddev,
-                    median: turbocop_result.median,
-                    min: turbocop_result.min,
-                    max: turbocop_result.max,
+                nitrocop: HyperfineResult {
+                    command: nitrocop_result.command.clone(),
+                    mean: nitrocop_result.mean,
+                    stddev: nitrocop_result.stddev,
+                    median: nitrocop_result.median,
+                    min: nitrocop_result.min,
+                    max: nitrocop_result.max,
                 },
                 rubocop: HyperfineResult {
                     command: rubocop_result.command.clone(),
@@ -708,11 +708,11 @@ fn run_quick_bench(args: &Args) {
     let repo_name = "rubygems.org";
     let repo_dir = repos_dir().join(repo_name);
     if !repo_dir.exists() {
-        eprintln!("{repo_name} repo not found. Run `bench_turbocop setup` first.");
+        eprintln!("{repo_name} repo not found. Run `bench_nitrocop setup` first.");
         std::process::exit(1);
     }
 
-    let turbocop = turbocop_binary();
+    let nitrocop = nitrocop_binary();
     let results_path = results_dir();
     fs::create_dir_all(&results_path).unwrap();
 
@@ -723,12 +723,12 @@ fn run_quick_bench(args: &Args) {
 
     // Init lockfile for just this repo
     eprintln!("Generating lockfile for {}...", repo_name);
-    let init_out = Command::new(turbocop.as_os_str())
+    let init_out = Command::new(nitrocop.as_os_str())
         .args(["--init", repo_dir.to_str().unwrap()])
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .output()
-        .expect("failed to run turbocop --init");
+        .expect("failed to run nitrocop --init");
     if !init_out.status.success() {
         let stderr = String::from_utf8_lossy(&init_out.stderr);
         eprintln!("  Failed: {}", stderr.trim());
@@ -742,14 +742,14 @@ fn run_quick_bench(args: &Args) {
         repo_name, rb_count, touched_count, runs
     );
 
-    let turbocop_cmd = format!("{} {} --no-color", turbocop.display(), repo_dir.display());
+    let nitrocop_cmd = format!("{} {} --no-color", nitrocop.display(), repo_dir.display());
     let rubocop_cmd = format!(
         "cd {} && bundle exec rubocop --no-color",
         repo_dir.display()
     );
 
     // Pre-flight check
-    if !preflight_check("turbocop", &turbocop_cmd, repo_name) {
+    if !preflight_check("nitrocop", &nitrocop_cmd, repo_name) {
         std::process::exit(1);
     }
     if !preflight_check("rubocop", &rubocop_cmd, repo_name) {
@@ -777,8 +777,8 @@ fn run_quick_bench(args: &Args) {
             "--export-json",
             partial_json.to_str().unwrap(),
             "--command-name",
-            "turbocop",
-            &turbocop_cmd,
+            "nitrocop",
+            &nitrocop_cmd,
             "--command-name",
             "rubocop",
             &rubocop_cmd,
@@ -793,9 +793,9 @@ fn run_quick_bench(args: &Args) {
     // --- No cache (CI scenario) ---
     eprintln!("\n--- No cache (CI) ---");
     let nocache_json = results_path.join("quick-nocache.json");
-    let turbocop_nocache_cmd = format!(
+    let nitrocop_nocache_cmd = format!(
         "{} --cache false {} --no-color",
-        turbocop.display(),
+        nitrocop.display(),
         repo_dir.display()
     );
     let rubocop_nocache_cmd = if needs_mise(&repo_dir) {
@@ -820,8 +820,8 @@ fn run_quick_bench(args: &Args) {
             "--export-json",
             nocache_json.to_str().unwrap(),
             "--command-name",
-            "turbocop",
-            &turbocop_nocache_cmd,
+            "nitrocop",
+            &nitrocop_nocache_cmd,
             "--command-name",
             "rubocop",
             &rubocop_nocache_cmd,
@@ -842,7 +842,7 @@ fn run_quick_bench(args: &Args) {
     let partial_tc = partial
         .results
         .iter()
-        .find(|r| r.command == "turbocop")
+        .find(|r| r.command == "nitrocop")
         .unwrap();
     let partial_rc = partial
         .results
@@ -852,7 +852,7 @@ fn run_quick_bench(args: &Args) {
     let nocache_tc = nocache
         .results
         .iter()
-        .find(|r| r.command == "turbocop")
+        .find(|r| r.command == "nitrocop")
         .unwrap();
     let nocache_rc = nocache
         .results
@@ -865,11 +865,11 @@ fn run_quick_bench(args: &Args) {
     let platform = shell_output("uname", &["-sm"]);
 
     let mut md = String::new();
-    writeln!(md, "# turbocop Quick Benchmark").unwrap();
+    writeln!(md, "# nitrocop Quick Benchmark").unwrap();
     writeln!(md).unwrap();
     writeln!(
         md,
-        "> Auto-generated by `cargo run --release --bin bench_turbocop -- quick`. Do not edit manually."
+        "> Auto-generated by `cargo run --release --bin bench_nitrocop -- quick`. Do not edit manually."
     )
     .unwrap();
     writeln!(md, "> Last updated: {date} on `{platform}`").unwrap();
@@ -889,7 +889,7 @@ fn run_quick_bench(args: &Args) {
     writeln!(md).unwrap();
     writeln!(md, "## Results").unwrap();
     writeln!(md).unwrap();
-    writeln!(md, "| Scenario | turbocop | rubocop | Speedup |").unwrap();
+    writeln!(md, "| Scenario | nitrocop | rubocop | Speedup |").unwrap();
     writeln!(md, "|----------|-------:|--------:|--------:|").unwrap();
     writeln!(
         md,
@@ -973,27 +973,27 @@ struct GemVersionMismatchInfo {
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct ConformResult {
-    turbocop_count: usize,
+    nitrocop_count: usize,
     rubocop_count: usize,
     matches: usize,
     false_positives: usize,
     false_negatives: usize,
     match_rate: f64,
     per_cop: BTreeMap<String, CopStats>,
-    turbocop_secs: Option<f64>,
+    nitrocop_secs: Option<f64>,
     rubocop_secs: Option<f64>,
     #[serde(default)]
     version_mismatches: Vec<GemVersionMismatchInfo>,
 }
 
 fn get_covered_cops() -> HashSet<String> {
-    let turbocop = turbocop_binary();
-    let output = Command::new(turbocop.as_os_str())
+    let nitrocop = nitrocop_binary();
+    let output = Command::new(nitrocop.as_os_str())
         .arg("--list-cops")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .output()
-        .expect("failed to run turbocop --list-cops");
+        .expect("failed to run nitrocop --list-cops");
     String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(|s| s.trim().to_string())
@@ -1025,7 +1025,7 @@ fn detect_target_ruby_version(repo_dir: &Path) -> Option<f64> {
 ///
 /// fat_free_crm has 4 cops where RuboCop reports 0 offenses even with `--only`,
 /// but the code patterns match the cop specifications. These are RuboCop quirks,
-/// not turbocop bugs.
+/// not nitrocop bugs.
 fn per_repo_excluded_cops(repo_dir: &Path) -> HashSet<String> {
     let mut excluded = HashSet::new();
     if let Some(ver) = detect_target_ruby_version(repo_dir) {
@@ -1174,7 +1174,7 @@ fn detect_version_mismatches(
 
             if attributed_fps > 0 {
                 eprintln!(
-                    "  ⚠ {gem_name} version mismatch: project={project}, turbocop targets={vendor} ({attributed_fps} FPs attributed)"
+                    "  ⚠ {gem_name} version mismatch: project={project}, nitrocop targets={vendor} ({attributed_fps} FPs attributed)"
                 );
             }
 
@@ -1199,10 +1199,10 @@ fn is_standardrb_only(repo_dir: &Path) -> bool {
 }
 
 fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
-    let turbocop = turbocop_binary();
+    let nitrocop = nitrocop_binary();
 
     let covered = get_covered_cops();
-    eprintln!("{} cops covered by turbocop", covered.len());
+    eprintln!("{} cops covered by nitrocop", covered.len());
 
     let mut conform_results = HashMap::new();
 
@@ -1217,35 +1217,35 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
 
         eprintln!("\n=== Conformance: {} ===", repo.name);
 
-        // Pre-flight: verify turbocop runs without fatal errors
-        let preflight_cmd = format!("{} {} --no-color", turbocop.display(), repo.dir.display());
-        if !preflight_check("turbocop", &preflight_cmd, &repo.name) {
+        // Pre-flight: verify nitrocop runs without fatal errors
+        let preflight_cmd = format!("{} {} --no-color", nitrocop.display(), repo.dir.display());
+        if !preflight_check("nitrocop", &preflight_cmd, &repo.name) {
             continue;
         }
 
-        // Run turbocop in JSON mode
-        eprintln!("  Running turbocop...");
-        let turbocop_json_file = results_path.join(format!("{}-turbocop.json", repo.name));
+        // Run nitrocop in JSON mode
+        eprintln!("  Running nitrocop...");
+        let nitrocop_json_file = results_path.join(format!("{}-nitrocop.json", repo.name));
         let start = Instant::now();
-        let turbocop_out = Command::new(turbocop.as_os_str())
+        let nitrocop_out = Command::new(nitrocop.as_os_str())
             .args([repo.dir.to_str().unwrap(), "--format", "json", "--no-color"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
-            .expect("failed to run turbocop");
-        let turbocop_exit = turbocop_out.status.code().unwrap_or(127);
-        if turbocop_exit > 1 {
-            let stderr = String::from_utf8_lossy(&turbocop_out.stderr);
+            .expect("failed to run nitrocop");
+        let nitrocop_exit = nitrocop_out.status.code().unwrap_or(127);
+        if nitrocop_exit > 1 {
+            let stderr = String::from_utf8_lossy(&nitrocop_out.stderr);
             let first_line = stderr.lines().next().unwrap_or("(no output)");
             eprintln!(
-                "  SKIP {}: turbocop failed (exit {}): {}",
-                repo.name, turbocop_exit, first_line
+                "  SKIP {}: nitrocop failed (exit {}): {}",
+                repo.name, nitrocop_exit, first_line
             );
             continue;
         }
-        fs::write(&turbocop_json_file, &turbocop_out.stdout).unwrap();
-        let turbocop_secs = start.elapsed().as_secs_f64();
-        eprintln!("  turbocop done in {turbocop_secs:.1}s");
+        fs::write(&nitrocop_json_file, &nitrocop_out.stdout).unwrap();
+        let nitrocop_secs = start.elapsed().as_secs_f64();
+        eprintln!("  nitrocop done in {nitrocop_secs:.1}s");
 
         // Run rubocop (or standardrb for pure-standardrb projects) in JSON mode
         let use_standardrb = is_standardrb_only(&repo.dir);
@@ -1273,10 +1273,10 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
         // Parse and compare
         let repo_prefix = format!("{}/", repo.dir.display());
 
-        let turbocop_data: TurboCopOutput = match serde_json::from_slice(&turbocop_out.stdout) {
+        let nitrocop_data: TurboCopOutput = match serde_json::from_slice(&nitrocop_out.stdout) {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("  Failed to parse turbocop JSON: {e}");
+                eprintln!("  Failed to parse nitrocop JSON: {e}");
                 continue;
             }
         };
@@ -1294,13 +1294,13 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
 
         type Offense = (String, usize, String); // (path, line, cop_name)
 
-        let turbocop_set: HashSet<Offense> = turbocop_data
+        let nitrocop_set: HashSet<Offense> = nitrocop_data
             .offenses
             .iter()
             .filter(|o| !repo_excluded.contains(&o.cop_name))
             .map(|o| {
                 let path = o.path.strip_prefix(&repo_prefix).unwrap_or(&o.path);
-                // Strip leading "./" if present (turbocop outputs ./path when run with ".")
+                // Strip leading "./" if present (nitrocop outputs ./path when run with ".")
                 let path = path.strip_prefix("./").unwrap_or(path);
                 (path.to_string(), o.line, o.cop_name.clone())
             })
@@ -1320,10 +1320,10 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
             })
             .collect();
 
-        let matches: HashSet<&Offense> = turbocop_set.intersection(&rubocop_set).collect();
-        let fps: HashSet<&Offense> = turbocop_set.difference(&rubocop_set).collect();
-        let fns: HashSet<&Offense> = rubocop_set.difference(&turbocop_set).collect();
-        let total = turbocop_set.union(&rubocop_set).count();
+        let matches: HashSet<&Offense> = nitrocop_set.intersection(&rubocop_set).collect();
+        let fps: HashSet<&Offense> = nitrocop_set.difference(&rubocop_set).collect();
+        let fns: HashSet<&Offense> = rubocop_set.difference(&nitrocop_set).collect();
+        let total = nitrocop_set.union(&rubocop_set).count();
         let match_rate = if total == 0 {
             100.0
         } else {
@@ -1345,28 +1345,28 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
         // Detect gem version mismatches
         let version_mismatches = detect_version_mismatches(&repo.dir, &per_cop);
 
-        eprintln!("  turbocop: {} offenses", turbocop_set.len());
+        eprintln!("  nitrocop: {} offenses", nitrocop_set.len());
         eprintln!(
             "  {reference_tool}: {} offenses (filtered to {} covered cops)",
             rubocop_set.len(),
             covered.len()
         );
         eprintln!("  matches: {}", matches.len());
-        eprintln!("  FP (turbocop only): {}", fps.len());
+        eprintln!("  FP (nitrocop only): {}", fps.len());
         eprintln!("  FN ({reference_tool} only): {}", fns.len());
         eprintln!("  match rate: {:.1}%", match_rate);
 
         conform_results.insert(
             repo.name.to_string(),
             ConformResult {
-                turbocop_count: turbocop_set.len(),
+                nitrocop_count: nitrocop_set.len(),
                 rubocop_count: rubocop_set.len(),
                 matches: matches.len(),
                 false_positives: fps.len(),
                 false_negatives: fns.len(),
                 match_rate,
                 per_cop,
-                turbocop_secs: Some(turbocop_secs),
+                nitrocop_secs: Some(nitrocop_secs),
                 rubocop_secs: Some(rubocop_secs),
                 version_mismatches,
             },
@@ -1381,16 +1381,16 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
 #[derive(Debug, Default, serde::Serialize)]
 struct AutocorrectConformResult {
     files_corrected_rubocop: usize,
-    files_corrected_turbocop: usize,
+    files_corrected_nitrocop: usize,
     files_match: usize,
     files_differ: usize,
     match_rate: f64,
 }
 
-/// Run autocorrect conformance: compare `rubocop -A` vs `turbocop -A` output
+/// Run autocorrect conformance: compare `rubocop -A` vs `nitrocop -A` output
 /// on each bench repo. Uses full-file autocorrect (all cops at once).
 fn run_autocorrect_conform(repos: &[RepoRef]) -> HashMap<String, AutocorrectConformResult> {
-    let turbocop = turbocop_binary();
+    let nitrocop = nitrocop_binary();
     let mut results = HashMap::new();
 
     for repo in repos {
@@ -1401,7 +1401,7 @@ fn run_autocorrect_conform(repos: &[RepoRef]) -> HashMap<String, AutocorrectConf
 
         eprintln!("\n=== Autocorrect conformance: {} ===", repo.name);
 
-        let temp_base = std::env::temp_dir().join("turbocop_autocorrect_conform");
+        let temp_base = std::env::temp_dir().join("nitrocop_autocorrect_conform");
         let _ = fs::remove_dir_all(&temp_base);
         fs::create_dir_all(&temp_base).unwrap();
 
@@ -1438,33 +1438,33 @@ fn run_autocorrect_conform(repos: &[RepoRef]) -> HashMap<String, AutocorrectConf
             .output();
         eprintln!("  rubocop -A done in {:.1}s", start.elapsed().as_secs_f64());
 
-        // --- Run turbocop -A on another copy ---
-        let turbocop_dir = temp_base.join("turbocop");
-        copy_repo(&repo.dir, &turbocop_dir);
+        // --- Run nitrocop -A on another copy ---
+        let nitrocop_dir = temp_base.join("nitrocop");
+        copy_repo(&repo.dir, &nitrocop_dir);
         // copy_repo() respects .gitignore, so explicitly copy files that may be
         // gitignored but are needed for linting.
         for name in &["Gemfile.lock"] {
             let src = repo.dir.join(name);
-            let dst = turbocop_dir.join(name);
+            let dst = nitrocop_dir.join(name);
             if src.exists() {
                 let _ = fs::copy(&src, &dst);
             }
         }
-        eprintln!("  Running turbocop -A...");
+        eprintln!("  Running nitrocop -A...");
         let start = Instant::now();
-        let _ = Command::new(turbocop.as_os_str())
-            .args(["-A", turbocop_dir.to_str().unwrap()])
+        let _ = Command::new(nitrocop.as_os_str())
+            .args(["-A", nitrocop_dir.to_str().unwrap()])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .output();
         eprintln!(
-            "  turbocop -A done in {:.1}s",
+            "  nitrocop -A done in {:.1}s",
             start.elapsed().as_secs_f64()
         );
 
         // --- Compare corrected files ---
         let mut files_corrected_rubocop = 0;
-        let mut files_corrected_turbocop = 0;
+        let mut files_corrected_nitrocop = 0;
         let mut files_match = 0;
         let mut files_differ = 0;
         let mut diff_examples: Vec<String> = Vec::new();
@@ -1475,21 +1475,21 @@ fn run_autocorrect_conform(repos: &[RepoRef]) -> HashMap<String, AutocorrectConf
                 None => continue,
             };
             let rubocop_content = fs::read(rubocop_dir.join(rel)).unwrap_or_default();
-            let turbocop_content = fs::read(turbocop_dir.join(rel)).unwrap_or_default();
+            let nitrocop_content = fs::read(nitrocop_dir.join(rel)).unwrap_or_default();
 
             let rubocop_changed = rubocop_content != *original;
-            let turbocop_changed = turbocop_content != *original;
+            let nitrocop_changed = nitrocop_content != *original;
 
             if rubocop_changed {
                 files_corrected_rubocop += 1;
             }
-            if turbocop_changed {
-                files_corrected_turbocop += 1;
+            if nitrocop_changed {
+                files_corrected_nitrocop += 1;
             }
 
             // Only compare files that at least one tool changed
-            if rubocop_changed || turbocop_changed {
-                if rubocop_content == turbocop_content {
+            if rubocop_changed || nitrocop_changed {
+                if rubocop_content == nitrocop_content {
                     files_match += 1;
                 } else {
                     files_differ += 1;
@@ -1508,7 +1508,7 @@ fn run_autocorrect_conform(repos: &[RepoRef]) -> HashMap<String, AutocorrectConf
         };
 
         eprintln!("  rubocop corrected: {} files", files_corrected_rubocop);
-        eprintln!("  turbocop corrected: {} files", files_corrected_turbocop);
+        eprintln!("  nitrocop corrected: {} files", files_corrected_nitrocop);
         eprintln!("  matching corrections: {} files", files_match);
         eprintln!("  differing corrections: {} files", files_differ);
         eprintln!("  match rate: {:.1}%", match_rate);
@@ -1520,7 +1520,7 @@ fn run_autocorrect_conform(repos: &[RepoRef]) -> HashMap<String, AutocorrectConf
             repo.name.clone(),
             AutocorrectConformResult {
                 files_corrected_rubocop,
-                files_corrected_turbocop,
+                files_corrected_nitrocop,
                 files_match,
                 files_differ,
                 match_rate,
@@ -1536,12 +1536,12 @@ fn run_autocorrect_conform(repos: &[RepoRef]) -> HashMap<String, AutocorrectConf
 
 // --- Autocorrect validation ---
 
-/// Per-cop validation stats: how many offenses turbocop corrected vs how many rubocop still finds.
+/// Per-cop validation stats: how many offenses nitrocop corrected vs how many rubocop still finds.
 #[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
 struct CopValidateStats {
-    /// Number of offenses turbocop marked as corrected
-    turbocop_corrected: usize,
-    /// Number of offenses rubocop still finds after turbocop's corrections
+    /// Number of offenses nitrocop marked as corrected
+    nitrocop_corrected: usize,
+    /// Number of offenses rubocop still finds after nitrocop's corrections
     rubocop_remaining: usize,
 }
 
@@ -1556,13 +1556,13 @@ struct AutocorrectValidateResult {
 
 /// Get the set of cops that support autocorrect.
 fn get_autocorrectable_cops() -> Vec<String> {
-    let turbocop = turbocop_binary();
-    let output = Command::new(turbocop.as_os_str())
+    let nitrocop = nitrocop_binary();
+    let output = Command::new(nitrocop.as_os_str())
         .arg("--list-autocorrectable-cops")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .output()
-        .expect("failed to run turbocop --list-autocorrectable-cops");
+        .expect("failed to run nitrocop --list-autocorrectable-cops");
     String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(|s| s.trim().to_string())
@@ -1570,15 +1570,15 @@ fn get_autocorrectable_cops() -> Vec<String> {
         .collect()
 }
 
-/// Run autocorrect validation: apply `turbocop -A`, then verify with `rubocop --only <cops>`.
+/// Run autocorrect validation: apply `nitrocop -A`, then verify with `rubocop --only <cops>`.
 ///
 /// For each bench repo:
 /// 1. Copy to temp dir
-/// 2. Run `turbocop -A --format json` to correct files and capture what was corrected
+/// 2. Run `nitrocop -A --format json` to correct files and capture what was corrected
 /// 3. Run `rubocop --only <autocorrectable-cops> --format json` on corrected files
 /// 4. For each autocorrectable cop, remaining rubocop offenses indicate broken autocorrect
 fn run_autocorrect_validate(repos: &[RepoRef]) -> HashMap<String, AutocorrectValidateResult> {
-    let turbocop = turbocop_binary();
+    let nitrocop = nitrocop_binary();
     let autocorrectable = get_autocorrectable_cops();
     if autocorrectable.is_empty() {
         eprintln!("No autocorrectable cops found. Nothing to validate.");
@@ -1601,7 +1601,7 @@ fn run_autocorrect_validate(repos: &[RepoRef]) -> HashMap<String, AutocorrectVal
 
         eprintln!("\n=== Autocorrect validation: {} ===", repo.name);
 
-        let temp_base = std::env::temp_dir().join("turbocop_autocorrect_validate");
+        let temp_base = std::env::temp_dir().join("nitrocop_autocorrect_validate");
         let _ = fs::remove_dir_all(&temp_base);
         fs::create_dir_all(&temp_base).unwrap();
 
@@ -1620,21 +1620,21 @@ fn run_autocorrect_validate(repos: &[RepoRef]) -> HashMap<String, AutocorrectVal
             }
         }
 
-        // Step 1: Run turbocop -A --format json
-        eprintln!("  Running turbocop -A...");
+        // Step 1: Run nitrocop -A --format json
+        eprintln!("  Running nitrocop -A...");
         let start = Instant::now();
-        let tc_output = Command::new(turbocop.as_os_str())
+        let tc_output = Command::new(nitrocop.as_os_str())
             .args(["-A", work_dir.to_str().unwrap(), "--format", "json"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
-            .expect("failed to run turbocop -A");
+            .expect("failed to run nitrocop -A");
         eprintln!(
-            "  turbocop -A done in {:.1}s",
+            "  nitrocop -A done in {:.1}s",
             start.elapsed().as_secs_f64()
         );
 
-        // Parse turbocop output to count corrected offenses per cop
+        // Parse nitrocop output to count corrected offenses per cop
         let mut per_cop: BTreeMap<String, CopValidateStats> = BTreeMap::new();
         if let Ok(tc_data) = serde_json::from_slice::<TurboCopOutput>(&tc_output.stdout) {
             for offense in &tc_data.offenses {
@@ -1642,33 +1642,33 @@ fn run_autocorrect_validate(repos: &[RepoRef]) -> HashMap<String, AutocorrectVal
                     per_cop
                         .entry(offense.cop_name.clone())
                         .or_default()
-                        .turbocop_corrected += 1;
+                        .nitrocop_corrected += 1;
                 }
             }
         } else {
             let stderr = String::from_utf8_lossy(&tc_output.stderr);
             let stderr = stderr.trim();
             if stderr.is_empty() {
-                eprintln!("  Failed to parse turbocop JSON output (empty stdout)");
+                eprintln!("  Failed to parse nitrocop JSON output (empty stdout)");
             } else {
-                eprintln!("  Failed to parse turbocop JSON output: {}", stderr);
+                eprintln!("  Failed to parse nitrocop JSON output: {}", stderr);
             }
         }
 
-        let total_corrected: usize = per_cop.values().map(|s| s.turbocop_corrected).sum();
-        eprintln!("  turbocop corrected {} offenses", total_corrected);
+        let total_corrected: usize = per_cop.values().map(|s| s.nitrocop_corrected).sum();
+        eprintln!("  nitrocop corrected {} offenses", total_corrected);
 
         // Step 2: Run rubocop --only <corrected-cops> to verify corrections.
-        // We only verify cops that turbocop actually corrected, using --only to scope
+        // We only verify cops that nitrocop actually corrected, using --only to scope
         // the check. This is safe because --only overrides Enabled: false, but if
-        // turbocop corrected an offense, the cop must be enabled in the project config.
+        // nitrocop corrected an offense, the cop must be enabled in the project config.
         //
         // We copy corrected .rb files back into the original repo (so rubocop runs
         // with the correct Ruby, gems, config, and path-relative exclusions), run
         // rubocop there, then restore the originals.
         let corrected_cops: Vec<String> = per_cop
             .iter()
-            .filter(|(_, s)| s.turbocop_corrected > 0)
+            .filter(|(_, s)| s.nitrocop_corrected > 0)
             .map(|(name, _)| name.clone())
             .collect();
 
@@ -1758,11 +1758,11 @@ fn run_autocorrect_validate(repos: &[RepoRef]) -> HashMap<String, AutocorrectVal
         let cops_tested = per_cop.len();
         let cops_clean = per_cop
             .values()
-            .filter(|s| s.rubocop_remaining == 0 && s.turbocop_corrected > 0)
+            .filter(|s| s.rubocop_remaining == 0 && s.nitrocop_corrected > 0)
             .count();
         let cops_with_remaining = per_cop
             .values()
-            .filter(|s| s.rubocop_remaining > 0 && s.turbocop_corrected > 0)
+            .filter(|s| s.rubocop_remaining > 0 && s.nitrocop_corrected > 0)
             .count();
 
         if !corrected_cops.is_empty() {
@@ -1782,7 +1782,7 @@ fn run_autocorrect_validate(repos: &[RepoRef]) -> HashMap<String, AutocorrectVal
             };
             eprintln!(
                 "    {} — corrected: {}, remaining: {} [{}]",
-                cop, stats.turbocop_corrected, stats.rubocop_remaining, status
+                cop, stats.nitrocop_corrected, stats.rubocop_remaining, status
             );
         }
 
@@ -1811,7 +1811,7 @@ fn generate_autocorrect_validate_report(
     let _ = writeln!(md, "# Autocorrect Validation Report\n");
     let _ = writeln!(
         md,
-        "Validates that `turbocop -A` corrections are recognized as clean by `rubocop`.\n"
+        "Validates that `nitrocop -A` corrections are recognized as clean by `rubocop`.\n"
     );
 
     // Aggregate per-cop stats across all repos
@@ -1819,23 +1819,23 @@ fn generate_autocorrect_validate_report(
     for result in results.values() {
         for (cop, stats) in &result.per_cop {
             let agg = aggregate.entry(cop.clone()).or_default();
-            agg.turbocop_corrected += stats.turbocop_corrected;
+            agg.nitrocop_corrected += stats.nitrocop_corrected;
             agg.rubocop_remaining += stats.rubocop_remaining;
         }
     }
 
-    // Only report cops where turbocop actually corrected something
+    // Only report cops where nitrocop actually corrected something
     let validated: BTreeMap<&String, &CopValidateStats> = aggregate
         .iter()
-        .filter(|(_, s)| s.turbocop_corrected > 0)
+        .filter(|(_, s)| s.nitrocop_corrected > 0)
         .collect();
 
-    // Autocorrect validation table (only cops where turbocop actually corrected something)
+    // Autocorrect validation table (only cops where nitrocop actually corrected something)
     let _ = writeln!(md, "## Autocorrect Validation\n");
     if validated.is_empty() {
         let _ = writeln!(
             md,
-            "No offenses were corrected by turbocop across all repos. These repos are already \
+            "No offenses were corrected by nitrocop across all repos. These repos are already \
              clean for the {} autocorrectable cops.\n",
             get_autocorrectable_cops().len()
         );
@@ -1851,7 +1851,7 @@ fn generate_autocorrect_validate_report(
             let _ = writeln!(
                 md,
                 "| {} | {} | {} | {} |",
-                cop, stats.turbocop_corrected, stats.rubocop_remaining, status
+                cop, stats.nitrocop_corrected, stats.rubocop_remaining, status
             );
         }
         let passing = validated
@@ -1875,7 +1875,7 @@ fn generate_autocorrect_validate_report(
         let validated_cops: Vec<_> = result
             .per_cop
             .iter()
-            .filter(|(_, s)| s.turbocop_corrected > 0)
+            .filter(|(_, s)| s.nitrocop_corrected > 0)
             .collect();
         if validated_cops.is_empty() {
             continue; // Skip repos with nothing to report
@@ -1896,7 +1896,7 @@ fn generate_autocorrect_validate_report(
                 let _ = writeln!(
                     md,
                     "| {} | {} | {} | {} |",
-                    cop, stats.turbocop_corrected, stats.rubocop_remaining, status
+                    cop, stats.nitrocop_corrected, stats.rubocop_remaining, status
                 );
             }
             let _ = writeln!(md);
@@ -1978,24 +1978,24 @@ fn generate_report(
     let platform = shell_output("uname", &["-sm"]);
     let date = shell_output("date", &["-u", "+%Y-%m-%d %H:%M UTC"]);
 
-    let covered_count = if turbocop_binary().exists() {
+    let covered_count = if nitrocop_binary().exists() {
         get_covered_cops().len()
     } else {
         0
     };
 
     let mut md = String::new();
-    writeln!(md, "# turbocop Benchmark & Conformance Results").unwrap();
+    writeln!(md, "# nitrocop Benchmark & Conformance Results").unwrap();
     writeln!(md).unwrap();
     writeln!(
         md,
-        "> Auto-generated by `cargo run --release --bin bench_turbocop`. Do not edit manually."
+        "> Auto-generated by `cargo run --release --bin bench_nitrocop`. Do not edit manually."
     )
     .unwrap();
     writeln!(md, "> Last updated: {date} on `{platform}`").unwrap();
     writeln!(md).unwrap();
     if covered_count > 0 {
-        writeln!(md, "**turbocop cops:** {covered_count}").unwrap();
+        writeln!(md, "**nitrocop cops:** {covered_count}").unwrap();
     }
     writeln!(
         md,
@@ -2023,7 +2023,7 @@ fn generate_report(
         writeln!(md).unwrap();
         writeln!(
             md,
-            "| Repo | .rb files | Files changed | turbocop | rubocop | Speedup |"
+            "| Repo | .rb files | Files changed | nitrocop | rubocop | Speedup |"
         )
         .unwrap();
         writeln!(
@@ -2034,14 +2034,14 @@ fn generate_report(
 
         for repo in repos {
             if let Some(r) = bench.get(&repo.name) {
-                let speedup = format_speedup(r.rubocop.median, r.turbocop.median);
+                let speedup = format_speedup(r.rubocop.median, r.nitrocop.median);
                 writeln!(
                     md,
                     "| {} | {} | {} | **{}** | {} | **{}** |",
                     repo.name,
                     r.rb_count,
                     r.touched_count,
-                    format_time(r.turbocop.median),
+                    format_time(r.nitrocop.median),
                     format_time(r.rubocop.median),
                     speedup,
                 )
@@ -2058,13 +2058,13 @@ fn generate_report(
         writeln!(md).unwrap();
         writeln!(
             md,
-            "Location-level comparison: file + line + cop_name. Only cops implemented by turbocop ({covered_count}) are compared."
+            "Location-level comparison: file + line + cop_name. Only cops implemented by nitrocop ({covered_count}) are compared."
         )
         .unwrap();
         writeln!(md).unwrap();
         writeln!(
             md,
-            "| Repo | turbocop | rubocop | Matches | FP (turbocop only) | FN (rubocop only) | Match rate |"
+            "| Repo | nitrocop | rubocop | Matches | FP (nitrocop only) | FN (rubocop only) | Match rate |"
         )
         .unwrap();
         writeln!(
@@ -2079,7 +2079,7 @@ fn generate_report(
                     md,
                     "| {} | {} | {} | {} | {} | {} | **{:.1}%** |",
                     repo.name,
-                    c.turbocop_count,
+                    c.nitrocop_count,
                     c.rubocop_count,
                     c.matches,
                     c.false_positives,
@@ -2142,7 +2142,7 @@ fn generate_report(
                     if mm.attributed_fps > 0 {
                         writeln!(
                             md,
-                            "\n> **{}** version mismatch — {} FPs attributed to {} (project: {}, turbocop targets: {})",
+                            "\n> **{}** version mismatch — {} FPs attributed to {} (project: {}, nitrocop targets: {})",
                             repo.name, mm.attributed_fps, mm.gem_name, mm.project_version, mm.vendor_version,
                         )
                         .unwrap();
@@ -2173,10 +2173,10 @@ fn load_cached_bench(repos: &[RepoRef]) -> HashMap<String, BenchResult> {
             Err(_) => continue,
         };
 
-        let turbocop_result = parsed.results.iter().find(|r| r.command == "turbocop");
+        let nitrocop_result = parsed.results.iter().find(|r| r.command == "nitrocop");
         let rubocop_result = parsed.results.iter().find(|r| r.command == "rubocop");
 
-        if let (Some(rb), Some(rc)) = (turbocop_result, rubocop_result) {
+        if let (Some(rb), Some(rc)) = (nitrocop_result, rubocop_result) {
             let rb_count = if repo.dir.exists() {
                 count_rb_files(&repo.dir)
             } else {
@@ -2186,7 +2186,7 @@ fn load_cached_bench(repos: &[RepoRef]) -> HashMap<String, BenchResult> {
             results.insert(
                 repo.name.clone(),
                 BenchResult {
-                    turbocop: HyperfineResult {
+                    nitrocop: HyperfineResult {
                         command: rb.command.clone(),
                         mean: rb.mean,
                         stddev: rb.stddev,
@@ -2271,7 +2271,7 @@ fn main() {
         }
         "bench" => {
             let start = Instant::now();
-            build_turbocop();
+            build_nitrocop();
             init_lockfiles(&repos);
             let bench = run_bench(&args, &repos);
             let conform = load_cached_conform(is_private_run);
@@ -2282,7 +2282,7 @@ fn main() {
         }
         "conform" => {
             let start = Instant::now();
-            build_turbocop();
+            build_nitrocop();
             init_lockfiles(&repos);
             let conform = run_conform(&repos);
             // Write structured JSON
@@ -2298,7 +2298,7 @@ fn main() {
             eprintln!("Wrote {}", output_path.display());
         }
         "quick" => {
-            build_turbocop();
+            build_nitrocop();
             run_quick_bench(&args);
         }
         "report" => {
@@ -2313,7 +2313,7 @@ fn main() {
             if !is_private_run {
                 setup_repos();
             }
-            build_turbocop();
+            build_nitrocop();
             init_lockfiles(&repos);
             let bench = run_bench(&args, &repos);
             let conform = run_conform(&repos);
@@ -2328,7 +2328,7 @@ fn main() {
         }
         "autocorrect-conform" => {
             let start = Instant::now();
-            build_turbocop();
+            build_nitrocop();
             init_lockfiles(&repos);
             let ac_results = run_autocorrect_conform(&repos);
             let json_path = json_output_path("autocorrect_conform.json", is_private_run);
@@ -2342,7 +2342,7 @@ fn main() {
         }
         "autocorrect-validate" => {
             let start = Instant::now();
-            build_turbocop();
+            build_nitrocop();
             init_lockfiles(&repos);
             let av_results = run_autocorrect_validate(&repos);
             // Write structured JSON

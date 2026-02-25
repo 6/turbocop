@@ -80,7 +80,7 @@ mod tests {
     use super::*;
 
     fn make_temp_script(name: &str, content: &[u8], mode: u32) -> String {
-        let path = format!("/tmp/turbocop-test/{}", name);
+        let path = format!("/tmp/nitrocop-test/{}", name);
         let dir = std::path::Path::new(&path).parent().unwrap();
         std::fs::create_dir_all(dir).unwrap();
         std::fs::write(&path, content).unwrap();

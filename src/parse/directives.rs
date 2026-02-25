@@ -6,7 +6,7 @@ use regex::Regex;
 use crate::parse::source::SourceFile;
 
 static DIRECTIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"#\s*(?:rubocop|turbocop|standard)\s*:\s*(disable|enable|todo)\s+(.+)").unwrap()
+    Regex::new(r"#\s*(?:rubocop|nitrocop|standard)\s*:\s*(disable|enable|todo)\s+(.+)").unwrap()
 });
 
 /// A single disable directive entry (one cop name from a `# rubocop:disable` comment).
@@ -29,7 +29,7 @@ pub struct DisableDirective {
 /// Tracks line ranges where cops are disabled via inline comments.
 ///
 /// Supports `# rubocop:disable`, `# rubocop:enable`, `# rubocop:todo`,
-/// and the `# turbocop:` equivalents.
+/// and the `# nitrocop:` equivalents.
 pub struct DisabledRanges {
     /// Map from cop name (e.g. "Layout/LineLength"), department (e.g. "Metrics"),
     /// or "all" to disabled line ranges. Each range is (start_line, end_line)
@@ -318,8 +318,8 @@ mod tests {
     }
 
     #[test]
-    fn turbocop_alias() {
-        let dr = disabled_ranges("x = 1 # turbocop:disable Foo/Bar\ny = 2\n");
+    fn nitrocop_alias() {
+        let dr = disabled_ranges("x = 1 # nitrocop:disable Foo/Bar\ny = 2\n");
         assert!(dr.is_disabled("Foo/Bar", 1));
         assert!(!dr.is_disabled("Foo/Bar", 2));
     }

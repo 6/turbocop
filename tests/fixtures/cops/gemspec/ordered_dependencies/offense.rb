@@ -1,4 +1,4 @@
-# turbocop-filename: example.gemspec
+# nitrocop-filename: example.gemspec
 Gem::Specification.new do |spec|
   spec.add_dependency 'foo', '~> 1.0'
   spec.add_dependency 'bar', '~> 2.0'

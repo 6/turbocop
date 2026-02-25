@@ -13,7 +13,7 @@ pub enum AutocorrectMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StrictScope {
-    /// Preview-gated cops cause failure (turbocop implements them but didn't run them).
+    /// Preview-gated cops cause failure (nitrocop implements them but didn't run them).
     Coverage,
     /// Same as coverage (preview-gated only; unimplemented/outside-baseline are ignored).
     ImplementedOnly,
@@ -22,7 +22,7 @@ pub enum StrictScope {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "turbocop", version, about = "A fast Ruby linter")]
+#[command(name = "nitrocop", version, about = "A fast Ruby linter")]
 pub struct Args {
     /// Files or directories to lint
     #[arg(default_value = ".")]
@@ -52,7 +52,7 @@ pub struct Args {
     #[arg(long)]
     pub debug: bool,
 
-    /// Print comma-separated list of cops not covered by turbocop, then exit
+    /// Print comma-separated list of cops not covered by nitrocop, then exit
     #[arg(long)]
     pub rubocop_only: bool,
 
@@ -156,7 +156,7 @@ pub struct Args {
     #[arg(long, value_name = "SCOPE", default_missing_value = "coverage", num_args = 0..=1)]
     pub strict: Option<String>,
 
-    /// Compare turbocop output against RuboCop (requires Ruby), then exit
+    /// Compare nitrocop output against RuboCop (requires Ruby), then exit
     #[arg(long)]
     pub verify: bool,
 

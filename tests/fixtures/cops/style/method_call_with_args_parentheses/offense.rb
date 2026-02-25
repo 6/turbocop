@@ -23,8 +23,8 @@ top&.test a, b
 # Multiline chained method calls — offense is at start of full expression
 expect(described_class.new)
   .to match_array(y)
-# turbocop-expect: 19:0 Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+# nitrocop-expect: 19:0 Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
 
 custom_fields
   .include? attribute
-# turbocop-expect: 22:0 Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.
+# nitrocop-expect: 22:0 Style/MethodCallWithArgsParentheses: Use parentheses for method calls with arguments.

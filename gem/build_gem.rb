@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Builds a turbocop gem — base (fallback) or platform-specific.
+# Builds a nitrocop gem — base (fallback) or platform-specific.
 #
 # Usage:
 #   ruby gem/build_gem.rb VERSION
@@ -9,7 +9,7 @@
 #
 # Examples:
 #   ruby gem/build_gem.rb 0.1.0
-#   ruby gem/build_gem.rb 0.1.0 --platform arm64-darwin --binary target/aarch64-apple-darwin/release/turbocop
+#   ruby gem/build_gem.rb 0.1.0 --platform arm64-darwin --binary target/aarch64-apple-darwin/release/nitrocop
 
 require "optparse"
 require_relative "lib/gem_builder"

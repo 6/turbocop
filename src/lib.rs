@@ -267,7 +267,7 @@ pub fn run(args: Args) -> Result<i32> {
         return Ok(0);
     }
 
-    // --verify: compare turbocop output against RuboCop
+    // --verify: compare nitrocop output against RuboCop
     if args.verify {
         let result = verify::run_verify(&args, &config, &registry, &tier_map, &allowlist)?;
         if args.format == "json" {
@@ -366,7 +366,7 @@ pub fn run(args: Args) -> Result<i32> {
             parts.push(format!("{} outside baseline", s.outside_baseline.len()));
         }
         eprintln!(
-            "Skipped {} cops ({}). Run `turbocop migrate` for details.",
+            "Skipped {} cops ({}). Run `nitrocop migrate` for details.",
             s.total(),
             parts.join(", "),
         );

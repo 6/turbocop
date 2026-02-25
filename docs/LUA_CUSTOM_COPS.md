@@ -1,17 +1,17 @@
 # Lua Custom Cops
 
-turbocop supports user-defined cops written in Lua. This lets organizations enforce custom rules — ban specific API patterns, require certain code structures, enforce naming conventions — without forking turbocop or writing Rust.
+nitrocop supports user-defined cops written in Lua. This lets organizations enforce custom rules — ban specific API patterns, require certain code structures, enforce naming conventions — without forking nitrocop or writing Rust.
 
 ## Why Lua
 
-- **Tiny**: ~200KB runtime, embedded directly in the turbocop binary
+- **Tiny**: ~200KB runtime, embedded directly in the nitrocop binary
 - **Fast**: LuaJIT-class performance, microsecond FFI overhead per call
 - **Proven**: The most widely used embedded scripting language (Neovim, Redis, nginx, game engines)
 - **Simple**: Fits in your head in a day. Cop definitions are typically 15–40 lines.
 
 ## Quick Start
 
-Create `.turbocop/cops/ban_recursive_open_struct.lua`:
+Create `.nitrocop/cops/ban_recursive_open_struct.lua`:
 
 ```lua
 return {
@@ -32,20 +32,20 @@ return {
 }
 ```
 
-Run turbocop normally — custom cops are auto-discovered:
+Run nitrocop normally — custom cops are auto-discovered:
 
 ```
-$ turbocop .
+$ nitrocop .
 app/models/user.rb:12:5: W: Custom/BanRecursiveOpenStruct: Avoid RecursiveOpenStruct.
 ```
 
 ## Loading
 
-Custom cops are auto-discovered from the `.turbocop/cops/` directory in your project root. Every `.lua` file in that directory is loaded as a cop.
+Custom cops are auto-discovered from the `.nitrocop/cops/` directory in your project root. Every `.lua` file in that directory is loaded as a cop.
 
 ```
 my-project/
-  .turbocop/
+  .nitrocop/
     cops/
       ban_execute.lua
       require_strict_struct.lua
@@ -54,11 +54,11 @@ my-project/
   app/
 ```
 
-No configuration needed. If `.turbocop/cops/` doesn't exist, no custom cops are loaded.
+No configuration needed. If `.nitrocop/cops/` doesn't exist, no custom cops are loaded.
 
 ### Gem distribution
 
-To distribute custom cops as a gem, ship a `.turbocop/cops/` directory inside the gem. turbocop discovers it from the gem's install path (resolved via `bundle info --path`).
+To distribute custom cops as a gem, ship a `.nitrocop/cops/` directory inside the gem. nitrocop discovers it from the gem's install path (resolved via `bundle info --path`).
 
 ## Cop Definition Format
 
@@ -387,7 +387,7 @@ The full list of 151 node types matches Prism's AST specification.
 
 ## Testing
 
-Each Lua cop can include inline test cases using the same `^` annotation format as turbocop's built-in cops. Add a `tests` table with `offense` and `no_offense` keys:
+Each Lua cop can include inline test cases using the same `^` annotation format as nitrocop's built-in cops. Add a `tests` table with `offense` and `no_offense` keys:
 
 ```lua
 return {
@@ -431,7 +431,7 @@ end
 Run tests for all custom cops:
 
 ```
-$ turbocop test
+$ nitrocop test
 Custom/NoBaseTransaction: OK (1 offense, 2 no-offense cases)
 Custom/NoDirectExecute: OK (1 offense, 3 no-offense cases)
 Custom/StrictDryStruct: OK (2 offenses, 1 no-offense case)
@@ -441,15 +441,15 @@ Custom/StrictDryStruct: OK (2 offenses, 1 no-offense case)
 Or test a single cop:
 
 ```
-$ turbocop test .turbocop/cops/no_base_transaction.lua
+$ nitrocop test .nitrocop/cops/no_base_transaction.lua
 Custom/NoBaseTransaction: OK (1 offense, 2 no-offense cases)
 ```
 
 ### How it works
 
-- `offense` blocks use `^` annotations to mark expected offenses, identical to turbocop's built-in fixture format: the caret line appears after the offending source line, with `^` characters spanning the offense range, followed by `CopName: message`
+- `offense` blocks use `^` annotations to mark expected offenses, identical to nitrocop's built-in fixture format: the caret line appears after the offending source line, with `^` characters spanning the offense range, followed by `CopName: message`
 - `no_offense` blocks must produce zero diagnostics
-- `turbocop test` strips annotations to get clean source, runs the cop, and compares actual vs expected diagnostics
+- `nitrocop test` strips annotations to get clean source, runs the cop, and compares actual vs expected diagnostics
 - Multiple `offense` blocks can be provided as an array: `offense = {[[...]], [[...]]}`
 
 ## Configuration in .rubocop.yml
@@ -476,7 +476,7 @@ Custom/GraphqlMockStyle:
 
 ## Implementation Notes
 
-This section covers how Lua cops integrate with turbocop's Rust internals.
+This section covers how Lua cops integrate with nitrocop's Rust internals.
 
 ### LuaCop struct
 

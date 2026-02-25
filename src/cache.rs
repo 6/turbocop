@@ -326,7 +326,7 @@ fn systemtime_to_parts(time: Option<SystemTime>) -> (u64, u32) {
 /// Compute a stable hash of just the file path (used as cache key).
 fn compute_path_hash(path: &Path) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"turbocop-path-v2:");
+    hasher.update(b"nitrocop-path-v2:");
     hasher.update(path.to_string_lossy().as_bytes());
     let hash = hasher.finalize();
     format!("{:x}", hash)[..16].to_string()
@@ -343,20 +343,20 @@ fn compute_content_hash(content: &[u8]) -> String {
 /// Determine the cache root directory (XDG-compliant).
 ///
 /// Precedence:
-/// 1. `$TURBOCOP_CACHE_DIR`
-/// 2. `$XDG_CACHE_HOME/turbocop/`
-/// 3. `~/.cache/turbocop/`
+/// 1. `$NITROCOP_CACHE_DIR`
+/// 2. `$XDG_CACHE_HOME/nitrocop/`
+/// 3. `~/.cache/nitrocop/`
 pub(crate) fn cache_root_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("TURBOCOP_CACHE_DIR") {
+    if let Ok(dir) = std::env::var("NITROCOP_CACHE_DIR") {
         return PathBuf::from(dir);
     }
     if let Ok(xdg) = std::env::var("XDG_CACHE_HOME") {
-        return PathBuf::from(xdg).join("turbocop");
+        return PathBuf::from(xdg).join("nitrocop");
     }
     if let Ok(home) = std::env::var("HOME") {
-        return PathBuf::from(home).join(".cache").join("turbocop");
+        return PathBuf::from(home).join(".cache").join("nitrocop");
     }
-    PathBuf::from(".turbocop-cache")
+    PathBuf::from(".nitrocop-cache")
 }
 
 /// Compute the session hash from version + config + CLI args.
@@ -366,7 +366,7 @@ pub(crate) fn cache_root_dir() -> PathBuf {
 /// sort keys before hashing rather than relying on serde_json serialization.
 fn compute_session_hash(version: &str, base_configs: &[CopConfig], args: &Args) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"turbocop-session-v3:");
+    hasher.update(b"nitrocop-session-v3:");
     hasher.update(version.as_bytes());
     hasher.update(b":");
 

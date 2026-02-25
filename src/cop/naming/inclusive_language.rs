@@ -279,7 +279,7 @@ fn compile_ruby_regex(ruby_str: &str) -> Option<fancy_regex::Regex> {
         .replace("\\z", "$")
         .replace("\\Z", "$");
 
-    // Make the regex case-insensitive to match turbocop's lowercase line matching
+    // Make the regex case-insensitive to match nitrocop's lowercase line matching
     let case_insensitive = format!("(?i){pattern}");
     fancy_regex::Regex::new(&case_insensitive).ok()
 }

@@ -4,7 +4,7 @@
 # Usage: ruby bench/update_rubocop_deps.rb [--dry-run]
 #
 # Updates bench repo rubocop gem versions to match vendor submodules.
-# Run from the turbocop project root.
+# Run from the nitrocop project root.
 #
 # This script:
 # 1. Verifies vendor submodules are on proper release tags
@@ -483,7 +483,7 @@ puts
 # 3. Process bench repos
 unless REPOS_DIR.exist?
   puts "No bench repos directory at #{REPOS_DIR}."
-  puts "Run `cargo run --release --bin bench_turbocop -- setup` first."
+  puts "Run `cargo run --release --bin bench_nitrocop -- setup` first."
   exit 1
 end
 
@@ -540,5 +540,5 @@ print_summary(results)
 puts
 puts "Done!"
 unless dry_run
-  puts "Next step: cargo run --release --bin bench_turbocop -- conform"
+  puts "Next step: cargo run --release --bin bench_nitrocop -- conform"
 end

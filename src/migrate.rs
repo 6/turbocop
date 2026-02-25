@@ -140,7 +140,7 @@ pub fn print_text(report: &MigrateReport, args: &Args) {
         report.counts.preview
     );
     println!(
-        "  Unimplemented:    {:>4}  (in baseline, not in turbocop)",
+        "  Unimplemented:    {:>4}  (in baseline, not in nitrocop)",
         report.counts.unimplemented
     );
     println!(
@@ -223,16 +223,16 @@ pub fn print_text(report: &MigrateReport, args: &Args) {
             && report.counts.unimplemented == 0
             && report.counts.outside_baseline == 0
         {
-            println!("  turbocop --strict .");
+            println!("  nitrocop --strict .");
             println!("  # Fails if preview-gated cops are skipped. Add --preview to run them.");
         } else if report.counts.unimplemented > 0 || report.counts.outside_baseline > 0 {
             if args.strict.as_deref() == Some("all") {
-                println!("  turbocop --strict=all .");
+                println!("  nitrocop --strict=all .");
                 println!(
                     "  # Fails if any cops are skipped (preview + unimplemented + outside baseline)."
                 );
             } else {
-                println!("  turbocop --strict .");
+                println!("  nitrocop --strict .");
                 println!(
                     "  # Fails only for preview-gated cops. Use --strict=all to include unimplemented."
                 );

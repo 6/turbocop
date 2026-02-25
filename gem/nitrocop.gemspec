@@ -1,16 +1,16 @@
 # frozen_string_literal: true
 
-require_relative "lib/turbocop"
+require_relative "lib/nitrocop"
 
 Gem::Specification.new do |spec|
-  spec.name     = "turbocop"
-  spec.version  = Turbocop::VERSION
+  spec.name     = "nitrocop"
+  spec.version  = Nitrocop::VERSION
   spec.authors  = ["6"]
 
   spec.summary     = "Fast Ruby linter targeting RuboCop compatibility"
   spec.description = "A Ruby linter written in Rust that reads your existing .rubocop.yml " \
                      "and runs 900+ cops."
-  spec.homepage    = "https://github.com/6/turbocop"
+  spec.homepage    = "https://github.com/6/nitrocop"
   spec.license     = "MIT"
 
   spec.required_ruby_version = ">= 3.1.0"
@@ -20,5 +20,5 @@ Gem::Specification.new do |spec|
 
   spec.files       = Dir["lib/**/*", "exe/**/*", "libexec/**/*"]
   spec.bindir      = "exe"
-  spec.executables = ["turbocop"]
+  spec.executables = ["nitrocop"]
 end

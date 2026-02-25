@@ -1,4 +1,4 @@
-# turbocop-filename: db/migrate/001_example.rb
+# nitrocop-filename: db/migrate/001_example.rb
 def change
   change_table :users do |t|
   ^^^^^^^^^^^^^^^^^^^ Rails/BulkChangeTable: You can combine alter queries using `bulk: true` options.

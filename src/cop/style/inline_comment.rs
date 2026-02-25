@@ -48,14 +48,14 @@ impl Cop for InlineComment {
                 continue;
             }
 
-            // This is an inline comment — check for rubocop/turbocop directives
+            // This is an inline comment — check for rubocop/nitrocop directives
             let comment_bytes = &bytes[start..loc.end_offset()];
             let comment_text = match std::str::from_utf8(comment_bytes) {
                 Ok(s) => s,
                 Err(_) => continue,
             };
             let after_hash = comment_text.trim_start_matches('#').trim_start();
-            if after_hash.starts_with("rubocop:") || after_hash.starts_with("turbocop-") {
+            if after_hash.starts_with("rubocop:") || after_hash.starts_with("nitrocop-") {
                 continue;
             }
 

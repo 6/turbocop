@@ -26,11 +26,11 @@ pub struct TierMap {
 }
 
 impl TierMap {
-    /// Load from the embedded resources/tiers.json, or from `TURBOCOP_TIERS_FILE` if set.
+    /// Load from the embedded resources/tiers.json, or from `NITROCOP_TIERS_FILE` if set.
     pub fn load() -> Self {
-        let json = match std::env::var("TURBOCOP_TIERS_FILE") {
+        let json = match std::env::var("NITROCOP_TIERS_FILE") {
             Ok(path) => std::fs::read_to_string(&path)
-                .unwrap_or_else(|e| panic!("TURBOCOP_TIERS_FILE={path}: {e}")),
+                .unwrap_or_else(|e| panic!("NITROCOP_TIERS_FILE={path}: {e}")),
             Err(_) => include_str!("../resources/tiers.json").to_string(),
         };
         let data: TiersFile = serde_json::from_str(&json).expect("tiers JSON should be valid");
@@ -54,7 +54,7 @@ impl TierMap {
 pub struct SkipSummary {
     /// Implemented cops at preview tier, skipped because `--preview` was not set.
     pub preview_gated: Vec<String>,
-    /// Cops in the vendor baseline but not implemented in turbocop's registry.
+    /// Cops in the vendor baseline but not implemented in nitrocop's registry.
     pub unimplemented: Vec<String>,
     /// Cops not in the vendor baseline at all (unknown/custom cops).
     pub outside_baseline: Vec<String>,
