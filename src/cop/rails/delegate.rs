@@ -214,7 +214,7 @@ impl Cop for Delegate {
         // Skip private/protected methods — RuboCop only flags public methods.
         // Check if there's a `private` or `protected` declaration on the same line
         // or on a standalone line above this method.
-        if is_private_or_protected(source, node.location().start_offset()) {
+        if crate::cop::util::is_private_or_protected(source, node.location().start_offset()) {
             return;
         }
 
@@ -227,84 +227,6 @@ impl Cop for Delegate {
             "Use `delegate` to define delegations.".to_string(),
         ));
     }
-}
-
-/// Check if a method at the given offset is likely private or protected.
-/// Looks for:
-/// - `private def foo` (inline) on the same line
-/// - Standalone `private` or `protected` on any preceding line at the SAME indentation
-///   scope (without a subsequent `public`)
-fn is_private_or_protected(source: &SourceFile, def_offset: usize) -> bool {
-    let bytes = source.as_bytes();
-    let (def_line, def_col) = source.offset_to_line_col(def_offset);
-
-    // Check inline: the same line might start with `private ` or `protected `
-    let mut line_start = def_offset;
-    while line_start > 0 && bytes[line_start - 1] != b'\n' {
-        line_start -= 1;
-    }
-    let line_to_def = &bytes[line_start..def_offset];
-    let trimmed = line_to_def
-        .iter()
-        .copied()
-        .skip_while(|&b| b == b' ' || b == b'\t')
-        .collect::<Vec<u8>>();
-    if trimmed.starts_with(b"private ") || trimmed.starts_with(b"protected ") {
-        return true;
-    }
-
-    // Check preceding lines for standalone `private` or `protected`.
-    // Only consider lines at the same indentation level as the def.
-    // When we see `class`, `module`, or `end` at lower indentation, reset state
-    // (those indicate scope boundaries).
-    let lines: Vec<&[u8]> = source.lines().collect();
-    let mut in_private = false;
-    for line in &lines[..def_line] {
-        let indent = line
-            .iter()
-            .take_while(|&&b| b == b' ' || b == b'\t')
-            .count();
-        let trimmed: Vec<u8> = line[indent..].to_vec();
-
-        // Scope boundary: class/module at same or lower indent resets private state.
-        // `end` only resets at STRICTLY lower indent — method `end` keywords share
-        // the same indent as `private`/`def` and must not reset the state.
-        if indent <= def_col && (trimmed.starts_with(b"class ") || trimmed.starts_with(b"module "))
-        {
-            in_private = false;
-        }
-        if indent < def_col
-            && (trimmed == b"end"
-                || trimmed.starts_with(b"end ")
-                || trimmed.starts_with(b"end\n")
-                || trimmed.starts_with(b"end\r"))
-        {
-            in_private = false;
-        }
-
-        // Only consider private/protected/public at the same indent level
-        if indent == def_col {
-            if trimmed == b"private"
-                || trimmed.starts_with(b"private\n")
-                || trimmed.starts_with(b"private\r")
-                || trimmed.starts_with(b"private #")
-                || trimmed == b"protected"
-                || trimmed.starts_with(b"protected\n")
-                || trimmed.starts_with(b"protected\r")
-                || trimmed.starts_with(b"protected #")
-            {
-                in_private = true;
-            } else if trimmed == b"public"
-                || trimmed.starts_with(b"public\n")
-                || trimmed.starts_with(b"public\r")
-                || trimmed.starts_with(b"public #")
-            {
-                in_private = false;
-            }
-        }
-    }
-
-    in_private
 }
 
 #[cfg(test)]

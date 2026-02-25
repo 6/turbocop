@@ -22,7 +22,14 @@ impl Cop for Copyright {
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let notice_pattern = config.get_str("Notice", r"^Copyright (\(c\) )?2[0-9]{3} .+");
-        let _autocorrect_notice = config.get_str("AutocorrectNotice", "");
+        let autocorrect_notice = config.get_str("AutocorrectNotice", "");
+
+        // RuboCop raises a Warning exception in verify_autocorrect_notice! when
+        // AutocorrectNotice is empty, which prevents any offense from being added.
+        // Match that behavior: no offenses when AutocorrectNotice is not configured.
+        if autocorrect_notice.is_empty() {
+            return;
+        }
 
         let regex = match Regex::new(notice_pattern) {
             Ok(r) => r,
@@ -75,11 +82,77 @@ impl Cop for Copyright {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_scenario_fixture_tests!(
-        Copyright,
-        "cops/style/copyright",
-        missing_notice = "missing_notice.rb",
-        missing_notice_with_code = "missing_notice_with_code.rb",
-        missing_notice_wrong_text = "missing_notice_wrong_text.rb",
-    );
+    use crate::cop::CopConfig;
+    use std::collections::HashMap;
+
+    /// Build a CopConfig with a non-empty AutocorrectNotice so the cop actually runs.
+    /// RuboCop requires this to be set; with an empty value the cop silently skips.
+    fn config_with_autocorrect_notice() -> CopConfig {
+        CopConfig {
+            options: HashMap::from([(
+                "AutocorrectNotice".to_string(),
+                serde_yml::Value::String("# Copyright (c) 2024 Acme Inc.".to_string()),
+            )]),
+            ..CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn missing_notice() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &Copyright,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/copyright/offense/missing_notice.rb"
+            ),
+            config_with_autocorrect_notice(),
+        );
+    }
+
+    #[test]
+    fn missing_notice_with_code() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &Copyright,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/copyright/offense/missing_notice_with_code.rb"
+            ),
+            config_with_autocorrect_notice(),
+        );
+    }
+
+    #[test]
+    fn missing_notice_wrong_text() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &Copyright,
+            include_bytes!(
+                "../../../tests/fixtures/cops/style/copyright/offense/missing_notice_wrong_text.rb"
+            ),
+            config_with_autocorrect_notice(),
+        );
+    }
+
+    #[test]
+    fn no_offense_fixture() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &Copyright,
+            include_bytes!("../../../tests/fixtures/cops/style/copyright/no_offense.rb"),
+            config_with_autocorrect_notice(),
+        );
+    }
+
+    #[test]
+    fn empty_autocorrect_notice_produces_no_offenses() {
+        // When AutocorrectNotice is empty (the default), RuboCop raises a Warning
+        // in verify_autocorrect_notice! which prevents any offense. We match that
+        // behavior by returning early with no diagnostics.
+        let diagnostics = crate::testutil::run_cop_full_with_config(
+            &Copyright,
+            b"# no copyright here\nclass Foo; end\n",
+            CopConfig::default(),
+        );
+        assert!(
+            diagnostics.is_empty(),
+            "Expected no offenses with empty AutocorrectNotice, got: {:?}",
+            diagnostics,
+        );
+    }
 }

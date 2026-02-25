@@ -1,4 +1,5 @@
 use crate::cop::node_type::DEF_NODE;
+use crate::cop::util::is_private_or_protected;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -8,6 +9,10 @@ pub struct DocumentationMethod;
 impl Cop for DocumentationMethod {
     fn name(&self) -> &'static str {
         "Style/DocumentationMethod"
+    }
+
+    fn default_enabled(&self) -> bool {
+        false
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
@@ -46,9 +51,10 @@ impl Cop for DocumentationMethod {
         }
 
         // Skip private/protected methods unless configured
-        if !require_for_non_public {
-            // This is a simplified check - just skip methods with access modifiers
-            // In a full implementation, we'd track access modifier scope
+        if !require_for_non_public
+            && is_private_or_protected(source, def_node.location().start_offset())
+        {
+            return;
         }
 
         // Check if there's a comment above the def
