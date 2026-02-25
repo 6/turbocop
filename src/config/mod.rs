@@ -1982,6 +1982,7 @@ impl ResolvedConfig {
                 | "Style/WhileUntilModifier"
                 | "Style/GuardClause"
                 | "Style/SoleNestedConditional"
+                | "Style/MultilineMethodSignature"
                 | "Layout/RedundantLineBreak"
         ) {
             let line_length_config = self.cop_configs.get("Layout/LineLength");
