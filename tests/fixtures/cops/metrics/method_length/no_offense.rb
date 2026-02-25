@@ -51,6 +51,25 @@ def heredoc_method
   SQL
 end
 
+# Multiline params should not count toward body length.
+# RuboCop counts only body.source lines, not parameter lines.
+def initialize(
+  param1: nil,
+  param2: nil,
+  param3: nil,
+  param4: nil,
+  param5: nil,
+  param6: nil,
+  param7: nil,
+  param8: nil,
+  param9: nil,
+  param10: nil
+)
+  a = param1
+  b = param2
+  c = param3
+end
+
 # define_method with short body (no offense)
 define_method(:short_dynamic) do
   a = 1

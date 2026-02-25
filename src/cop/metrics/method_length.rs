@@ -160,6 +160,10 @@ impl MethodLength {
 
 /// Count body lines for a method (def or define_method block), folding heredocs
 /// and CountAsOne constructs.
+///
+/// RuboCop counts lines from `node.body.source` which starts at the first body
+/// statement, AFTER any parameter list. We replicate this by using the body
+/// node's start offset instead of the def keyword offset when a body exists.
 fn count_method_lines(
     source: &SourceFile,
     start_offset: usize,
@@ -167,12 +171,32 @@ fn count_method_lines(
     cfg: &MethodLengthConfig,
     body: Option<ruby_prism::Node<'_>>,
 ) -> usize {
+    let body = match body {
+        Some(b) => b,
+        // Empty method body = 0 lines, matching RuboCop's `return 0 unless body`
+        None => return 0,
+    };
+
+    // RuboCop uses `body.source.lines` which starts at the first statement.
+    // count_body_lines_ex counts from start_line+1 to end_line-1, so we need
+    // start_line = body_first_line - 1. We achieve this by using the offset of
+    // the line just before the body's first line.
+    let (body_start_line, _) = source.offset_to_line_col(body.location().start_offset());
+    let effective_start_offset = if body_start_line > 1 {
+        // Use offset of the line before the body's first line
+        source
+            .line_col_to_offset(body_start_line - 1, 0)
+            .unwrap_or(start_offset)
+    } else {
+        start_offset
+    };
+
     // Always fold heredoc lines to match RuboCop behavior. In RuboCop's
     // Parser AST, `body.source` for a heredoc returns only the opening
     // delimiter, so heredoc content is never counted toward method length.
     // Prism includes heredoc content in the node's byte range, so we must
     // explicitly fold those lines.
-    let mut all_foldable: Vec<(usize, usize)> = if let Some(body) = body {
+    let mut all_foldable: Vec<(usize, usize)> = {
         let mut ranges = collect_heredoc_ranges(source, &body);
         if let Some(cao) = &cfg.count_as_one {
             if !cao.is_empty() {
@@ -180,8 +204,6 @@ fn count_method_lines(
             }
         }
         ranges
-    } else {
-        Vec::new()
     };
     // Deduplicate: heredoc ranges may already be in foldable ranges if
     // CountAsOne includes "heredoc"
@@ -190,7 +212,7 @@ fn count_method_lines(
 
     count_body_lines_ex(
         source,
-        start_offset,
+        effective_start_offset,
         end_offset,
         cfg.count_comments,
         &all_foldable,
@@ -284,10 +306,12 @@ mod tests {
             ]),
             ..CopConfig::default()
         };
-        // 4 lines including comments exceeds Max:3 when CountComments:true
-        let source = b"def foo\n  # comment1\n  # comment2\n  a\n  b\nend\n";
+        // RuboCop counts comments within the body (between statements), not before
+        // the first statement. 4 body lines (a, comment, comment, b) exceeds Max:3.
+        let source = b"def foo\n  a\n  # comment1\n  # comment2\n  b\nend\n";
         let diags = run_cop_full_with_config(&MethodLength, source, config);
         assert!(!diags.is_empty(), "Should fire with CountComments:true");
+        assert!(diags[0].message.contains("[4/3]"));
     }
 
     #[test]
@@ -331,6 +355,75 @@ mod tests {
         assert!(
             diags.is_empty(),
             "Should skip define_method(:foo) when foo is allowed"
+        );
+    }
+
+    #[test]
+    fn multiline_params_not_counted() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([("Max".into(), serde_yml::Value::Number(3.into()))]),
+            ..CopConfig::default()
+        };
+        // Method with multiline params: body has 3 lines (a, b, c), params should NOT
+        // be counted. RuboCop counts only body.source lines.
+        let source = b"def initialize(\n  param1: nil,\n  param2: nil,\n  param3: nil\n)\n  a = 1\n  b = 2\n  c = 3\nend\n";
+        let diags = run_cop_full_with_config(&MethodLength, source, config.clone());
+        assert!(
+            diags.is_empty(),
+            "Should not fire: 3 body lines <= Max:3 (params not counted)"
+        );
+
+        // Same method but with 4 body lines should fire
+        let source2 = b"def initialize(\n  param1: nil,\n  param2: nil,\n  param3: nil\n)\n  a = 1\n  b = 2\n  c = 3\n  d = 4\nend\n";
+        let diags2 = run_cop_full_with_config(&MethodLength, source2, config);
+        assert!(!diags2.is_empty(), "Should fire: 4 body lines > Max:3");
+        assert!(diags2[0].message.contains("[4/3]"));
+    }
+
+    #[test]
+    fn empty_method_no_count() {
+        use crate::testutil::run_cop_full;
+        // Empty method should have 0 lines
+        let source = b"def foo\nend\n";
+        let diags = run_cop_full(&MethodLength, source);
+        assert!(diags.is_empty(), "Empty method should not fire");
+    }
+
+    #[test]
+    fn multiline_params_borderline() {
+        use crate::testutil::run_cop_full;
+        // 10 param lines + 10 body lines. With old code this would be [20/10].
+        // With fix, only body lines counted: [10/10] = no offense.
+        let source = b"def initialize(\n\
+            param1: nil,\n\
+            param2: nil,\n\
+            param3: nil,\n\
+            param4: nil,\n\
+            param5: nil,\n\
+            param6: nil,\n\
+            param7: nil,\n\
+            param8: nil,\n\
+            param9: nil,\n\
+            param10: nil\n\
+          )\n\
+            a = 1\n\
+            b = 2\n\
+            c = 3\n\
+            d = 4\n\
+            e = 5\n\
+            f = 6\n\
+            g = 7\n\
+            h = 8\n\
+            i = 9\n\
+            j = 10\n\
+          end\n";
+        let diags = run_cop_full(&MethodLength, source);
+        assert!(
+            diags.is_empty(),
+            "10 body lines with multiline params should not fire (params not counted)"
         );
     }
 
