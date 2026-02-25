@@ -89,12 +89,30 @@ impl<'pr> Visit<'pr> for ConstantResolutionVisitor<'_, '_> {
         // not the ClassNode, so RuboCop still flags it — we match that behavior
         // by NOT marking ConstantPathNode ranges.
         let cp = node.constant_path();
-        let is_simple = cp.as_constant_read_node().is_some();
-        if is_simple {
+        let is_simple_name = cp.as_constant_read_node().is_some();
+        if is_simple_name {
             self.push_def_name_range(&cp);
         }
+
+        // RuboCop's `node.parent&.defined_module` returns truthy for ALL direct
+        // children of a class/module node, not just the name. This means the
+        // superclass constant in `class Foo < Bar` is also skipped. However, for
+        // qualified superclasses like `class Foo < Bar::Baz`, the inner `Bar` has
+        // a ConstantPathNode parent (not the ClassNode), so it IS flagged.
+        // We match this by marking simple ConstantReadNode superclasses only.
+        let is_simple_super = node
+            .superclass()
+            .is_some_and(|s| s.as_constant_read_node().is_some());
+        if let (true, Some(sup)) = (is_simple_super, node.superclass()) {
+            self.push_def_name_range(&sup);
+        }
+
         ruby_prism::visit_class_node(self, node);
-        if is_simple {
+
+        if is_simple_super {
+            self.pop_def_name_range();
+        }
+        if is_simple_name {
             self.pop_def_name_range();
         }
     }

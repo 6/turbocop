@@ -271,6 +271,8 @@ Use `/triage` to just view the ranked cop list without fixing. See `.claude/skil
 
 ## Corpus Investigation
 
+**IMPORTANT:** `investigate-cop.py` and `investigate-repo.py` auto-download corpus results from the latest CI corpus oracle run. Do NOT manually download artifacts with `gh run download` — just run the scripts directly, they handle fetching. When given a corpus oracle run URL, use these scripts instead of manually downloading.
+
 To investigate a cop's false positives/negatives without re-running turbocop, use `investigate-cop.py`. It reads pre-computed data from `corpus-results.json` (downloaded from CI) and shows all FP/FN locations grouped by repo:
 
 ```

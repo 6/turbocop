@@ -11,3 +11,8 @@ y = "hello"
 class Foo; end
 module Bar; end
 class Baz < ::ActiveRecord::Base; end
+# Unqualified superclass constants should not be flagged
+# (RuboCop skips all direct child constants of class/module nodes)
+class AddButtonComponent < ApplicationComponent; end
+class ShowPageHeaderComponent < ApplicationComponent; end
+class MyModel < ActiveRecord; end

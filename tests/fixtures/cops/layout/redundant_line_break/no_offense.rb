@@ -138,3 +138,37 @@ e.select { |i| i.cond? }
 # Index access call chained — see RuboCop's index_access_call_chained? check
 # hash[:foo] \
 #   [:bar]
+
+# Multiline method chain where full chain exceeds 120 chars — inner calls must not be flagged
+keys =
+  ApiKey
+    .where(hidden: false, archived: false, organization_id: current_organization.id)
+    .includes(:user, :permissions, :audit_logs)
+    .includes(:created_by)
+
+# Method chain where the outermost is too long, inner nodes should not be individually checked
+logs
+  .includes(:user, :actor, post: [:topic, :category])
+  .references(:user, :actor)
+  .where("created_at > ? AND action_type IN (?)", 30.days.ago, UserAction.types[:posted])
+  .order(created_at: :desc)
+
+# Constant receiver with long chain — outermost too long, inner nodes must be skipped
+Theme
+  .not_components
+  .where("themes.id = ? OR themes.enabled = ?", SiteSetting.default_theme_id, true)
+  .includes(:theme_site_settings)
+
+# Assignment with a multiline chain on the RHS that exceeds 120 chars
+result = Record
+  .where(status: :active, role: "admin", organization_id: current_organization.id)
+  .includes(:organization, :permissions, :audit_trail)
+  .order(created_at: :desc)
+  .limit(100)
+
+# Chain where an inner call spans only 2 lines but full chain is long
+User
+  .active
+  .where(role: "manager", department_id: Department.find_by(name: "Engineering").id)
+  .includes(:department, :reports, :direct_reports, :manager)
+  .order(:last_name, :first_name)

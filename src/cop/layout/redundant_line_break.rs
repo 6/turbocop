@@ -67,6 +67,7 @@ impl Cop for RedundantLineBreak {
             ast_diagnostics: Vec::new(),
             reported_starts: HashSet::new(),
             reported_ranges: Vec::new(),
+            checked_chain_ranges: Vec::new(),
         };
         visitor.visit(&parse_result.node());
 
@@ -223,6 +224,9 @@ struct RedundantLineBreakVisitor<'a> {
     reported_starts: HashSet<usize>,
     /// Byte ranges of nodes already reported, to skip descendant checks.
     reported_ranges: Vec<(usize, usize)>,
+    /// Byte ranges of outermost call chain nodes that were checked (whether reported or not).
+    /// Inner CallNodes within these ranges are skipped to match RuboCop's walk-up behavior.
+    checked_chain_ranges: Vec<(usize, usize)>,
 }
 
 impl RedundantLineBreakVisitor<'_> {
@@ -318,6 +322,18 @@ impl RedundantLineBreakVisitor<'_> {
             .any(|&(rs, re)| start_offset >= rs && end_offset <= re)
     }
 
+    /// Check if a node is an inner part of a call chain that was already checked.
+    /// This prevents inner CallNodes from being individually checked when the
+    /// outermost CallNode in the chain was already visited (and either reported or rejected).
+    /// Inner nodes may share the same start offset as the outermost (since CallNode
+    /// locations include the receiver), so we check for strictly smaller end offset
+    /// to identify inner nodes.
+    fn part_of_checked_chain(&self, start_offset: usize, end_offset: usize) -> bool {
+        self.checked_chain_ranges.iter().any(|&(cs, ce)| {
+            start_offset >= cs && end_offset <= ce && (start_offset > cs || end_offset < ce)
+        })
+    }
+
     fn register_offense(&mut self, start_offset: usize, end_offset: usize) {
         let (line, col) = self.source.offset_to_line_col(start_offset);
 
@@ -346,7 +362,19 @@ impl<'pr> Visit<'pr> for RedundantLineBreakVisitor<'_> {
 
         if self.is_multiline(start_offset, end_offset)
             && !self.part_of_reported_node(start_offset, end_offset)
+            && !self.part_of_checked_chain(start_offset, end_offset)
         {
+            // This is the outermost multiline CallNode in its chain (since we
+            // visit top-down and inner calls would be caught by part_of_checked_chain).
+            // Record it so inner CallNodes in the chain are skipped, matching
+            // RuboCop's walk-up-to-outermost behavior.
+            let has_call_receiver = node.receiver().and_then(|r| r.as_call_node()).is_some();
+            if has_call_receiver {
+                // This node has a call chain underneath. Mark the entire range
+                // so inner calls are not individually checked.
+                self.checked_chain_ranges.push((start_offset, end_offset));
+            }
+
             // Skip index access chains: hash[:foo][:bar]
             let is_index_chain = if node.name().as_slice() == b"[]" {
                 node.receiver()

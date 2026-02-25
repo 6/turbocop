@@ -243,8 +243,11 @@ impl ParenVisitor<'_> {
             }
         }
 
-        let loc = call.message_loc().unwrap_or_else(|| call.location());
-        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+        // RuboCop reports the offense at the start of the full expression (including
+        // receiver), not at the method name. Use call.location() to match.
+        let (line, column) = self
+            .source
+            .offset_to_line_col(call.location().start_offset());
         self.diagnostics.push(self.cop.diagnostic(
             self.source,
             line,
