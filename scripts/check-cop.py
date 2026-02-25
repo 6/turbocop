@@ -124,38 +124,48 @@ def run_turbocop_aggregate(cop_name: str) -> int:
         return -1
 
 
+def _run_one_repo(args: tuple[str, str]) -> tuple[str, int]:
+    """Run turbocop on a single repo. Used by the parallel executor."""
+    cop_name, repo_dir = args
+    repo_id = Path(repo_dir).name
+    try:
+        result = subprocess.run(
+            turbocop_cmd(cop_name, repo_dir),
+            capture_output=True, text=True, timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return (repo_id, -1)
+
+    if result.returncode not in (0, 1):
+        return (repo_id, -1)
+
+    try:
+        data = json.loads(result.stdout)
+        return (repo_id, count_deduplicated_offenses(data))
+    except json.JSONDecodeError:
+        return (repo_id, -1)
+
+
 def run_turbocop_per_repo(cop_name: str) -> dict[str, int]:
-    """Run turbocop --only on each corpus repo, return {repo_id: count}."""
-    counts = {}
-    repos = sorted(CORPUS_DIR.iterdir())
+    """Run turbocop --only on each corpus repo in parallel, return {repo_id: count}."""
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    repos = sorted(d for d in CORPUS_DIR.iterdir() if d.is_dir())
     total = len(repos)
+    work = [(cop_name, str(r)) for r in repos]
 
-    for i, repo_dir in enumerate(repos):
-        if not repo_dir.is_dir():
-            continue
-        repo_id = repo_dir.name
+    workers = min(os.cpu_count() or 4, 16)
+    counts = {}
+    done = 0
 
-        if (i + 1) % 50 == 0:
-            print(f"  [{i+1}/{total}] {repo_id}...", file=sys.stderr)
-
-        try:
-            result = subprocess.run(
-                turbocop_cmd(cop_name, str(repo_dir)),
-                capture_output=True, text=True, timeout=120,
-            )
-        except subprocess.TimeoutExpired:
-            counts[repo_id] = -1
-            continue
-
-        if result.returncode not in (0, 1):
-            counts[repo_id] = -1
-            continue
-
-        try:
-            data = json.loads(result.stdout)
-            counts[repo_id] = count_deduplicated_offenses(data)
-        except json.JSONDecodeError:
-            counts[repo_id] = -1
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_run_one_repo, w): w for w in work}
+        for future in as_completed(futures):
+            repo_id, count = future.result()
+            counts[repo_id] = count
+            done += 1
+            if done % 50 == 0:
+                print(f"  [{done}/{total}] {repo_id}...", file=sys.stderr)
 
     return counts
 
