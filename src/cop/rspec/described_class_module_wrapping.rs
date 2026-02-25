@@ -103,8 +103,7 @@ fn is_rspec_describe(node: &ruby_prism::Node<'_>) -> bool {
             return cp.name().is_some_and(|n| n.as_slice() == b"RSpec") && cp.parent().is_none();
         }
     }
-    // Receiverless describe is also an example group
-    call.receiver().is_none()
+    false
 }
 
 #[cfg(test)]
