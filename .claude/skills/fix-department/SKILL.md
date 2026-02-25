@@ -15,17 +15,23 @@ incremental adoption.
 
 ### Phase 0: Assess (you do this)
 
-1. Show the gem conformance scoreboard:
+1. **Always start with the scoreboard.** Run the script and **paste its full output verbatim
+   to the user** (the table IS the primary output — do not summarize or skip it):
    ```bash
-   python3 .claude/skills/fix-department/scripts/gem_progress.py --summary $ARGUMENTS
+   python3 .claude/skills/fix-department/scripts/gem_progress.py $ARGUMENTS
    ```
+   This auto-detects `fix-cops-done.txt` and shows already-fixed cops as "Fixed (pending
+   corpus confirmation)" so the scoreboard reflects reality between corpus runs.
+   The script also prints a recommendation at the bottom.
 
-2. If the user specified a gem, or pick one from the scoreboard (prefer smallest divergence count). Run the deep-dive:
+2. **If no gem was specified**, after showing the table, let the user pick a gem.
+
+3. **Once a gem is chosen** (by user or from args), run the deep-dive:
    ```bash
    python3 .claude/skills/fix-department/scripts/gem_progress.py --gem <gem-name> $ARGUMENTS
    ```
 
-3. Show the user the gem status and confirm the target.
+4. Show the user the gem status and confirm the target.
 
 ### Phase 1: Plan Batch (you do this)
 
@@ -134,14 +140,20 @@ to 100% corpus conformance. Follow the CLAUDE.md rules strictly.
    python3 scripts/check-cop.py Department/CopName --verbose --rerun
    ```
 
-5. Re-run the gem deep-dive to see updated progress:
+5. Record fixed cops in `fix-cops-done.txt` (shared with `/fix-cops` — both track
+   cops fixed since the last corpus oracle run):
+   ```bash
+   echo "Department/CopName" >> fix-cops-done.txt
+   ```
+
+6. Re-run the gem deep-dive to see updated progress:
    ```bash
    python3 .claude/skills/fix-department/scripts/gem_progress.py --gem <gem-name>
    ```
    Note: This still reads the original corpus data. Per-cop verification via check-cop.py
    gives the ground truth for fixed cops.
 
-6. If diverging cops remain, go back to Phase 1 for the next batch.
+7. If diverging cops remain, go back to Phase 1 for the next batch.
 
 7. For cops that teammates couldn't fix, decide whether to:
    - Retry with more context in the next batch
@@ -169,20 +181,20 @@ When all cops in the gem are at 0 FP + 0 FN (or explicitly deferred):
 
 ## Arguments
 
-The first positional argument is the gem name. Additional arguments are passed through:
-- `/fix-department rubocop-performance` — target rubocop-performance
-- `/fix-department rubocop-rspec` — target rubocop-rspec
-- `/fix-department --summary` — just show the gem scoreboard
-- `/fix-department rubocop-performance --input /path/to/corpus-results.json` — use local file
+- `/fix-department` — **show the scoreboard, recommend a gem, and ask** which to target
+- `/fix-department rubocop-performance` — target rubocop-performance directly
+- `/fix-department rubocop-rspec` — target rubocop-rspec directly
+- `/fix-department --input /path/to/corpus-results.json` — use local corpus file
 
-If no gem is specified and --summary is not given, show the scoreboard and ask the user which gem to target.
+## How to Choose the Next Gem
 
-## Recommended Gem Order
+The scoreboard (`gem_progress.py --summary`) shows per-gem stats. Prioritize by:
 
-Target gems from smallest to largest divergence for quick wins:
-1. rubocop-rspec_rails (8 cops)
-2. rubocop-factory_bot (11 cops)
-3. rubocop-performance (52 cops)
-4. rubocop-rspec (113 cops)
-5. rubocop-rails (138 cops)
-6. rubocop core — too large as a unit; use `/fix-cops` or target by department
+1. **Zero untested cops** — only gems where every cop triggered on the 500-repo corpus
+   can claim true 100% conformance. Gems with untested cops get an asterisk. The "Untest"
+   column in the scoreboard shows this.
+2. **Fewest diverging cops** — less work to complete the gem. The "Dvrg" column shows this.
+3. **Adoption value** — rubocop-performance is the most commonly added plugin, so completing
+   it has more impact than rubocop-factory_bot, even if factory_bot is smaller.
+4. **FP-free first** — a gem with 0 FP but some FN is already safe to adopt (no false alarms).
+   Fix FNs later for completeness.

@@ -88,9 +88,40 @@ def cop_gem(cop_name: str) -> str:
     return DEPT_TO_GEM.get(dept, "unknown")
 
 
+def find_project_root() -> Path:
+    """Find the git repo root."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        return Path(result.stdout.strip())
+    # Fallback: walk up from script location
+    return Path(__file__).resolve().parent.parent.parent.parent.parent
+
+
+def load_fixed_cops(exclude_file: Path | None) -> set[str]:
+    """Load cops treated as already fixed from fix-cops-done.txt.
+
+    Auto-detects fix-cops-done.txt in the project root if no file is specified.
+    """
+    if exclude_file is None:
+        exclude_file = find_project_root() / "fix-cops-done.txt"
+
+    if not exclude_file.exists():
+        return set()
+
+    cops = set()
+    for line in exclude_file.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            cops.add(line)
+    return cops
+
+
 def get_registry_cops() -> set[str]:
     """Get all cop names from turbocop's registry via --list-cops."""
-    project_root = Path(__file__).resolve().parent.parent.parent.parent
+    project_root = find_project_root()
     result = subprocess.run(
         ["cargo", "run", "--release", "--", "--list-cops"],
         capture_output=True, text=True, cwd=project_root,
@@ -101,13 +132,18 @@ def get_registry_cops() -> set[str]:
     return {line.strip() for line in result.stdout.strip().splitlines() if "/" in line}
 
 
-def build_gem_stats(by_cop: list[dict], registry_cops: set[str] | None = None) -> dict[str, dict]:
+def build_gem_stats(by_cop: list[dict], registry_cops: set[str] | None = None,
+                    fixed_cops: set[str] | None = None) -> dict[str, dict]:
     """Aggregate per-cop data into per-gem stats.
 
     If registry_cops is provided, also tracks cops that exist in the registry
     but have no corpus data (never triggered on the 500 repos).
+    If fixed_cops is provided, cops listed there are moved from diverging to
+    "fixed (pending confirmation)" — they still show in the data but don't count
+    as diverging.
     """
     corpus_cop_names = {c["cop"] for c in by_cop}
+    fixed = fixed_cops or set()
 
     gems = {}
     for gem_name in GEM_DEPARTMENTS:
@@ -116,6 +152,7 @@ def build_gem_stats(by_cop: list[dict], registry_cops: set[str] | None = None) -
             "total_in_registry": 0,
             "untested": 0,       # in registry but not in corpus (never triggered)
             "perfect": 0,        # in corpus, matches>0, 0 FP, 0 FN
+            "fixed": 0,          # was diverging but listed in fix-cops-done.txt
             "diverging": 0,
             "fp_only": 0,
             "fn_only": 0,
@@ -124,6 +161,7 @@ def build_gem_stats(by_cop: list[dict], registry_cops: set[str] | None = None) -
             "total_fn": 0,
             "total_matches": 0,
             "cops": [],          # all cops in this gem from corpus data
+            "fixed_cops": [],    # cop names treated as fixed
             "untested_cops": [],  # cop names missing from corpus
         }
 
@@ -149,8 +187,14 @@ def build_gem_stats(by_cop: list[dict], registry_cops: set[str] | None = None) -
         g["total_matches"] += c["matches"]
         g["cops"].append(c)
 
-        if c["fp"] == 0 and c["fn"] == 0:
+        is_diverging = c["fp"] > 0 or c["fn"] > 0
+        is_fixed = c["cop"] in fixed
+
+        if not is_diverging:
             g["perfect"] += 1
+        elif is_fixed:
+            g["fixed"] += 1
+            g["fixed_cops"].append(c["cop"])
         elif c["fp"] > 0 and c["fn"] == 0:
             g["fp_only"] += 1
             g["diverging"] += 1
@@ -161,9 +205,10 @@ def build_gem_stats(by_cop: list[dict], registry_cops: set[str] | None = None) -
             g["both"] += 1
             g["diverging"] += 1
 
-    # Sort untested cop lists for stable output
+    # Sort lists for stable output
     for g in gems.values():
         g["untested_cops"].sort()
+        g["fixed_cops"].sort()
 
     return gems
 
@@ -181,60 +226,128 @@ def print_summary(gems: dict[str, dict], run_date: str, summary: dict, has_regis
     gem_w = max(len(g) for g, _ in sorted_gems)
     gem_w = max(gem_w, 3)
 
+    has_fixed = any(g["fixed"] > 0 for _, g in sorted_gems)
+
     # Adapt columns based on whether we have registry data
     if has_registry:
-        print(f"  {'Gem':<{gem_w}}  {'Reg':>4}  {'Corpus':>6}  {'Untest':>6}  {'Perf':>5}  {'Dvrg':>5}  "
-              f"{'Total FP':>9}  {'Total FN':>9}  Status")
-        print(f"  {'':->{gem_w}}  {'':->4}  {'':->6}  {'':->6}  {'':->5}  {'':->5}  "
-              f"{'':->9}  {'':->9}  {'':->30}")
+        hdr = f"  {'Gem':<{gem_w}}  {'Reg':>4}  {'Corpus':>6}  {'Untest':>6}  {'Perf':>5}"
+        sep = f"  {'':->{gem_w}}  {'':->4}  {'':->6}  {'':->6}  {'':->5}"
+        if has_fixed:
+            hdr += f"  {'Fixed':>5}"
+            sep += f"  {'':->5}"
+        hdr += f"  {'Dvrg':>5}  {'Total FP':>9}  {'Total FN':>9}  Status"
+        sep += f"  {'':->5}  {'':->9}  {'':->9}  {'':->30}"
+        print(hdr)
+        print(sep)
     else:
-        print(f"  {'Gem':<{gem_w}}  {'Corpus':>6}  {'Perf':>5}  {'Dvrg':>5}  "
-              f"{'Total FP':>9}  {'Total FN':>9}  Status")
-        print(f"  {'':->{gem_w}}  {'':->6}  {'':->5}  {'':->5}  "
-              f"{'':->9}  {'':->9}  {'':->30}")
+        hdr = f"  {'Gem':<{gem_w}}  {'Corpus':>6}  {'Perf':>5}"
+        sep = f"  {'':->{gem_w}}  {'':->6}  {'':->5}"
+        if has_fixed:
+            hdr += f"  {'Fixed':>5}"
+            sep += f"  {'':->5}"
+        hdr += f"  {'Dvrg':>5}  {'Total FP':>9}  {'Total FN':>9}  Status"
+        sep += f"  {'':->5}  {'':->9}  {'':->9}  {'':->30}"
+        print(hdr)
+        print(sep)
 
     for gem, g in sorted_gems:
         if g["total_in_corpus"] == 0 and g["total_in_registry"] == 0:
             continue
 
         # Determine status
-        if g["diverging"] == 0 and g["untested"] == 0:
+        if g["diverging"] == 0 and g["untested"] == 0 and g["fixed"] == 0:
             status = "100% conformance"
+        elif g["diverging"] == 0 and g["fixed"] > 0 and g["untested"] == 0:
+            status = "done (pending corpus confirmation)"
         elif g["diverging"] == 0 and g["untested"] > 0:
             status = f"0 FP/FN but {g['untested']} untested"
         elif g["total_fp"] == 0:
             status = f"FP-free! {g['diverging']} FN-only cops"
         else:
-            status = f"{g['diverging']} to fix"
+            parts = [f"{g['diverging']} to fix"]
+            if g["fixed"] > 0:
+                parts.append(f"{g['fixed']} fixed")
             if g["untested"] > 0:
-                status += f", {g['untested']} untested"
+                parts.append(f"{g['untested']} untested")
+            status = ", ".join(parts)
 
         if has_registry:
-            print(f"  {gem:<{gem_w}}  {g['total_in_registry']:>4}  {g['total_in_corpus']:>6}  {g['untested']:>6}  "
-                  f"{g['perfect']:>5}  {g['diverging']:>5}  "
-                  f"{fmt_count(g['total_fp']):>9}  {fmt_count(g['total_fn']):>9}  {status}")
+            row = f"  {gem:<{gem_w}}  {g['total_in_registry']:>4}  {g['total_in_corpus']:>6}  {g['untested']:>6}  {g['perfect']:>5}"
+            if has_fixed:
+                row += f"  {g['fixed']:>5}"
+            row += f"  {g['diverging']:>5}  {fmt_count(g['total_fp']):>9}  {fmt_count(g['total_fn']):>9}  {status}"
         else:
-            print(f"  {gem:<{gem_w}}  {g['total_in_corpus']:>6}  {g['perfect']:>5}  {g['diverging']:>5}  "
-                  f"{fmt_count(g['total_fp']):>9}  {fmt_count(g['total_fn']):>9}  {status}")
+            row = f"  {gem:<{gem_w}}  {g['total_in_corpus']:>6}  {g['perfect']:>5}"
+            if has_fixed:
+                row += f"  {g['fixed']:>5}"
+            row += f"  {g['diverging']:>5}  {fmt_count(g['total_fp']):>9}  {fmt_count(g['total_fn']):>9}  {status}"
+        print(row)
 
     print()
 
     # Legend
     if has_registry:
-        print("  Reg=registry cops  Corpus=triggered on 500 repos  Untest=never triggered  Perf=0 FP+FN  Dvrg=FP or FN >0")
+        legend = "  Reg=registry cops  Corpus=triggered on 500 repos  Untest=never triggered  Perf=0 FP+FN"
+        if has_fixed:
+            legend += "  Fixed=pending confirm"
+        legend += "  Dvrg=FP or FN >0"
+        print(legend)
         print()
 
     # Summary stats
     total_diverging = sum(g["diverging"] for g in gems.values())
     total_perfect = sum(g["perfect"] for g in gems.values())
+    total_fixed = sum(g["fixed"] for g in gems.values())
     total_untested = sum(g["untested"] for g in gems.values())
     gems_at_100 = sum(1 for g in gems.values()
                       if g["diverging"] == 0 and g["untested"] == 0
                       and (g["total_in_corpus"] > 0 or g["total_in_registry"] > 0))
     total_gems = sum(1 for g in gems.values()
                      if g["total_in_corpus"] > 0 or g["total_in_registry"] > 0)
-    print(f"Overall: {gems_at_100}/{total_gems} gems at 100% conformance, "
-          f"{total_perfect} verified perfect, {total_diverging} diverging, {total_untested} untested")
+    parts = [f"{gems_at_100}/{total_gems} gems at 100% conformance",
+             f"{total_perfect} verified perfect"]
+    if total_fixed:
+        parts.append(f"{total_fixed} fixed (pending)")
+    parts.extend([f"{total_diverging} diverging", f"{total_untested} untested"])
+    print(f"Overall: {', '.join(parts)}")
+
+    # Recommendation: pick the best next target
+    candidates = [(name, g) for name, g in sorted_gems
+                  if g["diverging"] > 0 and (g["total_in_corpus"] > 0 or g["total_in_registry"] > 0)]
+    if not candidates:
+        return
+
+    print()
+    print("Recommendation:")
+
+    # Prefer gems with 0 untested (can claim true 100%)
+    full_coverage = [(n, g) for n, g in candidates if g["untested"] == 0]
+    if full_coverage:
+        best_name, best = min(full_coverage, key=lambda x: x[1]["diverging"])
+        print(f"  Best target: {best_name} ({best['diverging']} diverging, 0 untested = clean 100% claim)")
+    else:
+        # No gem has full corpus coverage; recommend by adoption value since all have asterisks
+        # Adoption value: performance (most added plugin) > rspec_rails (small) > rails > rspec > core
+        adoption_rank = {
+            "rubocop-performance": (0, "most commonly added plugin"),
+            "rubocop-rspec_rails": (1, "smallest, easiest to complete"),
+            "rubocop-rails": (2, "large Rails ecosystem"),
+            "rubocop-rspec": (3, "widely used"),
+            "rubocop": (4, "too large — use /fix-cops instead"),
+        }
+        best_name, best = min(candidates,
+                              key=lambda x: adoption_rank.get(x[0], (99, ""))[0])
+        reason = adoption_rank.get(best_name, (99, ""))[1]
+        print(f"  Best target: {best_name} ({best['diverging']} diverging, {best['untested']} untested) — {reason}")
+        # Also mention the quickest win
+        quickest_name, quickest = min(candidates, key=lambda x: x[1]["diverging"])
+        if quickest_name != best_name:
+            print(f"  Quickest win: {quickest_name} ({quickest['diverging']} diverging) — least work to complete")
+        print(f"  Note: No remaining gem has 0 untested cops — true 100% needs all cops to trigger on corpus.")
+
+    # Show quick-win info
+    if best["fp_only"] > 0:
+        print(f"  Quick wins: {best['fp_only']} FP-only cops (fix first, no risk of introducing FNs)")
 
 
 def print_gem_detail(gem_name: str, gems: dict[str, dict], run_date: str):
@@ -251,14 +364,18 @@ def print_gem_detail(gem_name: str, gems: dict[str, dict], run_date: str):
         print(f"No corpus data for {gem_name} (0 cops found in corpus results)")
         return
 
-    # Categorize cops
+    fixed_set = set(g["fixed_cops"])
+
+    # Categorize cops (exclude fixed cops from diverging categories)
     perfect = sorted([c for c in cops if c["fp"] == 0 and c["fn"] == 0],
                      key=lambda c: c["cop"])
-    fp_only = sorted([c for c in cops if c["fp"] > 0 and c["fn"] == 0],
+    fixed = sorted([c for c in cops if c["cop"] in fixed_set],
+                   key=lambda c: c["cop"])
+    fp_only = sorted([c for c in cops if c["fp"] > 0 and c["fn"] == 0 and c["cop"] not in fixed_set],
                      key=lambda c: c["fp"], reverse=True)
-    fn_only = sorted([c for c in cops if c["fp"] == 0 and c["fn"] > 0],
+    fn_only = sorted([c for c in cops if c["fp"] == 0 and c["fn"] > 0 and c["cop"] not in fixed_set],
                      key=lambda c: c["fn"], reverse=True)
-    both = sorted([c for c in cops if c["fp"] > 0 and c["fn"] > 0],
+    both = sorted([c for c in cops if c["fp"] > 0 and c["fn"] > 0 and c["cop"] not in fixed_set],
                   key=lambda c: c["fp"], reverse=True)
 
     print(f"{gem_name} — Conformance Deep Dive ({run_date})")
@@ -279,6 +396,22 @@ def print_gem_detail(gem_name: str, gems: dict[str, dict], run_date: str):
         names = [c["cop"].split("/")[1] for c in perfect]
         print(f"Perfect ({len(perfect)}):")
         # Wrap at ~100 chars
+        line = "  "
+        for i, name in enumerate(names):
+            addition = name + (", " if i < len(names) - 1 else "")
+            if len(line) + len(addition) > 100:
+                print(line)
+                line = "  " + addition
+            else:
+                line += addition
+        if line.strip():
+            print(line)
+        print()
+
+    # Fixed cops (pending corpus confirmation)
+    if fixed:
+        names = [c["cop"].split("/")[1] for c in fixed]
+        print(f"Fixed — pending corpus confirmation ({len(fixed)}):")
         line = "  "
         for i, name in enumerate(names):
             addition = name + (", " if i < len(names) - 1 else "")
@@ -365,12 +498,13 @@ def main():
                         help="Show overview scoreboard of all gems")
     parser.add_argument("--gem", type=str,
                         help="Deep-dive into a specific gem (e.g., rubocop-performance)")
+    parser.add_argument("--exclude-cops-file", type=Path,
+                        help="File with cop names to treat as fixed (default: auto-detect fix-cops-done.txt)")
     args = parser.parse_args()
 
+    # Default to --summary when no args given
     if not args.summary and not args.gem:
-        print("Specify --summary or --gem <name>", file=sys.stderr)
-        print(f"Available gems: {', '.join(sorted(GEM_DEPARTMENTS.keys()))}", file=sys.stderr)
-        sys.exit(1)
+        args.summary = True
 
     # Load corpus results
     if args.input:
@@ -390,7 +524,12 @@ def main():
     if not has_registry:
         print("Warning: running without registry data — untested cops won't be shown", file=sys.stderr)
 
-    gems = build_gem_stats(by_cop, registry_cops if has_registry else None)
+    # Load fixed cops (auto-detect fix-cops-done.txt if not specified)
+    fixed_cops = load_fixed_cops(args.exclude_cops_file)
+    if fixed_cops:
+        print(f"Treating {len(fixed_cops)} cops as fixed (pending corpus confirmation)", file=sys.stderr)
+
+    gems = build_gem_stats(by_cop, registry_cops if has_registry else None, fixed_cops)
 
     if args.summary:
         print_summary(gems, run_date, summary, has_registry)

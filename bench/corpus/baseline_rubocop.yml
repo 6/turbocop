@@ -1,6 +1,10 @@
 # Baseline RuboCop config for corpus oracle runs.
 # All defaults, all plugins enabled. Used in baseline mode where
 # the repo's own .rubocop.yml is ignored.
+#
+# Cops that are Enabled: false in vendor defaults are explicitly enabled
+# below so we test ALL implementations against the 500-repo corpus.
+# NewCops: enable covers Enabled: pending cops automatically.
 
 require:
   - rubocop-rails
@@ -13,6 +17,7 @@ AllCops:
   NewCops: enable
   SuggestExtensions: false
   TargetRubyVersion: 3.4
+  TargetRailsVersion: 7.0
   # Standard junk exclusions — same for both tools
   Exclude:
     - "vendor/**/*"
@@ -24,3 +29,179 @@ AllCops:
     - ".git/**/*"
     - "db/schema.rb"
     - "bin/**/*"
+
+# ============================================================================
+# Cops with Enabled: false in vendor defaults — explicitly enable for corpus.
+# These are opt-in cops that won't fire under standard configs. Enabling them
+# ensures turbocop's implementations are tested against real-world code.
+# ============================================================================
+
+# rubocop core (54 cops)
+Bundler/GemComment:
+  Enabled: true
+Bundler/GemVersion:
+  Enabled: true
+Gemspec/DependencyVersion:
+  Enabled: true
+Layout/ClassStructure:
+  Enabled: true
+Layout/EmptyLineAfterMultilineCondition:
+  Enabled: true
+Layout/FirstArrayElementLineBreak:
+  Enabled: true
+Layout/FirstHashElementLineBreak:
+  Enabled: true
+Layout/FirstMethodArgumentLineBreak:
+  Enabled: true
+Layout/FirstMethodParameterLineBreak:
+  Enabled: true
+Layout/HeredocArgumentClosingParenthesis:
+  Enabled: true
+Layout/MultilineArrayLineBreaks:
+  Enabled: true
+Layout/MultilineAssignmentLayout:
+  Enabled: true
+Layout/MultilineHashKeyLineBreaks:
+  Enabled: true
+Layout/MultilineMethodArgumentLineBreaks:
+  Enabled: true
+Layout/MultilineMethodParameterLineBreaks:
+  Enabled: true
+Layout/RedundantLineBreak:
+  Enabled: true
+Layout/SingleLineBlockChain:
+  Enabled: true
+Lint/ConstantResolution:
+  Enabled: true
+Lint/HeredocMethodCallPosition:
+  Enabled: true
+Lint/NumberConversion:
+  Enabled: true
+Lint/ShadowingOuterLocalVariable:
+  Enabled: true
+Naming/InclusiveLanguage:
+  Enabled: true
+Style/ArrayCoercion:
+  Enabled: true
+Style/ArrayFirstLast:
+  Enabled: true
+Style/AsciiComments:
+  Enabled: true
+Style/AutoResourceCleanup:
+  Enabled: true
+Style/ClassMethodsDefinitions:
+  Enabled: true
+Style/CollectionMethods:
+  Enabled: true
+Style/ConstantVisibility:
+  Enabled: true
+Style/Copyright:
+  Enabled: true
+Style/DateTime:
+  Enabled: true
+Style/DisableCopsWithinSourceCodeDirective:
+  Enabled: true
+Style/DocumentationMethod:
+  Enabled: true
+Style/HashLookupMethod:
+  Enabled: true
+Style/ImplicitRuntimeError:
+  Enabled: true
+Style/InlineComment:
+  Enabled: true
+Style/InvertibleUnlessCondition:
+  Enabled: true
+Style/IpAddresses:
+  Enabled: true
+Style/MethodCallWithArgsParentheses:
+  Enabled: true
+Style/MethodCalledOnDoEndBlock:
+  Enabled: true
+Style/MissingElse:
+  Enabled: true
+Style/MultilineMethodSignature:
+  Enabled: true
+Style/OptionHash:
+  Enabled: true
+Style/RequireOrder:
+  Enabled: true
+Style/ReturnNil:
+  Enabled: true
+Style/Send:
+  Enabled: true
+Style/SingleLineBlockParams:
+  Enabled: true
+Style/StaticClass:
+  Enabled: true
+Style/StringHashKeys:
+  Enabled: true
+Style/StringMethods:
+  Enabled: true
+Style/TopLevelMethodDefinition:
+  Enabled: true
+Style/TrailingCommaInBlockArgs:
+  Enabled: true
+Style/UnlessLogicalOperators:
+  Enabled: true
+Style/YodaExpression:
+  Enabled: true
+
+# rubocop-performance (9 cops)
+Performance/ArraySemiInfiniteRangeSlice:
+  Enabled: true
+Performance/BigDecimalWithNumericArgument:
+  Enabled: true
+Performance/BlockGivenWithExplicitBlock:
+  Enabled: true
+Performance/CaseWhenSplat:
+  Enabled: true
+Performance/Casecmp:
+  Enabled: true
+Performance/ChainArrayAllocation:
+  Enabled: true
+Performance/IoReadlines:
+  Enabled: true
+Performance/OpenStruct:
+  Enabled: true
+Performance/SelectMap:
+  Enabled: true
+
+# rubocop-rails (12 cops)
+Rails/ActionFilter:
+  Enabled: true
+Rails/DefaultScope:
+  Enabled: true
+Rails/Env:
+  Enabled: true
+Rails/EnvironmentVariableAccess:
+  Enabled: true
+Rails/OrderById:
+  Enabled: true
+Rails/PluckId:
+  Enabled: true
+Rails/RequireDependency:
+  Enabled: true
+Rails/ReversibleMigrationMethodDefinition:
+  Enabled: true
+Rails/SaveBang:
+  Enabled: true
+Rails/SchemaComment:
+  Enabled: true
+Rails/TableNameAssignment:
+  Enabled: true
+Rails/UnusedIgnoredColumns:
+  Enabled: true
+
+# rubocop-rspec (6 cops)
+RSpec/AlignLeftLetBrace:
+  Enabled: true
+RSpec/AlignRightLetBrace:
+  Enabled: true
+RSpec/DescribedClassModuleWrapping:
+  Enabled: true
+RSpec/Dialect:
+  Enabled: true
+RSpec/MessageExpectation:
+  Enabled: true
+RSpec/Pending:
+  Enabled: true
