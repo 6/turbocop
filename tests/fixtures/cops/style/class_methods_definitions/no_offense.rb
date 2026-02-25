@@ -71,3 +71,48 @@ class H
     end
   end
 end
+
+# Mixed public and protected — not ALL methods are public
+class I
+  class << self
+    def address
+      "ak_123"
+    end
+
+    protected
+
+    def rand_strings
+      "abc"
+    end
+  end
+end
+
+# Mixed public and private — not ALL methods are public
+class J
+  class << self
+    def visible
+      42
+    end
+
+    private
+
+    def helper
+      1
+    end
+  end
+end
+
+# private then public restores visibility but private def remains
+class K
+  class << self
+    private
+
+    def helper
+    end
+
+    public
+
+    def visible
+    end
+  end
+end

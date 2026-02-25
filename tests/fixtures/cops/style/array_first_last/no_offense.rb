@@ -15,3 +15,10 @@ results[:rows][-1]
 arr[0][-1]
 items[-1][0]
 records[0][:name]
+
+# [0]/[-1] used as argument to []/[]= (parent is a bracket call)
+hash[arr[0]]
+positions[id_pair[0]] = id_pair[1]
+opts[-1][:host] = context.host_name
+data[items[0]] = value
+config[settings[-1]]

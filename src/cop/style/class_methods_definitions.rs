@@ -30,9 +30,9 @@ impl Cop for ClassMethodsDefinitions {
             if let Some(sclass) = node.as_singleton_class_node() {
                 let expr = sclass.expression();
                 if expr.as_self_node().is_some() {
-                    // Check if body has public def nodes
+                    // Check if body has defs and ALL are public
                     if let Some(body) = sclass.body() {
-                        if has_public_defs(&body) {
+                        if all_defs_public(&body) {
                             let loc = sclass.location();
                             let (line, column) = source.offset_to_line_col(loc.start_offset());
                             diagnostics.push(self.diagnostic(
@@ -49,12 +49,20 @@ impl Cop for ClassMethodsDefinitions {
     }
 }
 
-fn has_public_defs(body: &ruby_prism::Node<'_>) -> bool {
+/// Returns true if the sclass body contains at least one `def` node and
+/// ALL `def` nodes are public (no private/protected methods). This matches
+/// RuboCop's `all_methods_public?` which only flags `class << self` when
+/// every method can be trivially converted to `def self.method_name`.
+fn all_defs_public(body: &ruby_prism::Node<'_>) -> bool {
     let stmts = match body.as_statements_node() {
         Some(s) => s,
-        None => return false,
+        None => {
+            // Single-statement body: check if it's a def node
+            return body.as_def_node().is_some();
+        }
     };
 
+    let mut found_def = false;
     let mut in_private = false;
     for stmt in stmts.body().iter() {
         // Check for access modifier calls (private, protected, public)
@@ -73,16 +81,19 @@ fn has_public_defs(body: &ruby_prism::Node<'_>) -> bool {
                     }
                 } else if name == b"private" || name == b"protected" {
                     // Inline modifier: `private def foo` / `protected def bar`
-                    // The def is an argument to the call, so it's not a public def.
+                    // The def is non-public — not all methods are public.
+                    if call.arguments().is_some_and(|args| {
+                        args.arguments().iter().any(|a| a.as_def_node().is_some())
+                    }) {
+                        return false;
+                    }
                     continue;
                 } else if name == b"public" {
-                    // `public def foo` — the def is public, but it's inside the
-                    // arguments, not a standalone def_node. We need to check if
-                    // the argument is a def.
+                    // `public def foo` — the def is explicitly public.
                     if let Some(args) = call.arguments() {
                         for arg in args.arguments().iter() {
                             if arg.as_def_node().is_some() {
-                                return true;
+                                found_def = true;
                             }
                         }
                     }
@@ -91,11 +102,14 @@ fn has_public_defs(body: &ruby_prism::Node<'_>) -> bool {
             }
         }
 
-        if stmt.as_def_node().is_some() && !in_private {
-            return true;
+        if stmt.as_def_node().is_some() {
+            if in_private {
+                return false; // Non-public def found — not all defs are public
+            }
+            found_def = true;
         }
     }
-    false
+    found_def
 }
 
 #[cfg(test)]
