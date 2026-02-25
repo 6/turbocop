@@ -237,8 +237,8 @@ jobs:
       - name: Print summary
         run: |
           cat corpus-results.md
-          # Step summary has a 1024k limit; truncate to the summary table only
-          head -c 1000000 corpus-results.md >> "$GITHUB_STEP_SUMMARY" || true
+          # Step summary has a 1024k limit; keep just the top tables
+          head -c 128000 corpus-results.md >> "$GITHUB_STEP_SUMMARY" || true
 
       - name: Upload report
         uses: actions/upload-artifact@v4
