@@ -112,14 +112,20 @@ You are fixing false positives in a single turbocop cop. Follow the CLAUDE.md ru
    cargo test --release
    ```
 
-4. Record fixed cops so the next `/fix-cops` run skips them:
+4. Verify each fixed cop against the corpus:
+   ```bash
+   python3 scripts/check-cop.py Department/CopName --verbose --rerun
+   ```
+   Run these in parallel (background). Every cop must show `PASS` with 0 excess offenses.
+
+5. Record fixed cops so the next `/fix-cops` run skips them:
    ```bash
    # Append each successfully fixed cop to the tracking file
    echo "Style/CopName" >> fix-cops-done.txt
    ```
    This file is gitignored and persists between runs. It resets when you rerun the corpus oracle (delete it manually or when new corpus data arrives).
 
-5. Report to the user:
+6. Report to the user:
    - Which cops were fixed (with FP counts)
    - Which cops couldn't be fixed (and why)
    - Summary of changes ready for commit/PR
