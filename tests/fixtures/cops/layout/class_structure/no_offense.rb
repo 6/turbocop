@@ -44,3 +44,34 @@ class Qux
     "Hi"
   end
 end
+
+# Multiple class methods in correct order
+class MultipleClassMethods
+  def self.first_class_method
+    1
+  end
+  def self.second_class_method
+    2
+  end
+  def initialize
+    @x = 1
+  end
+  def instance_method
+    3
+  end
+end
+
+# Protected then private in correct order
+class VisibilityOrder
+  def public_method
+    1
+  end
+  protected
+  def protected_method
+    2
+  end
+  private
+  def private_method
+    3
+  end
+end
