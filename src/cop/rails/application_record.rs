@@ -127,4 +127,33 @@ mod tests {
             "Should not fire when TargetRailsVersion is not set (non-Rails project)"
         );
     }
+
+    #[test]
+    fn skipped_when_railties_not_in_lockfile() {
+        // RuboCop 1.84+ uses `requires_gem 'railties'` to gate Rails cops.
+        // Even with TargetRailsVersion set, the cop should not fire if
+        // railties is not in the project's Gemfile.lock.
+        let source = b"class User < ActiveRecord::Base\nend\n";
+        let mut options = HashMap::new();
+        options.insert(
+            "TargetRailsVersion".to_string(),
+            serde_yml::Value::Number(serde_yml::Number::from(7.0)),
+        );
+        // Note: __RailtiesInLockfile is NOT set, simulating a project
+        // with TargetRailsVersion in config but no railties in Gemfile.lock
+        let config = CopConfig {
+            options,
+            ..CopConfig::default()
+        };
+        let diagnostics = crate::testutil::run_cop_full_internal(
+            &ApplicationRecord,
+            source,
+            config,
+            "test.rb",
+        );
+        assert!(
+            diagnostics.is_empty(),
+            "Should not fire when railties is not in Gemfile.lock (matches RuboCop 1.84+ requires_gem gate)"
+        );
+    }
 }
