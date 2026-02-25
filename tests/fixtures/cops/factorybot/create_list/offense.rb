@@ -10,3 +10,9 @@
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ FactoryBot/CreateList: Prefer create_list.
 [create(:user, point: rand), create(:user, point: rand)]
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ FactoryBot/CreateList: Prefer 2.times.map.
+Array.new(3) { create(:user) }
+^^^^^^^^^^^^ FactoryBot/CreateList: Prefer create_list.
+Array.new(5) { create(:player) }
+^^^^^^^^^^^^ FactoryBot/CreateList: Prefer create_list.
+Array.new(3) { FactoryBot.create(:user) }
+^^^^^^^^^^^^ FactoryBot/CreateList: Prefer create_list.

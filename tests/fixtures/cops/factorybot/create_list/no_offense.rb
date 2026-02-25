@@ -8,8 +8,10 @@ create_list(:user, 5, :trait)
 # Value omission args should not be flagged
 3.times { create(:item, checklist:, checked: true) }
 2.times { create(:refund, purchase:, amount_cents: 10) }
-# Array.new pattern is NOT flagged by RuboCop
-Array.new(3) { create(:user) }
+# Array with interpolated symbol factory names (not identical)
+%w[fandom character].each do |type|
+  [create(:"canonical_#{type}"), create(:"canonical_#{type}")]
+end
 # Array with different create calls
 [create(:user), create(:user, age: 18)]
 # Array with single create

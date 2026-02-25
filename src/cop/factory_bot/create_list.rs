@@ -117,6 +117,15 @@ impl CreateList {
             }
         }
 
+        // If the first argument is an interpolated symbol (e.g. :"canonical_#{type}"),
+        // the calls may produce different values at runtime despite identical source text.
+        if let Some(args) = first.arguments() {
+            let arg_list: Vec<_> = args.arguments().iter().collect();
+            if !arg_list.is_empty() && arg_list[0].as_interpolated_symbol_node().is_some() {
+                return Vec::new();
+            }
+        }
+
         // Check if args contain method calls — in that case, suggest n.times.map instead
         let has_method_calls = if let Some(args) = first.arguments() {
             let arg_list: Vec<_> = args.arguments().iter().collect();
@@ -283,6 +292,34 @@ fn get_repeat_count_from_source(
                 if times_call.name().as_slice() == b"times" {
                     if let Some(int_recv) = times_call.receiver() {
                         if let Some(int) = int_recv.as_integer_node() {
+                            let src = &source.as_bytes()
+                                [int.location().start_offset()..int.location().end_offset()];
+                            if let Ok(s) = std::str::from_utf8(src) {
+                                return s.parse::<i64>().ok();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Array.new(N) { ... } — receiver is `Array`, method is `new`, first arg is integer
+    if method == b"new" {
+        if let Some(recv) = call.receiver() {
+            let is_array = recv
+                .as_constant_read_node()
+                .is_some_and(|c| c.name().as_slice() == b"Array")
+                || recv.as_constant_path_node().is_some_and(|cp| {
+                    let src = &source.as_bytes()
+                        [cp.location().start_offset()..cp.location().end_offset()];
+                    src == b"Array" || src == b"::Array"
+                });
+            if is_array {
+                if let Some(args) = call.arguments() {
+                    let arg_list: Vec<_> = args.arguments().iter().collect();
+                    if arg_list.len() == 1 {
+                        if let Some(int) = arg_list[0].as_integer_node() {
                             let src = &source.as_bytes()
                                 [int.location().start_offset()..int.location().end_offset()];
                             if let Ok(s) = std::str::from_utf8(src) {
