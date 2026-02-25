@@ -8,4 +8,4 @@ generate("
   class Foo
     def bar; end
   end")
-build("user admin")
+generate("class Foo\ndef bar; end\nend")

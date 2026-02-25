@@ -71,8 +71,9 @@ impl Cop for FactoryNameStyle {
                     return;
                 }
 
-                // Skip strings with whitespace — not valid factory names
-                if value_str.contains(char::is_whitespace) {
+                // Skip multi-line code strings (contain newlines/tabs) — not factory names
+                if value_str.contains('\n') || value_str.contains('\r') || value_str.contains('\t')
+                {
                     return;
                 }
 
