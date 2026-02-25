@@ -33,7 +33,16 @@ impl Cop for ElseLayout {
         };
 
         // Must be a keyword if/unless (not ternary)
-        if if_node.if_keyword_loc().is_none() {
+        let if_kw_loc = match if_node.if_keyword_loc() {
+            Some(loc) => loc,
+            None => return,
+        };
+
+        // If the entire if is on a single line, skip (handled by Style/OneLineConditional)
+        let (if_line, _) = source.offset_to_line_col(if_kw_loc.start_offset());
+        let end_offset = node.location().end_offset().saturating_sub(1);
+        let (end_line, _) = source.offset_to_line_col(end_offset);
+        if if_line == end_line {
             return;
         }
 
@@ -64,6 +73,13 @@ impl Cop for ElseLayout {
             Some(s) => s,
             None => return,
         };
+
+        // If the if uses `then` and the else branch is a single statement, skip.
+        // RuboCop allows `if x then y \n else z \n end` (then-style with single else body).
+        // Only flag when the else body has multiple statements (begin_type in RuboCop).
+        if if_node.then_keyword_loc().is_some() && body.len() == 1 {
+            return;
+        }
 
         let first_loc = first_stmt.location();
         let (stmt_line, stmt_col) = source.offset_to_line_col(first_loc.start_offset());
