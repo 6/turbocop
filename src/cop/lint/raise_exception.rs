@@ -28,18 +28,34 @@ impl<'pr> Visit<'pr> for EnclosingModuleFinder {
     }
 }
 
-fn is_exception_reference(node: &ruby_prism::Node<'_>) -> bool {
-    // Direct constant: Exception or Module::Exception (via constant_path_node)
-    if let Some(name) = crate::cop::util::constant_name(node) {
-        return name == b"Exception";
+/// Check if a node is a bare `Exception` or root-scoped `::Exception`.
+/// Returns false for namespaced constants like `Foreman::Exception` or `::Foreman::Exception`.
+fn is_bare_exception(node: &ruby_prism::Node<'_>) -> bool {
+    // Bare `Exception` → ConstantReadNode
+    if let Some(cr) = node.as_constant_read_node() {
+        return cr.name().as_slice() == b"Exception";
     }
-    // Exception.new(...)
+    // `::Exception` → ConstantPathNode with no parent (cbase) and name "Exception"
+    if let Some(cp) = node.as_constant_path_node() {
+        if cp.parent().is_none() {
+            if let Some(name) = cp.name() {
+                return name.as_slice() == b"Exception";
+            }
+        }
+    }
+    false
+}
+
+fn is_exception_reference(node: &ruby_prism::Node<'_>) -> bool {
+    // Direct constant: bare Exception or ::Exception (root-scoped)
+    if is_bare_exception(node) {
+        return true;
+    }
+    // Exception.new(...) or ::Exception.new(...)
     if let Some(call) = node.as_call_node() {
         if call.name().as_slice() == b"new" {
             if let Some(recv) = call.receiver() {
-                if let Some(name) = crate::cop::util::constant_name(&recv) {
-                    return name == b"Exception";
-                }
+                return is_bare_exception(&recv);
             }
         }
     }
@@ -102,8 +118,13 @@ impl Cop for RaiseException {
         // AllowedImplicitNamespaces: only apply to bare `Exception` (not `::Exception`)
         // When `raise Exception` is inside a module in the allowed list, the bare
         // `Exception` implicitly refers to that module's own Exception class.
-        let is_bare_exception = first_arg.as_constant_read_node().is_some();
-        if is_bare_exception {
+        let is_unqualified = first_arg.as_constant_read_node().is_some()
+            || first_arg
+                .as_call_node()
+                .and_then(|c| c.receiver())
+                .and_then(|r| r.as_constant_read_node())
+                .is_some();
+        if is_unqualified {
             if let Some(allowed) = &allowed_namespaces {
                 if !allowed.is_empty() {
                     let call_offset = call.location().start_offset();
