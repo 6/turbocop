@@ -43,3 +43,77 @@ def with_op_assign
   total = self.count * 2
   total
 end
+
+# Ruby keywords - self required to avoid parsing as keyword
+def test_keywords
+  self.alias
+  self.and
+  self.break
+  self.case
+  self.else
+  self.elsif
+  self.false
+  self.in
+  self.next
+  self.nil
+  self.not
+  self.or
+  self.redo
+  self.retry
+  self.self
+  self.then
+  self.true
+  self.undef
+  self.when
+  self.__FILE__
+  self.__LINE__
+  self.__ENCODING__
+end
+
+# Kernel methods - self required to avoid ambiguity with Kernel functions
+def test_kernel_methods
+  self.open("file.txt")
+  self.fail("error")
+  self.format("%.2f", 3.14)
+  self.puts("hello")
+  self.print("world")
+  self.sleep(1)
+  self.exit(0)
+  self.system("ls")
+  self.spawn("cmd")
+  self.warn("caution")
+  self.abort("fatal")
+  self.exec("ls")
+  self.rand(10)
+  self.gets
+  self.select
+  self.loop
+  self.require("foo")
+  self.require_relative("bar")
+  self.load("baz")
+  self.lambda
+  self.proc
+  self.catch(:tag)
+  self.throw(:tag)
+  self.binding
+  self.caller
+  self.trap("INT")
+  self.p("debug")
+  self.pp("inspect")
+  self.printf("fmt")
+  self.sprintf("fmt")
+  self.Array(something)
+  self.Integer("42")
+  self.Float("3.14")
+  self.String(42)
+  self.Hash(pairs)
+  self.Complex(1, 2)
+  self.Rational(1, 3)
+end
+
+# Uppercase method names - could be confused with constants
+def test_uppercase_methods
+  self.Foo
+  self.CALL_NAMED(name, false, expr)
+  self.MyMethod
+end

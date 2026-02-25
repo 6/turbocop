@@ -8,27 +8,117 @@ use crate::parse::source::SourceFile;
 
 pub struct RedundantSelf;
 
-/// Methods where self. is always required (keywords, operators, etc.)
+/// Methods where self. is always required (Ruby keywords).
 const ALLOWED_METHODS: &[&[u8]] = &[
-    b"class",
-    b"module",
-    b"def",
-    b"end",
+    b"alias",
+    b"and",
     b"begin",
-    b"rescue",
-    b"ensure",
-    b"if",
-    b"unless",
-    b"while",
-    b"until",
-    b"for",
-    b"do",
-    b"return",
-    b"yield",
-    b"super",
-    b"raise",
+    b"break",
+    b"case",
+    b"class",
+    b"def",
     b"defined?",
+    b"do",
+    b"else",
+    b"elsif",
+    b"end",
+    b"ensure",
+    b"false",
+    b"for",
+    b"if",
+    b"in",
+    b"module",
+    b"next",
+    b"nil",
+    b"not",
+    b"or",
+    b"redo",
+    b"rescue",
+    b"retry",
+    b"return",
+    b"self",
+    b"super",
+    b"then",
+    b"true",
+    b"undef",
+    b"unless",
+    b"until",
+    b"when",
+    b"while",
+    b"yield",
+    b"__FILE__",
+    b"__LINE__",
+    b"__ENCODING__",
+    // raise is commonly treated as keyword-like
+    b"raise",
 ];
+
+/// Kernel methods where self. is required to avoid ambiguity with top-level functions.
+const KERNEL_METHODS: &[&[u8]] = &[
+    b"open",
+    b"puts",
+    b"print",
+    b"p",
+    b"pp",
+    b"warn",
+    b"fail",
+    b"sleep",
+    b"exit",
+    b"exit!",
+    b"abort",
+    b"at_exit",
+    b"fork",
+    b"exec",
+    b"system",
+    b"spawn",
+    b"rand",
+    b"srand",
+    b"gets",
+    b"readline",
+    b"readlines",
+    b"select",
+    b"format",
+    b"sprintf",
+    b"printf",
+    b"putc",
+    b"loop",
+    b"require",
+    b"require_relative",
+    b"load",
+    b"autoload",
+    b"autoload?",
+    b"binding",
+    b"block_given?",
+    b"iterator?",
+    b"caller",
+    b"caller_locations",
+    b"catch",
+    b"throw",
+    b"global_variables",
+    b"local_variables",
+    b"set_trace_func",
+    b"trace_var",
+    b"untrace_var",
+    b"trap",
+    b"lambda",
+    b"proc",
+    b"Array",
+    b"Complex",
+    b"Float",
+    b"Hash",
+    b"Integer",
+    b"Rational",
+    b"String",
+    b"__callee__",
+    b"__dir__",
+    b"__method__",
+];
+
+/// Returns true if the method name starts with an uppercase letter,
+/// which could be confused with a constant reference.
+fn is_uppercase_method(name: &[u8]) -> bool {
+    name.first().is_some_and(|&b| b.is_ascii_uppercase())
+}
 
 impl Cop for RedundantSelf {
     fn name(&self) -> &'static str {
@@ -309,6 +399,8 @@ impl<'pr> Visit<'pr> for RedundantSelfVisitor<'_> {
                             && name_bytes != b"[]"
                             && name_bytes != b"[]="
                             && !ALLOWED_METHODS.contains(&name_bytes)
+                            && !KERNEL_METHODS.contains(&name_bytes)
+                            && !is_uppercase_method(name_bytes)
                             && !self.is_local_variable(name_bytes)
                             && !self.allowed_self_methods.contains(name_bytes)
                         {
