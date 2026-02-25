@@ -15,7 +15,7 @@ Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (
 **Features**
 
 - **915 cops** from 6 RuboCop gems (rubocop, rubocop-rails, rubocop-performance, rubocop-rspec, rubocop-rspec_rails, rubocop-factory_bot)
-- **90.0% conformance** against RuboCop across **500 open-source repos** (all cops enabled)
+- **95.0% conformance** against RuboCop across **500 open-source repos** (all cops enabled)
 - **Autocorrect** (`-a`/`-A`) is partial — work in progress
 - Reads your existing `.rubocop.yml` — no migration needed
 - Uses [Prism](https://github.com/ruby/prism) (Ruby's official parser) via `ruby-prism` crate
@@ -66,29 +66,29 @@ Every cop reads its RuboCop YAML config options and has fixture-based test cover
 
 ## Conformance
 
-We run a [corpus oracle](https://github.com/6/turbocop/actions/workflows/corpus-oracle.yml) that diffs turbocop against RuboCop on **500 open-source repos** (163k Ruby files) with all cops enabled. Every offense is compared by file, line, and cop name.
+We run a [corpus oracle](https://github.com/6/turbocop/actions/workflows/corpus-oracle.yml) that diffs turbocop against RuboCop on **500 open-source repos** (164k Ruby files) with all cops enabled. Every offense is compared by file, line, and cop name.
 
-**Overall: 90.0% match rate** across 8.8M offenses compared.
+**Overall: 95.0% match rate** across 9.0M offenses compared.
 
 Top 15 repos by GitHub stars (offense counts are high because the corpus enables all 915 cops — most projects only enable a subset):
 
 | Repo | Files | Offenses | Conformance % |
 |------|------:|---------:|--------------:|
-| [rails](https://github.com/rails/rails) | 3,498 | 314,531 | 79.8% |
-| [jekyll](https://github.com/jekyll/jekyll) | 190 | 13,052 | 89.9% |
-| [mastodon](https://github.com/mastodon/mastodon) | 3,103 | 71,697 | 83.8% |
-| [huginn](https://github.com/huginn/huginn) | 451 | 34,199 | 93.2% |
-| [discourse](https://github.com/discourse/discourse) | 9,131 | 605,104 | 92.8% |
-| [fastlane](https://github.com/fastlane/fastlane) | 1,302 | 117,999 | 94.8% |
-| [devdocs](https://github.com/freeCodeCamp/devdocs) | 833 | 19,903 | 89.9% |
-| [chatwoot](https://github.com/chatwoot/chatwoot) | 2,262 | 62,007 | 93.3% |
-| [vagrant](https://github.com/hashicorp/vagrant) | 1,460 | 86,062 | 92.8% |
-| [devise](https://github.com/heartcombo/devise) | 206 | 5,800 | 87.1% |
-| [forem](https://github.com/forem/forem) | 3,390 | 125,763 | 91.8% |
-| [postal](https://github.com/postalserver/postal) | 294 | 13,613 | 90.9% |
-| [CocoaPods](https://github.com/CocoaPods/CocoaPods) | 438 | 28,422 | 87.5% |
-| [openproject](https://github.com/opf/openproject) | 9,286 | 373,439 | 90.4% |
-| [gollum](https://github.com/gollum/gollum) | 55 | 3,790 | 89.0% |
+| [rails](https://github.com/rails/rails) | 3,498 | 314,531 | 93.6% |
+| [jekyll](https://github.com/jekyll/jekyll) | 190 | 13,052 | 93.8% |
+| [mastodon](https://github.com/mastodon/mastodon) | 3,105 | 71,755 | 91.8% |
+| [huginn](https://github.com/huginn/huginn) | 451 | 34,199 | 95.8% |
+| [discourse](https://github.com/discourse/discourse) | 9,131 | 605,104 | 97.2% |
+| [fastlane](https://github.com/fastlane/fastlane) | 1,302 | 117,999 | 96.0% |
+| [devdocs](https://github.com/freeCodeCamp/devdocs) | 833 | 19,903 | 93.0% |
+| [chatwoot](https://github.com/chatwoot/chatwoot) | 2,262 | 62,007 | 96.5% |
+| [vagrant](https://github.com/hashicorp/vagrant) | 1,460 | 86,062 | 95.7% |
+| [devise](https://github.com/heartcombo/devise) | 206 | 5,800 | 92.0% |
+| [forem](https://github.com/forem/forem) | 3,390 | 125,763 | 95.3% |
+| [postal](https://github.com/postalserver/postal) | 294 | 13,613 | 93.9% |
+| [CocoaPods](https://github.com/CocoaPods/CocoaPods) | 438 | 28,422 | 91.2% |
+| [openproject](https://github.com/opf/openproject) | 9,286 | 373,439 | 95.2% |
+| [gollum](https://github.com/gollum/gollum) | 55 | 3,790 | 91.4% |
 
 Remaining gaps are mostly in complex layout cops (indentation, alignment) and a few style cops. See [docs/corpus.md](docs/corpus.md) for the full 500-repo breakdown.
 
