@@ -6,3 +6,9 @@
 
 10 + offset
 ^^^^^^^^^^^ Style/YodaExpression: Prefer placing the expression on the left side of the operator.
+
+CONST + x
+^^^^^^^^^ Style/YodaExpression: Prefer placing the expression on the left side of the operator.
+
+Foo::Bar + x
+^^^^^^^^^^^^ Style/YodaExpression: Prefer placing the expression on the left side of the operator.

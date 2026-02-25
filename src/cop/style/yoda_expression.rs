@@ -1,7 +1,4 @@
-use crate::cop::node_type::{
-    CALL_NODE, FALSE_NODE, FLOAT_NODE, IMAGINARY_NODE, INTEGER_NODE, NIL_NODE, RATIONAL_NODE,
-    STRING_NODE, SYMBOL_NODE, TRUE_NODE,
-};
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -14,18 +11,7 @@ impl Cop for YodaExpression {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[
-            CALL_NODE,
-            FALSE_NODE,
-            FLOAT_NODE,
-            IMAGINARY_NODE,
-            INTEGER_NODE,
-            NIL_NODE,
-            RATIONAL_NODE,
-            STRING_NODE,
-            SYMBOL_NODE,
-            TRUE_NODE,
-        ]
+        &[CALL_NODE]
     }
 
     fn check_node(
@@ -76,11 +62,11 @@ impl Cop for YodaExpression {
             return;
         }
 
-        // Check if LHS is a literal and RHS is not
-        let lhs_literal = is_literal(&receiver);
-        let rhs_literal = is_literal(&arg_list[0]);
+        // Check if LHS is a constant portion and RHS is not
+        let lhs_constant = is_constant_portion(&receiver);
+        let rhs_constant = is_constant_portion(&arg_list[0]);
 
-        if lhs_literal && !rhs_literal {
+        if lhs_constant && !rhs_constant {
             let loc = node.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             diagnostics.push(self.diagnostic(
@@ -93,16 +79,14 @@ impl Cop for YodaExpression {
     }
 }
 
-fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
+fn is_constant_portion(node: &ruby_prism::Node<'_>) -> bool {
+    // Match RuboCop's constant_portion? which checks :numeric and :const
     node.as_integer_node().is_some()
         || node.as_float_node().is_some()
         || node.as_rational_node().is_some()
         || node.as_imaginary_node().is_some()
-        || node.as_string_node().is_some()
-        || node.as_symbol_node().is_some()
-        || node.as_nil_node().is_some()
-        || node.as_true_node().is_some()
-        || node.as_false_node().is_some()
+        || node.as_constant_read_node().is_some()
+        || node.as_constant_path_node().is_some()
 }
 
 #[cfg(test)]
