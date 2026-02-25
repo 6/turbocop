@@ -37,6 +37,17 @@ impl Cop for AncestorsInclude {
             return;
         }
 
+        // Only flag when the receiver of `.ancestors` is a constant or absent (implicit self).
+        // Non-constant receivers (e.g. `self.class.ancestors`, `obj.ancestors`) are not flagged,
+        // matching RuboCop's `subclass.const_type?` guard.
+        if let Some(receiver) = chain.inner_call.receiver() {
+            if receiver.as_constant_read_node().is_none()
+                && receiver.as_constant_path_node().is_none()
+            {
+                return;
+            }
+        }
+
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(
