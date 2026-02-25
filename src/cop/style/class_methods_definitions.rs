@@ -50,11 +50,49 @@ impl Cop for ClassMethodsDefinitions {
 }
 
 fn has_public_defs(body: &ruby_prism::Node<'_>) -> bool {
-    if let Some(stmts) = body.as_statements_node() {
-        for stmt in stmts.body().iter() {
-            if stmt.as_def_node().is_some() {
-                return true;
+    let stmts = match body.as_statements_node() {
+        Some(s) => s,
+        None => return false,
+    };
+
+    let mut in_private = false;
+    for stmt in stmts.body().iter() {
+        // Check for access modifier calls (private, protected, public)
+        if let Some(call) = stmt.as_call_node() {
+            let name = call.name().as_slice();
+            if call.receiver().is_none() {
+                if call.arguments().is_none() {
+                    // Standalone modifier: `private` / `protected` / `public`
+                    if name == b"private" || name == b"protected" {
+                        in_private = true;
+                        continue;
+                    }
+                    if name == b"public" {
+                        in_private = false;
+                        continue;
+                    }
+                } else if name == b"private" || name == b"protected" {
+                    // Inline modifier: `private def foo` / `protected def bar`
+                    // The def is an argument to the call, so it's not a public def.
+                    continue;
+                } else if name == b"public" {
+                    // `public def foo` — the def is public, but it's inside the
+                    // arguments, not a standalone def_node. We need to check if
+                    // the argument is a def.
+                    if let Some(args) = call.arguments() {
+                        for arg in args.arguments().iter() {
+                            if arg.as_def_node().is_some() {
+                                return true;
+                            }
+                        }
+                    }
+                    continue;
+                }
             }
+        }
+
+        if stmt.as_def_node().is_some() && !in_private {
+            return true;
         }
     }
     false

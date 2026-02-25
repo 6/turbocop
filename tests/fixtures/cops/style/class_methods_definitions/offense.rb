@@ -26,3 +26,19 @@ class C
     end
   end
 end
+
+# private then public restores public visibility
+class D
+  class << self
+  ^^^^^^^^^^^^^ Style/ClassMethodsDefinitions: Do not define public methods within class << self.
+    private
+
+    def helper
+    end
+
+    public
+
+    def visible
+    end
+  end
+end
