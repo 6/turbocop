@@ -1,4 +1,4 @@
-# nitrocop
+# NitroCop
 
 Experimental RuboCop rewrite in Rust. 900+ cops.
 
