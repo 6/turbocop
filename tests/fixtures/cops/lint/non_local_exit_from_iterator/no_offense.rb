@@ -41,3 +41,19 @@ end
 items.each do |item|
   -> { return }
 end
+
+# Nested: argless block inside non-chained block - no offense
+find_each do |item|
+  item.with_lock do
+    return if item.stock == 0
+  end
+end
+
+# Nested: no-arg block wrapping non-chained block - no offense
+transaction do
+  return unless update_necessary?
+  find_each do |item|
+    return if item.stock == 0
+    item.update!(foobar: true)
+  end
+end

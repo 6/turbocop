@@ -56,26 +56,31 @@ impl<'pr> Visit<'pr> for NonLocalExitVisitor<'_, '_> {
             return;
         }
 
-        if let Some(ctx) = self.block_stack.last() {
+        // Walk block stack from innermost to outermost (matching RuboCop's each_ancestor)
+        for ctx in self.block_stack.iter().rev() {
             if ctx.is_define_method {
-                return; // define_method creates its own scope for return
+                break; // define_method creates its own scope
             }
             if !ctx.has_args {
-                return; // Block without arguments
+                continue; // Skip blocks without arguments, keep looking outward
             }
-            if !ctx.is_chained_send {
-                return; // Block without chained method
+            if ctx.is_chained_send {
+                // This is a non-local exit from an iterator
+                let loc = node.location();
+                let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                self.diagnostics.push(
+                    self.cop.diagnostic(
+                        self.source,
+                        line,
+                        column,
+                        "Non-local exit from iterator, without return value. \
+                     `next`, `break`, `Array#find`, `Array#any?`, etc. is preferred."
+                            .to_string(),
+                    ),
+                );
+                break;
             }
-            // This is a non-local exit from an iterator
-            let loc = node.location();
-            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-            self.diagnostics.push(self.cop.diagnostic(
-                self.source,
-                line,
-                column,
-                "Non-local exit from iterator detected. Use `next` or `break` instead of `return`."
-                    .to_string(),
-            ));
+            // Block has args but no receiver — not an iterator, continue looking outward
         }
     }
 

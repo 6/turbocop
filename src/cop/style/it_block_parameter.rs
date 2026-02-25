@@ -23,6 +23,16 @@ impl Cop for ItBlockParameter {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // RuboCop: minimum_target_ruby_version 3.4
+        let ruby_version = config
+            .options
+            .get("TargetRubyVersion")
+            .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
+            .unwrap_or(2.7);
+        if ruby_version < 3.4 {
+            return;
+        }
+
         let _style = config.get_str("EnforcedStyle", "allow_single_line");
 
         // Detect block parameters named `it`: { |it| ... }
@@ -66,5 +76,41 @@ impl Cop for ItBlockParameter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(ItBlockParameter, "cops/style/it_block_parameter");
+    use crate::cop::CopConfig;
+
+    fn ruby34_config() -> CopConfig {
+        let mut config = CopConfig::default();
+        config.options.insert(
+            "TargetRubyVersion".to_string(),
+            serde_yml::Value::Number(serde_yml::Number::from(3.4)),
+        );
+        config
+    }
+
+    #[test]
+    fn offense_with_ruby34() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &ItBlockParameter,
+            include_bytes!("../../../tests/fixtures/cops/style/it_block_parameter/offense.rb"),
+            ruby34_config(),
+        );
+    }
+
+    #[test]
+    fn no_offense() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &ItBlockParameter,
+            include_bytes!("../../../tests/fixtures/cops/style/it_block_parameter/no_offense.rb"),
+            ruby34_config(),
+        );
+    }
+
+    #[test]
+    fn no_offense_below_ruby34() {
+        // Default Ruby version (2.7) — cop should be completely silent
+        crate::testutil::assert_cop_no_offenses_full(
+            &ItBlockParameter,
+            include_bytes!("../../../tests/fixtures/cops/style/it_block_parameter/offense.rb"),
+        );
+    }
 }
