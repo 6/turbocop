@@ -82,3 +82,37 @@ define_method(:brace_dynamic) { |x|
 define_method("string_name") do
   a = 1
 end
+
+# Multiline parameters should not count toward method length
+# (8 param lines + 2 body lines; only body counts = 2 lines <= Max:10)
+def method_with_multiline_params(
+  first_param: nil,
+  second_param: nil,
+  third_param: nil,
+  fourth_param: nil,
+  fifth_param: nil,
+  sixth_param: nil,
+  seventh_param: nil,
+  eighth_param: nil
+)
+  @first_param = first_param
+  @second_param = second_param
+end
+
+# Multiline params on def with positional args
+def method_with_positional_multiline(
+  alpha,
+  beta,
+  gamma,
+  delta,
+  epsilon,
+  zeta,
+  eta,
+  theta,
+  iota,
+  kappa,
+  lambda_val
+)
+  x = alpha + beta
+  y = gamma + delta
+end

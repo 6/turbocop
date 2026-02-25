@@ -93,13 +93,24 @@ impl MethodLength {
             return;
         }
 
-        let start_offset = def_node.def_keyword_loc().start_offset();
+        let def_offset = def_node.def_keyword_loc().start_offset();
+        // Use rparen (closing paren of params) or params end to exclude multiline
+        // parameter lines from the count. RuboCop's CodeLengthCalculator only counts
+        // body lines, not parameter lines.
+        let count_start_offset = if let Some(rparen) = def_node.rparen_loc() {
+            rparen.start_offset()
+        } else if let Some(params) = def_node.parameters() {
+            params.location().end_offset().saturating_sub(1)
+        } else {
+            def_offset
+        };
         let end_offset = end_loc.start_offset();
 
-        let count = count_method_lines(source, start_offset, end_offset, cfg, def_node.body());
+        let count =
+            count_method_lines(source, count_start_offset, end_offset, cfg, def_node.body());
 
         if count > cfg.max {
-            let (line, column) = source.offset_to_line_col(start_offset);
+            let (line, column) = source.offset_to_line_col(def_offset);
             diagnostics.push(self.diagnostic(
                 source,
                 line,
@@ -141,13 +152,20 @@ impl MethodLength {
             }
         }
 
-        let start_offset = call_node.location().start_offset();
+        let call_offset = call_node.location().start_offset();
+        // Use block params end or block opening to exclude multiline block
+        // parameters from count, matching RuboCop behavior.
+        let count_start_offset = if let Some(params) = block.parameters() {
+            params.location().end_offset().saturating_sub(1)
+        } else {
+            block.opening_loc().start_offset()
+        };
         let end_offset = block.closing_loc().start_offset();
 
-        let count = count_method_lines(source, start_offset, end_offset, cfg, block.body());
+        let count = count_method_lines(source, count_start_offset, end_offset, cfg, block.body());
 
         if count > cfg.max {
-            let (line, column) = source.offset_to_line_col(start_offset);
+            let (line, column) = source.offset_to_line_col(call_offset);
             diagnostics.push(self.diagnostic(
                 source,
                 line,
@@ -363,6 +381,23 @@ mod tests {
         assert!(
             !diags2.is_empty(),
             "Should fire on firstname which doesn't match /_name/ pattern"
+        );
+    }
+
+    #[test]
+    fn multiline_params_not_counted() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+        let config = CopConfig {
+            options: HashMap::from([("Max".into(), serde_yml::Value::Number(3.into()))]),
+            ..CopConfig::default()
+        };
+        // 8 param lines + 3 body lines. Only body should be counted (3 <= Max:3).
+        let source = b"def initialize(\n  a: nil,\n  b: nil,\n  c: nil,\n  d: nil,\n  e: nil,\n  f: nil,\n  g: nil,\n  h: nil\n)\n  @a = a\n  @b = b\n  @c = c\nend\n";
+        let diags = run_cop_full_with_config(&MethodLength, source, config);
+        assert!(
+            diags.is_empty(),
+            "Should not count multiline param lines toward method length"
         );
     }
 }
