@@ -27,5 +27,23 @@ do_something(<<~"EDGE'CASE")
   no string interpolation style text
 EDGE'CASE
 
+module_eval(<<'.,.,', 'egrammar.ra', 67)
+  def _reduce_1(val, _values, result)
+    result
+  end
+.,.,
+
+do_something(<<~'my-delimiter')
+  text here
+my-delimiter
+
+do_something(<<~'has spaces')
+  text here
+has spaces
+
+do_something(<<~'EDGE+CASE')
+  text here
+EDGE+CASE
+
 x = 1
 y = 2

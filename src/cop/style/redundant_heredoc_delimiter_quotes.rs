@@ -65,13 +65,15 @@ impl Cop for RedundantHeredocDelimiterQuotes {
         // Extract the delimiter name (between quotes)
         let delim = &rest[1..rest.len() - 1]; // strip quotes
 
-        // If the delimiter contains special characters that require quoting, skip.
-        // Delimiters with spaces, quotes, backslashes, or other special chars
-        // need quotes to be parsed correctly by Ruby.
-        for &b in delim {
-            if b == b' ' || b == b'\'' || b == b'"' || b == b'\\' || !b.is_ascii_graphic() {
-                return;
-            }
+        // If the delimiter contains any non-word character, quotes are required.
+        // Unquoted heredoc identifiers must be valid Ruby identifiers (alphanumeric + underscore).
+        // This matches RuboCop's /\W/ check on the delimiter.
+        if delim.is_empty()
+            || delim
+                .iter()
+                .any(|&b| !b.is_ascii_alphanumeric() && b != b'_')
+        {
+            return;
         }
 
         if quote_char == b'\'' {
