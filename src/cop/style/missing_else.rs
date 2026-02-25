@@ -11,6 +11,10 @@ impl Cop for MissingElse {
         "Style/MissingElse"
     }
 
+    fn default_enabled(&self) -> bool {
+        false // Matches vendor config/default.yml: Enabled: false
+    }
+
     fn check_source(
         &self,
         source: &SourceFile,
@@ -56,10 +60,11 @@ impl MissingElseVisitor<'_> {
 impl<'pr> Visit<'pr> for MissingElseVisitor<'_> {
     fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
         if self.style == "if" || self.style == "both" {
-            // Check if this is a regular if (not unless, not ternary, not modifier)
+            // Check if this is a regular block if (not unless, not ternary, not modifier)
+            // Modifier if (e.g. `return x if cond`) has no end keyword
             if let Some(kw_loc) = node.if_keyword_loc() {
                 let kw = kw_loc.as_slice();
-                if kw == b"if" {
+                if kw == b"if" && node.end_keyword_loc().is_some() {
                     // Check if the if/elsif chain ends with an else clause
                     let has_else = match node.subsequent() {
                         Some(sub) => Self::chain_has_else(&sub),

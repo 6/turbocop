@@ -16,3 +16,8 @@ elsif x < 0
 else
   qux
 end
+
+# Modifier if — no else needed
+return x if condition
+x = 42 if flag
+puts "hello" if verbose
