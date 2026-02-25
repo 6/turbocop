@@ -265,6 +265,8 @@ After a corpus oracle CI run, use `/fix-cops` to auto-fix a batch of high-FP cop
 
 Use `/fix-department <gem-name>` to bring all cops in a specific gem to 100% corpus conformance. This is the preferred approach for incremental adoption — completing one gem at a time (e.g., `rubocop-performance`) so users can adopt it with confidence. See `.claude/skills/fix-department/SKILL.md`.
 
+Use `/fix-repo <name>` to improve a specific repo's conformance (e.g., `/fix-repo rails`). It shows the repo's top diverging cops, lets you pick which to fix, and dispatches parallel teammates. See `.claude/skills/fix-repo/SKILL.md`.
+
 Use `/triage` to just view the ranked cop list without fixing. See `.claude/skills/triage/SKILL.md`.
 
 ## Corpus Investigation
@@ -281,6 +283,19 @@ python3 scripts/investigate-cop.py Department/CopName --input f.json # use local
 ```
 
 Use this as the **first step** when investigating a cop — it's instant (reads cached JSON) and shows every FP/FN location with source context from `vendor/corpus/`. No need to re-run turbocop.
+
+To investigate a **repo's** conformance (e.g., "why is rails at 80%?"), use `investigate-repo.py`. It shows the top diverging cops for that repo:
+
+```
+python3 scripts/investigate-repo.py rails                    # fuzzy match repo name
+python3 scripts/investigate-repo.py rails --fp-only          # only FP-producing cops
+python3 scripts/investigate-repo.py rails --fn-only          # only FN-producing cops
+python3 scripts/investigate-repo.py rails --limit 10         # top 10 (default 20)
+python3 scripts/investigate-repo.py --list                   # list all repos by match rate
+python3 scripts/investigate-repo.py --input f.json rails     # use local corpus-results.json
+```
+
+Use `/fix-repo <name>` to fix the top diverging cops for a specific repo. See `.claude/skills/fix-repo/SKILL.md`.
 
 ## Corpus Regression Testing
 
