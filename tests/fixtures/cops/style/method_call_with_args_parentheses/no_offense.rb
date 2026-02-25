@@ -62,3 +62,45 @@ end
 def foo
   super(a)
 end
+
+# Macros inside Class.new do ... end (class constructor)
+Class.new do
+  include Comparable
+  extend ActiveSupport
+  attr_reader :name
+end
+
+# Macros inside Module.new do ... end
+Module.new do
+  include Comparable
+  extend ActiveSupport
+end
+
+# Macros inside Struct.new do ... end
+Struct.new(:x, :y) do
+  include Comparable
+end
+
+# Class.new inside a method body — still class-like scope
+def build_class
+  Class.new do
+    include Comparable
+    attr_reader :name
+  end
+end
+
+# Nested block inside Class.new
+Class.new(Base) do
+  concern do
+    bar :baz
+  end
+end
+
+# Class.new with block in if inside class (wrapper chain)
+module MyMod
+  if condition
+    Class.new do
+      include SomeThing
+    end
+  end
+end

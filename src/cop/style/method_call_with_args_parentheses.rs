@@ -59,6 +59,50 @@ fn is_camel_case_method(name: &[u8]) -> bool {
     name.first().is_some_and(|b| b.is_ascii_uppercase())
 }
 
+/// Check if a CallNode is a class constructor pattern:
+/// `Class.new`, `Module.new`, `Struct.new`, or `Data.define`.
+/// This matches RuboCop's `class_constructor?` node pattern.
+fn is_class_constructor(call: &ruby_prism::CallNode<'_>) -> bool {
+    let method_name = call.name().as_slice();
+    let recv = match call.receiver() {
+        Some(r) => r,
+        None => return false,
+    };
+
+    // Check for `Class.new`, `Module.new`, `Struct.new`
+    if method_name == b"new" {
+        if let Some(cr) = recv.as_constant_read_node() {
+            let cname = cr.name().as_slice();
+            return cname == b"Class" || cname == b"Module" || cname == b"Struct";
+        }
+        // Also handle fully qualified ::Class.new etc.
+        if let Some(cp) = recv.as_constant_path_node() {
+            if cp.parent().is_none() {
+                if let Some(child_name) = cp.name() {
+                    let cname = child_name.as_slice();
+                    return cname == b"Class" || cname == b"Module" || cname == b"Struct";
+                }
+            }
+        }
+    }
+
+    // Check for `Data.define`
+    if method_name == b"define" {
+        if let Some(cr) = recv.as_constant_read_node() {
+            return cr.name().as_slice() == b"Data";
+        }
+        if let Some(cp) = recv.as_constant_path_node() {
+            if cp.parent().is_none() {
+                if let Some(child_name) = cp.name() {
+                    return child_name.as_slice() == b"Data";
+                }
+            }
+        }
+    }
+
+    false
+}
+
 /// Context for tracking whether we're in macro scope.
 #[derive(Clone, Copy, PartialEq)]
 enum Scope {
@@ -760,9 +804,29 @@ impl<'pr> Visit<'pr> for ParenVisitor<'_> {
             self.parent_stack.pop();
         }
         if let Some(block) = node.block() {
-            self.parent_stack.push(ParentKind::Call);
-            self.visit(&block);
-            self.parent_stack.pop();
+            if let Some(block_node) = block.as_block_node() {
+                if is_class_constructor(node) {
+                    // Class.new/Module.new/Struct.new/Data.define blocks are class-like scope
+                    self.parent_stack.push(ParentKind::Call);
+                    self.scope_stack.push(Scope::ClassLike);
+                    if let Some(params) = block_node.parameters() {
+                        self.visit(&params);
+                    }
+                    if let Some(body) = block_node.body() {
+                        self.visit(&body);
+                    }
+                    self.scope_stack.pop();
+                    self.parent_stack.pop();
+                } else {
+                    self.parent_stack.push(ParentKind::Call);
+                    self.visit(&block);
+                    self.parent_stack.pop();
+                }
+            } else {
+                self.parent_stack.push(ParentKind::Call);
+                self.visit(&block);
+                self.parent_stack.pop();
+            }
         }
     }
 
