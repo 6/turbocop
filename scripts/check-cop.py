@@ -81,13 +81,14 @@ def clear_file_cache():
 def turbocop_cmd(cop_name: str, target: str) -> list[str]:
     """Build the turbocop command for corpus checking.
 
-    Uses --force-default-config to ignore per-repo .rubocop.yml files,
-    matching the CI corpus oracle's baseline config approach.
+    Uses --config with the baseline config to match CI corpus oracle exactly.
+    This ensures disabled-by-default cops are enabled the same way as in CI.
     """
+    baseline_config = str(Path(__file__).parent.parent / "bench" / "corpus" / "baseline_rubocop.yml")
     return [
         str(TURBOCOP_BIN), "--only", cop_name, "--preview",
         "--format", "json", "--no-cache",
-        "--force-default-config",
+        "--config", baseline_config,
         target,
     ]
 

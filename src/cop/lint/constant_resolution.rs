@@ -48,21 +48,14 @@ impl Cop for ConstantResolution {
         let name = std::str::from_utf8(const_node.name().as_slice()).unwrap_or("");
 
         // Check Only/Ignore config.
-        // When Only is explicitly empty (`Only: []`, the RuboCop default), nothing
-        // should be checked — return early.  When Only is absent (not configured),
-        // flag all unqualified constants (the cop was explicitly enabled without
-        // restricting which constants to check).
-        let only = config.get_string_array("Only");
+        // RuboCop uses `cop_config['Only'].blank?` which returns true for both
+        // nil and []. So `Only: []` (the default) means "check everything", same
+        // as not configuring Only at all. Only a non-empty list restricts checking.
+        let only = config.get_string_array("Only").unwrap_or_default();
         let ignore = config.get_string_array("Ignore").unwrap_or_default();
 
-        match &only {
-            Some(list) if list.is_empty() => return, // Explicit empty Only = nothing to check
-            Some(list) => {
-                if !list.contains(&name.to_string()) {
-                    return;
-                }
-            }
-            None => {} // Only not configured; flag all unqualified constants
+        if !only.is_empty() && !only.contains(&name.to_string()) {
+            return;
         }
         if ignore.contains(&name.to_string()) {
             return;
@@ -82,5 +75,62 @@ impl Cop for ConstantResolution {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::{assert_cop_no_offenses_with_config, run_cop_full_with_config};
+    use std::collections::HashMap;
     crate::cop_fixture_tests!(ConstantResolution, "cops/lint/constant_resolution");
+
+    fn config_with_only(values: Vec<&str>) -> crate::cop::CopConfig {
+        let mut options = HashMap::new();
+        options.insert(
+            "Only".to_string(),
+            serde_yml::Value::Sequence(
+                values
+                    .into_iter()
+                    .map(|s| serde_yml::Value::String(s.to_string()))
+                    .collect(),
+            ),
+        );
+        crate::cop::CopConfig {
+            options,
+            ..crate::cop::CopConfig::default()
+        }
+    }
+
+    #[test]
+    fn empty_only_flags_all_constants() {
+        // RuboCop's `Only: []` (the default) uses `.blank?` which returns true
+        // for empty arrays, so it flags ALL unqualified constants.
+        let config = config_with_only(vec![]);
+        let diags = run_cop_full_with_config(&ConstantResolution, b"Foo\nBar\n", config);
+        assert_eq!(diags.len(), 2);
+    }
+
+    #[test]
+    fn only_restricts_to_listed_constants() {
+        let config = config_with_only(vec!["Foo"]);
+        let diags = run_cop_full_with_config(&ConstantResolution, b"Foo\nBar\n", config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("Fully qualify"));
+    }
+
+    #[test]
+    fn only_with_no_match_produces_no_offenses() {
+        let config = config_with_only(vec!["Baz"]);
+        assert_cop_no_offenses_with_config(&ConstantResolution, b"Foo\nBar\n", config);
+    }
+
+    #[test]
+    fn ignore_suppresses_listed_constants() {
+        let mut options = HashMap::new();
+        options.insert(
+            "Ignore".to_string(),
+            serde_yml::Value::Sequence(vec![serde_yml::Value::String("Foo".to_string())]),
+        );
+        let config = crate::cop::CopConfig {
+            options,
+            ..crate::cop::CopConfig::default()
+        };
+        let diags = run_cop_full_with_config(&ConstantResolution, b"Foo\nBar\n", config);
+        assert_eq!(diags.len(), 1);
+    }
 }

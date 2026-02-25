@@ -24,7 +24,7 @@ impl Cop for ArrayFirstLast {
             cop: self,
             source,
             diagnostics: Vec::new(),
-            parent_is_bracket: false,
+            suppressed_offsets: Vec::new(),
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -35,10 +35,38 @@ struct ArrayFirstLastVisitor<'a> {
     cop: &'a ArrayFirstLast,
     source: &'a SourceFile,
     diagnostics: Vec<Diagnostic>,
-    /// Whether the nearest ancestor CallNode is a `[]` or `[]=` call.
-    /// Used to suppress `arr[0]` when it appears as receiver or argument
-    /// of another bracket call (e.g., `arr[0][:key]`, `hash[arr[0]]`).
-    parent_is_bracket: bool,
+    /// Byte start offsets of `[]` call nodes that should NOT be flagged because
+    /// they are a direct child (receiver or argument) of another `[]/[]=` call.
+    /// This mirrors RuboCop's `innermost_braces_node` + `brace_method?(parent)` check.
+    suppressed_offsets: Vec<usize>,
+}
+
+/// Check if a call node is a `[]` method call.
+fn is_bracket_call(call: &ruby_prism::CallNode<'_>) -> bool {
+    call.name().as_slice() == b"[]"
+}
+
+/// Walk down the receiver chain of `[]` calls, adding each intermediate
+/// `[]` node's offset to the suppressed set. For `a[0][1][2]`, visiting
+/// the outermost `[2]` adds `a[0][1]` and `a[0]` as suppressed.
+fn suppress_bracket_receiver_chain(node: &ruby_prism::CallNode<'_>, suppressed: &mut Vec<usize>) {
+    let mut current_recv = node.receiver();
+    while let Some(recv) = current_recv {
+        if let Some(recv_call) = recv.as_call_node() {
+            if is_bracket_call(&recv_call) {
+                suppressed.push(recv_call.location().start_offset());
+                current_recv = recv_call.receiver();
+                continue;
+            }
+        }
+        break;
+    }
+}
+
+/// Suppress a `[]` argument node and walk its receiver chain.
+fn suppress_bracket_arg(arg_call: &ruby_prism::CallNode<'_>, suppressed: &mut Vec<usize>) {
+    suppressed.push(arg_call.location().start_offset());
+    suppress_bracket_receiver_chain(arg_call, suppressed);
 }
 
 impl<'pr> Visit<'pr> for ArrayFirstLastVisitor<'_> {
@@ -46,21 +74,33 @@ impl<'pr> Visit<'pr> for ArrayFirstLastVisitor<'_> {
         let method_name = node.name().as_slice();
         let is_bracket = method_name == b"[]" || method_name == b"[]=";
 
+        // When entering a []/[]= call, suppress [] calls that are direct
+        // children (receiver or arguments). This matches RuboCop's behavior:
+        // only suppress arr[0] when its immediate parent in the AST is []/[]=.
+        if is_bracket {
+            // Suppress receiver if it's a [] call (chained: arr[0][:key])
+            // Also walk the chain deeper (arr[0][1][:key] → suppress arr[0][1] and arr[0])
+            suppress_bracket_receiver_chain(node, &mut self.suppressed_offsets);
+
+            // Suppress arguments that are [] calls (nested: hash[arr[0]])
+            if let Some(args) = node.arguments() {
+                for arg in args.arguments().iter() {
+                    if let Some(arg_call) = arg.as_call_node() {
+                        if is_bracket_call(&arg_call) {
+                            suppress_bracket_arg(&arg_call, &mut self.suppressed_offsets);
+                        }
+                    }
+                }
+            }
+        }
+
         // Check if this [] call should produce a diagnostic.
-        // Skip if:
-        // 1. The receiver is itself a [] call (chained: hash[:key][0])
-        // 2. The nearest ancestor CallNode is []/[]= (parent bracket:
-        //    arr[0][:key], hash[arr[0]], positions[pair[0]] = val)
-        if method_name == b"[]" && !self.parent_is_bracket {
+        if method_name == b"[]" {
             self.check_call(node);
         }
 
-        // Recurse into children, marking whether this call is a bracket method
-        // so descendant [] calls know their parent context.
-        let old = self.parent_is_bracket;
-        self.parent_is_bracket = is_bracket;
+        // Recurse into children
         ruby_prism::visit_call_node(self, node);
-        self.parent_is_bracket = old;
     }
 }
 
@@ -77,6 +117,14 @@ impl ArrayFirstLastVisitor<'_> {
             if recv_call.name().as_slice() == b"[]" {
                 return;
             }
+        }
+
+        // Skip if this call is suppressed (it's a direct child of another []/[]= call)
+        if self
+            .suppressed_offsets
+            .contains(&call.location().start_offset())
+        {
+            return;
         }
 
         // Must have exactly one argument
