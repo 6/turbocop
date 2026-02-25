@@ -47,3 +47,21 @@ factory :report do
     create(:attachment, report: report)
   end
 end
+
+# Multi-statement block bodies are procedural, not associations
+factory :proposal do
+  trait :with_evaluator do
+    evaluator_role do
+      space = component.participatory_space
+      organization = space.organization
+      build(:process_user_role, role: :evaluator, user: organization)
+    end
+  end
+end
+
+# Attribute named `build` with a literal value, not a strategy call
+factory :host do
+  trait :with_build do
+    build { true }
+  end
+end

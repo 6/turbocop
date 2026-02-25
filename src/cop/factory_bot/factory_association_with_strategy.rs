@@ -126,9 +126,17 @@ impl<'pr> Visit<'pr> for StrategyFinder<'_> {
                                 vec![body]
                             };
 
-                            for child in &children {
-                                if let Some(inner_call) = child.as_call_node() {
-                                    if inner_call.receiver().is_none() {
+                            // Only flag single-statement blocks — multi-statement
+                            // blocks are procedural code, not simple associations.
+                            if children.len() == 1 {
+                                if let Some(inner_call) = children[0].as_call_node() {
+                                    // The inner call must be a bare strategy call with
+                                    // arguments (e.g., `create(:profile)`). Calls without
+                                    // arguments like `build { true }` are attribute
+                                    // definitions that happen to share a strategy name.
+                                    if inner_call.receiver().is_none()
+                                        && inner_call.arguments().is_some()
+                                    {
                                         let name = inner_call.name().as_slice();
                                         if HARDCODED_STRATEGIES.contains(&name) {
                                             let loc = inner_call.location();
