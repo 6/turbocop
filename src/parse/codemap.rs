@@ -14,6 +14,9 @@ pub struct CodeMap {
     /// Sorted, non-overlapping (start, end) byte ranges of heredoc content only.
     /// Used by cops that need to distinguish heredoc content from regular strings.
     heredoc_ranges: Vec<(usize, usize)>,
+    /// Sorted, non-overlapping (start, end) byte ranges of regex literal content.
+    /// Used by cops that need to skip content inside regex literals specifically.
+    regex_ranges: Vec<(usize, usize)>,
 }
 
 impl CodeMap {
@@ -22,11 +25,13 @@ impl CodeMap {
     pub fn from_parse_result(_source: &[u8], parse_result: &ruby_prism::ParseResult<'_>) -> Self {
         let mut string_ranges = Vec::new();
         let mut heredoc_ranges = Vec::new();
+        let mut regex_ranges = Vec::new();
 
         // Walk AST to collect string/regex/symbol ranges
         let mut collector = NonCodeCollector {
             ranges: &mut string_ranges,
             heredoc_ranges: &mut heredoc_ranges,
+            regex_ranges: &mut regex_ranges,
         };
         collector.visit(&parse_result.node());
 
@@ -45,6 +50,10 @@ impl CodeMap {
         heredoc_ranges.sort_unstable();
         let heredoc_ranges = merge_ranges(heredoc_ranges);
 
+        // Sort and merge regex ranges
+        regex_ranges.sort_unstable();
+        let regex_ranges = merge_ranges(regex_ranges);
+
         // Full non-code ranges include comments + strings + __END__ data section
         let mut ranges = string_ranges.clone();
         for comment in parse_result.comments() {
@@ -58,6 +67,7 @@ impl CodeMap {
             ranges,
             string_ranges,
             heredoc_ranges,
+            regex_ranges,
         }
     }
 
@@ -79,6 +89,11 @@ impl CodeMap {
         Self::in_ranges(&self.heredoc_ranges, offset)
     }
 
+    /// Returns true if the given byte offset is inside a regex literal.
+    pub fn is_regex(&self, offset: usize) -> bool {
+        Self::in_ranges(&self.regex_ranges, offset)
+    }
+
     fn in_ranges(ranges: &[(usize, usize)], offset: usize) -> bool {
         ranges
             .binary_search_by(|&(start, end)| {
@@ -97,6 +112,7 @@ impl CodeMap {
 struct NonCodeCollector<'a> {
     ranges: &'a mut Vec<(usize, usize)>,
     heredoc_ranges: &'a mut Vec<(usize, usize)>,
+    regex_ranges: &'a mut Vec<(usize, usize)>,
 }
 
 impl<'pr> Visit<'pr> for NonCodeCollector<'_> {
@@ -181,9 +197,13 @@ impl NonCodeCollector<'_> {
                     }
                 }
             }
-            ruby_prism::Node::RegularExpressionNode { .. }
-            | ruby_prism::Node::XStringNode { .. }
-            | ruby_prism::Node::SymbolNode { .. } => {
+            ruby_prism::Node::RegularExpressionNode { .. } => {
+                let loc = node.location();
+                self.ranges.push((loc.start_offset(), loc.end_offset()));
+                self.regex_ranges
+                    .push((loc.start_offset(), loc.end_offset()));
+            }
+            ruby_prism::Node::XStringNode { .. } | ruby_prism::Node::SymbolNode { .. } => {
                 let loc = node.location();
                 self.ranges.push((loc.start_offset(), loc.end_offset()));
             }
@@ -192,14 +212,20 @@ impl NonCodeCollector<'_> {
                 let irn = node.as_interpolated_regular_expression_node().unwrap();
                 let open = irn.opening_loc();
                 self.ranges.push((open.start_offset(), open.end_offset()));
+                self.regex_ranges
+                    .push((open.start_offset(), open.end_offset()));
                 for part in irn.parts().iter() {
                     if part.as_embedded_statements_node().is_none() {
                         let ploc = part.location();
                         self.ranges.push((ploc.start_offset(), ploc.end_offset()));
+                        self.regex_ranges
+                            .push((ploc.start_offset(), ploc.end_offset()));
                     }
                 }
                 let close = irn.closing_loc();
                 self.ranges.push((close.start_offset(), close.end_offset()));
+                self.regex_ranges
+                    .push((close.start_offset(), close.end_offset()));
             }
             ruby_prism::Node::InterpolatedXStringNode { .. } => {
                 let ixn = node.as_interpolated_x_string_node().unwrap();

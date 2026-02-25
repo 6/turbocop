@@ -50,6 +50,11 @@ impl Cop for TripleQuotes {
                 if (trimmed[j] == b'"' && trimmed[j + 1] == b'"' && trimmed[j + 2] == b'"')
                     || (trimmed[j] == b'\'' && trimmed[j + 1] == b'\'' && trimmed[j + 2] == b'\'')
                 {
+                    // Skip triple quotes inside regex literals or heredocs
+                    let match_offset = byte_offset + trimmed_start + j;
+                    if code_map.is_regex(match_offset) || code_map.is_heredoc(match_offset) {
+                        continue;
+                    }
                     diagnostics.push(self.diagnostic(
                         source,
                         i + 1,
