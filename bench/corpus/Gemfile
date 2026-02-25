@@ -1,5 +1,5 @@
 # Baseline gem versions for corpus oracle runs.
-# These MUST match the vendor submodule tags turbocop targets.
+# These MUST match the vendor submodule tags nitrocop targets.
 source "https://rubygems.org"
 
 gem "rubocop", "1.84.2"

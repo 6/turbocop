@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use crate::cache::cache_root_dir;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct TurboCopLock {
+pub struct NitroCopLock {
     pub version: u32,
     pub generated_at: String,
     /// SHA-256 of Gemfile.lock content (for staleness detection)
@@ -40,7 +40,7 @@ pub fn lockfile_path(project_dir: &Path) -> PathBuf {
 pub fn write_lock(gems: &HashMap<String, PathBuf>, project_dir: &Path) -> Result<()> {
     let gemfile_lock_sha256 = hash_file(&project_dir.join("Gemfile.lock"));
 
-    let lock = TurboCopLock {
+    let lock = NitroCopLock {
         version: 1,
         generated_at: chrono_now(),
         gemfile_lock_sha256,
@@ -59,7 +59,7 @@ pub fn write_lock(gems: &HashMap<String, PathBuf>, project_dir: &Path) -> Result
 }
 
 /// Read and parse the lockfile for the given project directory.
-pub fn read_lock(dir: &Path) -> Result<TurboCopLock> {
+pub fn read_lock(dir: &Path) -> Result<NitroCopLock> {
     let cache_path = lockfile_path(dir);
     if !cache_path.exists() {
         anyhow::bail!(
@@ -70,7 +70,7 @@ pub fn read_lock(dir: &Path) -> Result<TurboCopLock> {
 
     let content = std::fs::read_to_string(&cache_path)
         .with_context(|| format!("Failed to read {}", cache_path.display()))?;
-    let lock: TurboCopLock = serde_json::from_str(&content)
+    let lock: NitroCopLock = serde_json::from_str(&content)
         .with_context(|| format!("Failed to parse {}", cache_path.display()))?;
     if lock.version != 1 {
         anyhow::bail!(
@@ -83,7 +83,7 @@ pub fn read_lock(dir: &Path) -> Result<TurboCopLock> {
 
 /// Check that the lockfile is still fresh.
 /// Detects: Gemfile.lock changes, Ruby version switches, gem reinstalls.
-pub fn check_freshness(lock: &TurboCopLock, dir: &Path) -> Result<()> {
+pub fn check_freshness(lock: &NitroCopLock, dir: &Path) -> Result<()> {
     let current_hash = hash_file(&dir.join("Gemfile.lock"));
     if lock.gemfile_lock_sha256 != current_hash {
         anyhow::bail!("Stale lockfile (Gemfile.lock changed). Run 'nitrocop --init' to refresh.");

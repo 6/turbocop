@@ -1,20 +1,20 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require "turbocop"
+require "nitrocop"
 
-exe = Turbocop.executable
+exe = Nitrocop.executable
 
 if exe
   exec(exe, *ARGV)
 else
   platform = defined?(Gem::Platform) ? Gem::Platform.local.to_s : RUBY_PLATFORM
   abort <<~MSG
-    turbocop: no precompiled binary for #{platform}
+    nitrocop: no precompiled binary for #{platform}
 
     Supported platforms: arm64-darwin, x86_64-darwin, x86_64-linux, x86_64-linux-musl, aarch64-linux
 
     To install from source (requires Rust 1.85+):
-      cargo install turbocop
+      cargo install nitrocop
   MSG
 end

@@ -920,12 +920,12 @@ fn run_quick_bench(args: &Args) {
 // --- Conformance ---
 
 #[derive(serde::Deserialize)]
-struct TurboCopOutput {
-    offenses: Vec<TurboCopOffense>,
+struct NitroCopOutput {
+    offenses: Vec<NitroCopOffense>,
 }
 
 #[derive(serde::Deserialize)]
-struct TurboCopOffense {
+struct NitroCopOffense {
     path: String,
     line: usize,
     cop_name: String,
@@ -1273,7 +1273,7 @@ fn run_conform(repos: &[RepoRef]) -> HashMap<String, ConformResult> {
         // Parse and compare
         let repo_prefix = format!("{}/", repo.dir.display());
 
-        let nitrocop_data: TurboCopOutput = match serde_json::from_slice(&nitrocop_out.stdout) {
+        let nitrocop_data: NitroCopOutput = match serde_json::from_slice(&nitrocop_out.stdout) {
             Ok(d) => d,
             Err(e) => {
                 eprintln!("  Failed to parse nitrocop JSON: {e}");
@@ -1636,7 +1636,7 @@ fn run_autocorrect_validate(repos: &[RepoRef]) -> HashMap<String, AutocorrectVal
 
         // Parse nitrocop output to count corrected offenses per cop
         let mut per_cop: BTreeMap<String, CopValidateStats> = BTreeMap::new();
-        if let Ok(tc_data) = serde_json::from_slice::<TurboCopOutput>(&tc_output.stdout) {
+        if let Ok(tc_data) = serde_json::from_slice::<NitroCopOutput>(&tc_output.stdout) {
             for offense in &tc_data.offenses {
                 if offense.corrected && autocorrectable.contains(&offense.cop_name) {
                     per_cop
