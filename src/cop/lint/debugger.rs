@@ -55,6 +55,50 @@ static DEFAULT_LEAF_NAMES: LazyLock<HashSet<&'static [u8]>> = LazyLock::new(|| {
         .collect()
 });
 
+/// Returns the previous non-whitespace byte before `offset`, if any.
+fn prev_non_space(source: &[u8], offset: usize) -> Option<u8> {
+    let mut i = offset;
+    while i > 0 {
+        i -= 1;
+        let b = source[i];
+        if b != b' ' && b != b'\t' {
+            return Some(b);
+        }
+    }
+    None
+}
+
+/// Checks whether a bare debugger call (no args, no receiver) is used in a context
+/// where it's a sub-expression (receiver, argument, array element, etc.) rather than
+/// a standalone statement. Mirrors RuboCop's `assumed_usage_context?`.
+///
+/// Returns true if the call should be SKIPPED (not flagged).
+fn is_assumed_usage_context(call: &ruby_prism::CallNode<'_>, source_bytes: &[u8]) -> bool {
+    // Only applies to calls with no arguments and no block.
+    // Calls with arguments (e.g. `pry foo`) look like intentional debugger calls.
+    if call.arguments().is_some() || call.block().is_some() {
+        return false;
+    }
+    let end = call.location().end_offset();
+    // Check if used as a receiver: next byte is '.' or '&' (for &.)
+    if end < source_bytes.len() {
+        let next = source_bytes[end];
+        if next == b'.' || next == b'&' {
+            return true;
+        }
+    }
+    // Check if used as an argument or collection element by examining preceding context.
+    // If the previous non-space byte is '(' or ',' or '[', the call is inside an argument
+    // list or array literal, not a standalone statement.
+    let start = call.location().start_offset();
+    if let Some(prev) = prev_non_space(source_bytes, start) {
+        if prev == b'(' || prev == b',' || prev == b'[' {
+            return true;
+        }
+    }
+    false
+}
+
 fn matches_spec_str(call: &ruby_prism::CallNode<'_>, spec: &str) -> bool {
     let parts: Vec<&str> = spec.split('.').collect();
     if parts.is_empty() {
@@ -177,6 +221,11 @@ impl Cop for Debugger {
                 for spec in &methods {
                     let leaf = spec.rsplit('.').next().unwrap_or(spec);
                     if leaf.as_bytes() == method_name && matches_spec_str(&call, spec) {
+                        // For bare specs (no dots), skip calls used as receivers or arguments.
+                        if !spec.contains('.') && is_assumed_usage_context(&call, source.as_bytes())
+                        {
+                            return;
+                        }
                         let loc = call.location();
                         let source_text = std::str::from_utf8(loc.as_slice()).unwrap_or("debugger");
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -193,6 +242,11 @@ impl Cop for Debugger {
                 for spec in DEFAULT_DEBUGGER_METHODS {
                     let leaf = spec.rsplit('.').next().unwrap_or(spec);
                     if leaf.as_bytes() == method_name && matches_spec_str(&call, spec) {
+                        // For bare specs (no dots), skip calls used as receivers or arguments.
+                        if !spec.contains('.') && is_assumed_usage_context(&call, source.as_bytes())
+                        {
+                            return;
+                        }
                         let loc = call.location();
                         let source_text = std::str::from_utf8(loc.as_slice()).unwrap_or("debugger");
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
