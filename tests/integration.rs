@@ -2423,6 +2423,309 @@ fn prism_pitfalls() {
     );
 }
 
+// ---------- Ruby version gates ----------
+
+/// Convert a snake_case string to CamelCase (e.g. "it_block_parameter" -> "ItBlockParameter").
+fn to_camel_case(s: &str) -> String {
+    s.split('_')
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(c) => {
+                    let mut result = c.to_uppercase().to_string();
+                    result.extend(chars);
+                    result
+                }
+                None => String::new(),
+            }
+        })
+        .collect()
+}
+
+/// Capitalize a department name from file path form to display form.
+/// e.g. "style" -> "Style", "lint" -> "Lint", "rspec" -> "RSpec"
+fn capitalize_dept(dept: &str) -> &str {
+    match dept {
+        "bundler" => "Bundler",
+        "gemspec" => "Gemspec",
+        "layout" => "Layout",
+        "lint" => "Lint",
+        "metrics" => "Metrics",
+        "migration" => "Migration",
+        "naming" => "Naming",
+        "performance" => "Performance",
+        "rails" => "Rails",
+        "rspec" => "RSpec",
+        "security" => "Security",
+        "style" => "Style",
+        _ => dept, // fallback
+    }
+}
+
+/// Extract the version number from a vendor Ruby file's version gate declaration.
+/// Looks for patterns like `minimum_target_ruby_version 3.4` or `maximum_target_ruby_version 2.7`.
+fn extract_ruby_version(content: &str, gate_type: &str) -> String {
+    let pattern = format!("{gate_type}_target_ruby_version");
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix(&pattern) {
+            let version = rest.trim();
+            if !version.is_empty() {
+                return version.to_string();
+            }
+        }
+    }
+    "?".to_string()
+}
+
+/// Recursively collect all `.rb` files under a directory.
+fn collect_rb_files(dir: &Path, files: &mut Vec<PathBuf>) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_rb_files(&path, files);
+            } else if path.extension().map_or(false, |e| e == "rb") {
+                files.push(path);
+            }
+        }
+    }
+}
+
+/// Ensure every turbocop cop that has a `minimum_target_ruby_version` or
+/// `maximum_target_ruby_version` in the vendor RuboCop source also has a
+/// corresponding `TargetRubyVersion` check in its Rust implementation.
+///
+/// This is a zero-tolerance test like `config_audit` and `prism_pitfalls`.
+/// Cops in the `KNOWN_MISSING` allowlist are temporarily exempt — the goal
+/// is to empty this list over time.
+#[test]
+fn ruby_version_gates() {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let src_cop_dir = manifest.join("src/cop");
+
+    // Vendor cop directories to scan (main rubocop + plugins)
+    let vendor_cop_dirs: Vec<(PathBuf, &str)> = vec![
+        (
+            manifest.join("vendor/rubocop/lib/rubocop/cop"),
+            "vendor/rubocop",
+        ),
+        (
+            manifest.join("vendor/rubocop-performance/lib/rubocop/cop"),
+            "vendor/rubocop-performance",
+        ),
+        (
+            manifest.join("vendor/rubocop-rails/lib/rubocop/cop"),
+            "vendor/rubocop-rails",
+        ),
+    ];
+
+    // Known-missing cops that don't yet have TargetRubyVersion checks in their
+    // Rust implementation. This allowlist should shrink over time as cops are fixed.
+    // When adding a version gate to a cop, remove it from this list.
+    let known_missing: std::collections::HashSet<&str> = [
+        "Layout/HeredocIndentation",
+        "Lint/DuplicateMatchPattern",
+        "Lint/EmptyInPattern",
+        "Lint/ErbNewArguments",
+        "Lint/RefinementImportMethods",
+        "Lint/SafeNavigationChain",
+        "Lint/SuppressedExceptionInNumberConversion",
+        "Lint/UselessElseWithoutRescue",
+        "Performance/ArraySemiInfiniteRangeSlice",
+        "Performance/BigDecimalWithNumericArgument",
+        "Performance/BindCall",
+        "Performance/DeletePrefix",
+        "Performance/DeleteSuffix",
+        "Performance/MapCompact",
+        "Performance/RedundantEqualityComparisonBlock",
+        "Performance/RegexpMatch",
+        "Performance/SelectMap",
+        "Performance/Sum",
+        "Performance/UnfreezeString",
+        "Rails/EnumSyntax",
+        "Rails/SafeNavigation",
+        "Rails/StripHeredoc",
+        "Rails/WhereRange",
+        "Style/AmbiguousEndlessMethodDefinition",
+        "Style/BitwisePredicate",
+        "Style/CollectionCompact",
+        "Style/ComparableClamp",
+        "Style/DataInheritance",
+        "Style/Dir",
+        "Style/DirEmpty",
+        "Style/EndlessMethod",
+        "Style/FileEmpty",
+        "Style/FrozenStringLiteralComment",
+        "Style/HashExcept",
+        "Style/HashFetchChain",
+        "Style/HashSlice",
+        "Style/HashTransformKeys",
+        "Style/HashTransformValues",
+        "Style/InPatternThen",
+        "Style/MapToHash",
+        "Style/MultilineInPatternThen",
+        "Style/NumberedParameters",
+        "Style/NumberedParametersLimit",
+        "Style/ObjectThen",
+        "Style/SafeNavigation",
+        "Style/SlicingWithRange",
+        "Style/SymbolArray",
+        "Style/UnpackFirst",
+    ]
+    .into_iter()
+    .collect();
+
+    let mut failures = Vec::new();
+    let mut known_missing_found = std::collections::HashSet::new();
+
+    for (vendor_cop_dir, _vendor_label) in &vendor_cop_dirs {
+        if !vendor_cop_dir.exists() {
+            eprintln!(
+                "Skipping {}: vendor directory not found (run `git submodule update --init`)",
+                vendor_cop_dir.display()
+            );
+            continue;
+        }
+
+        let mut rb_files = Vec::new();
+        collect_rb_files(vendor_cop_dir, &mut rb_files);
+
+        for path in &rb_files {
+            // Skip the mixin definition file
+            if path
+                .to_str()
+                .unwrap_or("")
+                .contains("mixin/target_ruby_version")
+            {
+                continue;
+            }
+
+            let content = fs::read_to_string(path).unwrap();
+
+            let has_min = content.contains("minimum_target_ruby_version");
+            let has_max = content.contains("maximum_target_ruby_version");
+            if !has_min && !has_max {
+                continue;
+            }
+
+            // Extract department and cop name from path.
+            // e.g. vendor/rubocop/lib/rubocop/cop/style/it_block_parameter.rb
+            //   -> relative to vendor_cop_dir: style/it_block_parameter.rb
+            let relative = match path.strip_prefix(vendor_cop_dir) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            let rel_str = relative.to_str().unwrap_or("");
+            let rel_no_ext = rel_str.trim_end_matches(".rb");
+            let components: Vec<&str> = rel_no_ext.split('/').collect();
+            if components.len() != 2 {
+                continue; // Skip non-standard paths (e.g. mixin subdirectories)
+            }
+            let dept = components[0];
+            let snake_name = components[1];
+
+            // Build the display cop name (e.g. "Style/ItBlockParameter")
+            let cop_name = format!("{}/{}", capitalize_dept(dept), to_camel_case(snake_name));
+
+            // Find corresponding Rust file (try both plain and _cop suffix)
+            let rust_file = src_cop_dir.join(dept).join(format!("{snake_name}.rs"));
+            let rust_file_alt = src_cop_dir.join(dept).join(format!("{snake_name}_cop.rs"));
+            let rust_path = if rust_file.exists() {
+                rust_file
+            } else if rust_file_alt.exists() {
+                rust_file_alt
+            } else {
+                continue; // Cop not implemented in turbocop yet
+            };
+
+            let rust_content = fs::read_to_string(&rust_path).unwrap();
+            if !rust_content.contains("TargetRubyVersion") {
+                if known_missing.contains(cop_name.as_str()) {
+                    known_missing_found.insert(cop_name.clone());
+                    continue; // Allowed for now
+                }
+
+                let gate_type = if has_min { "minimum" } else { "maximum" };
+                let version = extract_ruby_version(&content, gate_type);
+
+                failures.push(format!(
+                    "{cop_name}: vendor has {gate_type}_target_ruby_version {version} \
+                     but {} has no TargetRubyVersion check",
+                    rust_path
+                        .strip_prefix(&manifest)
+                        .unwrap_or(&rust_path)
+                        .display()
+                ));
+            }
+        }
+    }
+
+    // Check for stale entries in the known_missing list (cops that have been fixed
+    // but not removed from the allowlist).
+    let mut stale: Vec<&&str> = known_missing
+        .iter()
+        .filter(|name| !known_missing_found.contains(**name))
+        .collect();
+    stale.sort();
+
+    // Only flag stale entries if the cop's Rust file exists (otherwise it's just
+    // not implemented yet, which is fine to keep in the allowlist for when it is).
+    let stale_with_files: Vec<&&str> = stale
+        .into_iter()
+        .filter(|name| {
+            let parts: Vec<&str> = name.split('/').collect();
+            if parts.len() != 2 {
+                return false;
+            }
+            let dept = parts[0].to_lowercase();
+            let snake = to_snake_case(parts[1]);
+            let p1 = src_cop_dir.join(&dept).join(format!("{snake}.rs"));
+            let p2 = src_cop_dir.join(&dept).join(format!("{snake}_cop.rs"));
+            p1.exists() || p2.exists()
+        })
+        .collect();
+
+    if !stale_with_files.is_empty() {
+        eprintln!(
+            "\n[ruby_version_gates] {} stale known_missing entries (cop now has TargetRubyVersion — remove from allowlist):",
+            stale_with_files.len()
+        );
+        for name in &stale_with_files {
+            eprintln!("  {name}");
+        }
+    }
+
+    failures.sort();
+
+    assert!(
+        failures.is_empty(),
+        "\n[ruby_version_gates] {} cop(s) missing TargetRubyVersion gates:\n{}\n\n\
+         Each of these cops has a minimum_target_ruby_version or maximum_target_ruby_version \
+         in the vendor RuboCop source but no corresponding TargetRubyVersion check in its \
+         Rust implementation. Add the check, or (temporarily) add the cop to the known_missing \
+         allowlist in this test.",
+        failures.len(),
+        failures
+            .iter()
+            .map(|f| format!("  {f}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+
+    assert!(
+        stale_with_files.is_empty(),
+        "\n[ruby_version_gates] {} stale known_missing entries — these cops now have \
+         TargetRubyVersion checks and should be removed from the allowlist:\n{}\n",
+        stale_with_files.len(),
+        stale_with_files
+            .iter()
+            .map(|f| format!("  {f}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
 // ---------- NodePattern codegen integration tests ----------
 
 #[test]
