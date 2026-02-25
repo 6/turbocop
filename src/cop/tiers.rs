@@ -26,10 +26,14 @@ pub struct TierMap {
 }
 
 impl TierMap {
-    /// Load from the embedded resources/tiers.json.
+    /// Load from the embedded resources/tiers.json, or from `TURBOCOP_TIERS_FILE` if set.
     pub fn load() -> Self {
-        let data: TiersFile = serde_json::from_str(include_str!("../resources/tiers.json"))
-            .expect("resources/tiers.json should be valid JSON");
+        let json = match std::env::var("TURBOCOP_TIERS_FILE") {
+            Ok(path) => std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("TURBOCOP_TIERS_FILE={path}: {e}")),
+            Err(_) => include_str!("../resources/tiers.json").to_string(),
+        };
+        let data: TiersFile = serde_json::from_str(&json).expect("tiers JSON should be valid");
         Self {
             default_tier: data.default_tier,
             overrides: data.overrides,

@@ -23,6 +23,18 @@ fn temp_dir(test_name: &str) -> PathBuf {
     dir
 }
 
+/// Write a tiers.json to `dir` that marks the given cop as preview (everything else stable).
+/// Returns the path for use with `TURBOCOP_TIERS_FILE` env var.
+fn write_preview_tiers(dir: &Path, cop_name: &str) -> PathBuf {
+    let path = dir.join("tiers.json");
+    fs::write(
+        &path,
+        format!(r#"{{"schema":1,"default_tier":"stable","overrides":{{"{cop_name}":"preview"}}}}"#),
+    )
+    .unwrap();
+    path
+}
+
 fn write_file(dir: &Path, name: &str, content: &[u8]) -> PathBuf {
     let path = dir.join(name);
     if let Some(parent) = path.parent() {
@@ -4770,9 +4782,10 @@ fn strict_flag_accepted() {
 
 #[test]
 fn strict_coverage_exits_two_for_preview_gated() {
-    // Performance/BigDecimalWithNumericArgument is a preview-tier cop in resources/tiers.json.
+    // Force the cop into preview tier via TURBOCOP_TIERS_FILE.
     // Enable it in config, run without --preview → it's preview-gated → --strict exits 2.
     let dir = temp_dir("strict_coverage_preview");
+    let tiers = write_preview_tiers(&dir, "Performance/BigDecimalWithNumericArgument");
     fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
     fs::write(
         dir.join(".rubocop.yml"),
@@ -4781,6 +4794,7 @@ fn strict_coverage_exits_two_for_preview_gated() {
     .unwrap();
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .env("TURBOCOP_TIERS_FILE", &tiers)
         .args([
             "--strict",
             "--only",
@@ -4811,6 +4825,7 @@ fn strict_coverage_exits_two_for_preview_gated() {
 fn strict_coverage_with_preview_exits_zero() {
     // Same as above but with --preview, so the cop is no longer preview-gated → exit 0.
     let dir = temp_dir("strict_coverage_with_preview");
+    let tiers = write_preview_tiers(&dir, "Performance/BigDecimalWithNumericArgument");
     fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
     fs::write(
         dir.join(".rubocop.yml"),
@@ -4819,6 +4834,7 @@ fn strict_coverage_with_preview_exits_zero() {
     .unwrap();
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .env("TURBOCOP_TIERS_FILE", &tiers)
         .args([
             "--strict",
             "--preview",
@@ -4913,6 +4929,7 @@ fn strict_implemented_only_ignores_unimplemented() {
 fn lint_failure_takes_priority_over_strict() {
     // Lint offenses AND strict failure → exit 1 (lint takes priority).
     let dir = temp_dir("strict_lint_priority");
+    let tiers = write_preview_tiers(&dir, "Performance/BigDecimalWithNumericArgument");
     fs::write(dir.join("test.rb"), "x = 1   \n").unwrap(); // trailing whitespace → offense
     fs::write(
         dir.join(".rubocop.yml"),
@@ -4921,6 +4938,7 @@ fn lint_failure_takes_priority_over_strict() {
     .unwrap();
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .env("TURBOCOP_TIERS_FILE", &tiers)
         .args([
             "--preview",
             "--strict",
@@ -4967,6 +4985,7 @@ fn strict_invalid_value_errors() {
 #[test]
 fn migrate_text_output() {
     let dir = temp_dir("migrate_text");
+    let tiers = write_preview_tiers(&dir, "Performance/BigDecimalWithNumericArgument");
     fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
     fs::write(
         dir.join(".rubocop.yml"),
@@ -4975,6 +4994,7 @@ fn migrate_text_output() {
     .unwrap();
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .env("TURBOCOP_TIERS_FILE", &tiers)
         .args([
             "--migrate",
             "--no-cache",
@@ -5176,6 +5196,7 @@ fn doctor_shows_config_root() {
 #[test]
 fn doctor_shows_skip_summary() {
     let dir = temp_dir("doctor_skip_summary");
+    let tiers = write_preview_tiers(&dir, "Performance/BigDecimalWithNumericArgument");
     fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
     fs::write(
         dir.join(".rubocop.yml"),
@@ -5184,6 +5205,7 @@ fn doctor_shows_skip_summary() {
     .unwrap();
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_turbocop"))
+        .env("TURBOCOP_TIERS_FILE", &tiers)
         .args([
             "--doctor",
             "--no-cache",
