@@ -97,6 +97,10 @@ mod tests {
             "TargetRailsVersion".to_string(),
             serde_yml::Value::Number(serde_yml::value::Number::from(version)),
         );
+        options.insert(
+            "__RailtiesInLockfile".to_string(),
+            serde_yml::Value::Bool(true),
+        );
         CopConfig {
             options,
             ..CopConfig::default()

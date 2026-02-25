@@ -153,13 +153,13 @@ impl CopConfig {
         }
     }
 
-    /// Whether the project has a known Rails version (i.e., `TargetRailsVersion` was
-    /// resolved from config or `Gemfile.lock`). Non-Rails projects won't have this set.
+    /// Whether the project has a known Rails version AND `railties` is in the lockfile.
+    /// Non-Rails projects won't have `railties` in their lockfile.
     ///
     /// Rails cops that use `minimum_target_rails_version` in RuboCop should call this
     /// to skip non-Rails projects — matching RuboCop's `requires_gem 'railties'` gate.
     pub fn has_target_rails_version(&self) -> bool {
-        self.options.contains_key("TargetRailsVersion")
+        self.options.contains_key("TargetRailsVersion") && self.railties_in_lockfile()
     }
 
     /// Get the target Rails version (defaults to 5.0 if set but unparseable).
@@ -174,9 +174,27 @@ impl CopConfig {
 
     /// Check that the target Rails version meets a minimum requirement.
     /// Returns `false` if `TargetRailsVersion` is not set (non-Rails project) or
-    /// is below the specified minimum. Mirrors RuboCop's `minimum_target_rails_version`.
+    /// is below the specified minimum.
+    ///
+    /// Also returns `false` if `railties` was not found in the project's Gemfile.lock,
+    /// matching RuboCop 1.84+'s `requires_gem 'railties'` gate. This ensures cops
+    /// with `minimum_target_rails_version` are disabled when the project doesn't
+    /// actually use Rails, even if `TargetRailsVersion` is set in config.
     pub fn rails_version_at_least(&self, minimum: f64) -> bool {
+        // RuboCop 1.84+ requires_gem check: railties must be in lockfile
+        if !self.railties_in_lockfile() {
+            return false;
+        }
         self.target_rails_version().is_some_and(|v| v >= minimum)
+    }
+
+    /// Whether `railties` was found in the project's Gemfile.lock.
+    /// Mirrors RuboCop 1.84+'s `requires_gem 'railties'` API.
+    fn railties_in_lockfile(&self) -> bool {
+        self.options
+            .get("__RailtiesInLockfile")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
     }
 
     /// Whether the cop itself is considered safe (default: true).
@@ -456,6 +474,10 @@ macro_rules! cop_rails_fixture_tests {
             options.insert(
                 "TargetRailsVersion".to_string(),
                 serde_yml::Value::Number(serde_yml::value::Number::from($min_version as f64)),
+            );
+            options.insert(
+                "__RailtiesInLockfile".to_string(),
+                serde_yml::Value::Bool(true),
             );
             $crate::cop::CopConfig {
                 options,

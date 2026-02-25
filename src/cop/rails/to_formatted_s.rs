@@ -88,6 +88,10 @@ mod tests {
                     "TargetRailsVersion".to_string(),
                     serde_yml::Value::Number(serde_yml::value::Number::from(7.0)),
                 ),
+                (
+                    "__RailtiesInLockfile".to_string(),
+                    serde_yml::Value::Bool(true),
+                ),
             ]),
             ..CopConfig::default()
         };
@@ -111,6 +115,10 @@ mod tests {
                 (
                     "TargetRailsVersion".to_string(),
                     serde_yml::Value::Number(serde_yml::value::Number::from(7.0)),
+                ),
+                (
+                    "__RailtiesInLockfile".to_string(),
+                    serde_yml::Value::Bool(true),
                 ),
             ]),
             ..CopConfig::default()

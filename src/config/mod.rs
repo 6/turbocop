@@ -519,6 +519,11 @@ pub struct ResolvedConfig {
     /// Keyed by directory path (sorted deepest-first for lookup).
     /// Each value contains only the cop-specific options from that directory's config.
     dir_overrides: Vec<(PathBuf, HashMap<String, CopConfig>)>,
+    /// Whether the `railties` gem was found in the project's Gemfile.lock.
+    /// RuboCop 1.84+ uses `requires_gem 'railties'` to gate Rails cops — if
+    /// `railties` is not in the lockfile, cops with `minimum_target_rails_version`
+    /// are silently disabled regardless of `TargetRailsVersion` in config.
+    railties_in_lockfile: bool,
 }
 
 impl ResolvedConfig {
@@ -539,6 +544,7 @@ impl ResolvedConfig {
             project_mentioned_cops: HashSet::new(),
             project_enabled_depts: HashSet::new(),
             dir_overrides: Vec::new(),
+            railties_in_lockfile: false,
         }
     }
 }
@@ -923,17 +929,35 @@ pub fn load_config(
 
     // Fall back to Gemfile.lock if TargetRailsVersion wasn't set in config.
     // RuboCop looks for the 'railties' gem in the lockfile.
+    let mut railties_in_lockfile = false;
     let target_rails_version = base.target_rails_version.or_else(|| {
         for lock_name in &["Gemfile.lock", "gems.locked"] {
             let lock_path = config_dir.join(lock_name);
             if let Ok(content) = std::fs::read_to_string(&lock_path) {
                 if let Some(ver) = parse_gem_version_from_lockfile(&content, "railties") {
+                    railties_in_lockfile = true;
                     return Some(ver);
                 }
             }
         }
         None
     });
+
+    // If TargetRailsVersion was set in config (not from lockfile), still check
+    // the lockfile for railties presence. RuboCop 1.84+ uses `requires_gem
+    // 'railties'` which gates cops based on actual lockfile presence, independent
+    // of the TargetRailsVersion config option.
+    if !railties_in_lockfile && base.target_rails_version.is_some() {
+        for lock_name in &["Gemfile.lock", "gems.locked"] {
+            let lock_path = config_dir.join(lock_name);
+            if let Ok(content) = std::fs::read_to_string(&lock_path) {
+                if parse_gem_version_from_lockfile(&content, "railties").is_some() {
+                    railties_in_lockfile = true;
+                    break;
+                }
+            }
+        }
+    }
 
     // Discover and parse nested .rubocop.yml files for per-directory cop overrides.
     // These provide cop-specific option overrides for files in subdirectories
@@ -960,6 +984,7 @@ pub fn load_config(
         project_mentioned_cops,
         project_enabled_depts,
         dir_overrides,
+        railties_in_lockfile,
     })
 }
 
@@ -1942,6 +1967,11 @@ impl ResolvedConfig {
                 .entry("TargetRailsVersion".to_string())
                 .or_insert_with(|| Value::Number(serde_yml::Number::from(version)));
         }
+        // Inject railties_in_lockfile flag so cops can check requires_gem('railties')
+        config
+            .options
+            .entry("__RailtiesInLockfile".to_string())
+            .or_insert_with(|| Value::Bool(self.railties_in_lockfile));
         // Inject MaxLineLength and LineLengthEnabled from Layout/LineLength into
         // cops that need it (mirrors RuboCop's `config.for_cop('Layout/LineLength')`).
         // When Layout/LineLength is disabled, max_line_length returns nil in RuboCop,
@@ -2923,7 +2953,12 @@ mod tests {
         assert_eq!(cc.enabled, EnabledState::Unset);
         assert!(cc.severity.is_none());
         assert!(cc.exclude.is_empty());
-        assert!(cc.options.is_empty());
+        // Only injected internal keys should be present (e.g. __RailtiesInLockfile)
+        let user_keys: Vec<_> = cc.options.keys().filter(|k| !k.starts_with("__")).collect();
+        assert!(
+            user_keys.is_empty(),
+            "unexpected user options: {user_keys:?}"
+        );
     }
 
     // ---- Path-based Include/Exclude tests ----
