@@ -77,3 +77,17 @@ shared_context 'with dependencies' do
     end
   end
 end
+
+# Module with sibling top-level statements is NOT unwrapped
+# (RuboCop's TopLevelGroup only unwraps sole top-level module/class)
+module MyNamespace
+  describe SomeService do
+    context 'when active' do
+      context 'when verified' do
+        context 'when ready' do
+          it { expect(subject).to be_ready }
+        end
+      end
+    end
+  end
+end
