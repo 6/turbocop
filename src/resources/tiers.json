@@ -146,6 +146,7 @@
     "RSpec/DescribeClass": "stable",
     "RSpec/DescribeSymbol": "stable",
     "RSpec/DescribedClass": "stable",
+    "RSpec/DescribedClassModuleWrapping": "stable",
     "RSpec/EmptyHook": "stable",
     "RSpec/EmptyMetadata": "stable",
     "RSpec/ExcessiveDocstringSpacing": "stable",
