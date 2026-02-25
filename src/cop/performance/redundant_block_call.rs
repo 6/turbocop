@@ -110,6 +110,26 @@ impl<'pr> Visit<'pr> for ReassignFinder<'_> {
         }
         ruby_prism::visit_local_variable_write_node(self, node);
     }
+
+    fn visit_local_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+    ) {
+        if node.name().as_slice() == self.name {
+            self.found = true;
+        }
+        ruby_prism::visit_local_variable_or_write_node(self, node);
+    }
+
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        if node.name().as_slice() == self.name {
+            self.found = true;
+        }
+        ruby_prism::visit_local_variable_operator_write_node(self, node);
+    }
 }
 
 struct BlockCallFinder<'a, 'src, 'd> {
@@ -122,25 +142,31 @@ struct BlockCallFinder<'a, 'src, 'd> {
 impl<'pr> Visit<'pr> for BlockCallFinder<'_, '_, '_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         if node.name().as_slice() == b"call" {
-            if let Some(recv) = node.receiver() {
-                if let Some(local_var) = recv.as_local_variable_read_node() {
-                    if local_var.name().as_slice() == self.arg_name {
-                        // Don't flag if the call itself has a block literal
-                        // (e.g., block.call { ... })
-                        if node.block().is_none() || node.block().unwrap().as_block_node().is_none()
-                        {
-                            let loc = node.location();
-                            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-                            let msg = format!(
-                                "Use `yield` instead of `{}.call`.",
-                                std::str::from_utf8(self.arg_name).unwrap_or("block")
-                            );
-                            self.diagnostics.push(self.cop.diagnostic(
-                                self.source,
-                                line,
-                                column,
-                                msg,
-                            ));
+            // Skip safe navigation (&.call) — yield doesn't have nil-safe semantics
+            let is_safe_nav = node
+                .call_operator_loc()
+                .is_some_and(|op| op.as_slice() == b"&.");
+            if !is_safe_nav {
+                if let Some(recv) = node.receiver() {
+                    if let Some(local_var) = recv.as_local_variable_read_node() {
+                        if local_var.name().as_slice() == self.arg_name {
+                            // Don't flag if the call has any block argument
+                            // (block literal or &block_pass)
+                            if node.block().is_none() {
+                                let loc = node.location();
+                                let (line, column) =
+                                    self.source.offset_to_line_col(loc.start_offset());
+                                let msg = format!(
+                                    "Use `yield` instead of `{}.call`.",
+                                    std::str::from_utf8(self.arg_name).unwrap_or("block")
+                                );
+                                self.diagnostics.push(self.cop.diagnostic(
+                                    self.source,
+                                    line,
+                                    column,
+                                    msg,
+                                ));
+                            }
                         }
                     }
                 }
@@ -151,6 +177,24 @@ impl<'pr> Visit<'pr> for BlockCallFinder<'_, '_, '_> {
 
     fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {
         // Don't descend into nested def nodes (they have their own scope)
+    }
+
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        // Don't descend into blocks where the arg name shadows the block param
+        if let Some(params) = node.parameters() {
+            if let Some(params) = params.as_block_parameters_node() {
+                if let Some(inner_params) = params.parameters() {
+                    for req in inner_params.requireds().iter() {
+                        if let Some(req_param) = req.as_required_parameter_node() {
+                            if req_param.name().as_slice() == self.arg_name {
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        ruby_prism::visit_block_node(self, node);
     }
 }
 
