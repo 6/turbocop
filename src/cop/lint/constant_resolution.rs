@@ -12,6 +12,10 @@ impl Cop for ConstantResolution {
         "Lint/ConstantResolution"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Warning
     }
@@ -43,12 +47,22 @@ impl Cop for ConstantResolution {
 
         let name = std::str::from_utf8(const_node.name().as_slice()).unwrap_or("");
 
-        // Check Only/Ignore config
-        let only = config.get_string_array("Only").unwrap_or_default();
+        // Check Only/Ignore config.
+        // When Only is explicitly empty (`Only: []`, the RuboCop default), nothing
+        // should be checked — return early.  When Only is absent (not configured),
+        // flag all unqualified constants (the cop was explicitly enabled without
+        // restricting which constants to check).
+        let only = config.get_string_array("Only");
         let ignore = config.get_string_array("Ignore").unwrap_or_default();
 
-        if !only.is_empty() && !only.contains(&name.to_string()) {
-            return;
+        match &only {
+            Some(list) if list.is_empty() => return, // Explicit empty Only = nothing to check
+            Some(list) => {
+                if !list.contains(&name.to_string()) {
+                    return;
+                }
+            }
+            None => {} // Only not configured; flag all unqualified constants
         }
         if ignore.contains(&name.to_string()) {
             return;
