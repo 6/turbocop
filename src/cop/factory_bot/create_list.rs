@@ -2,7 +2,7 @@ use ruby_prism::Visit;
 
 use crate::cop::factory_bot::{FACTORY_BOT_SPEC_INCLUDE, is_factory_call};
 use crate::cop::node_type::{
-    ASSOC_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CONSTANT_PATH_NODE,
+    ARRAY_NODE, ASSOC_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, CONSTANT_PATH_NODE,
     CONSTANT_READ_NODE, HASH_NODE, INTEGER_NODE, KEYWORD_HASH_NODE, REQUIRED_PARAMETER_NODE,
     STATEMENTS_NODE, STRING_NODE, SYMBOL_NODE,
 };
@@ -27,6 +27,7 @@ impl Cop for CreateList {
 
     fn interested_node_types(&self) -> &'static [u8] {
         &[
+            ARRAY_NODE,
             ASSOC_NODE,
             BLOCK_NODE,
             BLOCK_PARAMETERS_NODE,
@@ -52,13 +53,19 @@ impl Cop for CreateList {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        let style = config.get_str("EnforcedStyle", "create_list");
+        let explicit_only = config.get_bool("ExplicitOnly", false);
+
+        // Check array literals with repeated create calls
+        if let Some(array) = node.as_array_node() {
+            diagnostics.extend(self.check_array_literal(source, &array, style, explicit_only));
+            return;
+        }
+
         let call = match node.as_call_node() {
             Some(c) => c,
             None => return,
         };
-
-        let style = config.get_str("EnforcedStyle", "create_list");
-        let explicit_only = config.get_bool("ExplicitOnly", false);
 
         if style == "create_list" {
             diagnostics.extend(self.check_for_create_list_style(source, &call, explicit_only));
@@ -71,8 +78,67 @@ impl Cop for CreateList {
 }
 
 impl CreateList {
-    /// With create_list style: flag `n.times { create :user }`, `n.times.map { create ... }`,
-    /// `Array.new(n) { create ... }` blocks
+    /// Check array literals like `[create(:user), create(:user)]` for repeated identical create calls.
+    fn check_array_literal(
+        &self,
+        source: &SourceFile,
+        array: &ruby_prism::ArrayNode<'_>,
+        style: &str,
+        explicit_only: bool,
+    ) -> Vec<Diagnostic> {
+        let elements: Vec<_> = array.elements().iter().collect();
+        if elements.len() < 2 {
+            return Vec::new();
+        }
+
+        // All elements must be create calls
+        let mut create_calls = Vec::new();
+        for elem in &elements {
+            let call = match elem.as_call_node() {
+                Some(c) => c,
+                None => return Vec::new(),
+            };
+            if call.name().as_slice() != b"create" {
+                return Vec::new();
+            }
+            if !is_factory_call(call.receiver(), explicit_only) {
+                return Vec::new();
+            }
+            create_calls.push(call);
+        }
+
+        // All create calls must have the same source representation of arguments
+        let first = &create_calls[0];
+        let first_args_src = get_args_source(first, source);
+
+        for call in &create_calls[1..] {
+            if get_args_source(call, source) != first_args_src {
+                return Vec::new();
+            }
+        }
+
+        // Check if args contain method calls — in that case, suggest n.times.map instead
+        let has_method_calls = if let Some(args) = first.arguments() {
+            let arg_list: Vec<_> = args.arguments().iter().collect();
+            arguments_include_method_call(&arg_list)
+        } else {
+            false
+        };
+
+        let loc = array.location();
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        let count = elements.len();
+
+        let msg = if has_method_calls || style == "n_times" {
+            format!("Prefer {}.times.map.", count)
+        } else {
+            "Prefer create_list.".to_string()
+        };
+
+        vec![self.diagnostic(source, line, column, msg)]
+    }
+
+    /// With create_list style: flag `n.times { create :user }` and `n.times.map { create ... }` blocks
     fn check_for_create_list_style(
         &self,
         source: &SourceFile,
@@ -90,7 +156,7 @@ impl CreateList {
             None => return Vec::new(),
         };
 
-        // Extract repeat count from the call (n.times, n.times.map, Array.new(n))
+        // Extract repeat count from the call (n.times, n.times.map)
         let count = match get_repeat_count_from_source(call, source) {
             Some(c) if c > 1 => c,
             _ => return Vec::new(),
@@ -132,6 +198,11 @@ impl CreateList {
 
         // Check if arguments include a method call (rand, etc.)
         if arguments_include_method_call(&arg_list) {
+            return Vec::new();
+        }
+
+        // Check if arguments include value omission (Ruby 3.1+ `key:` shorthand)
+        if arguments_include_value_omission(&arg_list) {
             return Vec::new();
         }
 
@@ -217,31 +288,6 @@ fn get_repeat_count_from_source(
                             if let Ok(s) = std::str::from_utf8(src) {
                                 return s.parse::<i64>().ok();
                             }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if method == b"new" {
-        if let Some(recv) = call.receiver() {
-            let is_array = if let Some(cr) = recv.as_constant_read_node() {
-                cr.name().as_slice() == b"Array"
-            } else if let Some(cp) = recv.as_constant_path_node() {
-                cp.name().is_some_and(|n| n.as_slice() == b"Array")
-            } else {
-                false
-            };
-
-            if is_array {
-                if let Some(args) = call.arguments() {
-                    let arg_list: Vec<_> = args.arguments().iter().collect();
-                    if let Some(int) = arg_list.first().and_then(|a| a.as_integer_node()) {
-                        let src = &source.as_bytes()
-                            [int.location().start_offset()..int.location().end_offset()];
-                        if let Ok(s) = std::str::from_utf8(src) {
-                            return s.parse::<i64>().ok();
                         }
                     }
                 }
@@ -373,6 +419,42 @@ fn contains_send_node(node: &ruby_prism::Node<'_>) -> bool {
     }
 
     false
+}
+
+/// Check if arguments contain value omission (Ruby 3.1+ `key:` shorthand).
+fn arguments_include_value_omission(args: &[ruby_prism::Node<'_>]) -> bool {
+    for arg in args.iter().skip(1) {
+        if let Some(hash) = arg.as_keyword_hash_node() {
+            for elem in hash.elements().iter() {
+                if let Some(pair) = elem.as_assoc_node() {
+                    if pair.value().as_implicit_node().is_some() {
+                        return true;
+                    }
+                }
+            }
+        }
+        if let Some(hash) = arg.as_hash_node() {
+            for elem in hash.elements().iter() {
+                if let Some(pair) = elem.as_assoc_node() {
+                    if pair.value().as_implicit_node().is_some() {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Get the source bytes of a call's arguments (for comparing create calls in arrays).
+fn get_args_source<'a>(call: &ruby_prism::CallNode<'a>, source: &SourceFile) -> Vec<u8> {
+    match call.arguments() {
+        Some(args) => {
+            let loc = args.location();
+            source.as_bytes()[loc.start_offset()..loc.end_offset()].to_vec()
+        }
+        None => Vec::new(),
+    }
 }
 
 /// Extract integer value from a node via source bytes.
