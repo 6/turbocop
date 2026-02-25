@@ -145,12 +145,8 @@ mod tests {
             options,
             ..CopConfig::default()
         };
-        let diagnostics = crate::testutil::run_cop_full_internal(
-            &ApplicationRecord,
-            source,
-            config,
-            "test.rb",
-        );
+        let diagnostics =
+            crate::testutil::run_cop_full_internal(&ApplicationRecord, source, config, "test.rb");
         assert!(
             diagnostics.is_empty(),
             "Should not fire when railties is not in Gemfile.lock (matches RuboCop 1.84+ requires_gem gate)"
