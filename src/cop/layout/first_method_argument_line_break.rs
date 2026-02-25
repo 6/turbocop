@@ -58,6 +58,15 @@ impl Cop for FirstMethodArgumentLineBreak {
         let (open_line, _) = source.offset_to_line_col(open_loc.start_offset());
         let (close_line, _) = source.offset_to_line_col(close_loc.start_offset());
 
+        // RuboCop's method_uses_parens? checks that the opening paren is on the
+        // same line where the CallNode starts. For chained calls like
+        // `Foo\n  .new(arg, ...)`, the node starts on the receiver's line, not
+        // the paren's line, so no offense should be reported.
+        let (call_start_line, _) = source.offset_to_line_col(call.location().start_offset());
+        if call_start_line != open_line {
+            return;
+        }
+
         // Only check multiline calls
         if open_line == close_line {
             return;
