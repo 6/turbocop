@@ -11,6 +11,7 @@ Usage:
     python3 scripts/investigate-repo.py rails --limit 10         # top 10 (default 20)
     python3 scripts/investigate-repo.py --list                   # list all repos by match rate
     python3 scripts/investigate-repo.py --input corpus-results.json rails
+    python3 scripts/investigate-repo.py rails --exclude-cops-file fix-cops-done.txt
 """
 
 import argparse
@@ -130,7 +131,8 @@ def print_repo_list(by_repo: list[dict], by_repo_cop: dict):
 
 
 def print_repo_detail(repo_id: str, by_repo: list[dict], by_repo_cop: dict,
-                      fp_only: bool = False, fn_only: bool = False, limit: int = 20):
+                      fp_only: bool = False, fn_only: bool = False, limit: int = 20,
+                      exclude_cops: set[str] | None = None):
     """Print top diverging cops for a specific repo."""
     # Get repo-level stats
     repo_info = next((r for r in by_repo if r["repo"] == repo_id), None)
@@ -161,7 +163,12 @@ def print_repo_detail(repo_id: str, by_repo: list[dict], by_repo_cop: dict,
     cop_divs = []
     total_fp = 0
     total_fn = 0
+    excluded_count = 0
     for cop_name, entry in cops_data.items():
+        if exclude_cops and cop_name in exclude_cops:
+            excluded_count += 1
+            continue
+
         cop_fp = entry.get("fp", 0)
         cop_fn = entry.get("fn", 0)
         cop_matches = entry.get("matches", 0)
@@ -208,6 +215,8 @@ def print_repo_detail(repo_id: str, by_repo: list[dict], by_repo_cop: dict,
     both_count = sum(1 for c in cop_divs if c[1] > 0 and c[2] > 0)
     print(f"Summary: {len(cop_divs)} diverging cops ({fmt_count(total_fp)} FP, {fmt_count(total_fn)} FN)")
     print(f"  FP-only: {fp_only_count} cops  FN-only: {fn_only_count} cops  Both: {both_count} cops")
+    if excluded_count > 0:
+        print(f"  ({excluded_count} already-fixed cops excluded)")
 
 
 def main():
@@ -225,6 +234,8 @@ def main():
                         help="Only show cops with false negatives")
     parser.add_argument("--limit", type=int, default=20,
                         help="Number of cops to show (default: 20, 0 = all)")
+    parser.add_argument("--exclude-cops-file", type=Path,
+                        help="File with cop names to exclude (one per line, # comments ok)")
     args = parser.parse_args()
 
     if not args.repo and not args.list:
@@ -232,6 +243,14 @@ def main():
 
     if args.fp_only and args.fn_only:
         parser.error("Cannot use both --fp-only and --fn-only")
+
+    # Load excluded cops
+    exclude_cops: set[str] = set()
+    if args.exclude_cops_file and args.exclude_cops_file.exists():
+        for line in args.exclude_cops_file.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                exclude_cops.add(line)
 
     # Load corpus results
     if args.input:
@@ -257,7 +276,7 @@ def main():
     effective_limit = args.limit if args.limit > 0 else len(by_repo_cop.get(repo_id, {}))
     print_repo_detail(repo_id, by_repo, by_repo_cop,
                       fp_only=args.fp_only, fn_only=args.fn_only,
-                      limit=effective_limit)
+                      limit=effective_limit, exclude_cops=exclude_cops)
 
 
 if __name__ == "__main__":

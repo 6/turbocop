@@ -23,8 +23,10 @@ match rate.
 2. **Once a repo is chosen**, run the repo investigation and **paste its full output
    verbatim to the user** (the table IS the primary output — do not summarize or skip it):
    ```bash
-   python3 scripts/investigate-repo.py <repo-name> $ARGUMENTS
+   python3 scripts/investigate-repo.py <repo-name> --exclude-cops-file fix-cops-done.txt $ARGUMENTS
    ```
+   The `--exclude-cops-file` flag filters out cops already fixed since the last corpus run,
+   so the output only shows cops that still need work.
 
 3. Show the user the top diverging cops and confirm the target repo.
 
