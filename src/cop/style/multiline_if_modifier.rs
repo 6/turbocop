@@ -5,6 +5,32 @@ use crate::parse::source::SourceFile;
 
 pub struct MultilineIfModifier;
 
+/// Check if all physical lines from `from_line` to `to_line - 1` (1-indexed)
+/// end with a backslash continuation character. If so, the expression is a
+/// single logical line and should not be considered multiline.
+fn lines_joined_by_backslash(source: &SourceFile, from_line: usize, to_line: usize) -> bool {
+    if from_line >= to_line {
+        return false;
+    }
+    let lines: Vec<&[u8]> = source.lines().collect();
+    for line_num in from_line..to_line {
+        // line_num is 1-indexed, lines vec is 0-indexed
+        let idx = line_num - 1;
+        if idx >= lines.len() {
+            return false;
+        }
+        let line = lines[idx];
+        let trimmed = line
+            .iter()
+            .rposition(|&b| b != b' ' && b != b'\t' && b != b'\r');
+        match trimmed {
+            Some(pos) if line[pos] == b'\\' => {}
+            _ => return false,
+        }
+    }
+    true
+}
+
 impl Cop for MultilineIfModifier {
     fn name(&self) -> &'static str {
         "Style/MultilineIfModifier"
@@ -52,6 +78,10 @@ impl Cop for MultilineIfModifier {
                 let if_kw_line = source.offset_to_line_col(if_kw_loc.start_offset()).0;
 
                 if body_start_line < if_kw_line {
+                    // Skip if lines are joined by backslash continuation (single logical line)
+                    if lines_joined_by_backslash(source, body_start_line, if_kw_line) {
+                        return;
+                    }
                     // Body starts before the `if` keyword - it's multiline
                     let body_start = body_nodes[0].location().start_offset();
                     let (line, column) = source.offset_to_line_col(body_start);
@@ -93,6 +123,10 @@ impl Cop for MultilineIfModifier {
                 let kw_line = source.offset_to_line_col(kw_loc.start_offset()).0;
 
                 if body_start_line < kw_line {
+                    // Skip if lines are joined by backslash continuation (single logical line)
+                    if lines_joined_by_backslash(source, body_start_line, kw_line) {
+                        return;
+                    }
                     let body_start = body_nodes[0].location().start_offset();
                     let (line, column) = source.offset_to_line_col(body_start);
                     diagnostics.push(self.diagnostic(
