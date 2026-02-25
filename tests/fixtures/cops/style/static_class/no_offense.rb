@@ -16,3 +16,23 @@ class Baz
     CONST
   end
 end
+
+class Child < Parent
+  def self.class_method
+    42
+  end
+end
+
+class WithInclude
+  include SomeModule
+  def self.class_method
+    42
+  end
+end
+
+class WithPrepend
+  prepend SomeModule
+  def self.class_method
+    42
+  end
+end

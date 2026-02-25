@@ -38,6 +38,12 @@ struct StaticClassVisitor<'a> {
 
 impl<'pr> Visit<'pr> for StaticClassVisitor<'_> {
     fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
+        // Classes with a parent class cannot safely be converted to modules
+        if node.superclass().is_some() {
+            ruby_prism::visit_class_node(self, node);
+            return;
+        }
+
         // Check if class has only class-level methods (def self.xxx)
         if let Some(body) = node.body() {
             if let Some(stmts) = body.as_statements_node() {
