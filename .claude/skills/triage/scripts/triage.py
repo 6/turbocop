@@ -96,6 +96,8 @@ def main():
     parser.add_argument("--exclude-department", action="append", help="Exclude cops in this department (can repeat)")
     parser.add_argument("--fp-only", action="store_true", help="Only show cops with false positives")
     parser.add_argument("--fn-only", action="store_true", help="Only show cops with false negatives")
+    parser.add_argument("--exclude-cops-file", type=Path,
+                        help="File with cop names to exclude (one per line, e.g. .claude/fix-cops-done.txt)")
     args = parser.parse_args()
 
     # Load corpus results
@@ -124,6 +126,15 @@ def main():
     if args.exclude_department:
         exclude = {d.rstrip("/") for d in args.exclude_department}
         diverging = [c for c in diverging if c["cop"].split("/")[0] not in exclude]
+
+    # Exclude already-fixed cops
+    if args.exclude_cops_file and args.exclude_cops_file.exists():
+        exclude_cops = {line.strip() for line in args.exclude_cops_file.read_text().splitlines() if line.strip() and not line.startswith("#")}
+        before = len(diverging)
+        diverging = [c for c in diverging if c["cop"] not in exclude_cops]
+        skipped = before - len(diverging)
+        if skipped:
+            print(f"Excluded {skipped} already-fixed cops from {args.exclude_cops_file}", file=sys.stderr)
 
     # Apply FP/FN filters
     if args.fp_only:
