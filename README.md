@@ -78,7 +78,7 @@ Top 15 repos by GitHub stars (offense counts are high because the corpus enables
 | [jekyll](https://github.com/jekyll/jekyll) | 190 | 7,697 | 93.0% |
 | [mastodon](https://github.com/mastodon/mastodon) | 3,101 | 22,409 | 95.7% |
 | [huginn](https://github.com/huginn/huginn) | 451 | 18,734 | 97.0% |
-| [discourse](https://github.com/discourse/discourse) | 9,124 | 334,236 | 97.7% |
+| [discourse](https://github.com/discourse/discourse) | 9,124 | 334,240 | 97.7% |
 | [fastlane](https://github.com/fastlane/fastlane) | 1,302 | 62,115 | 96.1% |
 | [devdocs](https://github.com/freeCodeCamp/devdocs) | 833 | 11,887 | 90.6% |
 | [chatwoot](https://github.com/chatwoot/chatwoot) | 2,262 | 18,231 | 98.7% |
