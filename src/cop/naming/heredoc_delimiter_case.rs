@@ -101,6 +101,13 @@ impl Cop for HeredocDelimiterCase {
             return;
         }
 
+        // Skip delimiters with no alphabetic characters — case checking is meaningless
+        // for purely non-alpha delimiters like `.,.,` or `---` or `+`.
+        // This matches RuboCop which checks /^\w+$/ before applying case rules.
+        if !delimiter.iter().any(|b| b.is_ascii_alphabetic()) {
+            return;
+        }
+
         let is_uppercase = delimiter
             .iter()
             .all(|b| b.is_ascii_uppercase() || *b == b'_' || b.is_ascii_digit());

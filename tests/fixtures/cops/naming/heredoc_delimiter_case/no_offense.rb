@@ -15,3 +15,13 @@ b = <<-"SQL"
 SQL
 c = "not a heredoc"
 d = 'also not a heredoc'
+# Non-word delimiters should not trigger case check
+e = <<-'.,.,',
+  foo
+.,.,
+f = <<~'---'
+  bar
+---
+g = <<-'+'
+  baz
++
