@@ -1866,6 +1866,18 @@ impl ResolvedConfig {
             return false;
         }
 
+        // Cross-cop dependency: Style/RedundantConstantBase is disabled
+        // when Lint/ConstantResolution is enabled (conflicting rules).
+        if name == "Style/RedundantConstantBase" {
+            let lcr_enabled = self
+                .cop_configs
+                .get("Lint/ConstantResolution")
+                .is_some_and(|c| c.enabled == EnabledState::True);
+            if lcr_enabled {
+                return false;
+            }
+        }
+
         // 2. Global excludes
         for pattern in &self.global_excludes {
             if glob_matches(pattern, path) {
@@ -2207,6 +2219,13 @@ impl ResolvedConfig {
         let global_exclude = build_glob_set(&global_exclude_pats).unwrap_or_else(GlobSet::empty);
         let global_exclude_re = build_regex_set(&global_exclude_pats);
 
+        // Cross-cop dependency: Style/RedundantConstantBase disables itself when
+        // Lint/ConstantResolution is enabled (they have conflicting requirements).
+        let lint_constant_resolution_enabled = self
+            .cop_configs
+            .get("Lint/ConstantResolution")
+            .is_some_and(|c| c.enabled == EnabledState::True);
+
         let filters: Vec<CopFilter> = registry
             .cops()
             .iter()
@@ -2318,6 +2337,15 @@ impl ResolvedConfig {
                 if enabled
                     && !preview
                     && tier_map.tier_for(name) == crate::cop::tiers::Tier::Preview
+                {
+                    enabled = false;
+                }
+
+                // Cross-cop dependency: Style/RedundantConstantBase is disabled
+                // when Lint/ConstantResolution is enabled (conflicting rules).
+                if enabled
+                    && name == "Style/RedundantConstantBase"
+                    && lint_constant_resolution_enabled
                 {
                     enabled = false;
                 }
@@ -3562,6 +3590,46 @@ mod tests {
         let config = load_config(Some(&path), None, None).unwrap();
         // Pending is enabled when NewCops: enable
         assert!(config.is_cop_enabled("Lint/Foo", Path::new("a.rb"), &[], &[]));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // ---- Cross-cop dependency tests ----
+
+    #[test]
+    fn redundant_constant_base_disabled_when_constant_resolution_enabled() {
+        let dir = std::env::temp_dir().join("turbocop_test_redundant_constant_base_cross_cop");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        // When Lint/ConstantResolution is enabled, Style/RedundantConstantBase
+        // must be disabled (conflicting rules, per RuboCop behavior).
+        let path = write_config(
+            &dir,
+            "AllCops:\n  NewCops: enable\nLint/ConstantResolution:\n  Enabled: true\nStyle/RedundantConstantBase:\n  Enabled: pending\n",
+        );
+        let config = load_config(Some(&path), None, None).unwrap();
+        assert!(!config.is_cop_enabled("Style/RedundantConstantBase", Path::new("a.rb"), &[], &[]));
+        // ConstantResolution itself should still be enabled
+        assert!(config.is_cop_enabled("Lint/ConstantResolution", Path::new("a.rb"), &[], &[]));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn redundant_constant_base_enabled_when_constant_resolution_disabled() {
+        let dir = std::env::temp_dir().join("turbocop_test_redundant_constant_base_no_conflict");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        // When Lint/ConstantResolution is NOT enabled (default),
+        // Style/RedundantConstantBase should be enabled normally.
+        let path = write_config(
+            &dir,
+            "AllCops:\n  NewCops: enable\nStyle/RedundantConstantBase:\n  Enabled: pending\n",
+        );
+        let config = load_config(Some(&path), None, None).unwrap();
+        assert!(config.is_cop_enabled("Style/RedundantConstantBase", Path::new("a.rb"), &[], &[]));
 
         fs::remove_dir_all(&dir).ok();
     }
