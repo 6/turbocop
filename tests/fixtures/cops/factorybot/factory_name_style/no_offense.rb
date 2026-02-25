@@ -4,3 +4,8 @@ build :user, username: "NAME"
 create("users/internal")
 create user: :foo
 build user: :foo
+generate("
+  class Foo
+    def bar; end
+  end")
+build("user admin")

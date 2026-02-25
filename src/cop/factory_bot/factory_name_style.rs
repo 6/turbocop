@@ -71,6 +71,11 @@ impl Cop for FactoryNameStyle {
                     return;
                 }
 
+                // Skip strings with whitespace — not valid factory names
+                if value_str.contains(char::is_whitespace) {
+                    return;
+                }
+
                 let loc = first_arg.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 diagnostics.push(self.diagnostic(
