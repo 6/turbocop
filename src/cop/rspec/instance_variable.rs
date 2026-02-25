@@ -178,20 +178,56 @@ impl IvarChecker<'_> {
 
 /// Find the byte offsets of all top-level spec group call nodes.
 ///
-/// Matches RuboCop's `TopLevelGroup` concern which only recognizes describe/context
-/// blocks at the file's top level. It unwraps `begin` (sequential statements),
-/// `module`, and `class` nodes to find the actual top-level blocks, but does NOT
-/// unwrap `if`, `unless`, `case`, method calls, iterators, or any other node types.
+/// Matches RuboCop's `TopLevelGroup#top_level_nodes` which:
+/// - If the root is a `:begin` node (multiple top-level statements): returns
+///   direct children WITHOUT unwrapping modules/classes
+/// - If the root is a `:module` or `:class` (sole top-level construct):
+///   recursively unwraps into the body
+/// - Otherwise: returns the node as-is
+///
+/// In Prism, `ProgramNode` always wraps statements in a `StatementsNode`.
+/// When there is exactly one top-level statement, we apply module/class
+/// unwrapping. When there are multiple statements (like `require` + `module`),
+/// we only check direct children for spec groups without unwrapping.
 fn find_top_level_group_offsets(program: &ruby_prism::ProgramNode<'_>) -> HashSet<usize> {
     let mut offsets = HashSet::new();
     let body = program.statements();
-    for node in body.body().iter() {
-        collect_top_level_groups(&node, &mut offsets);
+    let stmts: Vec<_> = body.body().iter().collect();
+
+    if stmts.len() == 1 {
+        // Single top-level statement: mirror RuboCop's module/class/else branches.
+        // Unwrap module/class/begin, or check if it's a spec group directly.
+        collect_top_level_groups(&stmts[0], &mut offsets);
+    } else {
+        // Multiple top-level statements (like `require 'spec_helper'` + `module Pod`):
+        // mirror RuboCop's `:begin` branch — return direct children without unwrapping.
+        // Only check if each child is a spec group call directly.
+        for stmt in &stmts {
+            check_direct_spec_group(stmt, &mut offsets);
+        }
     }
     offsets
 }
 
+/// Check if a single node is a spec group call and record its offset.
+/// Does NOT recurse into module/class/begin — used when there are multiple
+/// top-level statements (the `:begin` case in RuboCop).
+fn check_direct_spec_group(node: &ruby_prism::Node<'_>, offsets: &mut HashSet<usize>) {
+    if let Some(call) = node.as_call_node() {
+        if call.block().is_some() {
+            let name = call.name().as_slice();
+            let is_eg = call.receiver().is_none() && is_rspec_example_group(name);
+            let is_rspec_describe = is_rspec_receiver(&call) && name == b"describe";
+            if is_eg || is_rspec_describe {
+                offsets.insert(call.location().start_offset());
+            }
+        }
+    }
+}
+
 /// Recursively collect top-level spec group offsets, unwrapping begin/module/class nodes.
+/// Only used when the node is the sole top-level construct (matching RuboCop's
+/// `:module`/`:class` branch in `top_level_nodes`).
 fn collect_top_level_groups(node: &ruby_prism::Node<'_>, offsets: &mut HashSet<usize>) {
     // Check if this node is a spec group call (describe/context/etc with a block)
     if let Some(call) = node.as_call_node() {
@@ -206,12 +242,7 @@ fn collect_top_level_groups(node: &ruby_prism::Node<'_>, offsets: &mut HashSet<u
         }
     }
 
-    // Unwrap begin nodes (sequential statements at the top level)
-    // In Prism, top-level statements are in a StatementsNode, but `begin..end` blocks
-    // become BeginNode. Multiple statements at top level are already handled by
-    // ProgramNode's statements.
-
-    // Unwrap module nodes
+    // Unwrap module nodes (sole top-level module — recurse into body)
     if let Some(module_node) = node.as_module_node() {
         if let Some(body) = module_node.body() {
             if let Some(stmts) = body.as_statements_node() {
@@ -223,7 +254,7 @@ fn collect_top_level_groups(node: &ruby_prism::Node<'_>, offsets: &mut HashSet<u
         return;
     }
 
-    // Unwrap class nodes
+    // Unwrap class nodes (sole top-level class — recurse into body)
     if let Some(class_node) = node.as_class_node() {
         if let Some(body) = class_node.body() {
             if let Some(stmts) = body.as_statements_node() {
@@ -503,6 +534,56 @@ mod tests {
             diags.len(),
             1,
             "Instance variable read inside describe wrapped in class should be flagged"
+        );
+    }
+
+    #[test]
+    fn module_with_require_sibling_is_not_top_level() {
+        // RuboCop's TopLevelGroup only unwraps module/class when it is the SOLE
+        // top-level construct. When other statements exist (like require), modules
+        // are treated as opaque and NOT unwrapped.
+        let source =
+            b"require 'spec_helper'\nmodule Pod\n  describe Foo do\n    it { @bar }\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
+        assert!(
+            diags.is_empty(),
+            "Module with require sibling should not be treated as top-level group"
+        );
+    }
+
+    #[test]
+    fn class_with_require_sibling_is_not_top_level() {
+        // Same as above but for class nodes
+        let source = b"require 'spec_helper'\nclass MySpec\n  describe Foo do\n    it { @bar }\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
+        assert!(
+            diags.is_empty(),
+            "Class with require sibling should not be treated as top-level group"
+        );
+    }
+
+    #[test]
+    fn sole_module_is_still_unwrapped() {
+        // When module is the sole top-level construct, it should still be unwrapped
+        let source = b"module MyModule\n  describe Foo do\n    it { @bar }\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Sole module should still be unwrapped as top-level group"
+        );
+    }
+
+    #[test]
+    fn describe_with_require_sibling_is_still_detected() {
+        // When describe is a direct top-level statement alongside require,
+        // it should still be detected as a top-level group
+        let source = b"require 'spec_helper'\ndescribe Foo do\n  it { @bar }\nend\n";
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Direct describe alongside require should still be detected"
         );
     }
 }

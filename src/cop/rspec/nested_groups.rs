@@ -45,23 +45,65 @@ impl Cop for NestedGroups {
         let allowed_groups = config.get_string_array("AllowedGroups").unwrap_or_default();
 
         // Walk top-level statements to find top-level spec groups.
-        // This mirrors RuboCop's TopLevelGroup mixin which only processes
-        // describe/shared_examples/shared_context at the file's top level
-        // (or inside module/class wrappers).
-        for stmt in program.statements().body().iter() {
+        // This mirrors RuboCop's TopLevelGroup#top_level_nodes which:
+        // - For a single top-level statement: unwraps module/class/begin
+        // - For multiple top-level statements: checks direct children only
+        let stmts: Vec<_> = program.statements().body().iter().collect();
+        if stmts.len() == 1 {
+            // Single top-level statement: unwrap module/class wrappers
             self.check_top_level_node(
                 source,
-                &stmt,
+                &stmts[0],
                 parse_result,
                 max,
                 &allowed_groups,
                 diagnostics,
             );
+        } else {
+            // Multiple top-level statements (e.g., require + module):
+            // only check direct children for spec groups, no unwrapping
+            for stmt in &stmts {
+                self.check_direct_spec_group(
+                    source,
+                    stmt,
+                    parse_result,
+                    max,
+                    &allowed_groups,
+                    diagnostics,
+                );
+            }
         }
     }
 }
 
 impl NestedGroups {
+    /// Check a direct top-level statement for spec groups WITHOUT unwrapping
+    /// module/class nodes. Used when there are multiple top-level statements
+    /// (matching RuboCop's `:begin` branch in `top_level_nodes`).
+    fn check_direct_spec_group(
+        &self,
+        source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        max: usize,
+        allowed_groups: &[String],
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        // Only check if this node is a spec group call — no module/class unwrapping
+        let call = match node.as_call_node() {
+            Some(c) => c,
+            None => return,
+        };
+        self.process_spec_group_call(
+            source,
+            &call,
+            parse_result,
+            max,
+            allowed_groups,
+            diagnostics,
+        );
+    }
+
     /// Check a top-level AST node for spec groups. Recurses into
     /// module/class wrappers to find describe/shared_examples at the
     /// logical top level, mirroring RuboCop's `TopLevelGroup#top_level_nodes`.
@@ -115,7 +157,27 @@ impl NestedGroups {
             Some(c) => c,
             None => return,
         };
+        self.process_spec_group_call(
+            source,
+            &call,
+            parse_result,
+            max,
+            allowed_groups,
+            diagnostics,
+        );
+    }
 
+    /// Process a call node that may be a spec group (describe, shared_examples, etc.)
+    /// and walk its block body for nested groups.
+    fn process_spec_group_call<'pr>(
+        &self,
+        source: &SourceFile,
+        call: &ruby_prism::CallNode<'pr>,
+        parse_result: &ruby_prism::ParseResult<'pr>,
+        max: usize,
+        allowed_groups: &[String],
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
         let method_name = call.name().as_slice();
 
         // Determine if this is a shared group or example group.
@@ -265,6 +327,52 @@ mod tests {
         assert!(
             diags.is_empty(),
             "AllowedGroups should not count matching groups"
+        );
+    }
+
+    #[test]
+    fn module_with_require_sibling_is_not_unwrapped() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        // With Max=1, nesting of describe > context > context would be depth 3 (exceeding 1).
+        // But when the module has a require sibling, the module should NOT be unwrapped,
+        // so the describe inside is not detected as a top-level group at all.
+        let config = CopConfig {
+            options: HashMap::from([(
+                "Max".into(),
+                serde_yml::Value::Number(serde_yml::Number::from(1)),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"require 'spec_helper'\nmodule Pod\n  describe Foo do\n    context 'bar' do\n      context 'baz' do\n        it 'works' do\n        end\n      end\n    end\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&NestedGroups, source, config);
+        assert!(
+            diags.is_empty(),
+            "Module with require sibling should not be unwrapped for top-level group detection"
+        );
+    }
+
+    #[test]
+    fn sole_module_is_still_unwrapped() {
+        use crate::cop::CopConfig;
+        use std::collections::HashMap;
+
+        // With Max=1, the sole module wrapper should be unwrapped, allowing describe
+        // to be detected as a top-level group. Then describe > context = depth 2 > Max 1.
+        let config = CopConfig {
+            options: HashMap::from([(
+                "Max".into(),
+                serde_yml::Value::Number(serde_yml::Number::from(1)),
+            )]),
+            ..CopConfig::default()
+        };
+        let source = b"module MyModule\n  describe Foo do\n    context 'bar' do\n      it 'works' do\n      end\n    end\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full_with_config(&NestedGroups, source, config);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Sole module should be unwrapped — nested context should exceed Max=1"
         );
     }
 }

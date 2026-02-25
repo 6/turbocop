@@ -33,19 +33,6 @@ shared_examples_for 'nested behavior' do
   end
 end
 
-module MyNamespace
-  describe SomeService do
-    context 'when active' do
-      context 'when verified' do
-        context 'when ready' do
-        ^^^^^^^^^^^^^^^^^^ RSpec/NestedGroups: Maximum example group nesting exceeded [4/3].
-          it { expect(subject).to be_ready }
-        end
-      end
-    end
-  end
-end
-
 describe Wrapper do
   context 'when foo' do
     context 'when bar' do
