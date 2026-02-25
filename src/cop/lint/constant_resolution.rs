@@ -1,4 +1,5 @@
-use crate::cop::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
+use ruby_prism::Visit;
+
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -20,33 +21,15 @@ impl Cop for ConstantResolution {
         Severity::Warning
     }
 
-    fn interested_node_types(&self) -> &'static [u8] {
-        &[CONSTANT_PATH_NODE, CONSTANT_READ_NODE]
-    }
-
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Check for unqualified constant (no parent scope, just `Foo` not `::Foo`)
-        // ConstantPathNode (qualified like Foo::Bar or ::Foo) is already resolved,
-        // so we only flag simple ConstantReadNode references.
-        if node.as_constant_path_node().is_some() {
-            return;
-        }
-
-        let const_node = match node.as_constant_read_node() {
-            Some(n) => n,
-            None => return,
-        };
-
-        let name = std::str::from_utf8(const_node.name().as_slice()).unwrap_or("");
-
         // Check Only/Ignore config.
         // RuboCop uses `cop_config['Only'].blank?` which returns true for both
         // nil and []. So `Only: []` (the default) means "check everything", same
@@ -54,21 +37,120 @@ impl Cop for ConstantResolution {
         let only = config.get_string_array("Only").unwrap_or_default();
         let ignore = config.get_string_array("Ignore").unwrap_or_default();
 
-        if !only.is_empty() && !only.contains(&name.to_string()) {
-            return;
+        let mut visitor = ConstantResolutionVisitor {
+            cop: self,
+            source,
+            only,
+            ignore,
+            def_name_ranges: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        visitor.visit(&parse_result.node());
+        diagnostics.extend(visitor.diagnostics);
+    }
+}
+
+struct ConstantResolutionVisitor<'a, 'src> {
+    cop: &'a ConstantResolution,
+    source: &'src SourceFile,
+    only: Vec<String>,
+    ignore: Vec<String>,
+    /// Byte ranges of constant_path() nodes from class/module definitions.
+    /// Any ConstantReadNode falling within these ranges is a definition name
+    /// and should not be flagged.
+    def_name_ranges: Vec<std::ops::Range<usize>>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl ConstantResolutionVisitor<'_, '_> {
+    fn is_in_def_name(&self, offset: usize) -> bool {
+        self.def_name_ranges
+            .iter()
+            .any(|range| range.contains(&offset))
+    }
+
+    fn push_def_name_range(&mut self, node: &ruby_prism::Node<'_>) {
+        let loc = node.location();
+        self.def_name_ranges
+            .push(loc.start_offset()..loc.end_offset());
+    }
+
+    fn pop_def_name_range(&mut self) {
+        self.def_name_ranges.pop();
+    }
+}
+
+impl<'pr> Visit<'pr> for ConstantResolutionVisitor<'_, '_> {
+    fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
+        // The constant_path() of a ClassNode is the class name being defined.
+        // Only mark it when the constant_path() is a simple ConstantReadNode
+        // (e.g. `class Foo`). When it's a ConstantPathNode (e.g. `class Foo::Bar`),
+        // the inner ConstantReadNode `Foo` has a ConstantPathNode as its parent,
+        // not the ClassNode, so RuboCop still flags it — we match that behavior
+        // by NOT marking ConstantPathNode ranges.
+        let cp = node.constant_path();
+        let is_simple = cp.as_constant_read_node().is_some();
+        if is_simple {
+            self.push_def_name_range(&cp);
         }
-        if ignore.contains(&name.to_string()) {
+        ruby_prism::visit_class_node(self, node);
+        if is_simple {
+            self.pop_def_name_range();
+        }
+    }
+
+    fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
+        let cp = node.constant_path();
+        let is_simple = cp.as_constant_read_node().is_some();
+        if is_simple {
+            self.push_def_name_range(&cp);
+        }
+        ruby_prism::visit_module_node(self, node);
+        if is_simple {
+            self.pop_def_name_range();
+        }
+    }
+
+    fn visit_constant_read_node(&mut self, node: &ruby_prism::ConstantReadNode<'pr>) {
+        let loc = node.location();
+
+        // Skip constants that are class/module definition names.
+        // RuboCop checks `node.parent&.defined_module` which returns truthy
+        // when the constant's immediate parent is a class/module node and this
+        // constant is the defined name. For simple `class Foo`, the ConstantReadNode
+        // is the direct constant_path() of the ClassNode.
+        // For `class Foo::Bar`, the ConstantPathNode is the constant_path(), and
+        // the inner Foo ConstantReadNode's parent is the ConstantPathNode (not the
+        // ClassNode), so RuboCop DOES flag the Foo part. We match this by only
+        // checking if the ConstantReadNode IS the direct constant_path() node.
+        if self.is_in_def_name(loc.start_offset()) {
             return;
         }
 
-        let loc = const_node.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(
-            source,
+        let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
+
+        if !self.only.is_empty() && !self.only.contains(&name.to_string()) {
+            return;
+        }
+        if self.ignore.contains(&name.to_string()) {
+            return;
+        }
+
+        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+        self.diagnostics.push(self.cop.diagnostic(
+            self.source,
             line,
             column,
             "Fully qualify this constant to avoid possibly ambiguous resolution.".to_string(),
         ));
+    }
+
+    fn visit_constant_path_node(&mut self, node: &ruby_prism::ConstantPathNode<'pr>) {
+        // ConstantPathNode itself (e.g., Foo::Bar or ::Foo) is already qualified,
+        // so we don't flag it. But we must visit its children in case there's an
+        // unqualified root constant (like Foo in Foo::Bar — as_constant_path_node
+        // parent holds a ConstantReadNode that should still be checked).
+        ruby_prism::visit_constant_path_node(self, node);
     }
 }
 
