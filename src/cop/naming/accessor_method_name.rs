@@ -34,6 +34,11 @@ impl Cop for AccessorMethodName {
             Err(_) => return,
         };
 
+        // RuboCop's `proper_attribute_name?`: skip methods ending with !, ?, or =
+        if name_str.ends_with('!') || name_str.ends_with('?') || name_str.ends_with('=') {
+            return;
+        }
+
         // Count ALL parameters (including optional, rest, keyword, block)
         // to match RuboCop which uses `node.arguments.one?` / `!node.arguments?`.
         let total_param_count = def_node.parameters().map_or(0, |params| {
