@@ -146,7 +146,7 @@ jobs:
         id: rubocop-cache
         uses: actions/cache/restore@v4
         with:
-          path: cached-rubocop/
+          path: results/rubocop/
           key: corpus-rubocop-batch${{ matrix.batch_id }}-${{ hashFiles('bench/corpus/Gemfile.lock', 'bench/corpus/baseline_rubocop.yml', 'mise.toml', 'bench/corpus/manifest.jsonl') }}
 
       - name: Run batch
@@ -155,13 +155,6 @@ jobs:
           RUBOCOP_CACHED: ${{ steps.rubocop-cache.outputs.cache-hit }}
         run: |
           mkdir -p results/turbocop results/rubocop
-
-          # Restore cached rubocop results if available
-          if [[ "$RUBOCOP_CACHED" == "true" ]]; then
-            echo "Restoring rubocop results from cache..."
-            cp cached-rubocop/*.json results/rubocop/ 2>/dev/null || true
-            cp cached-rubocop/*.err results/rubocop/ 2>/dev/null || true
-          fi
 
           echo "$REPOS_JSON" | jq -c '.[]' | while IFS= read -r row; do
             REPO_ID=$(echo "$row" | jq -r '.id')
