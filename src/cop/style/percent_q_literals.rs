@@ -41,21 +41,37 @@ impl Cop for PercentQLiterals {
         };
 
         if style == "lower_case_q" {
-            // Flag %Q when %q would suffice (no interpolation)
-            if opening.starts_with(b"%Q") && node.as_string_node().is_some() {
-                // StringNode means no interpolation -> should use %q
-                let loc = node.location();
-                let (line, column) = source.offset_to_line_col(loc.start_offset());
-                diagnostics.push(self.diagnostic(
-                    source,
-                    line,
-                    column,
-                    "Use `%q` instead of `%Q`.".to_string(),
-                ));
+            // Flag %Q when %q would suffice (no interpolation, no escape sequences)
+            if opening.starts_with(b"%Q") {
+                if let Some(s) = node.as_string_node() {
+                    // StringNode means no interpolation.
+                    // Skip if content contains backslashes — converting %Q to %q
+                    // would change escape sequence interpretation (e.g. \t, \n, \\).
+                    let raw_content = s.content_loc().as_slice();
+                    if raw_content.contains(&b'\\') {
+                        return;
+                    }
+                    let loc = node.location();
+                    let (line, column) = source.offset_to_line_col(loc.start_offset());
+                    diagnostics.push(self.diagnostic(
+                        source,
+                        line,
+                        column,
+                        "Use `%q` instead of `%Q`.".to_string(),
+                    ));
+                }
             }
         } else if style == "upper_case_q" {
             // Flag %q when %Q is preferred
             if opening.starts_with(b"%q") {
+                if let Some(s) = node.as_string_node() {
+                    // Skip if content contains backslashes — converting %q to %Q
+                    // would change escape sequence interpretation or cause parse errors.
+                    let raw_content = s.content_loc().as_slice();
+                    if raw_content.contains(&b'\\') {
+                        return;
+                    }
+                }
                 let loc = node.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 diagnostics.push(self.diagnostic(
