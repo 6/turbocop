@@ -8,6 +8,7 @@
     "FactoryBot/AttributeDefinedStatically": "stable",
     "FactoryBot/ConsistentParenthesesStyle": "stable",
     "FactoryBot/ExcessiveCreateList": "stable",
+    "FactoryBot/FactoryAssociationWithStrategy": "stable",
     "FactoryBot/FactoryClassName": "stable",
     "FactoryBot/FactoryNameStyle": "stable",
     "FactoryBot/IdSequence": "stable",
