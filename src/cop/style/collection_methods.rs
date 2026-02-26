@@ -3,6 +3,35 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Check if a call has an explicit block, block_pass (&:sym), or an implicit
+/// block via a final symbol argument for methods in MethodsAcceptingSymbol.
+fn has_block_or_implicit_block(
+    call: &ruby_prism::CallNode<'_>,
+    method_name: &str,
+    methods_accepting_symbol: &[String],
+) -> bool {
+    // Check for explicit block ({ ... }, do...end) or block_pass (&:sym)
+    if let Some(block) = call.block() {
+        if block.as_block_node().is_some() || block.as_block_argument_node().is_some() {
+            return true;
+        }
+    }
+
+    // Check for implicit block: final symbol arg for MethodsAcceptingSymbol methods
+    if methods_accepting_symbol.iter().any(|m| m == method_name) {
+        if let Some(args) = call.arguments() {
+            let arg_list: Vec<_> = args.arguments().iter().collect();
+            if let Some(last) = arg_list.last() {
+                if last.as_symbol_node().is_some() {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
 pub struct CollectionMethods;
 
 impl Cop for CollectionMethods {
@@ -37,9 +66,9 @@ impl Cop for CollectionMethods {
                 m.insert("member?".to_string(), "include?".to_string());
                 m
             });
-        let _methods_accepting_symbol = config
+        let methods_accepting_symbol = config
             .get_string_array("MethodsAcceptingSymbol")
-            .unwrap_or_default();
+            .unwrap_or_else(|| vec!["inject".to_string(), "reduce".to_string()]);
 
         let call = match node.as_call_node() {
             Some(c) => c,
@@ -54,6 +83,15 @@ impl Cop for CollectionMethods {
         let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
 
         if let Some(preferred) = preferred_methods.get(method_name) {
+            // RuboCop only flags calls that have a block or implicit block:
+            // 1. Explicit block: items.collect { |e| ... } or items.collect do...end
+            // 2. Block pass: items.collect(&:to_s)
+            // 3. Symbol arg for MethodsAcceptingSymbol methods: items.inject(:+)
+            // Plain calls without blocks (e.g., list.member?(x)) are NOT flagged.
+            if !has_block_or_implicit_block(&call, method_name, &methods_accepting_symbol) {
+                return;
+            }
+
             let loc = call.message_loc().unwrap_or(call.location());
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             diagnostics.push(self.diagnostic(
