@@ -3723,6 +3723,20 @@ mod tests {
         // ConstantResolution itself should still be enabled
         assert!(config.is_cop_enabled("Lint/ConstantResolution", Path::new("a.rb"), &[], &[]));
 
+        // Also verify through build_cop_filters (the production path)
+        let registry = crate::cop::registry::CopRegistry::default_registry();
+        let tier_map = crate::cop::tiers::TierMap::load();
+        let filters = config.build_cop_filters(&registry, &tier_map, false);
+        let rcb_idx = registry
+            .cops()
+            .iter()
+            .position(|c| c.name() == "Style/RedundantConstantBase")
+            .unwrap();
+        assert!(
+            !filters.cop_filter(rcb_idx).is_enabled(),
+            "Style/RedundantConstantBase should be disabled in build_cop_filters when Lint/ConstantResolution is enabled"
+        );
+
         fs::remove_dir_all(&dir).ok();
     }
 
