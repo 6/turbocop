@@ -74,21 +74,21 @@ Top 15 repos by GitHub stars (offense counts are high because the corpus enables
 
 | Repo | Files | Offenses | Conformance % |
 |------|------:|---------:|--------------:|
-| [rails](https://github.com/rails/rails) | 3,498 | 314,531 | 93.6% |
-| [jekyll](https://github.com/jekyll/jekyll) | 190 | 13,052 | 93.8% |
+| [rails](https://github.com/rails/rails) | 3,498 | 314,654 | 93.7% |
+| [jekyll](https://github.com/jekyll/jekyll) | 190 | 13,052 | 94.0% |
 | [mastodon](https://github.com/mastodon/mastodon) | 3,105 | 71,755 | 96.2% |
 | [huginn](https://github.com/huginn/huginn) | 451 | 34,199 | 96.7% |
-| [discourse](https://github.com/discourse/discourse) | 9,134 | 605,386 | 97.5% |
-| [fastlane](https://github.com/fastlane/fastlane) | 1,302 | 117,999 | 96.5% |
+| [discourse](https://github.com/discourse/discourse) | 9,141 | 605,783 | 95.8% |
+| [fastlane](https://github.com/fastlane/fastlane) | 1,302 | 117,999 | 96.6% |
 | [devdocs](https://github.com/freeCodeCamp/devdocs) | 833 | 19,903 | 93.0% |
-| [chatwoot](https://github.com/chatwoot/chatwoot) | 2,262 | 62,007 | 96.9% |
-| [vagrant](https://github.com/hashicorp/vagrant) | 1,460 | 86,062 | 96.1% |
-| [devise](https://github.com/heartcombo/devise) | 206 | 5,800 | 91.9% |
+| [chatwoot](https://github.com/chatwoot/chatwoot) | 2,262 | 62,007 | 97.0% |
+| [vagrant](https://github.com/hashicorp/vagrant) | 1,460 | 86,062 | 96.2% |
+| [devise](https://github.com/heartcombo/devise) | 206 | 5,800 | 92.1% |
 | [forem](https://github.com/forem/forem) | 3,390 | 125,763 | 96.2% |
-| [postal](https://github.com/postalserver/postal) | 294 | 13,613 | 93.9% |
-| [CocoaPods](https://github.com/CocoaPods/CocoaPods) | 438 | 28,422 | 91.3% |
+| [postal](https://github.com/postalserver/postal) | 294 | 13,613 | 94.0% |
+| [CocoaPods](https://github.com/CocoaPods/CocoaPods) | 438 | 28,422 | 91.4% |
 | [openproject](https://github.com/opf/openproject) | 9,286 | 373,439 | 97.0% |
-| [gollum](https://github.com/gollum/gollum) | 55 | 3,790 | 91.4% |
+| [gollum](https://github.com/gollum/gollum) | 55 | 3,790 | 91.6% |
 
 Remaining gaps are mostly in complex layout cops (indentation, alignment) and a few style cops. See [docs/corpus.md](docs/corpus.md) for the full 500-repo breakdown.
 
