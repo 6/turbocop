@@ -18,7 +18,7 @@ incremental adoption.
 1. **Always start with the scoreboard.** Run the script and **paste its full output verbatim
    to the user** (the table IS the primary output — do not summarize or skip it):
    ```bash
-   python3 .claude/skills/fix-department/scripts/gem_progress.py $ARGUMENTS
+   python3 .claude/skills/fix-department/scripts/gem_progress.py --summary
    ```
    This auto-detects `fix-cops-done.txt` and shows already-fixed cops as "Fixed (pending
    corpus confirmation)" so the scoreboard reflects reality between corpus runs.
@@ -28,7 +28,7 @@ incremental adoption.
 
 3. **Once a gem is chosen** (by user or from args), run the deep-dive:
    ```bash
-   python3 .claude/skills/fix-department/scripts/gem_progress.py --gem <gem-name> $ARGUMENTS
+   python3 .claude/skills/fix-department/scripts/gem_progress.py --gem <gem-name>
    ```
 
 4. Show the user the gem status and confirm the target.
