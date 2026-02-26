@@ -78,17 +78,25 @@ def clear_file_cache():
         print("Cleared file cache at ~/.cache/nitrocop", file=sys.stderr)
 
 
+def corpus_env() -> dict[str, str]:
+    """Environment variables for corpus runs, matching CI exactly."""
+    env = os.environ.copy()
+    env["BUNDLE_GEMFILE"] = str(PROJECT_ROOT / "bench" / "corpus" / "Gemfile")
+    env["BUNDLE_PATH"] = str(PROJECT_ROOT / "bench" / "corpus" / "vendor" / "bundle")
+    return env
+
+
 def nitrocop_cmd(cop_name: str, target: str) -> list[str]:
     """Build the nitrocop command for corpus checking.
 
     Uses --config with the baseline config to match CI corpus oracle exactly.
     This ensures disabled-by-default cops are enabled the same way as in CI.
+    All paths are absolute so the command works from any cwd.
     """
-    baseline_config = str(Path(__file__).parent.parent / "bench" / "corpus" / "baseline_rubocop.yml")
     return [
         str(NITROCOP_BIN), "--only", cop_name, "--preview",
         "--format", "json", "--no-cache",
-        "--config", baseline_config,
+        "--config", str(BASELINE_CONFIG),
         target,
     ]
 
@@ -107,21 +115,31 @@ def count_deduplicated_offenses(json_data: dict) -> int:
 
 
 def run_nitrocop_aggregate(cop_name: str) -> int:
-    """Run nitrocop --only on the full corpus, return offense count."""
-    result = subprocess.run(
-        nitrocop_cmd(cop_name, str(CORPUS_DIR)),
-        capture_output=True, text=True, timeout=300,
-    )
-    if result.returncode not in (0, 1):  # 1 = offenses found
-        print(f"nitrocop failed: {result.stderr[:500]}", file=sys.stderr)
-        return -1
+    """Run nitrocop --only on each corpus repo, return total offense count.
 
-    try:
-        data = json.loads(result.stdout)
-        return count_deduplicated_offenses(data)
-    except json.JSONDecodeError:
-        print(f"Failed to parse nitrocop JSON output", file=sys.stderr)
-        return -1
+    Runs per-repo (not on the full corpus dir) so that base_dir resolves
+    Exclude patterns relative to each repo, matching CI behavior.
+    """
+    repos = sorted(d for d in CORPUS_DIR.iterdir() if d.is_dir())
+    env = corpus_env()
+    total = 0
+    for repo in repos:
+        try:
+            result = subprocess.run(
+                nitrocop_cmd(cop_name, "."),
+                capture_output=True, text=True, timeout=120,
+                cwd=str(repo), env=env,
+            )
+        except subprocess.TimeoutExpired:
+            continue
+        if result.returncode not in (0, 1):
+            continue
+        try:
+            data = json.loads(result.stdout)
+            total += count_deduplicated_offenses(data)
+        except json.JSONDecodeError:
+            continue
+    return total
 
 
 def _run_one_repo(args: tuple[str, str]) -> tuple[str, int]:
@@ -129,9 +147,14 @@ def _run_one_repo(args: tuple[str, str]) -> tuple[str, int]:
     cop_name, repo_dir = args
     repo_id = Path(repo_dir).name
     try:
+        # Run from repo dir so base_dir_for_path_parameters (cwd) resolves
+        # Exclude patterns like vendor/**/* relative to the repo, not the
+        # nitrocop project root. This matches CI behavior where repos are
+        # at repos/<id>/ and cwd is the CI workspace root.
         result = subprocess.run(
-            nitrocop_cmd(cop_name, repo_dir),
+            nitrocop_cmd(cop_name, "."),
             capture_output=True, text=True, timeout=120,
+            cwd=repo_dir, env=corpus_env(),
         )
     except subprocess.TimeoutExpired:
         return (repo_id, -1)
@@ -148,7 +171,7 @@ def _run_one_repo(args: tuple[str, str]) -> tuple[str, int]:
 
 def run_nitrocop_per_repo(cop_name: str) -> dict[str, int]:
     """Run nitrocop --only on each corpus repo in parallel, return {repo_id: count}."""
-    from concurrent.futures import ProcessPoolExecutor, as_completed
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     repos = sorted(d for d in CORPUS_DIR.iterdir() if d.is_dir())
     total = len(repos)
@@ -158,7 +181,7 @@ def run_nitrocop_per_repo(cop_name: str) -> dict[str, int]:
     counts = {}
     done = 0
 
-    with ProcessPoolExecutor(max_workers=workers) as pool:
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(_run_one_repo, w): w for w in work}
         for future in as_completed(futures):
             repo_id, count = future.result()
