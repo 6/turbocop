@@ -46,11 +46,18 @@ impl<'pr> Visit<'pr> for ModuleFunctionVisitor<'_> {
         if let Some(body) = node.body() {
             // Scan the body for `extend self` or `module_function`
             if let Some(stmts) = body.as_statements_node() {
+                // For module_function style, skip if any private directive exists
+                let has_private = self.style == "module_function"
+                    && stmts.body().iter().any(|stmt| is_private_directive(&stmt));
+
                 for stmt in stmts.body().iter() {
                     if let Some(call) = stmt.as_call_node() {
                         let method_bytes = call.name().as_slice();
 
-                        if self.style == "module_function" && method_bytes == b"extend" {
+                        if self.style == "module_function"
+                            && !has_private
+                            && method_bytes == b"extend"
+                        {
                             // Check if argument is `self`
                             if call.receiver().is_none() {
                                 if let Some(args) = call.arguments() {
@@ -122,6 +129,15 @@ impl<'pr> Visit<'pr> for ModuleFunctionVisitor<'_> {
             self.visit(&body);
         }
     }
+}
+
+/// Returns true if the node is a `private` call with no receiver (bare `private`,
+/// `private :method_name`, or `private def ...`).
+fn is_private_directive(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(call) = node.as_call_node() {
+        return call.name().as_slice() == b"private" && call.receiver().is_none();
+    }
+    false
 }
 
 #[cfg(test)]
