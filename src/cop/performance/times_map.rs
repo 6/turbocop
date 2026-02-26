@@ -34,6 +34,12 @@ impl Cop for TimesMap {
             return;
         }
 
+        // Integer#times takes no arguments. Other classes (e.g. Fabricate, Factory)
+        // define .times(n, factory) which should not be flagged.
+        if chain.inner_call.arguments().is_some() {
+            return;
+        }
+
         let outer_name = std::str::from_utf8(chain.outer_method).unwrap_or("map");
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
