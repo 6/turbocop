@@ -6,8 +6,6 @@ end
 if x > 1
 ^^^^^^^^ Style/MissingElse: `if` condition requires an `else`-clause.
   bar
-elsif x < 0
-  baz
 end
 
 case status

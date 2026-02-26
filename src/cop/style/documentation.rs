@@ -122,7 +122,7 @@ fn check_nodoc(source: &SourceFile, keyword_offset: usize) -> (bool, bool) {
 /// A documentation comment is a `#` line that:
 /// - Is not separated by a blank line
 /// - Is not purely a magic/annotation/directive comment (unless followed by a real comment)
-fn has_documentation_comment(source: &SourceFile, keyword_offset: usize) -> bool {
+pub(crate) fn has_documentation_comment(source: &SourceFile, keyword_offset: usize) -> bool {
     let (node_line, _) = source.offset_to_line_col(keyword_offset);
     if node_line <= 1 {
         return false;
@@ -167,7 +167,7 @@ fn has_documentation_comment(source: &SourceFile, keyword_offset: usize) -> bool
 /// - `# encoding: ...`
 /// - `# rubocop:disable ...`
 /// - `# TODO: ...`, `# FIXME: ...`, etc.
-fn is_annotation_or_directive(comment: &str) -> bool {
+pub(crate) fn is_annotation_or_directive(comment: &str) -> bool {
     let text = comment.trim_start_matches('#').trim();
 
     // Magic comments
@@ -199,7 +199,7 @@ fn is_annotation_or_directive(comment: &str) -> bool {
     false
 }
 
-fn trim_bytes(line: &[u8]) -> &[u8] {
+pub(crate) fn trim_bytes(line: &[u8]) -> &[u8] {
     let start = line
         .iter()
         .position(|&b| b != b' ' && b != b'\t')

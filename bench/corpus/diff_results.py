@@ -74,15 +74,31 @@ def parse_rubocop_json(path: Path) -> tuple[set, set] | None:
 
     offenses = set()
     inspected_files = set()
+    zero_offense_files = set()
     for f in data.get("files", []):
         filepath = strip_repo_prefix(f.get("path", ""))
         if filepath:
             inspected_files.add(filepath)
+            if not f.get("offenses"):
+                zero_offense_files.add(filepath)
         for o in f.get("offenses", []):
             line = o.get("location", {}).get("line", 0)
             cop = o.get("cop_name", "")
             if filepath and cop:
                 offenses.add((filepath, line, cop))
+
+    # Detect parser crashes: when inspected_file_count < target_file_count,
+    # RuboCop's parser crashed mid-batch and dropped files. Files that appear
+    # in the output with 0 offenses may have been listed but not actually
+    # analyzed (the crash causes them to be emitted with empty offense lists).
+    # Exclude these suspicious zero-offense files from the inspected set so
+    # nitrocop's correct offenses on them don't count as false positives.
+    summary = data.get("summary", {})
+    target = summary.get("target_file_count", 0)
+    inspected = summary.get("inspected_file_count", 0)
+    if target > 0 and inspected < target and zero_offense_files:
+        inspected_files -= zero_offense_files
+
     return offenses, inspected_files
 
 

@@ -1289,7 +1289,10 @@ pub fn is_private_or_protected(source: &SourceFile, def_offset: usize) -> bool {
         .copied()
         .skip_while(|&b| b == b' ' || b == b'\t')
         .collect::<Vec<u8>>();
-    if trimmed.starts_with(b"private ") || trimmed.starts_with(b"protected ") {
+    if trimmed.starts_with(b"private ")
+        || trimmed.starts_with(b"protected ")
+        || trimmed.starts_with(b"private_class_method ")
+    {
         return true;
     }
 
