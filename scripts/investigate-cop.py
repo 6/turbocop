@@ -60,6 +60,13 @@ def download_corpus_results() -> Path:
         print("corpus-results.json not found in artifact", file=sys.stderr)
         sys.exit(1)
 
+    # Clean up stale local corpus-results.json in the project root
+    project_root = Path(__file__).resolve().parent.parent
+    stale_local = project_root / "corpus-results.json"
+    if stale_local.exists():
+        stale_local.unlink()
+        print(f"Removed stale {stale_local.name} from project root", file=sys.stderr)
+
     return path
 
 

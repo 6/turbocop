@@ -11,22 +11,26 @@ Usage:
     python3 scripts/investigate-repo.py rails --limit 10         # top 10 (default 20)
     python3 scripts/investigate-repo.py --list                   # list all repos by match rate
     python3 scripts/investigate-repo.py --input corpus-results.json rails
-    python3 scripts/investigate-repo.py rails --exclude-cops-file fix-cops-done.txt
+    python3 scripts/investigate-repo.py rails --no-git-exclude       # skip auto-exclusion of fixed cops
 """
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 
-def download_corpus_results() -> Path:
-    """Download corpus-results.json from the latest successful CI run."""
+def download_corpus_results() -> tuple[Path, str]:
+    """Download corpus-results.json from the latest successful CI run.
+
+    Returns (path_to_json, head_sha).
+    """
     result = subprocess.run(
         ["gh", "run", "list", "--workflow=corpus-oracle.yml",
-         "--status=success", "--limit=1", "--json=databaseId"],
+         "--status=success", "--limit=1", "--json=databaseId,headSha"],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
@@ -39,6 +43,7 @@ def download_corpus_results() -> Path:
         sys.exit(1)
 
     run_id = runs[0]["databaseId"]
+    head_sha = runs[0].get("headSha", "")
     print(f"Downloading corpus-report from run {run_id}...", file=sys.stderr)
 
     tmpdir = tempfile.mkdtemp(prefix="investigate-repo-")
@@ -55,7 +60,50 @@ def download_corpus_results() -> Path:
         print("corpus-results.json not found in artifact", file=sys.stderr)
         sys.exit(1)
 
-    return path
+    # Clean up stale local corpus-results.json in the project root
+    project_root = Path(__file__).resolve().parent.parent
+    stale_local = project_root / "corpus-results.json"
+    if stale_local.exists():
+        stale_local.unlink()
+        print(f"Removed stale {stale_local.name} from project root", file=sys.stderr)
+
+    return path, head_sha
+
+
+def get_fixed_cops_from_git(oracle_sha: str) -> set[str]:
+    """Extract cop names fixed since the corpus oracle run by scanning git history.
+
+    Looks at commit messages between oracle_sha and HEAD for patterns like:
+    - "Fix Department/CopName ..."
+
+    Returns a set of cop names (e.g., {"Style/RedundantConstantBase", "RSpec/Eq"}).
+    """
+    if not oracle_sha:
+        return set()
+
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", oracle_sha, "HEAD"],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        print(f"Warning: corpus oracle SHA {oracle_sha[:8]} not found in git history", file=sys.stderr)
+        return set()
+
+    result = subprocess.run(
+        ["git", "log", f"{oracle_sha}..HEAD", "--format=%s"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return set()
+
+    cop_pattern = re.compile(r"^Fix (\w+/\w+)")
+    fixed = set()
+    for line in result.stdout.splitlines():
+        m = cop_pattern.match(line.strip())
+        if m:
+            fixed.add(m.group(1))
+
+    return fixed
 
 
 def fmt_count(n: int) -> str:
@@ -235,7 +283,9 @@ def main():
     parser.add_argument("--limit", type=int, default=20,
                         help="Number of cops to show (default: 20, 0 = all)")
     parser.add_argument("--exclude-cops-file", type=Path,
-                        help="File with cop names to exclude (one per line, # comments ok)")
+                        help="(deprecated, use git-based detection) File with cop names to exclude")
+    parser.add_argument("--no-git-exclude", action="store_true",
+                        help="Disable automatic git-based exclusion of already-fixed cops")
     args = parser.parse_args()
 
     if not args.repo and not args.list:
@@ -244,19 +294,27 @@ def main():
     if args.fp_only and args.fn_only:
         parser.error("Cannot use both --fp-only and --fn-only")
 
-    # Load excluded cops
+    # Load corpus results
+    oracle_sha = ""
+    if args.input:
+        input_path = args.input
+    else:
+        input_path, oracle_sha = download_corpus_results()
+
+    # Detect cops fixed since the corpus oracle run via git history
     exclude_cops: set[str] = set()
+    if not args.no_git_exclude and oracle_sha:
+        git_fixed = get_fixed_cops_from_git(oracle_sha)
+        if git_fixed:
+            exclude_cops |= git_fixed
+            print(f"Found {len(git_fixed)} cops fixed since corpus oracle ({oracle_sha[:8]})", file=sys.stderr)
+
+    # Also support legacy --exclude-cops-file for manual exclusions
     if args.exclude_cops_file and args.exclude_cops_file.exists():
         for line in args.exclude_cops_file.read_text().splitlines():
             line = line.strip()
             if line and not line.startswith("#"):
                 exclude_cops.add(line)
-
-    # Load corpus results
-    if args.input:
-        input_path = args.input
-    else:
-        input_path = download_corpus_results()
 
     data = json.loads(input_path.read_text())
     by_repo = data.get("by_repo", [])

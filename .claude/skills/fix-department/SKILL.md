@@ -20,8 +20,9 @@ incremental adoption.
    ```bash
    python3 .claude/skills/fix-department/scripts/gem_progress.py --summary
    ```
-   This auto-detects `fix-cops-done.txt` and shows already-fixed cops as "Fixed (pending
-   corpus confirmation)" so the scoreboard reflects reality between corpus runs.
+   The script automatically detects cops fixed since the last corpus oracle run by
+   scanning git commit messages, and shows them as "Fixed (pending corpus confirmation)"
+   so the scoreboard reflects reality between corpus runs.
    The script also prints a recommendation at the bottom.
 
 2. **If no gem was specified**, after showing the table, let the user pick a gem.
@@ -140,20 +141,14 @@ to 100% corpus conformance. Follow the CLAUDE.md rules strictly.
    python3 scripts/check-cop.py Department/CopName --verbose --rerun
    ```
 
-5. Record fixed cops in `fix-cops-done.txt` (shared with `/fix-cops` — both track
-   cops fixed since the last corpus oracle run):
-   ```bash
-   echo "Department/CopName" >> fix-cops-done.txt
-   ```
-
-6. Re-run the gem deep-dive to see updated progress:
+5. Re-run the gem deep-dive to see updated progress:
    ```bash
    python3 .claude/skills/fix-department/scripts/gem_progress.py --gem <gem-name>
    ```
    Note: This still reads the original corpus data. Per-cop verification via check-cop.py
    gives the ground truth for fixed cops.
 
-7. If diverging cops remain, go back to Phase 1 for the next batch.
+6. If diverging cops remain, go back to Phase 1 for the next batch.
 
 7. For cops that teammates couldn't fix, decide whether to:
    - Retry with more context in the next batch

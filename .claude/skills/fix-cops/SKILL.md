@@ -14,9 +14,9 @@ isolated git worktree) to investigate and fix them.
 
 ### Phase 1: Triage (you do this)
 
-1. Download corpus results and run triage (excluding already-fixed cops):
+1. Download corpus results and run triage (automatically excludes cops fixed since the oracle run):
    ```bash
-   python3 .claude/skills/triage/scripts/triage.py --fp-only --limit 20 --exclude-cops-file fix-cops-done.txt $ARGUMENTS
+   python3 .claude/skills/triage/scripts/triage.py --fp-only --limit 20 $ARGUMENTS
    ```
 
 2. From the triage output, select **up to 4 cops** to fix in this batch. Prioritize:
@@ -118,14 +118,7 @@ You are fixing false positives in a single nitrocop cop. Follow the CLAUDE.md ru
    ```
    Run these in parallel (background). Every cop must show `PASS` with 0 excess offenses.
 
-5. Record fixed cops so the next `/fix-cops` run skips them:
-   ```bash
-   # Append each successfully fixed cop to the tracking file
-   echo "Style/CopName" >> fix-cops-done.txt
-   ```
-   This file is gitignored and persists between runs. It resets when you rerun the corpus oracle (delete it manually or when new corpus data arrives).
-
-6. Report to the user:
+5. Report to the user:
    - Which cops were fixed (with FP counts)
    - Which cops couldn't be fixed (and why)
    - Summary of changes ready for commit/PR

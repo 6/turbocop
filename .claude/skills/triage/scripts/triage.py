@@ -4,6 +4,9 @@
 Downloads the latest corpus-results.json from CI (or reads a local file)
 and produces a ranked list of cops to fix next, with tier status and examples.
 
+Automatically excludes cops that have been fixed since the corpus oracle run
+by scanning git commit messages for "Fix Department/CopName" patterns.
+
 Usage:
     python3 bench/corpus/triage.py                              # auto-download from CI
     python3 bench/corpus/triage.py --input corpus-results.json  # use local file
@@ -16,20 +19,21 @@ Usage:
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 
-def download_latest_corpus_results() -> tuple[Path, int]:
+def download_latest_corpus_results() -> tuple[Path, int, str]:
     """Download corpus-results.json from the latest successful corpus-oracle CI run.
 
-    Returns (path_to_json, run_id).
+    Returns (path_to_json, run_id, head_sha).
     """
     result = subprocess.run(
         ["gh", "run", "list", "--workflow=corpus-oracle.yml",
-         "--status=success", "--limit=1", "--json=databaseId"],
+         "--status=success", "--limit=1", "--json=databaseId,headSha"],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
@@ -42,6 +46,7 @@ def download_latest_corpus_results() -> tuple[Path, int]:
         sys.exit(1)
 
     run_id = runs[0]["databaseId"]
+    head_sha = runs[0].get("headSha", "")
     print(f"Downloading corpus-report from run {run_id}...", file=sys.stderr)
 
     tmpdir = tempfile.mkdtemp(prefix="corpus-triage-")
@@ -58,22 +63,55 @@ def download_latest_corpus_results() -> tuple[Path, int]:
         print(f"corpus-results.json not found in artifact", file=sys.stderr)
         sys.exit(1)
 
-    return path, run_id
+    # Clean up stale local corpus-results.json in the project root to prevent
+    # scripts from accidentally reading outdated data.
+    project_root = Path(__file__).resolve().parent.parent.parent.parent
+    stale_local = project_root / "corpus-results.json"
+    if stale_local.exists():
+        stale_local.unlink()
+        print(f"Removed stale {stale_local.name} from project root", file=sys.stderr)
+
+    return path, run_id, head_sha
 
 
-def parse_done_file_run_id(done_file: Path) -> int | None:
-    """Parse the corpus oracle run ID from the fix-cops-done.txt header.
+def get_fixed_cops_from_git(oracle_sha: str) -> set[str]:
+    """Extract cop names fixed since the corpus oracle run by scanning git history.
 
-    Expected format: '# Fixed cops from corpus oracle run 12345'
-    Returns the run ID as int, or None if not found/parseable.
+    Looks at commit messages between oracle_sha and HEAD for patterns like:
+    - "Fix Department/CopName ..."
+    - "Fix Department/CopName: ..."
+
+    Returns a set of cop names (e.g., {"Style/RedundantConstantBase", "RSpec/Eq"}).
     """
-    import re
-    try:
-        first_line = done_file.read_text().split("\n", 1)[0]
-        m = re.search(r"run\s+(\d+)", first_line)
-        return int(m.group(1)) if m else None
-    except (OSError, ValueError):
-        return None
+    if not oracle_sha:
+        return set()
+
+    # Verify the SHA exists in our history
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", oracle_sha, "HEAD"],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        print(f"Warning: corpus oracle SHA {oracle_sha[:8]} not found in git history", file=sys.stderr)
+        return set()
+
+    # Get commit messages since the oracle SHA
+    result = subprocess.run(
+        ["git", "log", f"{oracle_sha}..HEAD", "--format=%s"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return set()
+
+    # Extract cop names from "Fix Department/CopName" patterns
+    cop_pattern = re.compile(r"^Fix (\w+/\w+)")
+    fixed = set()
+    for line in result.stdout.splitlines():
+        m = cop_pattern.match(line.strip())
+        if m:
+            fixed.add(m.group(1))
+
+    return fixed
 
 
 def load_tiers(project_root: Path) -> dict[str, str]:
@@ -115,15 +153,17 @@ def main():
     parser.add_argument("--fp-only", action="store_true", help="Only show cops with false positives")
     parser.add_argument("--fn-only", action="store_true", help="Only show cops with false negatives")
     parser.add_argument("--exclude-cops-file", type=Path,
-                        help="File with cop names to exclude (one per line, e.g. .claude/fix-cops-done.txt)")
+                        help="(deprecated, use git-based detection) File with cop names to exclude")
+    parser.add_argument("--no-git-exclude", action="store_true",
+                        help="Disable automatic git-based exclusion of already-fixed cops")
     args = parser.parse_args()
 
     # Load corpus results
-    corpus_run_id = None
+    oracle_sha = ""
     if args.input:
         input_path = args.input
     else:
-        input_path, corpus_run_id = download_latest_corpus_results()
+        input_path, _run_id, oracle_sha = download_latest_corpus_results()
 
     data = json.loads(input_path.read_text())
     summary = data["summary"]
@@ -146,21 +186,26 @@ def main():
         exclude = {d.rstrip("/") for d in args.exclude_department}
         diverging = [c for c in diverging if c["cop"].split("/")[0] not in exclude]
 
-    # Exclude already-fixed cops (with staleness check)
-    if args.exclude_cops_file and args.exclude_cops_file.exists():
-        done_run_id = parse_done_file_run_id(args.exclude_cops_file)
-        stale = corpus_run_id is not None and done_run_id is not None and done_run_id != corpus_run_id
+    # Exclude cops fixed since the corpus oracle run (git-based detection)
+    exclude_cops = set()
+    if not args.no_git_exclude and oracle_sha:
+        git_fixed = get_fixed_cops_from_git(oracle_sha)
+        if git_fixed:
+            exclude_cops |= git_fixed
+            print(f"Found {len(git_fixed)} cops fixed since corpus oracle ({oracle_sha[:8]})", file=sys.stderr)
 
-        if stale:
-            print(f"⚠ {args.exclude_cops_file} is from run {done_run_id} but corpus data is from run {corpus_run_id}.", file=sys.stderr)
-            print(f"  Ignoring exclusion list — delete the file or update its header to match.", file=sys.stderr)
-        else:
-            exclude_cops = {line.strip() for line in args.exclude_cops_file.read_text().splitlines() if line.strip() and not line.startswith("#")}
-            before = len(diverging)
-            diverging = [c for c in diverging if c["cop"] not in exclude_cops]
-            skipped = before - len(diverging)
-            if skipped:
-                print(f"Excluded {skipped} already-fixed cops from {args.exclude_cops_file}", file=sys.stderr)
+    # Also support legacy --exclude-cops-file for manual exclusions
+    if args.exclude_cops_file and args.exclude_cops_file.exists():
+        file_cops = {line.strip() for line in args.exclude_cops_file.read_text().splitlines()
+                     if line.strip() and not line.startswith("#")}
+        exclude_cops |= file_cops
+
+    if exclude_cops:
+        before = len(diverging)
+        diverging = [c for c in diverging if c["cop"] not in exclude_cops]
+        skipped = before - len(diverging)
+        if skipped:
+            print(f"Excluded {skipped} already-fixed cops", file=sys.stderr)
 
     # Apply FP/FN filters
     if args.fp_only:

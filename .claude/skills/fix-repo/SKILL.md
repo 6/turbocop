@@ -23,10 +23,10 @@ match rate.
 2. **Once a repo is chosen**, run the repo investigation and **paste its full output
    verbatim to the user** (the table IS the primary output — do not summarize or skip it):
    ```bash
-   python3 scripts/investigate-repo.py <repo-name> --exclude-cops-file fix-cops-done.txt $ARGUMENTS
+   python3 scripts/investigate-repo.py <repo-name> $ARGUMENTS
    ```
-   The `--exclude-cops-file` flag filters out cops already fixed since the last corpus run,
-   so the output only shows cops that still need work.
+   The script automatically excludes cops fixed since the last corpus oracle run
+   by scanning git commit messages, so the output only shows cops that still need work.
 
 3. Show the user the top diverging cops and confirm the target repo.
 
@@ -35,7 +35,7 @@ match rate.
 1. **Show the complete table** of ALL diverging cops (use `--limit 0`) ordered by FP+FN
    descending. This is the full picture of what needs to happen to reach 100%:
    ```bash
-   python3 scripts/investigate-repo.py <repo-name> --exclude-cops-file fix-cops-done.txt --limit 0 $ARGUMENTS
+   python3 scripts/investigate-repo.py <repo-name> --limit 0 $ARGUMENTS
    ```
    Paste the full output verbatim to the user.
 
@@ -158,19 +158,14 @@ conformance for a target repo. Follow the CLAUDE.md rules strictly.
    python3 scripts/check-cop.py Department/CopName --verbose --rerun
    ```
 
-5. Record fixed cops in `fix-cops-done.txt`:
-   ```bash
-   echo "Department/CopName" >> fix-cops-done.txt
-   ```
-
-6. Re-run the repo investigation to show updated status:
+5. Re-run the repo investigation to show updated status:
    ```bash
    python3 scripts/investigate-repo.py <repo-name>
    ```
    Note: This still reads the original corpus data. Per-cop verification via check-cop.py
    gives the ground truth for fixed cops.
 
-7. Report to the user:
+6. Report to the user:
    - Which cops were fixed (with FP/FN counts)
    - Estimated impact on the target repo's match rate
    - Which cops couldn't be fixed (and why)

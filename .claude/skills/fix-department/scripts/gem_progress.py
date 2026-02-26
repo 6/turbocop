@@ -13,6 +13,7 @@ Usage:
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -39,14 +40,14 @@ for gem, depts in GEM_DEPARTMENTS.items():
         DEPT_TO_GEM[dept] = gem
 
 
-def download_latest_corpus_results() -> tuple[Path, int]:
+def download_latest_corpus_results() -> tuple[Path, int, str]:
     """Download corpus-results.json from the latest successful corpus-oracle CI run.
 
-    Returns (path_to_json, run_id).
+    Returns (path_to_json, run_id, head_sha).
     """
     result = subprocess.run(
         ["gh", "run", "list", "--workflow=corpus-oracle.yml",
-         "--status=success", "--limit=1", "--json=databaseId"],
+         "--status=success", "--limit=1", "--json=databaseId,headSha"],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
@@ -59,6 +60,7 @@ def download_latest_corpus_results() -> tuple[Path, int]:
         sys.exit(1)
 
     run_id = runs[0]["databaseId"]
+    head_sha = runs[0].get("headSha", "")
     print(f"Downloading corpus-report from run {run_id}...", file=sys.stderr)
 
     tmpdir = tempfile.mkdtemp(prefix="gem-progress-")
@@ -75,22 +77,54 @@ def download_latest_corpus_results() -> tuple[Path, int]:
         print(f"corpus-results.json not found in artifact", file=sys.stderr)
         sys.exit(1)
 
-    return path, run_id
+    # Clean up stale local corpus-results.json in the project root
+    project_root = find_project_root()
+    stale_local = project_root / "corpus-results.json"
+    if stale_local.exists():
+        stale_local.unlink()
+        print(f"Removed stale {stale_local.name} from project root", file=sys.stderr)
+
+    return path, run_id, head_sha
 
 
-def parse_done_file_run_id(done_file: Path) -> int | None:
-    """Parse the corpus oracle run ID from the fix-cops-done.txt header.
+def get_fixed_cops_from_git(oracle_sha: str) -> set[str]:
+    """Extract cop names fixed since the corpus oracle run by scanning git history.
 
-    Expected format: '# Fixed cops from corpus oracle run 12345'
-    Returns the run ID as int, or None if not found/parseable.
+    Looks at commit messages between oracle_sha and HEAD for patterns like:
+    - "Fix Department/CopName ..."
+    - "Fix Department/CopName: ..."
+
+    Returns a set of cop names (e.g., {"Style/RedundantConstantBase", "RSpec/Eq"}).
     """
-    import re
-    try:
-        first_line = done_file.read_text().split("\n", 1)[0]
-        m = re.search(r"run\s+(\d+)", first_line)
-        return int(m.group(1)) if m else None
-    except (OSError, ValueError):
-        return None
+    if not oracle_sha:
+        return set()
+
+    # Verify the SHA exists in our history
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", oracle_sha, "HEAD"],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        print(f"Warning: corpus oracle SHA {oracle_sha[:8]} not found in git history", file=sys.stderr)
+        return set()
+
+    # Get commit messages since the oracle SHA
+    result = subprocess.run(
+        ["git", "log", f"{oracle_sha}..HEAD", "--format=%s"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return set()
+
+    # Extract cop names from "Fix Department/CopName" patterns
+    cop_pattern = re.compile(r"^Fix (\w+/\w+)")
+    fixed = set()
+    for line in result.stdout.splitlines():
+        m = cop_pattern.match(line.strip())
+        if m:
+            fixed.add(m.group(1))
+
+    return fixed
 
 
 def fmt_count(n: int) -> str:
@@ -116,25 +150,6 @@ def find_project_root() -> Path:
         return Path(result.stdout.strip())
     # Fallback: walk up from script location
     return Path(__file__).resolve().parent.parent.parent.parent.parent
-
-
-def load_fixed_cops(exclude_file: Path | None) -> set[str]:
-    """Load cops treated as already fixed from fix-cops-done.txt.
-
-    Auto-detects fix-cops-done.txt in the project root if no file is specified.
-    """
-    if exclude_file is None:
-        exclude_file = find_project_root() / "fix-cops-done.txt"
-
-    if not exclude_file.exists():
-        return set()
-
-    cops = set()
-    for line in exclude_file.read_text().splitlines():
-        line = line.strip()
-        if line and not line.startswith("#"):
-            cops.add(line)
-    return cops
 
 
 def get_registry_cops() -> set[str]:
@@ -170,7 +185,7 @@ def build_gem_stats(by_cop: list[dict], registry_cops: set[str] | None = None,
             "total_in_registry": 0,
             "untested": 0,       # in registry but not in corpus (never triggered)
             "perfect": 0,        # in corpus, matches>0, 0 FP, 0 FN
-            "fixed": 0,          # was diverging but listed in fix-cops-done.txt
+            "fixed": 0,          # was diverging but fixed since corpus oracle (git-detected)
             "diverging": 0,
             "fp_only": 0,
             "fn_only": 0,
@@ -517,7 +532,9 @@ def main():
     parser.add_argument("--gem", type=str,
                         help="Deep-dive into a specific gem (e.g., rubocop-performance)")
     parser.add_argument("--exclude-cops-file", type=Path,
-                        help="File with cop names to treat as fixed (default: auto-detect fix-cops-done.txt)")
+                        help="(deprecated, use git-based detection) File with cop names to treat as fixed")
+    parser.add_argument("--no-git-exclude", action="store_true",
+                        help="Disable automatic git-based exclusion of already-fixed cops")
     args = parser.parse_args()
 
     # Default to --summary when no args given
@@ -525,11 +542,11 @@ def main():
         args.summary = True
 
     # Load corpus results
-    corpus_run_id = None
+    oracle_sha = ""
     if args.input:
         input_path = args.input
     else:
-        input_path, corpus_run_id = download_latest_corpus_results()
+        input_path, _run_id, oracle_sha = download_latest_corpus_results()
 
     data = json.loads(input_path.read_text())
     summary = data["summary"]
@@ -543,19 +560,20 @@ def main():
     if not has_registry:
         print("Warning: running without registry data — untested cops won't be shown", file=sys.stderr)
 
-    # Load fixed cops (auto-detect fix-cops-done.txt if not specified)
-    # Check for staleness: if the done file references a different corpus run, ignore it
-    exclude_file = args.exclude_cops_file or (find_project_root() / "fix-cops-done.txt")
-    if exclude_file.exists() and corpus_run_id is not None:
-        done_run_id = parse_done_file_run_id(exclude_file)
-        if done_run_id is not None and done_run_id != corpus_run_id:
-            print(f"⚠ {exclude_file} is from run {done_run_id} but corpus data is from run {corpus_run_id}.", file=sys.stderr)
-            print(f"  Ignoring exclusion list — delete the file or update its header to match.", file=sys.stderr)
-            fixed_cops: set[str] = set()
-        else:
-            fixed_cops = load_fixed_cops(args.exclude_cops_file)
-    else:
-        fixed_cops = load_fixed_cops(args.exclude_cops_file)
+    # Detect cops fixed since the corpus oracle run via git history
+    fixed_cops: set[str] = set()
+    if not args.no_git_exclude and oracle_sha:
+        git_fixed = get_fixed_cops_from_git(oracle_sha)
+        if git_fixed:
+            fixed_cops |= git_fixed
+            print(f"Found {len(git_fixed)} cops fixed since corpus oracle ({oracle_sha[:8]})", file=sys.stderr)
+
+    # Also support legacy --exclude-cops-file for manual exclusions
+    if args.exclude_cops_file and args.exclude_cops_file.exists():
+        file_cops = {line.strip() for line in args.exclude_cops_file.read_text().splitlines()
+                     if line.strip() and not line.startswith("#")}
+        fixed_cops |= file_cops
+
     if fixed_cops:
         print(f"Treating {len(fixed_cops)} cops as fixed (pending corpus confirmation)", file=sys.stderr)
 

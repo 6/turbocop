@@ -295,7 +295,7 @@ python3 scripts/investigate-repo.py rails --fn-only          # only FN-producing
 python3 scripts/investigate-repo.py rails --limit 10         # top 10 (default 20)
 python3 scripts/investigate-repo.py --list                   # list all repos by match rate
 python3 scripts/investigate-repo.py --input f.json rails     # use local corpus-results.json
-python3 scripts/investigate-repo.py rails --exclude-cops-file fix-cops-done.txt  # skip already-fixed cops
+python3 scripts/investigate-repo.py rails --no-git-exclude       # skip auto-exclusion of fixed cops
 ```
 
 Use `/fix-repo <name>` to fix the top diverging cops for a specific repo. See `.claude/skills/fix-repo/SKILL.md`.
