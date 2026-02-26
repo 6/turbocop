@@ -1,6 +1,6 @@
-// Handles both as_constant_read_node and as_constant_path_node (qualified constants like ::OpenStruct)
-use crate::cop::node_type::{CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
-use crate::cop::util::constant_name;
+// RuboCop only flags OpenStruct.new(...) calls, not bare OpenStruct references.
+// Pattern: (send (const {nil? cbase} :OpenStruct) :new ...)
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -17,7 +17,7 @@ impl Cop for OpenStruct {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CONSTANT_PATH_NODE, CONSTANT_READ_NODE]
+        &[CALL_NODE]
     }
 
     fn check_node(
@@ -29,12 +29,30 @@ impl Cop for OpenStruct {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let name = match constant_name(node) {
-            Some(n) => n,
+        let call = match node.as_call_node() {
+            Some(c) => c,
             None => return,
         };
 
-        if name != b"OpenStruct" {
+        if call.name().as_slice() != b"new" {
+            return;
+        }
+
+        let receiver = match call.receiver() {
+            Some(r) => r,
+            None => return,
+        };
+
+        // Match bare `OpenStruct` or `::OpenStruct` (rooted constant path with no parent)
+        let is_open_struct = if let Some(cr) = receiver.as_constant_read_node() {
+            cr.name().as_slice() == b"OpenStruct"
+        } else if let Some(cp) = receiver.as_constant_path_node() {
+            cp.parent().is_none() && cp.name().map(|n| n.as_slice()) == Some(b"OpenStruct")
+        } else {
+            false
+        };
+
+        if !is_open_struct {
             return;
         }
 
