@@ -59,9 +59,21 @@ impl Cop for RedundantInterpolationUnfreeze {
             return;
         }
 
-        // Receiver must be an interpolated string
-        let is_interpolated = receiver.as_interpolated_string_node().is_some();
-        if !is_interpolated {
+        // Receiver must be an interpolated string with actual interpolation
+        let interp = match receiver.as_interpolated_string_node() {
+            Some(i) => i,
+            None => return,
+        };
+
+        // Skip uninterpolated strings/heredocs: if all parts are StringNode,
+        // there's no actual interpolation, so the string may be frozen and
+        // the unfreeze is not redundant. This matches RuboCop's
+        // uninterpolated_string? and uninterpolated_heredoc? checks.
+        if interp
+            .parts()
+            .iter()
+            .all(|part| part.as_string_node().is_some())
+        {
             return;
         }
 
