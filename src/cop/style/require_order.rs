@@ -73,16 +73,20 @@ impl Cop for RequireOrder {
 
         for group in &groups {
             let kind = group[0].2;
-            for window in group.windows(2) {
-                let (_, ref prev_path, _) = window[0];
-                let (line_num, ref curr_path, _) = window[1];
-                if curr_path < prev_path {
+            // Track the maximum path seen so far. An entry is out of order
+            // if its path is less than ANY previous path in the group,
+            // which is equivalent to being less than the running maximum.
+            let mut max_path: &str = &group[0].1;
+            for &(line_num, ref curr_path, _) in &group[1..] {
+                if curr_path.as_str() < max_path {
                     diagnostics.push(self.diagnostic(
                         source,
                         line_num,
                         0,
                         format!("Sort `{}` in alphabetical order.", kind),
                     ));
+                } else {
+                    max_path = curr_path;
                 }
             }
         }

@@ -12,3 +12,7 @@ require_relative 'a'
 require 'e'
 Bundler.require(:default)
 require 'c'
+
+require 'a'
+require 'b'
+require 'c' if foo
