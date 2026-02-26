@@ -103,6 +103,40 @@ the offense lists to find the exact strings that diverge.
 
 **Files**: `src/cop/style/string_literals.rs`
 
+## Style/PercentLiteralDelimiters — 1,008 FN → 3,449 FP (reverted)
+
+**Attempted fix reverted in 310d878. Original fix was 03bd6b3.**
+
+The cop had 1,008 FN (96.2% match) — mostly `%r(...)` patterns where the preferred
+delimiter is `{}`. The root cause was identified correctly: the content-contains-preferred-
+delimiter check scanned raw source bytes, so `#{...}` interpolation syntax falsely matched
+`{`/`}` as preferred delimiter characters, causing the cop to suppress legitimate offenses.
+
+The fix iterated over Prism `.parts()` for interpolated nodes and only checked `StringNode`
+children (literal text segments), skipping `EmbeddedStatementsNode` children. This correctly
+fixed the interpolation issue but was too aggressive overall — it went from 1,054 total
+divergence (46 FP + 1,008 FN) to 3,449 FP + 0 FN. The fix produced ~3,400 new false
+positives, far worse than the original state.
+
+**Why the fix regressed**: The interpolation-aware check was necessary but insufficient.
+The cop likely also needs to handle:
+1. **Nested delimiters in literal content** — `%r(foo(bar))` where `()` in the content
+   are balanced and part of the regex, not delimiters. RuboCop may have logic to detect
+   balanced delimiter pairs within content.
+2. **Escaped delimiters** — `%r(foo\(bar)` where `\(` shouldn't count as containing
+   the preferred delimiter.
+3. **Different percent literal types** — `%Q`, `%q`, `%s`, `%x`, `%I`, `%W` may have
+   different preferred delimiter defaults than what nitrocop assumes.
+4. **Config reading** — nitrocop may not be reading the `PreferredDelimiters` config
+   correctly for all percent literal types.
+
+**To fix properly**: Compare nitrocop's `PreferredDelimiters` defaults against RuboCop's.
+Run both tools on a small set of FP files (e.g., from slim-template/slim which had 316
+excess) to find the exact patterns that diverge. The interpolation fix is correct but
+additional guards are needed before re-applying it.
+
+**Files**: `src/cop/style/percent_literal_delimiters.rs`
+
 ## General Notes
 
 - The corpus oracle baseline (`bench/corpus/baseline_rubocop.yml`) explicitly enables
