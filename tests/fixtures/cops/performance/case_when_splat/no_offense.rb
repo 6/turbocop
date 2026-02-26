@@ -17,3 +17,41 @@ else
   baz
 end
 x = 42
+case foo
+when 4
+  foobar
+when *cond
+  bar
+else
+  baz
+end
+case foo
+when 4
+  foobar
+when *cond1
+  bar
+when *cond2
+  doo
+else
+  baz
+end
+case foo
+when *[1, 2]
+  bar
+when *[3, 4]
+  bar
+when 5
+  baz
+end
+case foo
+when *[1, 2]
+  bar
+end
+case foo
+when *cond1
+  bar
+when *cond2
+  doo
+when *cond3
+  baz
+end
