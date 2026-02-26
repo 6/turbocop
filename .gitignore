@@ -33,6 +33,7 @@ corpus-results.md
 # Ruby / Gems
 *.gem
 Gemfile.lock
+!bench/corpus/Gemfile.lock
 
 # Internal docs (not for OSS)
 docs/INTERNAL_*
