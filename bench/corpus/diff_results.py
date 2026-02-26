@@ -32,6 +32,35 @@ def strip_repo_prefix(filepath: str) -> str:
     return filepath
 
 
+def read_err_snippet(json_path: Path, tool: str) -> str:
+    """Read the .err file next to a .json file and return the first meaningful error line.
+    Returns empty string if no .err file or no meaningful content."""
+    err_path = json_path.with_suffix(".err")
+    try:
+        text = err_path.read_text(errors="replace").strip()
+    except FileNotFoundError:
+        return ""
+    if not text:
+        return ""
+    # Return first non-trivial line (skip blanks, "N files inspected" summaries,
+    # and rubocop progress dots)
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # Skip rubocop progress indicators (lines of just dots/letters like "..CC.W.")
+        if all(c in ".CWEF" for c in line):
+            continue
+        # Skip summary lines like "1234 files inspected, ..."
+        if "files inspected" in line or "offenses detected" in line:
+            continue
+        # Truncate long lines
+        if len(line) > 200:
+            line = line[:200] + "..."
+        return line
+    return ""
+
+
 def parse_nitrocop_json(path: Path) -> set | None:
     """Parse nitrocop JSON output. Format: {"offenses": [...]}
     Returns None if the file is missing, empty, or unparseable (crash)."""
@@ -56,9 +85,10 @@ def parse_nitrocop_json(path: Path) -> set | None:
     return offenses
 
 
-def parse_rubocop_json(path: Path) -> tuple[set, set] | None:
+def parse_rubocop_json(path: Path) -> tuple[set, set, int, int] | None:
     """Parse RuboCop JSON output. Format: {"files": [{"path": ..., "offenses": [...]}]}
-    Returns (offenses, inspected_files) or None if the file is missing/empty/unparseable.
+    Returns (offenses, inspected_files, target_file_count, inspected_file_count)
+    or None if the file is missing/empty/unparseable.
     inspected_files is the set of relative file paths that RuboCop actually reported on.
     This is needed because RuboCop silently drops files when its parser crashes mid-batch."""
     try:
@@ -99,7 +129,7 @@ def parse_rubocop_json(path: Path) -> tuple[set, set] | None:
     if target > 0 and inspected < target and zero_offense_files:
         inspected_files -= zero_offense_files
 
-    return offenses, inspected_files
+    return offenses, inspected_files, target, inspected
 
 
 def load_manifest(path: Path) -> list:
@@ -153,15 +183,19 @@ def main():
     repos_perfect = 0
     repos_error = 0
     total_files = 0
+    total_files_dropped = 0
+    warning_repos = []  # repos with partial RuboCop crashes (file drops)
 
     for repo_id in all_ids:
         tc_path = tc_files.get(repo_id)
         rc_path = rc_files.get(repo_id)
 
         if not tc_path or not rc_path:
+            side = "nitrocop" if not tc_path else "rubocop"
             repo_results.append({
                 "repo": repo_id,
                 "status": "missing_results",
+                "error_message": f"No {side} JSON output file",
                 "match_rate": 0,
                 "matches": 0,
                 "fp": 0,
@@ -176,9 +210,12 @@ def main():
         # Detect crashed/empty output — don't compare against phantom zero offenses
         if tc_offenses is None or rc_result is None:
             side = "nitrocop" if tc_offenses is None else "rubocop"
+            err_path = tc_path if tc_offenses is None else rc_path
+            err_msg = read_err_snippet(err_path, side)
             repo_results.append({
                 "repo": repo_id,
                 "status": f"crashed_{side}",
+                "error_message": err_msg,
                 "match_rate": 0,
                 "matches": 0,
                 "fp": 0,
@@ -187,7 +224,7 @@ def main():
             repos_error += 1
             continue
 
-        rc_offenses, rc_inspected_files = rc_result
+        rc_offenses, rc_inspected_files, rc_target, rc_inspected = rc_result
         total_files += len(rc_inspected_files)
 
         # Filter to covered cops only (drop offenses from cops nitrocop doesn't implement)
@@ -250,7 +287,7 @@ def main():
             if multi_repo:
                 by_repo_cop[repo_id][cop]["fn"] += 1
 
-        repo_results.append({
+        result = {
             "repo": repo_id,
             "status": "ok",
             "match_rate": round(match_rate, 4),
@@ -260,7 +297,21 @@ def main():
             "nitrocop_total": len(tc_offenses),
             "rubocop_total": len(rc_offenses),
             "files_inspected": len(rc_inspected_files),
-        })
+        }
+
+        # Track partial RuboCop crashes (parser errors that drop files)
+        files_dropped = rc_target - rc_inspected if rc_target > rc_inspected > 0 else 0
+        if files_dropped > 0:
+            total_files_dropped += files_dropped
+            err_msg = read_err_snippet(rc_path, "rubocop")
+            result["rubocop_files_dropped"] = files_dropped
+            result["rubocop_target_files"] = rc_target
+            result["rubocop_inspected_files"] = rc_inspected
+            if err_msg:
+                result["rubocop_error"] = err_msg
+            warning_repos.append(result)
+
+        repo_results.append(result)
 
     # Build per-cop table (sorted by divergence descending)
     all_cops = sorted(set(by_cop_matches) | set(by_cop_fp) | set(by_cop_fn))
@@ -302,12 +353,14 @@ def main():
             "total_repos": len(all_ids),
             "repos_perfect": repos_perfect,
             "repos_error": repos_error,
+            "repos_with_rubocop_warnings": len(warning_repos),
             "total_offenses_compared": oracle_total,
             "matches": total_matches,
             "fp": total_fp,
             "fn": total_fn,
             "overall_match_rate": round(overall_rate, 4),
             "total_files_inspected": total_files,
+            "rubocop_files_dropped": total_files_dropped,
         },
         "by_cop": by_cop,  # all cops (gen_tiers.py needs the full list)
         "by_repo": repo_results,
@@ -338,7 +391,32 @@ def main():
     md.append(f"| FP (nitrocop extra) | {total_fp:,} |")
     md.append(f"| FN (nitrocop missing) | {total_fn:,} |")
     md.append(f"| **Match rate** | **{overall_rate:.1%}** |")
+    if repos_error > 0 or warning_repos:
+        md.append(f"| Repos with errors | {repos_error} |")
+    if warning_repos:
+        md.append(f"| Repos with RuboCop parser crashes | {len(warning_repos)} |")
+        md.append(f"| RuboCop files dropped (parser crash) | {total_files_dropped:,} |")
     md.append("")
+
+    # ── RuboCop warnings (parser crashes, errors) ──
+    warn_and_err = warning_repos + err_repos
+    if warn_and_err:
+        md.append("## RuboCop Warnings")
+        md.append("")
+        md.append(f"{len(warn_and_err)} repos had RuboCop issues (parser crashes or errors).")
+        md.append("")
+        md.append("| Repo | Issue | Files Dropped | Error |")
+        md.append("|------|-------|--------------|-------|")
+        for r in warning_repos:
+            dropped = r.get("rubocop_files_dropped", 0)
+            err = r.get("rubocop_error", "")
+            err_cell = f"`{err}`" if err else ""
+            md.append(f"| {r['repo']} | parser crash | {dropped:,} | {err_cell} |")
+        for r in err_repos:
+            err = r.get("error_message", "")
+            err_cell = f"`{err}`" if err else ""
+            md.append(f"| {r['repo']} | {r['status']} | all | {err_cell} |")
+        md.append("")
 
     # ── Diverging cops with <details> for examples ──
     diverging = [c for c in by_cop if c["fp"] + c["fn"] > 0]
@@ -407,10 +485,12 @@ def main():
         md.append("<details>")
         md.append(f"<summary>Repos with errors ({len(err_repos)})</summary>")
         md.append("")
-        md.append("| Repo | Status |")
-        md.append("|------|--------|")
+        md.append("| Repo | Status | Error |")
+        md.append("|------|--------|-------|")
         for r in err_repos:
-            md.append(f"| {r['repo']} | {r['status']} |")
+            err = r.get("error_message", "")
+            err_cell = f"`{err}`" if err else ""
+            md.append(f"| {r['repo']} | {r['status']} | {err_cell} |")
         md.append("")
         md.append("</details>")
         md.append("")
@@ -434,6 +514,11 @@ def main():
     print(f"\nCorpus: {len(all_ids)} repos, {repos_perfect} perfect, {repos_error} errors", file=sys.stderr)
     print(f"Offenses: {oracle_total:,} compared, {total_matches:,} match, {total_fp:,} FP, {total_fn:,} FN", file=sys.stderr)
     print(f"Overall match rate: {overall_rate:.1%}", file=sys.stderr)
+    if warning_repos:
+        print(f"RuboCop parser crashes: {len(warning_repos)} repos, {total_files_dropped:,} files dropped", file=sys.stderr)
+        for r in warning_repos:
+            err = r.get("rubocop_error", "unknown")
+            print(f"  - {r['repo']}: {r.get('rubocop_files_dropped', 0)} files dropped ({err})", file=sys.stderr)
 
     # Exit 0 always for now — CI gating can be added later via --strict flag
     sys.exit(0)
