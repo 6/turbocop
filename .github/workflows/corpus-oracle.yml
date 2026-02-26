@@ -15,10 +15,6 @@ on:
       repo_filter:
         description: "Run only this repo ID (e.g. 'multi_json__multi_json__c5fa9fc'), or 'all'"
         default: "all"
-      force_full:
-        description: "Force full rubocop re-run (ignore cached baselines)"
-        type: boolean
-        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -141,18 +137,9 @@ jobs:
       - name: Export nitrocop cop list
         run: bin/nitrocop --list-cops > nitrocop-cops.txt
 
-      - name: Restore rubocop baseline cache
-        if: ${{ github.event.inputs.force_full != 'true' }}
-        id: rubocop-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: results/rubocop/
-          key: corpus-rubocop-batch${{ matrix.batch_id }}-${{ hashFiles('bench/corpus/Gemfile.lock', 'bench/corpus/baseline_rubocop.yml', 'mise.toml', 'bench/corpus/manifest.jsonl') }}
-
       - name: Run batch
         env:
           REPOS_JSON: ${{ matrix.repos_json }}
-          RUBOCOP_CACHED: ${{ steps.rubocop-cache.outputs.cache-hit }}
         run: |
           mkdir -p results/nitrocop results/rubocop
 
@@ -174,7 +161,7 @@ jobs:
               git -C "$DEST" checkout "$REPO_SHA" || echo "WARNING: checkout failed, using HEAD"
             fi
 
-            # nitrocop (always runs — this is what we're testing)
+            # nitrocop
             echo "=== nitrocop: ${REPO_ID} ==="
             BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
             BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
@@ -186,34 +173,24 @@ jobs:
               "$DEST" \
               > "results/nitrocop/${REPO_ID}.json" 2>"results/nitrocop/${REPO_ID}.err" || true
 
-            # rubocop (skip if cached baseline exists)
-            if [[ -f "results/rubocop/${REPO_ID}.json" ]]; then
-              echo "=== rubocop: ${REPO_ID} (cached) ==="
-            else
-              echo "=== rubocop: ${REPO_ID} ==="
-              BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
-              BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
-              bundle exec rubocop \
-                --config bench/corpus/baseline_rubocop.yml \
-                --format json \
-                --force-exclusion \
-                --cache false \
-                "$DEST" \
-                > "results/rubocop/${REPO_ID}.json" 2>"results/rubocop/${REPO_ID}.err" || true
-            fi
+            # rubocop (always runs fresh — no cross-run caching to avoid
+            # environment drift causing non-deterministic baselines)
+            echo "=== rubocop: ${REPO_ID} ==="
+            BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
+            BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
+            bundle exec rubocop \
+              --config bench/corpus/baseline_rubocop.yml \
+              --format json \
+              --force-exclusion \
+              --cache false \
+              "$DEST" \
+              > "results/rubocop/${REPO_ID}.json" 2>"results/rubocop/${REPO_ID}.err" || true
 
             # Free disk space between repos
             rm -rf "$DEST"
 
             echo "::endgroup::"
           done
-
-      - name: Save rubocop baseline to cache
-        if: ${{ steps.rubocop-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v4
-        with:
-          path: results/rubocop/
-          key: corpus-rubocop-batch${{ matrix.batch_id }}-${{ hashFiles('bench/corpus/Gemfile.lock', 'bench/corpus/baseline_rubocop.yml', 'mise.toml', 'bench/corpus/manifest.jsonl') }}
 
       - name: Upload results
         uses: actions/upload-artifact@v4
