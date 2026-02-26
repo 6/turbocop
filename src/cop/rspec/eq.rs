@@ -58,6 +58,12 @@ impl Cop for Eq {
             return;
         }
 
+        // `be` must have no receiver (bare `be` call), matching RuboCop's `(send nil? :be)`.
+        // In legacy `.should.be == value` syntax, `be` has a receiver (the should proxy).
+        if recv_call.receiver().is_some() {
+            return;
+        }
+
         // `be` should have no arguments (bare `be`)
         let has_args = recv_call
             .arguments()
