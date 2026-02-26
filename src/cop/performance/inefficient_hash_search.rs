@@ -32,6 +32,12 @@ impl Cop for InefficientHashSearch {
             return;
         }
 
+        // inner_call must have an explicit receiver (e.g. `hash.keys`, not bare `keys`)
+        // Bare `keys`/`values` without a receiver are often methods on non-Hash classes.
+        if chain.inner_call.receiver().is_none() {
+            return;
+        }
+
         // inner_call must have no arguments (just `.keys` or `.values`)
         if chain.inner_call.arguments().is_some() {
             return;

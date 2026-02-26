@@ -3,3 +3,5 @@ hash.value?("bar")
 array.include?(:foo)
 hash.keys
 hash.values
+keys.include?(:foo)
+values.include?("bar")
