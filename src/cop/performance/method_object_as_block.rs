@@ -40,7 +40,9 @@ struct MethodObjectVisitor<'a, 'src> {
     diagnostics: Vec<Diagnostic>,
 }
 
-/// Check if a block argument node contains a call to `method(...)`.
+/// Check if a block argument node contains a call to `method(:symbol)`.
+/// RuboCop only flags `&method(:sym)` where the argument is a symbol literal,
+/// not `&method(variable)` or `&method("string")`.
 fn is_method_object_block_arg(block_arg: &ruby_prism::BlockArgumentNode<'_>) -> bool {
     let expr = match block_arg.expression() {
         Some(e) => e,
@@ -50,7 +52,16 @@ fn is_method_object_block_arg(block_arg: &ruby_prism::BlockArgumentNode<'_>) -> 
         Some(c) => c,
         None => return false,
     };
-    call.name().as_slice() == b"method"
+    if call.name().as_slice() != b"method" {
+        return false;
+    }
+    // Require exactly one argument that is a symbol literal
+    let args = match call.arguments() {
+        Some(a) => a,
+        None => return false,
+    };
+    let arg_list = args.arguments();
+    arg_list.len() == 1 && arg_list.iter().next().unwrap().as_symbol_node().is_some()
 }
 
 impl<'pr> Visit<'pr> for MethodObjectVisitor<'_, '_> {
