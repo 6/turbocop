@@ -455,6 +455,15 @@ fn contains_send_node(node: &ruby_prism::Node<'_>) -> bool {
         }
     }
 
+    // Check array elements (e.g., `[@tag.id]` as a hash value)
+    if let Some(array) = node.as_array_node() {
+        for elem in array.elements().iter() {
+            if contains_send_node(&elem) {
+                return true;
+            }
+        }
+    }
+
     false
 }
 

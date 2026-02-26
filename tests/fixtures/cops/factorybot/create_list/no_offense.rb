@@ -18,3 +18,6 @@ end
 [create(:user)]
 # Empty array
 []
+# Array.new with create containing array args with method calls
+records = Array.new(3) { FactoryBot.create(:record, :tag_ids => [@tag.id]) }
+items = Array.new(5) { create(:item, names: [user.name]) }
