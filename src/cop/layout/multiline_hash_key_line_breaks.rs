@@ -23,7 +23,7 @@ impl Cop for MultilineHashKeyLineBreaks {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let _allow_multiline_final = config.get_bool("AllowMultilineFinalElement", false);
+        let allow_multiline_final = config.get_bool("AllowMultilineFinalElement", false);
 
         // Skip keyword hashes (no braces)
         if node.as_keyword_hash_node().is_some() {
@@ -53,6 +53,30 @@ impl Cop for MultilineHashKeyLineBreaks {
         let elements: Vec<ruby_prism::Node<'_>> = hash.elements().iter().collect();
         if elements.len() < 2 {
             return;
+        }
+
+        // Check if all elements are on the same line (RuboCop's all_on_same_line? check)
+        let first_start_line = source
+            .offset_to_line_col(elements[0].location().start_offset())
+            .0;
+        let last = elements.last().unwrap();
+
+        if allow_multiline_final {
+            // ignore_last: true — check first.first_line == last.first_line
+            // (all elements start on the same line; last element can span multiple lines)
+            let last_start_line = source.offset_to_line_col(last.location().start_offset()).0;
+            if first_start_line == last_start_line {
+                return;
+            }
+        } else {
+            // Default: check first.first_line == last.last_line
+            // (all elements fit entirely on the same line)
+            let last_end_line = source
+                .offset_to_line_col(last.location().end_offset().saturating_sub(1))
+                .0;
+            if first_start_line == last_end_line {
+                return;
+            }
         }
 
         for i in 1..elements.len() {
