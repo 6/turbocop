@@ -67,10 +67,10 @@ impl Cop for InferredSpecType {
 
         let method_name = call.name().as_slice();
 
-        // Check for RSpec.describe or bare describe/context/etc.
+        // Check for RSpec.describe/context/feature/example_group or bare calls.
         let is_example_group = if let Some(recv) = call.receiver() {
             crate::cop::util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
-                && (method_name == b"describe" || method_name == b"context")
+                && EXAMPLE_GROUPS.contains(&method_name)
         } else {
             EXAMPLE_GROUPS.contains(&method_name)
         };
@@ -204,4 +204,32 @@ impl InferredSpecType {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(InferredSpecType, "cops/rspecrails/inferred_spec_type");
+
+    #[test]
+    fn rspec_feature_with_redundant_type() {
+        // RSpec.feature with type: :feature in spec/features/ should be flagged
+        let source = b"RSpec.feature \"Dashboard\", type: :feature do\nend\n";
+        let diags = crate::testutil::run_cop_full_internal(
+            &InferredSpecType,
+            source,
+            crate::cop::CopConfig::default(),
+            "spec/features/dashboard_spec.rb",
+        );
+        assert_eq!(diags.len(), 1, "Expected 1 offense, got {:?}", diags);
+        assert_eq!(diags[0].message, "Remove redundant spec type.");
+    }
+
+    #[test]
+    fn rspec_example_group_with_redundant_type() {
+        // RSpec.example_group with type: :model in spec/models/ should be flagged
+        let source = b"RSpec.example_group \"User\", type: :model do\nend\n";
+        let diags = crate::testutil::run_cop_full_internal(
+            &InferredSpecType,
+            source,
+            crate::cop::CopConfig::default(),
+            "spec/models/user_spec.rb",
+        );
+        assert_eq!(diags.len(), 1, "Expected 1 offense, got {:?}", diags);
+        assert_eq!(diags[0].message, "Remove redundant spec type.");
+    }
 }
