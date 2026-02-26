@@ -48,7 +48,7 @@ impl Cop for NegationBeValid {
             return;
         }
 
-        // Verify receiver is expect(...)
+        // Verify receiver is expect(...) or is_expected
         let recv = match runner_call.receiver() {
             Some(r) => r,
             None => return,
@@ -57,7 +57,12 @@ impl Cop for NegationBeValid {
             Some(c) => c,
             None => return,
         };
-        if expect_call.name().as_slice() != b"expect" || expect_call.receiver().is_some() {
+        let expect_name = expect_call.name().as_slice();
+        let is_expect = expect_name == b"expect" && expect_call.receiver().is_none();
+        let is_is_expected = expect_name == b"is_expected"
+            && expect_call.receiver().is_none()
+            && expect_call.arguments().is_none();
+        if !is_expect && !is_is_expected {
             return;
         }
 
