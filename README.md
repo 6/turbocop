@@ -15,7 +15,7 @@ Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (
 **Features**
 
 - **915 cops** from 6 RuboCop gems (rubocop, rubocop-rails, rubocop-performance, rubocop-rspec, rubocop-rspec_rails, rubocop-factory_bot)
-- **95.3% conformance** against RuboCop across **500 open-source repos** (all cops enabled)
+- **95.4% conformance** against RuboCop across **500 open-source repos** (all cops enabled)
 - **Autocorrect** (`-a`/`-A`) is partial — work in progress
 - Reads your existing `.rubocop.yml` — no migration needed
 - Uses [Prism](https://github.com/ruby/prism) (Ruby's official parser) via `ruby-prism` crate
@@ -68,17 +68,17 @@ Every cop reads its RuboCop YAML config options and has fixture-based test cover
 
 We run a [corpus oracle](https://github.com/6/nitrocop/actions/workflows/corpus-oracle.yml) that diffs nitrocop against RuboCop on **500 open-source repos** (164k Ruby files) with all cops enabled. Every offense is compared by file, line, and cop name.
 
-**Overall: 95.3% match rate** across 9.0M offenses compared.
+**Overall: 95.4% match rate** across 9.1M offenses compared.
 
 Top 15 repos by GitHub stars (offense counts are high because the corpus enables all 915 cops — most projects only enable a subset):
 
 | Repo | Files | Offenses | Conformance % |
 |------|------:|---------:|--------------:|
-| [rails](https://github.com/rails/rails) | 3,498 | 314,654 | 93.7% |
+| [rails](https://github.com/rails/rails) | 3,498 | 314,682 | 93.8% |
 | [jekyll](https://github.com/jekyll/jekyll) | 190 | 13,052 | 94.0% |
-| [mastodon](https://github.com/mastodon/mastodon) | 3,105 | 71,755 | 96.2% |
+| [mastodon](https://github.com/mastodon/mastodon) | 3,109 | 71,853 | 96.2% |
 | [huginn](https://github.com/huginn/huginn) | 451 | 34,199 | 96.7% |
-| [discourse](https://github.com/discourse/discourse) | 9,141 | 605,783 | 95.8% |
+| [discourse](https://github.com/discourse/discourse) | 9,144 | 606,641 | 97.5% |
 | [fastlane](https://github.com/fastlane/fastlane) | 1,302 | 117,999 | 96.6% |
 | [devdocs](https://github.com/freeCodeCamp/devdocs) | 833 | 19,903 | 93.0% |
 | [chatwoot](https://github.com/chatwoot/chatwoot) | 2,262 | 62,007 | 97.0% |
