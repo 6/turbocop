@@ -87,87 +87,6 @@ impl PercentLiteralDelimiters {
     }
 }
 
-impl PercentLiteralDelimiters {
-    /// Check if literal string content (excluding interpolation expressions) contains the
-    /// preferred delimiter bytes. For interpolated nodes, only check the literal string parts
-    /// (not `#{...}` expressions). For non-interpolated nodes, check the raw content bytes.
-    fn content_contains_preferred_delimiters(
-        source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        opening_end: usize,
-        node_end: usize,
-        expected_open: u8,
-        expected_close: u8,
-    ) -> bool {
-        // For interpolated node types, iterate over parts and only check string literal segments.
-        // This avoids falsely matching `{`/`}` etc. from `#{...}` interpolation syntax.
-        if let Some(r) = node.as_interpolated_regular_expression_node() {
-            return r.parts().iter().any(|part| {
-                if let Some(s) = part.as_string_node() {
-                    let content = s.content_loc().as_slice();
-                    content.contains(&expected_open) || content.contains(&expected_close)
-                } else {
-                    false
-                }
-            });
-        }
-        if let Some(s) = node.as_interpolated_string_node() {
-            return s.parts().iter().any(|part| {
-                if let Some(s) = part.as_string_node() {
-                    let content = s.content_loc().as_slice();
-                    content.contains(&expected_open) || content.contains(&expected_close)
-                } else {
-                    false
-                }
-            });
-        }
-        if let Some(s) = node.as_interpolated_x_string_node() {
-            return s.parts().iter().any(|part| {
-                if let Some(s) = part.as_string_node() {
-                    let content = s.content_loc().as_slice();
-                    content.contains(&expected_open) || content.contains(&expected_close)
-                } else {
-                    false
-                }
-            });
-        }
-        if let Some(s) = node.as_interpolated_symbol_node() {
-            return s.parts().iter().any(|part| {
-                if let Some(s) = part.as_string_node() {
-                    let content = s.content_loc().as_slice();
-                    content.contains(&expected_open) || content.contains(&expected_close)
-                } else {
-                    false
-                }
-            });
-        }
-        // For array nodes (%w, %W, %i, %I), check children's string content
-        if let Some(a) = node.as_array_node() {
-            return a.elements().iter().any(|elem| {
-                if let Some(s) = elem.as_string_node() {
-                    let content = s.content_loc().as_slice();
-                    content.contains(&expected_open) || content.contains(&expected_close)
-                } else if let Some(sym) = elem.as_symbol_node() {
-                    let content = sym.unescaped();
-                    content.contains(&expected_open) || content.contains(&expected_close)
-                } else {
-                    false
-                }
-            });
-        }
-
-        // For non-interpolated nodes, check the raw content bytes
-        let content_end = node_end.saturating_sub(1); // skip closing delimiter
-        if content_end > opening_end {
-            let content = &source.as_bytes()[opening_end..content_end];
-            if content.contains(&expected_open) || content.contains(&expected_close) {
-                return true;
-            }
-        }
-        false
-    }
-}
-
 impl Cop for PercentLiteralDelimiters {
     fn name(&self) -> &'static str {
         "Style/PercentLiteralDelimiters"
@@ -254,19 +173,16 @@ impl Cop for PercentLiteralDelimiters {
         };
 
         if actual_delim != expected_open {
-            // Check if the literal content contains the preferred delimiters.
+            // Check if the content contains the preferred delimiters.
             // If so, skip — can't use preferred delimiters when content contains them.
-            // For interpolated nodes, only check string literal parts (not #{...} expressions).
             let node_loc = node.location();
-            if Self::content_contains_preferred_delimiters(
-                source,
-                node,
-                opening.end_offset(),
-                node_loc.end_offset(),
-                expected_open,
-                expected_close,
-            ) {
-                return;
+            let content_start = opening.end_offset();
+            let content_end = node_loc.end_offset().saturating_sub(1); // skip closing delimiter
+            if content_end > content_start {
+                let content = &source.as_bytes()[content_start..content_end];
+                if content.contains(&expected_open) || content.contains(&expected_close) {
+                    return;
+                }
             }
 
             let loc = opening;
