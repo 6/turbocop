@@ -30,28 +30,33 @@ match rate.
 
 3. Show the user the top diverging cops and confirm the target repo.
 
-### Phase 1: Suggest & Confirm (you do this)
+### Phase 1: Full Table & Recommendations (you do this)
 
-From the investigation output, **suggest up to 4 cops** to fix in this batch. Prioritize:
+1. **Show the complete table** of ALL diverging cops (use `--limit 0`) ordered by FP+FN
+   descending. This is the full picture of what needs to happen to reach 100%:
+   ```bash
+   python3 scripts/investigate-repo.py <repo-name> --exclude-cops-file fix-cops-done.txt --limit 0 $ARGUMENTS
+   ```
+   Paste the full output verbatim to the user.
 
-1. **FP-only cops** (FP>0, FN=0) — pure false alarms, usually straightforward
-2. **High FP count** — more impact per fix
-3. **High match rate globally** (>90%) — the cop mostly works, just has edge case FPs
-4. Skip Layout/ alignment cops (HashAlignment, IndentationWidth, etc.) — complex multi-line state machines
+2. **Check global FP/FN** for the top candidates (use `--repos-only | head -5` for each).
+   This helps prioritize cops where the target repo is a significant contributor.
 
-**Important:** Check FP/FN counts globally, not just for the target repo. A cop with 6k FP
-on rails but 110k FP globally is a bigger win. Prioritize cops where the target repo is a
-significant contributor to the global divergence.
+3. **Recommend up to 4 cops** to fix in this batch. Prioritize by impact (highest FP+FN
+   first), but use judgment about difficulty. Present your recommendations with global
+   context:
+   ```
+   My recommendations for this batch (4 cops):
+   1. Style/OptionHash — 91 FP on rails (1,819 FP globally), likely <hypothesis>
+   2. Layout/IndentationWidth — 0 FP, 5,696 FN on rails (Xk FN globally), likely <hypothesis>
+   3. ...
 
-Present your suggestions to the user:
-```
-Based on the investigation, I'd suggest fixing these 4 cops:
-1. Lint/ConstantResolution — 6,511 FP on rails (152k FP globally), likely <hypothesis>
-2. Style/DocumentationMethod — 5,123 FP on rails (97k FP globally), likely <hypothesis>
-3. ...
+   Want me to proceed with these, or would you like to swap any out?
+   ```
 
-Want me to proceed with these, or would you like to swap any out?
-```
+   Don't skip any cop category — Layout alignment cops, low-match-rate cops, and FN-heavy
+   cops are all fair game. The goal is 100% conformance, so everything needs to be tackled
+   eventually.
 
 **Wait for user confirmation before proceeding.** The user may want to pick different cops
 or adjust the batch size.
