@@ -22,8 +22,11 @@ import tempfile
 from pathlib import Path
 
 
-def download_latest_corpus_results() -> Path:
-    """Download corpus-results.json from the latest successful corpus-oracle CI run."""
+def download_latest_corpus_results() -> tuple[Path, int]:
+    """Download corpus-results.json from the latest successful corpus-oracle CI run.
+
+    Returns (path_to_json, run_id).
+    """
     result = subprocess.run(
         ["gh", "run", "list", "--workflow=corpus-oracle.yml",
          "--status=success", "--limit=1", "--json=databaseId"],
@@ -55,7 +58,22 @@ def download_latest_corpus_results() -> Path:
         print(f"corpus-results.json not found in artifact", file=sys.stderr)
         sys.exit(1)
 
-    return path
+    return path, run_id
+
+
+def parse_done_file_run_id(done_file: Path) -> int | None:
+    """Parse the corpus oracle run ID from the fix-cops-done.txt header.
+
+    Expected format: '# Fixed cops from corpus oracle run 12345'
+    Returns the run ID as int, or None if not found/parseable.
+    """
+    import re
+    try:
+        first_line = done_file.read_text().split("\n", 1)[0]
+        m = re.search(r"run\s+(\d+)", first_line)
+        return int(m.group(1)) if m else None
+    except (OSError, ValueError):
+        return None
 
 
 def load_tiers(project_root: Path) -> dict[str, str]:
@@ -101,10 +119,11 @@ def main():
     args = parser.parse_args()
 
     # Load corpus results
+    corpus_run_id = None
     if args.input:
         input_path = args.input
     else:
-        input_path = download_latest_corpus_results()
+        input_path, corpus_run_id = download_latest_corpus_results()
 
     data = json.loads(input_path.read_text())
     summary = data["summary"]
@@ -127,14 +146,21 @@ def main():
         exclude = {d.rstrip("/") for d in args.exclude_department}
         diverging = [c for c in diverging if c["cop"].split("/")[0] not in exclude]
 
-    # Exclude already-fixed cops
+    # Exclude already-fixed cops (with staleness check)
     if args.exclude_cops_file and args.exclude_cops_file.exists():
-        exclude_cops = {line.strip() for line in args.exclude_cops_file.read_text().splitlines() if line.strip() and not line.startswith("#")}
-        before = len(diverging)
-        diverging = [c for c in diverging if c["cop"] not in exclude_cops]
-        skipped = before - len(diverging)
-        if skipped:
-            print(f"Excluded {skipped} already-fixed cops from {args.exclude_cops_file}", file=sys.stderr)
+        done_run_id = parse_done_file_run_id(args.exclude_cops_file)
+        stale = corpus_run_id is not None and done_run_id is not None and done_run_id != corpus_run_id
+
+        if stale:
+            print(f"⚠ {args.exclude_cops_file} is from run {done_run_id} but corpus data is from run {corpus_run_id}.", file=sys.stderr)
+            print(f"  Ignoring exclusion list — delete the file or update its header to match.", file=sys.stderr)
+        else:
+            exclude_cops = {line.strip() for line in args.exclude_cops_file.read_text().splitlines() if line.strip() and not line.startswith("#")}
+            before = len(diverging)
+            diverging = [c for c in diverging if c["cop"] not in exclude_cops]
+            skipped = before - len(diverging)
+            if skipped:
+                print(f"Excluded {skipped} already-fixed cops from {args.exclude_cops_file}", file=sys.stderr)
 
     # Apply FP/FN filters
     if args.fp_only:

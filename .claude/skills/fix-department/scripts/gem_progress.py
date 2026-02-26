@@ -39,8 +39,11 @@ for gem, depts in GEM_DEPARTMENTS.items():
         DEPT_TO_GEM[dept] = gem
 
 
-def download_latest_corpus_results() -> Path:
-    """Download corpus-results.json from the latest successful corpus-oracle CI run."""
+def download_latest_corpus_results() -> tuple[Path, int]:
+    """Download corpus-results.json from the latest successful corpus-oracle CI run.
+
+    Returns (path_to_json, run_id).
+    """
     result = subprocess.run(
         ["gh", "run", "list", "--workflow=corpus-oracle.yml",
          "--status=success", "--limit=1", "--json=databaseId"],
@@ -72,7 +75,22 @@ def download_latest_corpus_results() -> Path:
         print(f"corpus-results.json not found in artifact", file=sys.stderr)
         sys.exit(1)
 
-    return path
+    return path, run_id
+
+
+def parse_done_file_run_id(done_file: Path) -> int | None:
+    """Parse the corpus oracle run ID from the fix-cops-done.txt header.
+
+    Expected format: '# Fixed cops from corpus oracle run 12345'
+    Returns the run ID as int, or None if not found/parseable.
+    """
+    import re
+    try:
+        first_line = done_file.read_text().split("\n", 1)[0]
+        m = re.search(r"run\s+(\d+)", first_line)
+        return int(m.group(1)) if m else None
+    except (OSError, ValueError):
+        return None
 
 
 def fmt_count(n: int) -> str:
@@ -507,10 +525,11 @@ def main():
         args.summary = True
 
     # Load corpus results
+    corpus_run_id = None
     if args.input:
         input_path = args.input
     else:
-        input_path = download_latest_corpus_results()
+        input_path, corpus_run_id = download_latest_corpus_results()
 
     data = json.loads(input_path.read_text())
     summary = data["summary"]
@@ -525,7 +544,18 @@ def main():
         print("Warning: running without registry data — untested cops won't be shown", file=sys.stderr)
 
     # Load fixed cops (auto-detect fix-cops-done.txt if not specified)
-    fixed_cops = load_fixed_cops(args.exclude_cops_file)
+    # Check for staleness: if the done file references a different corpus run, ignore it
+    exclude_file = args.exclude_cops_file or (find_project_root() / "fix-cops-done.txt")
+    if exclude_file.exists() and corpus_run_id is not None:
+        done_run_id = parse_done_file_run_id(exclude_file)
+        if done_run_id is not None and done_run_id != corpus_run_id:
+            print(f"⚠ {exclude_file} is from run {done_run_id} but corpus data is from run {corpus_run_id}.", file=sys.stderr)
+            print(f"  Ignoring exclusion list — delete the file or update its header to match.", file=sys.stderr)
+            fixed_cops: set[str] = set()
+        else:
+            fixed_cops = load_fixed_cops(args.exclude_cops_file)
+    else:
+        fixed_cops = load_fixed_cops(args.exclude_cops_file)
     if fixed_cops:
         print(f"Treating {len(fixed_cops)} cops as fixed (pending corpus confirmation)", file=sys.stderr)
 
