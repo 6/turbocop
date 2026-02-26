@@ -1,6 +1,6 @@
+use crate::cop::node_type::INTERPOLATED_STRING_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
-use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
 pub struct TripleQuotes;
@@ -14,59 +14,54 @@ impl Cop for TripleQuotes {
         Severity::Warning
     }
 
-    fn check_source(
+    fn interested_node_types(&self) -> &'static [u8] {
+        &[INTERPOLATED_STRING_NODE]
+    }
+
+    fn check_node(
         &self,
         source: &SourceFile,
+        node: &ruby_prism::Node<'_>,
         _parse_result: &ruby_prism::ParseResult<'_>,
-        code_map: &CodeMap,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let mut byte_offset: usize = 0;
+        let interp = match node.as_interpolated_string_node() {
+            Some(n) => n,
+            None => return,
+        };
 
-        for (i, line) in source.lines().enumerate() {
-            let line_len = line.len() + 1; // +1 for newline
-            let trimmed_start = line
-                .iter()
-                .position(|&b| b != b' ' && b != b'\t')
-                .unwrap_or(line.len());
-            let trimmed = &line[trimmed_start..];
-
-            // Skip comment lines — triple quotes in documentation examples are not offenses
-            if trimmed.starts_with(b"#") {
-                byte_offset += line_len;
-                continue;
+        // Check if any child is an empty StringNode (indicating implicit concatenation
+        // with empty strings, which is what triple quotes produce).
+        let has_empty_str = interp.parts().iter().any(|part| {
+            if let Some(s) = part.as_string_node() {
+                s.unescaped().is_empty()
+            } else {
+                false
             }
+        });
 
-            // Skip lines inside string/heredoc regions
-            if !code_map.is_not_string(byte_offset + trimmed_start) {
-                byte_offset += line_len;
-                continue;
-            }
-
-            // Check for lines that contain triple quotes (""" or ''')
-            for j in 0..trimmed.len().saturating_sub(2) {
-                if (trimmed[j] == b'"' && trimmed[j + 1] == b'"' && trimmed[j + 2] == b'"')
-                    || (trimmed[j] == b'\'' && trimmed[j + 1] == b'\'' && trimmed[j + 2] == b'\'')
-                {
-                    // Skip triple quotes inside regex literals or heredocs
-                    let match_offset = byte_offset + trimmed_start + j;
-                    if code_map.is_regex(match_offset) || code_map.is_heredoc(match_offset) {
-                        continue;
-                    }
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        i + 1,
-                        trimmed_start + j,
-                        "Triple quotes found. Did you mean to use a heredoc?".to_string(),
-                    ));
-                    break; // Only one per line
-                }
-            }
-
-            byte_offset += line_len;
+        if !has_empty_str {
+            return;
         }
+
+        // Check if the source starts with 3+ quote characters
+        let loc = interp.location();
+        let src = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
+        let quote_count = src.iter().take_while(|&&b| b == b'"' || b == b'\'').count();
+
+        if quote_count < 3 {
+            return;
+        }
+
+        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            "Triple quotes found. Did you mean to use a heredoc?".to_string(),
+        ));
     }
 }
 
