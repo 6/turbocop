@@ -1,103 +1,98 @@
-use crate::cop::node_type::{
-    BLOCK_ARGUMENT_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE,
-};
+use ruby_prism::Visit;
+
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
 pub struct AutoResourceCleanup;
 
-fn is_resource_class(node: &ruby_prism::Node<'_>) -> bool {
-    let name = if let Some(read) = node.as_constant_read_node() {
-        std::str::from_utf8(read.name().as_slice()).unwrap_or("")
-    } else if let Some(path) = node.as_constant_path_node() {
-        std::str::from_utf8(path.name_loc().as_slice()).unwrap_or("")
-    } else {
-        return false;
-    };
-    matches!(name, "File" | "Tempfile")
-}
-
 impl Cop for AutoResourceCleanup {
     fn name(&self) -> &'static str {
         "Style/AutoResourceCleanup"
     }
 
-    fn interested_node_types(&self) -> &'static [u8] {
-        &[
-            BLOCK_ARGUMENT_NODE,
-            CALL_NODE,
-            CONSTANT_PATH_NODE,
-            CONSTANT_READ_NODE,
-        ]
-    }
-
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let call = match node.as_call_node() {
-            Some(c) => c,
-            None => return,
-        };
-
-        let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
-        if method_name != "open" {
-            return;
-        }
-
-        let receiver = match call.receiver() {
-            Some(r) => r,
-            None => return,
-        };
-
-        if !is_resource_class(&receiver) {
-            return;
-        }
-
-        // Skip if it has a block
-        if call.block().is_some() {
-            return;
-        }
-
-        // Skip if it has a block argument (&:read etc)
-        if let Some(args) = call.arguments() {
-            for arg in args.arguments().iter() {
-                if arg.as_block_argument_node().is_some() {
-                    return;
-                }
-            }
-        }
-
-        // Skip if followed by .close (method chain)
-        // We can't easily detect this from the node itself, so we check the
-        // source bytes after the call
-        let loc = node.location();
-        let end_offset = loc.end_offset();
-        let src_bytes = source.as_bytes();
-        // Check if .close follows
-        if end_offset < src_bytes.len() {
-            let rest = &src_bytes[end_offset..];
-            let rest_str = std::str::from_utf8(rest).unwrap_or("");
-            let trimmed = rest_str.trim_start();
-            if trimmed.starts_with(".close") {
-                return;
-            }
-        }
-
-        let recv_str = std::str::from_utf8(receiver.location().as_slice()).unwrap_or("File");
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(
+        let mut visitor = AutoResourceCleanupVisitor {
+            cop: self,
             source,
-            line,
-            column,
-            format!("Use the block version of `{}.open`.", recv_str),
-        ));
+            diagnostics: Vec::new(),
+        };
+        visitor.visit(&parse_result.node());
+        diagnostics.extend(visitor.diagnostics);
+    }
+}
+
+struct AutoResourceCleanupVisitor<'a> {
+    cop: &'a AutoResourceCleanup,
+    source: &'a SourceFile,
+    diagnostics: Vec<Diagnostic>,
+}
+
+/// Check if a call node is `File.open(...)` or `Tempfile.open(...)` without a block.
+fn is_resource_open_without_block(call: &ruby_prism::CallNode<'_>) -> Option<String> {
+    let method_name = std::str::from_utf8(call.name().as_slice()).unwrap_or("");
+    if method_name != "open" {
+        return None;
+    }
+
+    let receiver = call.receiver()?;
+
+    let recv_name = if let Some(read) = receiver.as_constant_read_node() {
+        std::str::from_utf8(read.name().as_slice()).unwrap_or("")
+    } else if let Some(path) = receiver.as_constant_path_node() {
+        std::str::from_utf8(path.name_loc().as_slice()).unwrap_or("")
+    } else {
+        return None;
+    };
+
+    if !matches!(recv_name, "File" | "Tempfile") {
+        return None;
+    }
+
+    // Skip if it has a block
+    if call.block().is_some() {
+        return None;
+    }
+
+    // Skip if it has a block argument (&:read etc)
+    if let Some(args) = call.arguments() {
+        for arg in args.arguments().iter() {
+            if arg.as_block_argument_node().is_some() {
+                return None;
+            }
+        }
+    }
+
+    let recv_str = std::str::from_utf8(receiver.location().as_slice()).unwrap_or("File");
+    Some(recv_str.to_string())
+}
+
+impl<'pr> Visit<'pr> for AutoResourceCleanupVisitor<'_> {
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
+        // Only flag File.open/Tempfile.open when assigned to a local variable
+        if let Some(call) = node.value().as_call_node() {
+            if let Some(recv_str) = is_resource_open_without_block(&call) {
+                let loc = call.location();
+                let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
+                    line,
+                    column,
+                    format!("Use the block version of `{}.open`.", recv_str),
+                ));
+            }
+        }
+
+        // Recurse into children
+        ruby_prism::visit_local_variable_write_node(self, node);
     }
 }
 
