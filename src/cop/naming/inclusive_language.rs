@@ -80,20 +80,18 @@ impl Cop for InclusiveLanguage {
             }
         }
 
-        // Check each line
-        let should_check_code = check_identifiers
-            || check_constants
-            || check_variables
-            || check_strings
-            || check_symbols;
+        // Check each line — should_check_code excludes check_strings since
+        // string regions are checked separately via find_line_regions
+        let should_check_code =
+            check_identifiers || check_constants || check_variables || check_symbols;
 
         for (line_idx, line) in source.lines().enumerate() {
             let line_num = line_idx + 1;
             let line_str = String::from_utf8_lossy(line);
             let line_lower = line_str.to_lowercase();
 
-            // Check if line has a comment portion
-            let comment_start = find_comment_start(line);
+            // Parse line regions: comment start and string literal ranges
+            let regions = find_line_regions(line);
 
             for term in terms.iter() {
                 // Use regex matching if available, otherwise substring search
@@ -105,9 +103,12 @@ impl Cop for InclusiveLanguage {
                             Err(_) => break,
                         };
                         let abs_pos = mat.start();
-                        let in_comment = comment_start.is_some_and(|cs| abs_pos >= cs);
+                        let in_comment = regions.comment_start.is_some_and(|cs| abs_pos >= cs);
+                        let in_string = !in_comment && regions.is_in_string(abs_pos);
                         let should_flag = if in_comment {
                             check_comments
+                        } else if in_string {
+                            check_strings
                         } else {
                             should_check_code
                         };
@@ -122,10 +123,13 @@ impl Cop for InclusiveLanguage {
                     while let Some(pos) = line_lower[search_start..].find(&term.pattern) {
                         let abs_pos = search_start + pos;
 
-                        let in_comment = comment_start.is_some_and(|cs| abs_pos >= cs);
+                        let in_comment = regions.comment_start.is_some_and(|cs| abs_pos >= cs);
+                        let in_string = !in_comment && regions.is_in_string(abs_pos);
 
                         let should_flag = if in_comment {
                             check_comments
+                        } else if in_string {
+                            check_strings
                         } else {
                             should_check_code
                         };
@@ -335,19 +339,61 @@ fn is_hash_label(line: &[u8], pos: usize, _len: usize) -> bool {
     true
 }
 
-fn find_comment_start(line: &[u8]) -> Option<usize> {
-    // Simple heuristic: find first # that's not inside a string
+struct LineRegions {
+    comment_start: Option<usize>,
+    /// Byte ranges of string literal content (between quotes, exclusive of quotes themselves).
+    string_ranges: Vec<(usize, usize)>,
+}
+
+impl LineRegions {
+    fn is_in_string(&self, pos: usize) -> bool {
+        self.string_ranges
+            .iter()
+            .any(|&(start, end)| pos >= start && pos < end)
+    }
+}
+
+fn find_line_regions(line: &[u8]) -> LineRegions {
     let mut in_single = false;
     let mut in_double = false;
+    let mut string_start: usize = 0;
+    let mut string_ranges = Vec::new();
+    let mut comment_start = None;
+
     for (i, &b) in line.iter().enumerate() {
         match b {
-            b'\'' if !in_double => in_single = !in_single,
-            b'"' if !in_single => in_double = !in_double,
-            b'#' if !in_single && !in_double => return Some(i),
+            b'\'' if !in_double => {
+                if in_single {
+                    // Closing single quote — record the content range
+                    string_ranges.push((string_start, i));
+                    in_single = false;
+                } else {
+                    // Opening single quote — content starts after the quote
+                    in_single = true;
+                    string_start = i + 1;
+                }
+            }
+            b'"' if !in_single => {
+                if in_double {
+                    string_ranges.push((string_start, i));
+                    in_double = false;
+                } else {
+                    in_double = true;
+                    string_start = i + 1;
+                }
+            }
+            b'#' if !in_single && !in_double => {
+                comment_start = Some(i);
+                break;
+            }
             _ => {}
         }
     }
-    None
+
+    LineRegions {
+        comment_start,
+        string_ranges,
+    }
 }
 
 fn format_message(term: &str, suggestions: &[String]) -> String {
