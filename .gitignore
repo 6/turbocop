@@ -44,9 +44,6 @@ docs/INTERNAL_*
 # Claude Code worktrees
 .claude/worktrees/
 
-# Fix-cops batch tracking (resets per corpus oracle run)
-fix-cops-done.txt
-
 # Environment
 .env
 .env.*
