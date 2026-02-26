@@ -55,28 +55,43 @@ impl Cop for FirstMethodArgumentLineBreak {
             return;
         }
 
-        let (open_line, _) = source.offset_to_line_col(open_loc.start_offset());
-        let (close_line, _) = source.offset_to_line_col(close_loc.start_offset());
-
-        // Only check multiline calls
-        if open_line == close_line {
-            return;
-        }
-
         let first = &arg_list[0];
         let (first_line, first_col) = source.offset_to_line_col(first.location().start_offset());
 
-        if first_line == open_line {
-            diagnostics.push(
-                self.diagnostic(
-                    source,
-                    first_line,
-                    first_col,
-                    "Add a line break before the first argument of a multi-line method call."
-                        .to_string(),
-                ),
-            );
+        // RuboCop's check_children_line_break compares the node's first line
+        // (CallNode start) with the first argument's line. For normal calls like
+        // `foo(bar, \n baz)`, both are on the same line → offense. For chained
+        // calls like `Foo\n  .new(bar, \n baz)`, the CallNode starts on the
+        // `Foo` line but the first arg is on the `.new(` line → no offense.
+        let (call_start_line, _) = source.offset_to_line_col(call.location().start_offset());
+        if first_line != call_start_line {
+            return;
         }
+
+        // RuboCop checks if the call is truly multiline by comparing the node's
+        // first line with the max last_line of the children. If all arguments end
+        // on the same line as the call, it's considered single-line even if the
+        // closing paren is on a different line.
+        let max_last_line = arg_list
+            .iter()
+            .map(|arg| {
+                source
+                    .offset_to_line_col(arg.location().end_offset().saturating_sub(1))
+                    .0
+            })
+            .max()
+            .unwrap_or(call_start_line);
+
+        if call_start_line == max_last_line {
+            return;
+        }
+
+        diagnostics.push(self.diagnostic(
+            source,
+            first_line,
+            first_col,
+            "Add a line break before the first argument of a multi-line method call.".to_string(),
+        ));
     }
 }
 
