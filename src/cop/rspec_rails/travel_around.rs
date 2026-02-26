@@ -1,3 +1,5 @@
+use ruby_prism::Visit;
+
 use crate::cop::node_type::{
     BLOCK_ARGUMENT_NODE, BLOCK_NODE, CALL_NODE, STATEMENTS_NODE, SYMBOL_NODE,
 };
@@ -79,43 +81,42 @@ impl Cop for TravelAround {
             None => return,
         };
 
-        let stmts = match body.as_statements_node() {
-            Some(s) => s,
-            None => return,
+        // Recursively search for travel calls anywhere in the around block body
+        let mut finder = TravelFinder {
+            offsets: Vec::new(),
         };
+        finder.visit(&body);
 
-        for stmt in stmts.body().iter() {
-            if let Some(travel_call) = stmt.as_call_node() {
-                let travel_name = travel_call.name().as_slice();
-                if !TRAVEL_METHODS.contains(&travel_name) {
-                    continue;
-                }
-                if travel_call.receiver().is_some() {
-                    continue;
-                }
+        for offset in finder.offsets {
+            let (line, column) = source.offset_to_line_col(offset);
+            diagnostics.push(self.diagnostic(
+                source,
+                line,
+                column,
+                "Prefer to travel in `before` rather than `around`.".to_string(),
+            ));
+        }
+    }
+}
 
-                let travel_block = match travel_call.block() {
-                    Some(b) => b,
-                    None => continue,
-                };
+struct TravelFinder {
+    offsets: Vec<usize>,
+}
 
+impl<'pr> Visit<'pr> for TravelFinder {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        let name = node.name().as_slice();
+        if TRAVEL_METHODS.contains(&name) && node.receiver().is_none() {
+            if let Some(travel_block) = node.block() {
                 // Pattern 1: travel_method do ... example.run ... end
-                if let Some(travel_block_node) = travel_block.as_block_node() {
-                    if let Some(travel_body) = travel_block_node.body() {
-                        if let Some(travel_stmts) = travel_body.as_statements_node() {
-                            let stmt_list: Vec<_> = travel_stmts.body().iter().collect();
+                if let Some(block_node) = travel_block.as_block_node() {
+                    if let Some(travel_body) = block_node.body() {
+                        if let Some(stmts) = travel_body.as_statements_node() {
+                            let stmt_list: Vec<_> = stmts.body().iter().collect();
                             if stmt_list.len() == 1 {
                                 if let Some(run_call) = stmt_list[0].as_call_node() {
                                     if run_call.name().as_slice() == b"run" {
-                                        let loc = travel_call.location();
-                                        let (line, column) =
-                                            source.offset_to_line_col(loc.start_offset());
-                                        diagnostics.push(self.diagnostic(
-                                            source,
-                                            line,
-                                            column,
-                                            "Prefer to travel in `before` rather than `around`.".to_string(),
-                                        ));
+                                        self.offsets.push(node.location().start_offset());
                                     }
                                 }
                             }
@@ -125,17 +126,13 @@ impl Cop for TravelAround {
 
                 // Pattern 2: travel_method(&example)
                 if travel_block.as_block_argument_node().is_some() {
-                    let loc = travel_call.location();
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Prefer to travel in `before` rather than `around`.".to_string(),
-                    ));
+                    self.offsets.push(node.location().start_offset());
                 }
             }
         }
+
+        // Continue visiting children to find nested travel calls
+        ruby_prism::visit_call_node(self, node);
     }
 }
 

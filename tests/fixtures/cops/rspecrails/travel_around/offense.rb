@@ -16,3 +16,12 @@ around(:each) do |example|
     example.run
   end
 end
+
+around do |example|
+  SomeService.execute do
+    travel_to(1.day.from_now) do
+    ^^^^^^^^^^^^^^^^^^^^^^^^^ RSpecRails/TravelAround: Prefer to travel in `before` rather than `around`.
+      example.run
+    end
+  end
+end
