@@ -55,3 +55,21 @@ when *cond2
 when *cond3
   baz
 end
+case action
+when 'store'
+  data
+when *VOIDABLE_ACTIONS
+  action
+else
+  data
+end
+case event_type
+when *ORDER_EVENTS, *ACCOUNT_EVENTS
+  handle_event
+else
+  handle_legacy
+end
+case foo
+when *ITEMS.map(&:to_s)
+  bar
+end
