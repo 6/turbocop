@@ -29,3 +29,12 @@ end
 
 # Block with params is dynamic, not stubbed
 expect(foo).to receive(:bar) { |x| bar }
+
+# Multi-arg configured responses don't match RuboCop's single-arg pattern
+expect(foo).to receive(:bar).and_return(1, 2)
+expect(foo).to receive(:bar).and_raise(StandardError, "msg")
+expect(foo).to receive(:bar).and_yield("a", "b")
+expect(foo).to receive(:bar).and_throw(:abort, "reason")
+
+# Block with &block parameter is dynamic, not stubbed
+expect(foo).to receive(:bar) { |&b| b.call }

@@ -191,7 +191,7 @@ fn is_matcher_with_configured_response(node: &ruby_prism::Node<'_>) -> bool {
     // with no arguments don't match.
     let has_args = call.arguments().is_some_and(|a| {
         let args: Vec<_> = a.arguments().iter().collect();
-        !args.is_empty()
+        args.len() == 1
     });
     if !has_args {
         return false;
@@ -301,12 +301,18 @@ fn is_matcher_with_block(node: &ruby_prism::Node<'_>) -> bool {
 
     if let Some(block) = call.block() {
         if let Some(bn) = block.as_block_node() {
-            // Block with params like |x| is dynamic, not a stubbed response
+            // Block with params like |x| or |&b| is dynamic, not a stubbed response
+            // RuboCop's (args) pattern means EMPTY args — any parameter makes it not match
             if let Some(params) = bn.parameters() {
                 if let Some(bp) = params.as_block_parameters_node() {
                     if let Some(p) = bp.parameters() {
-                        let req: Vec<_> = p.requireds().iter().collect();
-                        if !req.is_empty() {
+                        if p.requireds().iter().next().is_some()
+                            || p.optionals().iter().next().is_some()
+                            || p.rest().is_some()
+                            || p.keywords().iter().next().is_some()
+                            || p.keyword_rest().is_some()
+                            || p.block().is_some()
+                        {
                             return false;
                         }
                     }
