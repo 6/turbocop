@@ -398,6 +398,10 @@ def main():
         md.append(f"| RuboCop files dropped (parser crash) | {total_files_dropped:,} |")
     md.append("")
 
+    # ── Compute ok/error repo lists (used by multiple sections below) ──
+    ok_repos = [r for r in repo_results if r["status"] == "ok"]
+    err_repos = [r for r in repo_results if r["status"] != "ok"]
+
     # ── RuboCop warnings (parser crashes, errors) ──
     warn_and_err = warning_repos + err_repos
     if warn_and_err:
@@ -466,9 +470,6 @@ def main():
             md.append("")
 
     # ── Per-repo table ──
-    ok_repos = [r for r in repo_results if r["status"] == "ok"]
-    err_repos = [r for r in repo_results if r["status"] != "ok"]
-
     md.append("## Per-Repo Results")
     md.append("")
     md.append(f"{len(ok_repos)} repos completed successfully, {len(err_repos)} had errors.")
