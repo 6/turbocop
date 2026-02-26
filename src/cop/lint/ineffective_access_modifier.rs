@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -52,12 +54,39 @@ enum ModifierKind {
     Public,
 }
 
+/// Pre-scan class body for `private_class_method` and `protected_class_method` calls,
+/// returning the set of method names they reference (as symbol arguments).
+fn collect_class_method_visibility_overrides(
+    stmts: &ruby_prism::StatementsNode<'_>,
+) -> HashSet<Vec<u8>> {
+    let mut names = HashSet::new();
+    for stmt in stmts.body().iter() {
+        if let Some(call) = stmt.as_call_node() {
+            let method_name = call.name().as_slice();
+            if call.receiver().is_none()
+                && (method_name == b"private_class_method"
+                    || method_name == b"protected_class_method")
+            {
+                if let Some(args) = call.arguments() {
+                    for arg in args.arguments().iter() {
+                        if let Some(sym) = arg.as_symbol_node() {
+                            names.insert(sym.unescaped().to_vec());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    names
+}
+
 fn check_class_body(
     cop: &IneffectiveAccessModifier,
     source: &SourceFile,
     diagnostics: &mut Vec<Diagnostic>,
     stmts: &ruby_prism::StatementsNode<'_>,
 ) {
+    let ignored_methods = collect_class_method_visibility_overrides(stmts);
     let body: Vec<_> = stmts.body().iter().collect();
     let mut current_modifier: Option<ModifierInfo> = None;
 
@@ -82,6 +111,12 @@ fn check_class_body(
         // Check for singleton method definitions (def self.method)
         if let Some(defs) = stmt.as_def_node() {
             if defs.receiver().is_some() {
+                // Skip if this method is covered by private_class_method/protected_class_method
+                let method_name = defs.name().as_slice();
+                if ignored_methods.contains(method_name) {
+                    continue;
+                }
+
                 // This is a `def self.method` or `def obj.method`
                 if let Some(modifier) = &current_modifier {
                     match modifier.kind {
