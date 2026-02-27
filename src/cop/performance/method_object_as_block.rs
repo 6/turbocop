@@ -66,11 +66,37 @@ fn is_method_object_block_arg(block_arg: &ruby_prism::BlockArgumentNode<'_>) -> 
 
 impl<'pr> Visit<'pr> for MethodObjectVisitor<'_, '_> {
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        // Only flag &method(...) when parent is a send (CallNode), not super.
-        // Check if this call node has a block argument that's &method(...)
-        if let Some(args) = node.arguments() {
-            for arg in args.arguments().iter() {
-                if let Some(block_arg) = arg.as_block_argument_node() {
+        // RuboCop's pattern uses ^send which excludes csend (safe navigation &.),
+        // so skip when the parent call uses safe navigation.
+        let is_safe_nav = if let Some(op) = node.call_operator_loc() {
+            op.as_slice() == b"&."
+        } else {
+            false
+        };
+        if !is_safe_nav {
+            // Check if this call node has a block argument that's &method(...)
+            if let Some(args) = node.arguments() {
+                for arg in args.arguments().iter() {
+                    if let Some(block_arg) = arg.as_block_argument_node() {
+                        if is_method_object_block_arg(&block_arg) {
+                            let loc = block_arg.location();
+                            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                            self.diagnostics.push(
+                                self.cop.diagnostic(
+                                    self.source,
+                                    line,
+                                    column,
+                                    "Use a block instead of `&method(...)` for better performance."
+                                        .to_string(),
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+            // Also check the block argument slot (outside of arguments list)
+            if let Some(block) = node.block() {
+                if let Some(block_arg) = block.as_block_argument_node() {
                     if is_method_object_block_arg(&block_arg) {
                         let loc = block_arg.location();
                         let (line, column) = self.source.offset_to_line_col(loc.start_offset());
@@ -84,21 +110,6 @@ impl<'pr> Visit<'pr> for MethodObjectVisitor<'_, '_> {
                             ),
                         );
                     }
-                }
-            }
-        }
-        // Also check the block argument slot (outside of arguments list)
-        if let Some(block) = node.block() {
-            if let Some(block_arg) = block.as_block_argument_node() {
-                if is_method_object_block_arg(&block_arg) {
-                    let loc = block_arg.location();
-                    let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-                    self.diagnostics.push(self.cop.diagnostic(
-                        self.source,
-                        line,
-                        column,
-                        "Use a block instead of `&method(...)` for better performance.".to_string(),
-                    ));
                 }
             }
         }
