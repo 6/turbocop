@@ -86,6 +86,29 @@ impl Cop for RedundantRegexpCharacterClass {
                         continue;
                     }
 
+                    // An unescaped regex metacharacter in a single-char class is a
+                    // valid escaping technique (e.g. [.] instead of \.) — not redundant.
+                    // RuboCop also skips these because autocorrect would need to add
+                    // a backslash escape, and the message would be misleading.
+                    if inner.len() == 1
+                        && matches!(
+                            inner[0],
+                            b'.' | b'*'
+                                | b'+'
+                                | b'?'
+                                | b'('
+                                | b')'
+                                | b'{'
+                                | b'}'
+                                | b'|'
+                                | b'^'
+                                | b'$'
+                        )
+                    {
+                        i += 1;
+                        continue;
+                    }
+
                     // Calculate offset relative to the node's opening
                     let open_len = if full_bytes.starts_with(b"%r") { 3 } else { 1 };
                     let abs_offset = node_loc.start_offset() + open_len + start;
