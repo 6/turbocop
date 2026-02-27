@@ -99,8 +99,17 @@ impl Cop for InheritException {
 }
 
 fn is_exception(node: &ruby_prism::Node<'_>) -> bool {
-    if let Some(name) = constant_name(node) {
-        return name == b"Exception";
+    // Bare `Exception` (ConstantReadNode)
+    if let Some(cr) = node.as_constant_read_node() {
+        return cr.name().as_slice() == b"Exception";
+    }
+    // `::Exception` but NOT `Foo::Exception` or `::Foo::Exception`
+    if let Some(cp) = node.as_constant_path_node() {
+        if let Some(name) = cp.name() {
+            if name.as_slice() == b"Exception" {
+                return cp.parent().is_none();
+            }
+        }
     }
     false
 }
