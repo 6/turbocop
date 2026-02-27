@@ -1,4 +1,4 @@
-use crate::cop::node_type::{CALL_NODE, INTERPOLATED_STRING_NODE, STRING_NODE, SYMBOL_NODE};
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::util::keyword_arg_value;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -13,6 +13,11 @@ const ASSOCIATION_METHODS: &[&[u8]] = &[
     b"has_and_belongs_to_many",
 ];
 
+/// Check if a node is a constant (ConstantReadNode or ConstantPathNode).
+fn is_constant(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_constant_read_node().is_some() || node.as_constant_path_node().is_some()
+}
+
 impl Cop for ReflectionClassName {
     fn name(&self) -> &'static str {
         "Rails/ReflectionClassName"
@@ -23,12 +28,7 @@ impl Cop for ReflectionClassName {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[
-            CALL_NODE,
-            INTERPOLATED_STRING_NODE,
-            STRING_NODE,
-            SYMBOL_NODE,
-        ]
+        &[CALL_NODE]
     }
 
     fn check_node(
@@ -51,18 +51,21 @@ impl Cop for ReflectionClassName {
             return;
         }
         if let Some(value) = keyword_arg_value(&call, b"class_name") {
-            // RuboCop flags non-string values (constants, method calls) for class_name.
-            // ActiveRecord expects class_name to be a string.
-            // Symbols are also acceptable (e.g., `class_name: :Article`).
-            // Method calls ending in .to_s are also acceptable — they produce strings.
-            let is_to_s = value
-                .as_call_node()
-                .is_some_and(|c| c.name().as_slice() == b"to_s");
-            if value.as_string_node().is_none()
-                && value.as_symbol_node().is_none()
-                && value.as_interpolated_string_node().is_none()
-                && !is_to_s
-            {
+            // RuboCop only flags constants and method calls on constants.
+            // Bare constants: `class_name: Account`, `class_name: Foo::Bar`
+            // Method calls on constants: `class_name: Account.name`, `Account.to_s`
+            // Everything else (strings, symbols, method calls, self.xxx) is allowed.
+            let should_flag = if is_constant(&value) {
+                true
+            } else if let Some(method_call) = value.as_call_node() {
+                method_call
+                    .receiver()
+                    .is_some_and(|recv| is_constant(&recv))
+            } else {
+                false
+            };
+
+            if should_flag {
                 let loc = value.location();
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 diagnostics.push(self.diagnostic(
