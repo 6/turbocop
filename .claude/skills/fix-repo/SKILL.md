@@ -67,6 +67,11 @@ python3 scripts/investigate-cop.py Department/CopName --context --fp-only --limi
 python3 scripts/investigate-cop.py Department/CopName --context --fn-only --limit 10
 ```
 
+If the root cause isn't clear from context, use the delta reducer to shrink an example to a minimal repro:
+```bash
+python3 scripts/reduce-mismatch.py Department/CopName repo_id filepath:line --verbose
+```
+
 Summarize: cop name, repo-specific FP/FN, global FP/FN, root cause hypothesis.
 
 ### Phase 2: Dispatch (you do this)

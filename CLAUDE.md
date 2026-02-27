@@ -300,6 +300,16 @@ python3 scripts/investigate-repo.py rails --no-git-exclude       # skip auto-exc
 
 Use `/fix-repo <name>` to fix the top diverging cops for a specific repo. See `.claude/skills/fix-repo/SKILL.md`.
 
+To **reduce a corpus mismatch to a minimal reproduction**, use `reduce-mismatch.py`. It takes a specific FP/FN example (from `investigate-cop.py` output) and automatically shrinks the source file using delta debugging until only the triggering pattern remains:
+
+```
+python3 scripts/reduce-mismatch.py Department/CopName repo_id filepath:line           # reduce FP (default)
+python3 scripts/reduce-mismatch.py Department/CopName repo_id filepath:line --type fn  # reduce FN
+python3 scripts/reduce-mismatch.py Department/CopName repo_id filepath:line --verbose  # show each step
+```
+
+Use this when `investigate-cop.py --context` shows an FP/FN in a large file and the root cause isn't obvious. The reduced output (typically 5–20 lines) makes the triggering pattern clear and can be pasted directly into test fixtures. See `docs/delta_reducer_plan.md` for design details.
+
 ## Corpus Regression Testing
 
 After fixing any cop, run the corpus check to verify no FP regression against 500 real-world repos:

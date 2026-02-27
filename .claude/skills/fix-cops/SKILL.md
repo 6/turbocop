@@ -30,7 +30,12 @@ isolated git worktree) to investigate and fix them.
    python3 scripts/investigate-cop.py Department/CopName --context --fp-only --limit 10
    ```
 
-4. Summarize your picks: cop name, FP count, and a one-line hypothesis of the root cause.
+4. If the root cause isn't clear from context, use the delta reducer to shrink an FP to a minimal repro:
+   ```bash
+   python3 scripts/reduce-mismatch.py Department/CopName repo_id filepath:line --verbose
+   ```
+
+5. Summarize your picks: cop name, FP count, and a one-line hypothesis of the root cause.
 
 ### Phase 2: Dispatch (you do this)
 
