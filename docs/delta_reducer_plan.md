@@ -104,19 +104,168 @@ Reduce all FP examples for a cop at once:
 
 ```bash
 python3 scripts/reduce-mismatch.py Style/SymbolProc --all-fps --parallel 4
+python3 scripts/reduce-mismatch.py Style/SymbolProc --all-fns --parallel 4
+python3 scripts/reduce-mismatch.py Style/SymbolProc --all --parallel 4     # both FP + FN
 ```
 
-This produces a set of minimal repros, then deduplicates (if two examples reduce to structurally similar code, keep one). Output is a summary:
+This produces a set of minimal repros, deduplicates them into clusters, and reports a summary. The whole point: 50 corpus mismatches collapse into 3–5 distinct root causes.
+
+### Structural Deduplication
+
+Raw reduction produces one minimal repro per corpus example. But many examples share the same root cause — e.g., 15 FPs that all reduce to "block with safe-nav receiver." We need to collapse these into distinct patterns.
+
+**Fingerprinting approach** (compare reduced files structurally, not textually):
+
+1. **Parse each reduced file with Prism** and extract a normalized AST skeleton:
+   - Strip all identifiers → replace with positional placeholders (`v1`, `v2`, `m1`)
+   - Strip all literals → replace with type tokens (`STR`, `INT`, `SYM`)
+   - Keep structural nodes: `CallNode`, `BlockNode`, `IfNode`, `ClassNode`, etc.
+   - Keep node nesting depth and child count
+
+2. **Hash the skeleton** to get a fingerprint per reduced file:
+   ```python
+   def fingerprint(source: str) -> str:
+       skeleton = normalize_ast(prism_parse(source))
+       return hashlib.sha256(skeleton.encode()).hexdigest()[:12]
+   ```
+
+3. **Group by fingerprint** — identical fingerprints = same root cause.
+
+4. **For near-duplicates** (similar but not identical skeletons), compute tree edit distance between AST skeletons. Merge clusters where distance < threshold (e.g., ≤2 node edits).
+
+**Example normalization**:
+
+```ruby
+# Original reduced file:
+users.select { |u| u.active? }
+
+# Normalized skeleton:
+v1.m1 { |v2| v2.m2 }
+
+# Fingerprint: "a3f7c2e1b9d4"
+```
+
+```ruby
+# Different original:
+items.reject { |item| item.valid? }
+
+# Same normalized skeleton:
+v1.m1 { |v2| v2.m2 }
+
+# Same fingerprint: "a3f7c2e1b9d4" → merged into one cluster
+```
+
+**What goes into the fingerprint (and what doesn't)**:
+
+| Included | Excluded |
+|----------|----------|
+| AST node types | Variable/method names |
+| Nesting structure | String/number literal values |
+| Argument counts | Comments |
+| Block vs lambda vs proc | Whitespace/formatting |
+| Safe-nav (`&.`) vs regular call | Line positions |
+| Receiver presence/absence | |
+
+### Cluster Output Format
+
+After batch reduction + dedup, the output looks like:
 
 ```
-Style/SymbolProc: 12 FPs → 4 distinct minimal repros
-  1. lambda with proc argument (8 lines)
-  2. method with safe-nav receiver (6 lines)
-  3. block inside conditional (11 lines)
-  4. nested block with multiple args (9 lines)
+Style/SymbolProc: 47 FPs across 23 repos → 4 root causes
+
+Cluster 1 (31 examples, 14 repos):
+  Pattern: v1.m1 { |v2| v2.m2 }
+  Trigger: single-method block on collection call
+  Representative (8 lines):
+    users.select { |u| u.active? }
+  Repos: mastodon, discourse, rails, chatwoot, ...
+
+Cluster 2 (9 examples, 7 repos):
+  Pattern: v1.m1(&v2) { |v3| v3.m2 }
+  Trigger: block with existing block-pass argument
+  Representative (6 lines):
+    process(items, &formatter) { |x| x.to_s }
+  Repos: rubocop, good_job, ...
+
+Cluster 3 (5 examples, 4 repos):
+  Pattern: v1&.m1 { |v2| v2.m2 }
+  Trigger: block on safe-navigation call
+  Representative (7 lines):
+    user&.roles { |r| r.name }
+  Repos: chatwoot, docuseal, ...
+
+Cluster 4 (2 examples, 1 repo):
+  Pattern: v1.m1(v2) { |v3| v3.m2(v4, v5) }
+  Trigger: block with multi-arg method call
+  Representative (11 lines):
+    records.map { |r| r.serialize(format, options) }
+  Repos: rails
 ```
 
-This directly gives you the "few root causes" view that the feedback doc was asking for.
+This is the "finite roadmap" — fix clusters 1–4 and you've eliminated all 47 FPs for this cop.
+
+### Batch Workflow
+
+```
+┌─────────────────┐
+│ corpus-results   │  (47 FP examples for cop X)
+│    .json         │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Parallel        │  (reduce each example independently)
+│  Reduction       │  (~3 min per example × 4 workers = ~35 min)
+│  (--parallel 4)  │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Fingerprint +   │  (AST normalization + hashing)
+│  Cluster         │  (< 1 sec)
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Pick best       │  (shortest repro per cluster)
+│  representative  │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Output:         │
+│  - cluster       │  (JSON for tooling)
+│    summary       │
+│  - repro files   │  (/tmp/nitrocop-reduce/cop_name/)
+│  - fixture       │  (optional --save-fixture)
+│    candidates    │
+└─────────────────┘
+```
+
+### Structured Output (for tooling integration)
+
+Batch mode writes JSON alongside the human summary:
+
+```json
+{
+  "cop": "Style/SymbolProc",
+  "total_examples": 47,
+  "total_clusters": 4,
+  "clusters": [
+    {
+      "id": 1,
+      "fingerprint": "a3f7c2e1b9d4",
+      "example_count": 31,
+      "repos": ["mastodon", "discourse", "rails"],
+      "representative_file": "/tmp/nitrocop-reduce/Style_SymbolProc/cluster_1.rb",
+      "representative_lines": 8,
+      "pattern_description": "v1.m1 { |v2| v2.m2 }"
+    }
+  ]
+}
+```
+
+This JSON can be consumed by `/fix-cops` to hand each cluster (not each raw FP) to a teammate.
 
 ### Integration with Existing Tools
 
@@ -146,6 +295,8 @@ This directly gives you the "few root causes" view that the feedback doc was ask
 
 ## Implementation Order
 
-1. **V1**: Single-file FP reducer with Phases 1+2. No batch mode, no fixture saving. Just shrinks a file and prints the result. This alone is useful.
-2. **V2**: Add `--auto` (pick from corpus-results.json), `--save-fixture`, and FN support.
-3. **V3**: Batch mode with deduplication. Integration with investigate-cop.py.
+1. **V1**: Single-file reducer with Phases 1+2. Takes cop + repo_id + file:line, shrinks the file, prints the result. FP and FN support. This alone is useful — paste the output into a fixture and you've got a test case.
+
+2. **V2**: Add `--auto` (pick from corpus-results.json), `--save-fixture` (append to offense.rb/no_offense.rb with annotations), and the Prism parseability gate.
+
+3. **V3**: Batch mode (`--all-fps`, `--all-fns`, `--all`) with parallel reduction. AST fingerprinting and cluster dedup. JSON output for tooling. Integration with `investigate-cop.py --reduce` and `/fix-cops` skill (hand clusters to teammates instead of raw examples).
