@@ -1,5 +1,5 @@
 class Foo
-  attr_reader :something, true
+  attr_accessor :writable
 end
 
 class Bar
@@ -8,4 +8,8 @@ end
 
 class Baz
   attr_reader :name
+end
+
+class Qux
+  attr_reader :readable
 end

@@ -41,9 +41,22 @@ impl Cop for Attr {
         }
 
         // Must have arguments
-        if call_node.arguments().is_none() {
-            return;
-        }
+        let args = match call_node.arguments() {
+            Some(a) => a,
+            None => return,
+        };
+
+        let arg_list: Vec<_> = args.arguments().iter().collect();
+
+        // Check if second argument is `true` → attr_accessor, otherwise attr_reader
+        let has_true_arg = arg_list.get(1).is_some_and(|a| a.as_true_node().is_some());
+        let has_false_arg = arg_list.get(1).is_some_and(|a| a.as_false_node().is_some());
+
+        let replacement = if has_true_arg {
+            "attr_accessor"
+        } else {
+            "attr_reader"
+        };
 
         let msg_loc = call_node
             .message_loc()
@@ -53,16 +66,35 @@ impl Cop for Attr {
             source,
             line,
             column,
-            "Do not use `attr`. Use `attr_reader` instead.".to_string(),
+            format!("Do not use `attr`. Use `{replacement}` instead."),
         );
         if let Some(ref mut corr) = corrections {
-            corr.push(crate::correction::Correction {
-                start: msg_loc.start_offset(),
-                end: msg_loc.end_offset(),
-                replacement: "attr_reader".to_string(),
-                cop_name: self.name(),
-                cop_index: 0,
-            });
+            if has_true_arg || has_false_arg {
+                // Replace the entire call: `attr :name, true/false` → `attr_accessor/attr_reader :name`
+                // We need to replace from `attr` through the boolean arg, keeping only the first arg
+                let first_arg = &arg_list[0];
+                let first_arg_str = source.byte_slice(
+                    first_arg.location().start_offset(),
+                    first_arg.location().end_offset(),
+                    "",
+                );
+                corr.push(crate::correction::Correction {
+                    start: msg_loc.start_offset(),
+                    end: call_node.location().end_offset(),
+                    replacement: format!("{replacement} {first_arg_str}"),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+            } else {
+                // Simple replacement: `attr` → `attr_reader`
+                corr.push(crate::correction::Correction {
+                    start: msg_loc.start_offset(),
+                    end: msg_loc.end_offset(),
+                    replacement: replacement.to_string(),
+                    cop_name: self.name(),
+                    cop_index: 0,
+                });
+            }
             diag.corrected = true;
         }
         diagnostics.push(diag);
