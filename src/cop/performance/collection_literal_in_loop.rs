@@ -244,6 +244,11 @@ impl Cop for CollectionLiteralInLoop {
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let min_size = config.get_usize("MinSize", 1);
+        let target_ruby_version = config
+            .options
+            .get("TargetRubyVersion")
+            .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
+            .unwrap_or(2.7);
 
         let mut visitor = CollectionLiteralVisitor {
             cop: self,
@@ -251,6 +256,7 @@ impl Cop for CollectionLiteralInLoop {
             diagnostics: Vec::new(),
             loop_depth: 0,
             min_size,
+            target_ruby_version,
             array_methods: &ARRAY_METHOD_SET,
             hash_methods: &HASH_METHOD_SET,
             enumerable_methods: &ENUMERABLE_METHOD_SET,
@@ -266,6 +272,7 @@ struct CollectionLiteralVisitor<'a, 'src> {
     diagnostics: Vec<Diagnostic>,
     loop_depth: usize,
     min_size: usize,
+    target_ruby_version: f64,
     array_methods: &'a HashSet<Vec<u8>>,
     hash_methods: &'a HashSet<Vec<u8>>,
     enumerable_methods: &'a HashSet<Vec<u8>>,
@@ -390,6 +397,14 @@ impl CollectionLiteralVisitor<'_, '_> {
             if !is_recursive_basic_literal(&recv) {
                 return;
             }
+            // Ruby 3.4+ optimizes Array#include? with simple arguments at the VM level,
+            // so no allocation occurs and no offense should be registered.
+            if self.target_ruby_version >= 3.4
+                && method_name == b"include?"
+                && is_optimized_include_arg(call)
+            {
+                return;
+            }
             let loc = recv.location();
             let (line, column) = self.source.offset_to_line_col(loc.start_offset());
             self.diagnostics.push(self.cop.diagnostic(
@@ -472,6 +487,56 @@ fn is_recursive_basic_literal(node: &ruby_prism::Node<'_>) -> bool {
     false
 }
 
+/// Check if a call to `include?` on an array literal has a single "simple" argument
+/// that Ruby 3.4+ optimizes (no allocation). Simple arguments are: string literals,
+/// `self`, local variables, instance variables, and method call chains without arguments.
+fn is_optimized_include_arg(call: &ruby_prism::CallNode<'_>) -> bool {
+    let args = match call.arguments() {
+        Some(a) => a,
+        None => return false,
+    };
+    let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
+    if arg_list.len() != 1 {
+        return false;
+    }
+    is_simple_argument(&arg_list[0])
+}
+
+/// Check if a node is a "simple" argument for the Ruby 3.4+ include? optimization.
+/// Matches: string literals, `self`, local variables, instance variables, and
+/// method call chains where no call in the chain has arguments.
+fn is_simple_argument(node: &ruby_prism::Node<'_>) -> bool {
+    // String literal
+    if node.as_string_node().is_some() {
+        return true;
+    }
+    // self
+    if node.as_self_node().is_some() {
+        return true;
+    }
+    // Local variable read
+    if node.as_local_variable_read_node().is_some() {
+        return true;
+    }
+    // Instance variable read
+    if node.as_instance_variable_read_node().is_some() {
+        return true;
+    }
+    // Method call (possibly chained) with no arguments at any level
+    if let Some(call) = node.as_call_node() {
+        // Disallow if this call has arguments
+        if call.arguments().is_some() {
+            return false;
+        }
+        // If there's a receiver, it must also be simple
+        match call.receiver() {
+            Some(recv) => return is_simple_argument(&recv),
+            None => return true, // bare method call like `method_call`
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -479,4 +544,121 @@ mod tests {
         CollectionLiteralInLoop,
         "cops/performance/collection_literal_in_loop"
     );
+
+    fn ruby34_config() -> CopConfig {
+        let mut config = CopConfig::default();
+        config.options.insert(
+            "TargetRubyVersion".to_string(),
+            serde_yml::Value::Number(3.4.into()),
+        );
+        config
+    }
+
+    #[test]
+    fn ruby34_skips_include_with_local_variable() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &CollectionLiteralInLoop,
+            b"items.each do |item|\n  next if %w[foo bar baz].include?(item)\nend\n",
+            ruby34_config(),
+        );
+    }
+
+    #[test]
+    fn ruby34_skips_include_with_method_chain() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &CollectionLiteralInLoop,
+            b"items.each do |item|\n  next if [1, 2, 3].include?(item.name)\nend\n",
+            ruby34_config(),
+        );
+    }
+
+    #[test]
+    fn ruby34_skips_include_with_double_method_chain() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &CollectionLiteralInLoop,
+            b"items.each do |item|\n  next if [1, 2, 3].include?(item.name.downcase)\nend\n",
+            ruby34_config(),
+        );
+    }
+
+    #[test]
+    fn ruby34_skips_include_with_self() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &CollectionLiteralInLoop,
+            b"items.each do |item|\n  next if %w[a b c].include?(self)\nend\n",
+            ruby34_config(),
+        );
+    }
+
+    #[test]
+    fn ruby34_skips_include_with_instance_variable() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &CollectionLiteralInLoop,
+            b"items.each do |item|\n  next if [1, 2, 3].include?(@ivar)\nend\n",
+            ruby34_config(),
+        );
+    }
+
+    #[test]
+    fn ruby34_skips_include_with_string_literal() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &CollectionLiteralInLoop,
+            b"items.each do |item|\n  next if [1, 2, 3].include?(\"str\")\nend\n",
+            ruby34_config(),
+        );
+    }
+
+    #[test]
+    fn ruby34_skips_include_with_bare_method_call() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &CollectionLiteralInLoop,
+            b"items.each do |item|\n  next if [1, 2, 3].include?(method_call)\nend\n",
+            ruby34_config(),
+        );
+    }
+
+    #[test]
+    fn ruby34_still_flags_include_with_method_call_with_args() {
+        // include?(foo.call(true)) is NOT optimized — still an offense
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &CollectionLiteralInLoop,
+            b"items.each do |item|\n  [1, 2, 3].include?(item.call(true))\n  ^^^^^^^^^ Performance/CollectionLiteralInLoop: Avoid immutable Array literals in loops. It is better to extract it into a local variable or a constant.\nend\n",
+            ruby34_config(),
+        );
+    }
+
+    #[test]
+    fn ruby34_still_flags_hash_include() {
+        // Hash#include? is NOT optimized in Ruby 3.4 — only Array#include? is
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &CollectionLiteralInLoop,
+            b"items.each do |item|\n  { foo: :bar }.include?(:foo)\n  ^^^^^^^^^^^^^ Performance/CollectionLiteralInLoop: Avoid immutable Hash literals in loops. It is better to extract it into a local variable or a constant.\nend\n",
+            ruby34_config(),
+        );
+    }
+
+    #[test]
+    fn ruby34_still_flags_array_index_method() {
+        // Other array methods like `index` are NOT optimized — still an offense
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &CollectionLiteralInLoop,
+            b"items.each do |item|\n  [1, 2, 3].index(item)\n  ^^^^^^^^^ Performance/CollectionLiteralInLoop: Avoid immutable Array literals in loops. It is better to extract it into a local variable or a constant.\nend\n",
+            ruby34_config(),
+        );
+    }
+
+    #[test]
+    fn ruby33_still_flags_include_with_simple_arg() {
+        // Ruby < 3.4 does NOT optimize include?, so still an offense
+        let mut config = CopConfig::default();
+        config.options.insert(
+            "TargetRubyVersion".to_string(),
+            serde_yml::Value::Number(3.3.into()),
+        );
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &CollectionLiteralInLoop,
+            b"items.each do |item|\n  [1, 2, 3].include?(item)\n  ^^^^^^^^^ Performance/CollectionLiteralInLoop: Avoid immutable Array literals in loops. It is better to extract it into a local variable or a constant.\nend\n",
+            config,
+        );
+    }
 }
