@@ -1,8 +1,14 @@
-text.strip_heredoc
-^^^^^^^^^^^^^^^^^^ Rails/StripHeredoc: Use squiggly heredoc (`<<~`) instead of `strip_heredoc`.
+<<-EOS.strip_heredoc
+^^^^^^^^^^^^^^^^^^^^ Rails/StripHeredoc: Use squiggly heredoc (`<<~`) instead of `strip_heredoc`.
+  some text
+EOS
 
-message.strip_heredoc
-^^^^^^^^^^^^^^^^^^^^^ Rails/StripHeredoc: Use squiggly heredoc (`<<~`) instead of `strip_heredoc`.
+<<EOS.strip_heredoc
+^^^^^^^^^^^^^^^^^^^ Rails/StripHeredoc: Use squiggly heredoc (`<<~`) instead of `strip_heredoc`.
+  some text
+EOS
 
-query.to_s.strip_heredoc
-^^^^^^^^^^^^^^^^^^^^^^^^ Rails/StripHeredoc: Use squiggly heredoc (`<<~`) instead of `strip_heredoc`.
+<<~EOS.strip_heredoc
+^^^^^^^^^^^^^^^^^^^^ Rails/StripHeredoc: Use squiggly heredoc (`<<~`) instead of `strip_heredoc`.
+  some text
+EOS

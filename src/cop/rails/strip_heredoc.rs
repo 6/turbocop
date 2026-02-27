@@ -36,7 +36,26 @@ impl Cop for StripHeredoc {
             return;
         }
 
-        if call.receiver().is_none() {
+        let receiver = match call.receiver() {
+            Some(r) => r,
+            None => return,
+        };
+
+        // Only flag when the direct receiver is a heredoc.
+        // In Prism, heredocs are StringNode or InterpolatedStringNode with opening starting with "<<".
+        let is_heredoc = if let Some(s) = receiver.as_string_node() {
+            s.opening_loc()
+                .map(|o| source.as_bytes()[o.start_offset()..o.end_offset()].starts_with(b"<<"))
+                .unwrap_or(false)
+        } else if let Some(s) = receiver.as_interpolated_string_node() {
+            s.opening_loc()
+                .map(|o| source.as_bytes()[o.start_offset()..o.end_offset()].starts_with(b"<<"))
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
+        if !is_heredoc {
             return;
         }
 
