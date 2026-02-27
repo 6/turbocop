@@ -38,6 +38,28 @@ impl Cop for TrailingCommaInBlockArgs {
             None => return,
         };
 
+        // Count the number of block parameters. A single-parameter block with
+        // trailing comma (|a,|) is semantically meaningful — it destructures and
+        // discards extra block arguments. Only flag when there are multiple params.
+        // Prism represents the trailing comma as an ImplicitRestNode on the rest
+        // field, so we must exclude it from the count.
+        if let Some(inner_params) = block_params.parameters() {
+            let has_explicit_rest = inner_params
+                .rest()
+                .is_some_and(|r| r.as_implicit_rest_node().is_none());
+            let param_count = inner_params.requireds().iter().count()
+                + inner_params.optionals().iter().count()
+                + inner_params.posts().iter().count()
+                + inner_params.keywords().iter().count()
+                + usize::from(has_explicit_rest)
+                + usize::from(inner_params.keyword_rest().is_some());
+            if param_count <= 1 {
+                return;
+            }
+        } else {
+            return;
+        }
+
         // Check the source for a trailing comma before |
         let close_loc = match block_params.closing_loc() {
             Some(loc) => loc,
