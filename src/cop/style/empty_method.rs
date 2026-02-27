@@ -55,10 +55,18 @@ impl Cop for EmptyMethod {
             return;
         }
 
-        // Check for comment lines between def and end.
+        // Check for comments associated with this method.
         // Prism treats comments as not part of the AST body, so a method with
         // only comments will have an empty/None body. RuboCop does not flag
-        // methods that contain comments.
+        // methods that contain comments, including inline comments on the def line.
+
+        // Check for inline comment on the def line (e.g., `def foo # :nodoc:`)
+        if let Some(line) = source.lines().nth(def_line - 1) {
+            if line.contains(&b'#') {
+                return;
+            }
+        }
+
         if !is_single_line {
             for line_num in (def_line + 1)..end_line {
                 if let Some(line) = source.lines().nth(line_num - 1) {

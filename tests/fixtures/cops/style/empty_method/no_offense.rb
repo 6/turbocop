@@ -26,3 +26,13 @@ end
 def with_doc
   # :nocov:
 end
+
+# Inline comment on def line (method is not purely empty)
+def with_nodoc_comment # :nodoc:
+end
+
+def with_doc_comment(format) # :doc:
+end
+
+def with_inline_comment # some comment
+end
