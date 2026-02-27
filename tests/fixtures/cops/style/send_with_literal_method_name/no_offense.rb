@@ -7,6 +7,11 @@ x = 1
 obj.public_send("name with space")
 obj.public_send("#{interpolated}string")
 
+# Setter methods (ending in =) cannot be converted to direct calls
+obj.public_send(:name=, value)
+obj.public_send("name=", value)
+obj.send(:attribute=, new_value)
+
 # AllowSend: true (default) - send and __send__ are allowed
 obj.send(:literal_method)
 obj.__send__(:literal_method)

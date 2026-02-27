@@ -54,14 +54,13 @@ impl Cop for SendWithLiteralMethodName {
 
         // First argument must be a static symbol or string with a valid method name.
         // Strings with spaces or special chars are NOT valid method names.
+        // Setter methods (ending in =) can't be converted to direct calls.
         let is_valid_literal = if let Some(sym) = arg_list[0].as_symbol_node() {
             let name = sym.unescaped();
-            // Symbol must be a valid method name (no spaces)
-            !name.contains(&b' ')
+            !name.contains(&b' ') && !name.ends_with(b"=")
         } else if let Some(s) = arg_list[0].as_string_node() {
             let content = s.unescaped();
-            // String must be a valid method name (no spaces, not empty)
-            !content.is_empty() && !content.contains(&b' ')
+            !content.is_empty() && !content.contains(&b' ') && !content.ends_with(b"=")
         } else {
             false
         };
