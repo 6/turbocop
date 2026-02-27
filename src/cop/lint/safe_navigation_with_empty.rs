@@ -64,8 +64,23 @@ impl Cop for SafeNavigationWithEmpty {
         }
 
         // Must have a receiver
-        if call.receiver().is_none() {
-            return;
+        let receiver = match call.receiver() {
+            Some(r) => r,
+            None => return,
+        };
+
+        // RuboCop only flags when receiver is a regular method call (send node with `.`)
+        // Pattern: (if (csend (send ...) :empty?) ...)
+        // Variables (lvar), ivars, constants, and safe navigation chains (csend) are excluded.
+        let recv_call = match receiver.as_call_node() {
+            Some(c) => c,
+            None => return, // receiver is a variable/constant, not a method call
+        };
+        // Must be a regular `.` call, not safe navigation `&.`
+        match recv_call.call_operator_loc() {
+            Some(op) if op.as_slice() == b"&." => return, // safe nav chain, skip
+            None => return, // no call operator (e.g., functional call like `foo()`)
+            _ => {}         // regular `.` call — proceed to flag
         }
 
         let loc = call.location();
