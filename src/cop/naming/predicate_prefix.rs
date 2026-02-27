@@ -39,6 +39,11 @@ impl PredicatePrefix {
             return Vec::new();
         }
 
+        // Setter methods (ending in =) are not predicates
+        if name_str.ends_with('=') {
+            return Vec::new();
+        }
+
         let matching_prefix = forbidden_prefixes
             .iter()
             .find(|p| name_str.starts_with(p.as_str()));
@@ -48,6 +53,11 @@ impl PredicatePrefix {
         };
 
         let suggested = &name_str[prefix.len()..];
+
+        // Skip if suggested name starts with a digit — invalid Ruby identifier
+        if suggested.starts_with(|c: char| c.is_ascii_digit()) {
+            return Vec::new();
+        }
         let (line, column) = source.offset_to_line_col(name_offset);
 
         vec![self.diagnostic(
@@ -105,6 +115,11 @@ impl Cop for PredicatePrefix {
             };
 
             if !macros.iter().any(|m| m == call_name_str) {
+                return;
+            }
+
+            // Only flag bare calls (no receiver), matching RuboCop's (send nil? :define_method ...)
+            if call_node.receiver().is_some() {
                 return;
             }
 
