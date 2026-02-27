@@ -12,3 +12,6 @@ context.define_singleton_method(k, &method(v))
 items.transform_values(&method(path_method))
 # String argument — not a symbol literal
 array.map(&method("string_arg"))
+# Safe navigation call — RuboCop ^send excludes csend
+result&.then(&method(:parse))
+result&.then(&JSON.method(:parse))
