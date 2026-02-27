@@ -66,13 +66,35 @@ impl Cop for WhenThen {
             last_condition.location().start_offset() + last_condition.location().as_slice().len();
         let first_body_start = body_nodes[0].location().start_offset();
 
-        // Check source bytes between end of conditions and start of body for a semicolon
+        // Check source bytes between end of conditions and start of body for a semicolon,
+        // but skip semicolons that appear inside comment lines.
         let src = source.as_bytes();
         let between = &src[last_cond_end..first_body_start];
 
-        if let Some(semi_offset) = between.iter().position(|&b| b == b';') {
-            let abs_offset = last_cond_end + semi_offset;
-            diagnostics.extend(self.flag_semicolon(source, &when_node, abs_offset));
+        let mut i = 0;
+        let mut in_comment = false;
+        while i < between.len() {
+            let b = between[i];
+            if b == b'\n' {
+                in_comment = false;
+                i += 1;
+                continue;
+            }
+            if !in_comment && (b == b' ' || b == b'\t') {
+                i += 1;
+                continue;
+            }
+            if !in_comment && b == b'#' {
+                in_comment = true;
+                i += 1;
+                continue;
+            }
+            if !in_comment && b == b';' {
+                let abs_offset = last_cond_end + i;
+                diagnostics.extend(self.flag_semicolon(source, &when_node, abs_offset));
+                return;
+            }
+            i += 1;
         }
     }
 }
