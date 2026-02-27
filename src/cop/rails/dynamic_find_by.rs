@@ -68,8 +68,37 @@ impl Cop for DynamicFindBy {
             }
         }
 
+        // Extract the suffix after "find_by_" (strip trailing "!" if present)
         let attr = &name[b"find_by_".len()..];
         let attr_str = std::str::from_utf8(attr).unwrap_or("...");
+        let attr_base = attr_str.strip_suffix('!').unwrap_or(attr_str);
+
+        // Split by "_and_" to determine expected column count
+        let column_keywords: Vec<&str> = attr_base.split("_and_").collect();
+        let expected_arg_count = column_keywords.len();
+
+        // Validate argument count and types match dynamic finder pattern
+        if let Some(args) = call.arguments() {
+            let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
+            // Argument count must match column count
+            if arg_list.len() != expected_arg_count {
+                return;
+            }
+            // Skip if any argument is a hash (keyword args) or splat
+            if arg_list
+                .iter()
+                .any(|arg| arg.as_keyword_hash_node().is_some() || arg.as_splat_node().is_some())
+            {
+                return;
+            }
+        } else {
+            // No arguments at all — only valid if there's exactly 1 column
+            // (e.g., `find_by_name` with no args)
+            if expected_arg_count != 0 {
+                return;
+            }
+        }
+
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         let msg = format!(
