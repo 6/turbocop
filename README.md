@@ -66,7 +66,7 @@ Every cop reads its RuboCop YAML config options and has fixture-based test cover
 
 ## Conformance
 
-We run a [corpus oracle](https://github.com/6/nitrocop/actions/workflows/corpus-oracle.yml) that diffs nitrocop against RuboCop on **500 open-source repos** (164k Ruby files) with all cops enabled. Every offense is compared by file, line, and cop name.
+We run a [corpus oracle](https://github.com/6/nitrocop/actions/workflows/corpus-oracle.yml) that diffs nitrocop against RuboCop on **500 open-source repos** (165k Ruby files) with all cops enabled. Every offense is compared by file, line, and cop name.
 
 **Overall: 95.4% match rate** across 9.1M offenses compared.
 
@@ -78,17 +78,17 @@ Top 15 repos by GitHub stars (offense counts are high because the corpus enables
 | [jekyll](https://github.com/jekyll/jekyll) | 190 | 13,052 | 94.0% |
 | [mastodon](https://github.com/mastodon/mastodon) | 3,109 | 71,853 | 96.2% |
 | [huginn](https://github.com/huginn/huginn) | 451 | 34,199 | 96.7% |
-| [discourse](https://github.com/discourse/discourse) | 9,144 | 606,738 | 97.5% |
+| [discourse](https://github.com/discourse/discourse) | 9,154 | 607,054 | 97.5% |
 | [fastlane](https://github.com/fastlane/fastlane) | 1,302 | 117,999 | 96.6% |
 | [devdocs](https://github.com/freeCodeCamp/devdocs) | 833 | 19,903 | 93.0% |
 | [chatwoot](https://github.com/chatwoot/chatwoot) | 2,262 | 62,007 | 97.0% |
 | [vagrant](https://github.com/hashicorp/vagrant) | 1,460 | 86,062 | 96.2% |
-| [devise](https://github.com/heartcombo/devise) | 206 | 5,800 | 92.1% |
+| [devise](https://github.com/heartcombo/devise) | 206 | 5,800 | 92.0% |
 | [forem](https://github.com/forem/forem) | 3,390 | 125,763 | 96.2% |
 | [postal](https://github.com/postalserver/postal) | 294 | 13,613 | 94.0% |
-| [CocoaPods](https://github.com/CocoaPods/CocoaPods) | 438 | 28,422 | 91.4% |
+| [CocoaPods](https://github.com/CocoaPods/CocoaPods) | 438 | 28,422 | 91.3% |
 | [openproject](https://github.com/opf/openproject) | 9,286 | 373,439 | 97.0% |
-| [gollum](https://github.com/gollum/gollum) | 55 | 3,790 | 91.6% |
+| [gollum](https://github.com/gollum/gollum) | 55 | 3,790 | 91.5% |
 
 Remaining gaps are mostly in complex layout cops (indentation, alignment) and a few style cops. See [docs/corpus.md](docs/corpus.md) for the full 500-repo breakdown.
 
