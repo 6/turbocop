@@ -30,12 +30,16 @@ isolated git worktree) to investigate and fix them.
    python3 scripts/investigate-cop.py Department/CopName --context --fp-only --limit 10
    ```
 
-4. If the root cause isn't clear from context, use the delta reducer to shrink an FP to a minimal repro:
+4. **Run the delta reducer** on up to 3 FP examples per cop to get minimal reproductions:
    ```bash
-   python3 scripts/reduce-mismatch.py Department/CopName repo_id filepath:line --verbose
+   python3 scripts/reduce-mismatch.py Department/CopName repo_id filepath:line
    ```
+   The repo_id and filepath:line come directly from investigate-cop.py output. Pick examples
+   from different repos when possible to catch distinct root causes. The reduced files
+   (typically 5–20 lines) go to `/tmp/nitrocop-reduce/` — read them and include them in the
+   teammate prompt.
 
-5. Summarize your picks: cop name, FP count, and a one-line hypothesis of the root cause.
+5. Summarize your picks: cop name, FP count, minimal repro(s), and root cause hypothesis.
 
 ### Phase 2: Dispatch (you do this)
 
@@ -55,7 +59,7 @@ isolated git worktree) to investigate and fix them.
 4. Each teammate prompt MUST include:
    - The exact cop name (e.g., `Style/PercentQLiterals`)
    - The FP count and root cause hypothesis from your investigation
-   - The specific FP examples with source context you found in Phase 1
+   - **The minimal repro(s) from the delta reducer** — paste the reduced Ruby source directly
    - The teammate workflow (Phase 3 below) — paste the full instructions
 
 ### Phase 3: Teammate Workflow (paste this into each teammate's prompt)

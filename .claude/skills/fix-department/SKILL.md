@@ -50,12 +50,15 @@ python3 scripts/investigate-cop.py Department/CopName --context --fp-only --limi
 python3 scripts/investigate-cop.py Department/CopName --context --fn-only --limit 10
 ```
 
-If the root cause isn't clear from context, use the delta reducer to shrink an example to a minimal repro:
+**Run the delta reducer** on up to 3 examples per cop (mix of FP and FN) to get minimal reproductions:
 ```bash
-python3 scripts/reduce-mismatch.py Department/CopName repo_id filepath:line --verbose
+python3 scripts/reduce-mismatch.py Department/CopName repo_id filepath:line            # FP
+python3 scripts/reduce-mismatch.py Department/CopName repo_id filepath:line --type fn   # FN
 ```
+Pick examples from different repos when possible. The reduced files (typically 5–20 lines) go
+to `/tmp/nitrocop-reduce/` — read them and include them in the teammate prompt.
 
-Summarize: cop name, FP/FN counts, root cause hypothesis.
+Summarize: cop name, FP/FN counts, minimal repro(s), root cause hypothesis.
 
 ### Phase 2: Dispatch (you do this)
 
@@ -75,7 +78,7 @@ Summarize: cop name, FP/FN counts, root cause hypothesis.
 4. Each teammate prompt MUST include:
    - The exact cop name (e.g., `Performance/AncestorsInclude`)
    - The FP/FN counts and root cause hypothesis from your investigation
-   - The specific examples with source context you found in Phase 1
+   - **The minimal repro(s) from the delta reducer** — paste the reduced Ruby source directly
    - Whether to focus on FP fixes, FN fixes, or both
    - The teammate workflow (Phase 3 below) — paste the full instructions
 
