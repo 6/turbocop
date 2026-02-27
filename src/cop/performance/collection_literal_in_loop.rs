@@ -386,6 +386,17 @@ impl CollectionLiteralVisitor<'_, '_> {
             None => return,
         };
 
+        // If this call is itself a loop-creating method with a block,
+        // the receiver (the literal) is the loop's collection, not code
+        // inside the loop body. Don't flag it — matches RuboCop's
+        // node_within_enumerable_loop? which excludes the receiver node.
+        if call.block().is_some()
+            && call.block().unwrap().as_block_node().is_some()
+            && self.is_loop_method(call)
+        {
+            return;
+        }
+
         // Check if receiver is an Array literal with a non-mutating array method
         if let Some(array) = recv.as_array_node() {
             if !self.array_methods.contains(method_name) {
@@ -522,6 +533,10 @@ fn is_simple_argument(node: &ruby_prism::Node<'_>) -> bool {
     if node.as_instance_variable_read_node().is_some() {
         return true;
     }
+    // Ruby 3.4+ 'it' implicit block parameter
+    if node.as_it_local_variable_read_node().is_some() {
+        return true;
+    }
     // Method call (possibly chained) with no arguments at any level
     if let Some(call) = node.as_call_node() {
         // Disallow if this call has arguments
@@ -643,6 +658,16 @@ mod tests {
         crate::testutil::assert_cop_offenses_full_with_config(
             &CollectionLiteralInLoop,
             b"items.each do |item|\n  [1, 2, 3].index(item)\n  ^^^^^^^^^ Performance/CollectionLiteralInLoop: Avoid immutable Array literals in loops. It is better to extract it into a local variable or a constant.\nend\n",
+            ruby34_config(),
+        );
+    }
+
+    #[test]
+    fn ruby34_skips_include_with_it_implicit_param() {
+        // Ruby 3.4+ 'it' implicit block parameter is parsed as ItLocalVariableReadNode
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &CollectionLiteralInLoop,
+            b"items.each { [1, 2, 3].include?(it) }\n",
             ruby34_config(),
         );
     }
