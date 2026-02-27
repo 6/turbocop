@@ -34,6 +34,12 @@ impl Cop for TimesMap {
             return;
         }
 
+        // `times` must have a receiver (e.g. `n.times.map`). Bare `times.map`
+        // means `times` is a local variable or method, not Integer#times.
+        if chain.inner_call.receiver().is_none() {
+            return;
+        }
+
         // Integer#times takes no arguments. Other classes (e.g. Fabricate, Factory)
         // define .times(n, factory) which should not be flagged.
         if chain.inner_call.arguments().is_some() {
