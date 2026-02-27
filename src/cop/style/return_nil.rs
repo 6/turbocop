@@ -1,7 +1,7 @@
-use crate::cop::node_type::{NIL_NODE, RETURN_NODE};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 pub struct ReturnNil;
 
@@ -10,36 +10,84 @@ impl Cop for ReturnNil {
         "Style/ReturnNil"
     }
 
-    fn interested_node_types(&self) -> &'static [u8] {
-        &[NIL_NODE, RETURN_NODE]
-    }
-
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let enforced_style = config.get_str("EnforcedStyle", "return");
-
-        let ret_node = match node.as_return_node() {
-            Some(r) => r,
-            None => return,
+        let mut visitor = ReturnNilVisitor {
+            cop: self,
+            source,
+            enforced_style,
+            diagnostics: Vec::new(),
+            block_stack: Vec::new(),
         };
+        visitor.visit(&parse_result.node());
+        diagnostics.extend(visitor.diagnostics);
+    }
+}
 
-        match enforced_style {
+/// Tracks block context to determine whether a `return` is inside an iterator block.
+#[derive(Clone)]
+struct BlockContext {
+    has_args: bool,
+    is_chained_send: bool,
+    is_define_method: bool,
+}
+
+struct ReturnNilVisitor<'a, 'src> {
+    cop: &'a ReturnNil,
+    source: &'src SourceFile,
+    enforced_style: &'a str,
+    diagnostics: Vec<Diagnostic>,
+    block_stack: Vec<BlockContext>,
+}
+
+impl ReturnNilVisitor<'_, '_> {
+    /// Check if `return` is inside an iterator block (chained send with args).
+    /// Mirrors RuboCop's ancestor walk in `on_return`:
+    /// - If we hit a define_method block → stop (it creates its own scope)
+    /// - If block has no args → skip, keep looking outward
+    /// - If block has args and is a chained send → suppress (iterator, non-local exit)
+    fn inside_iterator_block(&self) -> bool {
+        for ctx in self.block_stack.iter().rev() {
+            if ctx.is_define_method {
+                return false;
+            }
+            if !ctx.has_args {
+                continue;
+            }
+            if ctx.is_chained_send {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+impl<'pr> Visit<'pr> for ReturnNilVisitor<'_, '_> {
+    fn visit_return_node(&mut self, node: &ruby_prism::ReturnNode<'pr>) {
+        // RuboCop suppresses the offense when `return` is inside an iterator block
+        // to avoid double-reporting with Lint/NonLocalExitFromIterator.
+        if self.inside_iterator_block() {
+            return;
+        }
+
+        match self.enforced_style {
             "return" => {
                 // Flag `return nil` — prefer `return`
-                if let Some(args) = ret_node.arguments() {
+                if let Some(args) = node.arguments() {
                     let arg_list: Vec<_> = args.arguments().iter().collect();
                     if arg_list.len() == 1 && arg_list[0].as_nil_node().is_some() {
                         let loc = node.location();
-                        let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        diagnostics.push(self.diagnostic(
-                            source,
+                        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                        self.diagnostics.push(self.cop.diagnostic(
+                            self.source,
                             line,
                             column,
                             "Use `return` instead of `return nil`.".to_string(),
@@ -49,11 +97,11 @@ impl Cop for ReturnNil {
             }
             "return_nil" => {
                 // Flag bare `return` — prefer `return nil`
-                if ret_node.arguments().is_none() {
+                if node.arguments().is_none() {
                     let loc = node.location();
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
+                    let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                    self.diagnostics.push(self.cop.diagnostic(
+                        self.source,
                         line,
                         column,
                         "Use `return nil` instead of `return`.".to_string(),
@@ -62,6 +110,68 @@ impl Cop for ReturnNil {
             }
             _ => {}
         }
+    }
+
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        // Visit receiver first
+        if let Some(recv) = node.receiver() {
+            self.visit(&recv);
+        }
+        // Visit arguments
+        if let Some(args) = node.arguments() {
+            self.visit(&args.as_node());
+        }
+        // If call has a block, push block context and visit block body
+        if let Some(block) = node.block() {
+            if let Some(block_node) = block.as_block_node() {
+                let has_args = block_node.parameters().is_some();
+                let is_chained_send = node.receiver().is_some();
+                let method_name = node.name().as_slice();
+                let is_define_method =
+                    method_name == b"define_method" || method_name == b"define_singleton_method";
+
+                self.block_stack.push(BlockContext {
+                    has_args,
+                    is_chained_send,
+                    is_define_method,
+                });
+                if let Some(body) = block_node.body() {
+                    self.visit(&body);
+                }
+                self.block_stack.pop();
+            } else {
+                // BlockArgumentNode (&block) — visit it normally
+                self.visit(&block);
+            }
+        }
+    }
+
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        // Standalone block (not attached to a call — handled via visit_call_node above)
+        let has_args = node.parameters().is_some();
+        self.block_stack.push(BlockContext {
+            has_args,
+            is_chained_send: false,
+            is_define_method: false,
+        });
+        if let Some(body) = node.body() {
+            self.visit(&body);
+        }
+        self.block_stack.pop();
+    }
+
+    // Don't recurse into nested def/class/module/lambda (they create their own scope)
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        // Reset block stack inside method definitions — they create a new scope
+        let saved = std::mem::take(&mut self.block_stack);
+        ruby_prism::visit_def_node(self, node);
+        self.block_stack = saved;
+    }
+
+    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
+        let saved = std::mem::take(&mut self.block_stack);
+        ruby_prism::visit_lambda_node(self, node);
+        self.block_stack = saved;
     }
 }
 
