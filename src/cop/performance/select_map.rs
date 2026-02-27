@@ -46,13 +46,17 @@ impl Cop for SelectMap {
             return;
         }
 
-        let loc = node.location();
+        // Report at the inner method name (.select/.filter) to match RuboCop's offense_range
+        let loc = chain
+            .inner_call
+            .message_loc()
+            .unwrap_or_else(|| chain.inner_call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,
             line,
             column,
-            format!("Use `filter_map` instead of `{inner_name}...map`."),
+            format!("Use `filter_map` instead of `{inner_name}.map`."),
         ));
     }
 }
