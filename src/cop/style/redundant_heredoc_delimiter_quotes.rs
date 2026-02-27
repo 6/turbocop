@@ -76,10 +76,13 @@ impl Cop for RedundantHeredocDelimiterQuotes {
             return;
         }
 
-        if quote_char == b'\'' {
+        if quote_char == b'\'' || quote_char == b'"' {
             // Single-quoted heredocs suppress interpolation and backslash escapes.
             // The quotes are only redundant if the body doesn't use any interpolation
             // patterns or backslash escapes that would be active in a double-quoted heredoc.
+            //
+            // Double-quoted heredocs with interpolation in the body: the quotes document
+            // intent that interpolation is expected. RuboCop skips these.
             let body_bytes = if let Some(s) = node.as_string_node() {
                 s.content_loc().as_slice()
             } else if let Some(s) = node.as_interpolated_string_node() {
@@ -102,7 +105,7 @@ impl Cop for RedundantHeredocDelimiterQuotes {
             }
             // Check for backslash escapes — in single-quoted heredocs, backslashes
             // are literal. Removing quotes would make them escape sequences.
-            if body_bytes.contains(&b'\\') {
+            if quote_char == b'\'' && body_bytes.contains(&b'\\') {
                 return;
             }
         }

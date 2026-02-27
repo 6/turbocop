@@ -45,5 +45,21 @@ do_something(<<~'EDGE+CASE')
   text here
 EDGE+CASE
 
+do_something(<<~"EOS")
+  text with #{interpolation} patterns
+EOS
+
+do_something(<<-"EOS")
+  include #{code}
+EOS
+
+do_something(<<"EOS")
+  text with #@instance_var patterns
+EOS
+
+do_something(<<~"EOS")
+  text with #$global_var patterns
+EOS
+
 x = 1
 y = 2
