@@ -45,10 +45,16 @@ impl Cop for PercentQLiterals {
             if opening.starts_with(b"%Q") {
                 if let Some(s) = node.as_string_node() {
                     // StringNode means no interpolation.
+                    let raw_content = s.content_loc().as_slice();
                     // Skip if content contains backslashes — converting %Q to %q
                     // would change escape sequence interpretation (e.g. \t, \n, \\).
-                    let raw_content = s.content_loc().as_slice();
                     if raw_content.contains(&b'\\') {
+                        return;
+                    }
+                    // Skip multiline strings. The Parser gem (used by RuboCop) treats
+                    // multiline percent literals as `dstr` nodes, not `str`, so RuboCop's
+                    // `on_str` handler never sees them. Match that behavior.
+                    if raw_content.contains(&b'\n') {
                         return;
                     }
                     let loc = node.location();
@@ -65,10 +71,14 @@ impl Cop for PercentQLiterals {
             // Flag %q when %Q is preferred
             if opening.starts_with(b"%q") {
                 if let Some(s) = node.as_string_node() {
+                    let raw_content = s.content_loc().as_slice();
                     // Skip if content contains backslashes — converting %q to %Q
                     // would change escape sequence interpretation or cause parse errors.
-                    let raw_content = s.content_loc().as_slice();
                     if raw_content.contains(&b'\\') {
+                        return;
+                    }
+                    // Skip multiline strings (Parser gem treats these as dstr, not str).
+                    if raw_content.contains(&b'\n') {
                         return;
                     }
                 }
