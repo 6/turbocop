@@ -4,6 +4,10 @@ use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// NOTE: Known conformance difference (~4 excess offenses vs RuboCop).
+/// 1 was a genuine FP from safe navigation (fixed). The remaining ~3 are pre-existing
+/// config differences — repos where nitrocop enables this cop but RuboCop doesn't
+/// (e.g., different rubocop-performance gem versions or config inheritance).
 pub struct MethodObjectAsBlock;
 
 impl Cop for MethodObjectAsBlock {

@@ -3,6 +3,12 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// NOTE: Known conformance difference (~42 excess offenses vs RuboCop).
+/// RuboCop's `map_method_candidate` checks `parent.block_type?`, but `numblock` nodes
+/// (Ruby 2.7+ numbered params `_1`/`_2` and Ruby 3.4+ `it` param) return false for
+/// `block_type?` in Parser gem. This means RuboCop silently skips select.map chains
+/// where the select block uses numbered/it parameters. Nitrocop correctly detects all
+/// patterns via Prism (no numblock distinction). This is a RuboCop bug, not ours.
 pub struct SelectMap;
 
 impl Cop for SelectMap {
