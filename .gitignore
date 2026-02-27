@@ -29,6 +29,7 @@ vendor/corpus/
 __pycache__/
 corpus-results.json
 corpus-results.md
+.check-cop-cache/
 
 # Ruby / Gems
 *.gem

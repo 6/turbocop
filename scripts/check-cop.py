@@ -5,6 +5,10 @@ Compares nitrocop's offense count against the RuboCop baseline from the
 latest corpus oracle CI run. Catches real-world false positive regressions
 that fixture tests miss.
 
+Results are cached per (binary_mtime, cop_name, repo_id) so that re-running
+check-cop.py for a different cop after fixing one cop is instant — only the
+changed cop needs re-execution. Use --rerun to force a fresh run.
+
 Usage:
     python3 scripts/check-cop.py Lint/Void              # quick aggregate check
     python3 scripts/check-cop.py Lint/Void --verbose     # per-repo breakdown
@@ -12,6 +16,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -23,6 +28,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CORPUS_DIR = PROJECT_ROOT / "vendor" / "corpus"
 NITROCOP_BIN = PROJECT_ROOT / "target" / "release" / "nitrocop"
 BASELINE_CONFIG = PROJECT_ROOT / "bench" / "corpus" / "baseline_rubocop.yml"
+LOCAL_CACHE_DIR = PROJECT_ROOT / ".check-cop-cache"
 
 
 def download_corpus_results() -> Path:
@@ -76,13 +82,65 @@ def ensure_binary():
     sys.exit(1)
 
 
+def binary_key() -> str:
+    """Return a cache key based on the nitrocop binary's mtime and size.
+
+    Changes whenever the binary is rebuilt, invalidating cached results
+    for all cops. This is cheaper than hashing the entire binary.
+    """
+    stat = NITROCOP_BIN.stat()
+    return f"{stat.st_mtime_ns}_{stat.st_size}"
+
+
+def load_local_cache() -> dict:
+    """Load the local nitrocop results cache.
+
+    Structure: {binary_key: {cop_name: {repo_id: count}}}
+    """
+    cache_file = LOCAL_CACHE_DIR / "results.json"
+    if cache_file.exists():
+        try:
+            return json.loads(cache_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            return {}
+    return {}
+
+
+def save_local_cache(cache: dict):
+    """Save the local nitrocop results cache."""
+    LOCAL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_file = LOCAL_CACHE_DIR / "results.json"
+    cache_file.write_text(json.dumps(cache))
+
+
+def get_cached_results(cop_name: str) -> dict[str, int] | None:
+    """Get cached per-repo results for a cop, or None if not cached.
+
+    Returns None if the binary has changed since the cache was written.
+    """
+    cache = load_local_cache()
+    bkey = binary_key()
+    if bkey in cache and cop_name in cache[bkey]:
+        return cache[bkey][cop_name]
+    return None
+
+
+def save_cached_results(cop_name: str, per_repo: dict[str, int]):
+    """Save per-repo results for a cop to the local cache."""
+    cache = load_local_cache()
+    bkey = binary_key()
+    # Only keep the current binary's cache to avoid unbounded growth
+    cache = {bkey: cache.get(bkey, {})}
+    cache[bkey][cop_name] = per_repo
+    save_local_cache(cache)
+
+
 def clear_file_cache():
     """Clear nitrocop's file-level result cache to avoid stale results after rebuild."""
     import shutil
     cache_dir = Path.home() / ".cache" / "nitrocop"
     if cache_dir.exists():
         shutil.rmtree(cache_dir)
-        print("Cleared file cache at ~/.cache/nitrocop", file=sys.stderr)
 
 
 def corpus_env() -> dict[str, str]:
@@ -119,34 +177,6 @@ def count_deduplicated_offenses(json_data: dict) -> int:
         key = (o.get("path", ""), o.get("line", 0), o.get("cop_name", ""))
         seen.add(key)
     return len(seen)
-
-
-def run_nitrocop_aggregate(cop_name: str) -> int:
-    """Run nitrocop --only on each corpus repo, return total offense count.
-
-    Runs per-repo (not on the full corpus dir) so that base_dir resolves
-    Exclude patterns relative to each repo, matching CI behavior.
-    """
-    repos = sorted(d for d in CORPUS_DIR.iterdir() if d.is_dir())
-    env = corpus_env()
-    total = 0
-    for repo in repos:
-        try:
-            result = subprocess.run(
-                nitrocop_cmd(cop_name, "."),
-                capture_output=True, text=True, timeout=120,
-                cwd=str(repo), env=env,
-            )
-        except subprocess.TimeoutExpired:
-            continue
-        if result.returncode not in (0, 1):
-            continue
-        try:
-            data = json.loads(result.stdout)
-            total += count_deduplicated_offenses(data)
-        except json.JSONDecodeError:
-            continue
-    return total
 
 
 def _run_one_repo(args: tuple[str, str]) -> tuple[str, int]:
@@ -200,6 +230,16 @@ def run_nitrocop_per_repo(cop_name: str) -> dict[str, int]:
     return counts
 
 
+def run_nitrocop_aggregate(cop_name: str) -> int:
+    """Run nitrocop --only on each corpus repo, return total offense count.
+
+    Uses per-repo parallel execution and caches results.
+    """
+    per_repo = run_nitrocop_per_repo(cop_name)
+    save_cached_results(cop_name, per_repo)
+    return sum(c for c in per_repo.values() if c >= 0)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Check a cop against the 500-repo corpus for FP regressions")
@@ -211,7 +251,7 @@ def main():
     parser.add_argument("--threshold", type=int, default=0,
                         help="Allowed excess offenses before FAIL (default: 0)")
     parser.add_argument("--rerun", action="store_true",
-                        help="Force re-execution of nitrocop (ignore cached corpus data)")
+                        help="Force re-execution of nitrocop (ignore local cache)")
     args = parser.parse_args()
 
     # Load corpus results
@@ -239,7 +279,6 @@ def main():
     baseline_matches = cop_entry["matches"]
 
     ensure_binary()
-    clear_file_cache()
 
     print(f"Checking {args.cop} against 500-repo corpus")
     print(f"Baseline (from CI): {baseline_matches:,} matches, "
@@ -282,27 +321,32 @@ def main():
 
         # For cached mode, use baseline FP/FN directly
         nitrocop_total = expected_rubocop + baseline_fp
-    elif args.verbose:
-        print("Running nitrocop per-repo...", file=sys.stderr)
-        per_repo = run_nitrocop_per_repo(args.cop)
+    else:
+        # Try local cache first (unless --rerun forces re-execution)
+        cached = None if args.rerun else get_cached_results(args.cop)
+
+        if cached is not None:
+            print(f"Using cached nitrocop results (pass --rerun to re-execute)", file=sys.stderr)
+            per_repo = cached
+        else:
+            clear_file_cache()
+            print("Running nitrocop per-repo...", file=sys.stderr)
+            per_repo = run_nitrocop_per_repo(args.cop)
+            save_cached_results(args.cop, per_repo)
+
         nitrocop_total = sum(c for c in per_repo.values() if c >= 0)
 
-        # Show repos with offenses, sorted by count descending
-        repos_with_offenses = {k: v for k, v in per_repo.items() if v > 0}
-        if repos_with_offenses:
-            print(f"Repos with offenses ({len(repos_with_offenses)}):")
-            for repo_id, count in sorted(repos_with_offenses.items(),
-                                         key=lambda x: x[1], reverse=True)[:30]:
-                print(f"  {count:>6,}  {repo_id}")
-            if len(repos_with_offenses) > 30:
-                print(f"  ... and {len(repos_with_offenses) - 30} more")
-            print()
-    else:
-        print("Running nitrocop on full corpus...", file=sys.stderr)
-        nitrocop_total = run_nitrocop_aggregate(args.cop)
-        if nitrocop_total < 0:
-            print("FAIL: nitrocop execution failed", file=sys.stderr)
-            sys.exit(2)
+        if args.verbose:
+            # Show repos with offenses, sorted by count descending
+            repos_with_offenses = {k: v for k, v in per_repo.items() if v > 0}
+            if repos_with_offenses:
+                print(f"Repos with offenses ({len(repos_with_offenses)}):")
+                for repo_id, count in sorted(repos_with_offenses.items(),
+                                             key=lambda x: x[1], reverse=True)[:30]:
+                    print(f"  {count:>6,}  {repo_id}")
+                if len(repos_with_offenses) > 30:
+                    print(f"  ... and {len(repos_with_offenses) - 30} more")
+                print()
 
     excess = max(0, nitrocop_total - expected_rubocop)
     missing = max(0, expected_rubocop - nitrocop_total)
