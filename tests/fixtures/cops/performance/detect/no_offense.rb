@@ -1,5 +1,10 @@
 [1, 2, 3].detect { |x| x > 1 }
-[1, 2, 3].select { |x| x > 1 }.last
 [1, 2, 3].first
 arr.find { |x| x > 1 }
 arr.select { |x| x > 1 }
+[1, 2, 3].select { |x| x > 1 }.first(n)
+[1, 2, 3].select { |x| x > 1 }.last(n)
+adapter.select.first
+adapter.select('something').first
+adapter.lazy.select { 'something' }.first
+adapter.lazy.select(&:even?).first
