@@ -128,9 +128,13 @@ impl Cop for DeletePrefix {
         };
 
         let method_name = call.name().as_slice();
-        if method_name != b"gsub" && method_name != b"sub" {
-            return;
-        }
+        let (preferred, original) = match method_name {
+            b"gsub" => ("delete_prefix", "gsub"),
+            b"sub" => ("delete_prefix", "sub"),
+            b"gsub!" => ("delete_prefix!", "gsub!"),
+            b"sub!" => ("delete_prefix!", "sub!"),
+            _ => return,
+        };
 
         if call.receiver().is_none() {
             return;
@@ -156,6 +160,15 @@ impl Cop for DeletePrefix {
             None => return,
         };
 
+        // RuboCop requires (regopt) — no flags. Skip if any flags are present.
+        if regex_node.is_ignore_case()
+            || regex_node.is_extended()
+            || regex_node.is_multi_line()
+            || regex_node.is_once()
+        {
+            return;
+        }
+
         let content = regex_node.content_loc().as_slice();
         if !is_start_anchored_literal(content, safe_multiline) {
             return;
@@ -177,7 +190,7 @@ impl Cop for DeletePrefix {
             source,
             line,
             column,
-            "Use `delete_prefix` instead of `gsub`.".to_string(),
+            format!("Use `{preferred}` instead of `{original}`."),
         ));
     }
 }
