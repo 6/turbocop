@@ -50,6 +50,14 @@ impl Cop for MapMethodChain {
             None => return,
         };
 
+        // RuboCop uses on_send (not on_csend), so skip safe navigation calls
+        if outer_call
+            .call_operator_loc()
+            .is_some_and(|op: ruby_prism::Location<'_>| op.as_slice() == b"&.")
+        {
+            return;
+        }
+
         if !is_map_or_collect(&outer_call) || !has_symbol_block_pass(&outer_call) {
             return;
         }

@@ -13,3 +13,6 @@ arr.map(&:foo).compact.map(&:bar)
 result = items\
   .select(&:active?)\
   .map(&:name)
+# Safe navigation on both calls — RuboCop only fires via on_send (not csend)
+items&.map(&:name)&.map(&:to_s)
+account.users.where(active: true)&.map(&:user_id)&.map(&:to_s)
