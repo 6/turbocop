@@ -3,3 +3,8 @@
 [1, 2, 3].reverse
 arr.reverse.map { |x| x.to_s }
 arr.reverse_each(&:process)
+arr.reverse.each.with_index { |e, i| puts i }
+ret = arr.reverse.each { |x| x }
+return arr.reverse.each { |e| e }
+@ret = [1, 2, 3].reverse.each { |e| puts e }
+[1, 2, 3].reverse.each { |e| puts e }.last
