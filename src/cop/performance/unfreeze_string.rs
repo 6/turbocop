@@ -46,13 +46,13 @@ impl Cop for UnfreezeString {
             None => return,
         };
 
-        // Only match bare `String` or `::String`, not qualified paths like
-        // `ActiveModel::Type::String` (which is a different class).
+        // Only match bare `String` (ConstantReadNode), not `::String`
+        // (constant_path_node) or qualified paths like `ActiveModel::Type::String`.
+        // RuboCop's NodePattern `(const nil? :String)` requires a nil parent,
+        // which matches ConstantReadNode but not ConstantPathNode (even `::String`
+        // has a non-nil `cbase` parent in the Parser AST).
         let is_bare_string = if let Some(cr) = receiver.as_constant_read_node() {
             cr.name().as_slice() == b"String"
-        } else if let Some(cp) = receiver.as_constant_path_node() {
-            // ::String (rooted constant path with no parent)
-            cp.parent().is_none() && cp.name().map(|n| n.as_slice()) == Some(b"String")
         } else {
             false
         };
@@ -61,7 +61,9 @@ impl Cop for UnfreezeString {
             return;
         }
 
-        // Allow String.new with no args, or String.new('') (empty string)
+        // Flag String.new with no args, or with a single string/dstr argument
+        // (any content). RuboCop's pattern matches `{str dstr}` which covers
+        // both plain strings and interpolated strings of any content.
         match call.arguments() {
             None => {} // String.new — flag it
             Some(arguments) => {
@@ -69,18 +71,15 @@ impl Cop for UnfreezeString {
                 if args.len() != 1 {
                     return;
                 }
-                // Must be a string node with empty content
                 let first_arg = match args.iter().next() {
                     Some(a) => a,
                     None => return,
                 };
-                match first_arg.as_string_node() {
-                    Some(s) => {
-                        if !s.unescaped().is_empty() {
-                            return;
-                        }
-                    }
-                    None => return,
+                // Accept StringNode (str) or InterpolatedStringNode (dstr)
+                if first_arg.as_string_node().is_none()
+                    && first_arg.as_interpolated_string_node().is_none()
+                {
+                    return;
                 }
             }
         }
