@@ -568,6 +568,9 @@ fn check_backslash_continuations(
 
         for (j, bline) in lines[group_start..=group_end].iter().enumerate() {
             let t = trim_trailing_whitespace(bline);
+            if t.is_empty() {
+                continue;
+            }
             let before_bs = trim_trailing_whitespace(&t[..t.len() - 1]);
             let content_part = trim_leading_whitespace(before_bs);
 
