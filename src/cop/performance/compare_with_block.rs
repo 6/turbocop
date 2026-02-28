@@ -42,9 +42,16 @@ impl Cop for CompareWithBlock {
             None => return,
         };
 
-        if call.name().as_slice() != b"sort" {
-            return;
-        }
+        let method_name = call.name().as_slice();
+        let replacement = match method_name {
+            b"sort" => "sort_by",
+            b"sort!" => "sort_by!",
+            b"min" => "min_by",
+            b"max" => "max_by",
+            b"minmax" => "minmax_by",
+            _ => return,
+        };
+        let method_str = std::str::from_utf8(method_name).unwrap_or("sort");
 
         if call.receiver().is_none() {
             return;
@@ -222,20 +229,24 @@ impl Cop for CompareWithBlock {
                 return;
             }
             let key_display = std::str::from_utf8(key_a_src).unwrap_or("key");
+            let var_a_str = std::str::from_utf8(name_a).unwrap_or("a");
+            let var_b_str = std::str::from_utf8(name_b).unwrap_or("b");
             diagnostics.push(self.diagnostic(source, line, column,
-                format!("Use `sort_by {{ |a| a[{key_display}] }}` instead of `sort {{ |a, b| a[{key_display}] <=> b[{key_display}] }}`.")));
+                format!("Use `{replacement} {{ |a| a[{key_display}] }}` instead of `{method_str} {{ |{var_a_str}, {var_b_str}| {var_a_str}[{key_display}] <=> {var_b_str}[{key_display}] }}`.")));
         } else {
             // For regular method calls: require zero arguments
             if recv_call.arguments().is_some() || arg_call.arguments().is_some() {
                 return;
             }
+            let attr_method = std::str::from_utf8(method_a).unwrap_or("method");
+            let var_a_str = std::str::from_utf8(name_a).unwrap_or("a");
+            let var_b_str = std::str::from_utf8(name_b).unwrap_or("b");
             diagnostics.push(
                 self.diagnostic(
                     source,
                     line,
                     column,
-                    "Use `sort_by(&:method)` instead of `sort { |a, b| a.method <=> b.method }`."
-                        .to_string(),
+                    format!("Use `{replacement}(&:{attr_method})` instead of `{method_str} {{ |{var_a_str}, {var_b_str}| {var_a_str}.{attr_method} <=> {var_b_str}.{attr_method} }}`.")
                 ),
             );
         }
