@@ -208,6 +208,150 @@ impl<'pr> Visit<'pr> for ReverseEachVisitor<'_, '_> {
         self.value_used = prev;
     }
 
+    fn visit_instance_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableOrWriteNode<'pr>,
+    ) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_instance_variable_or_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_instance_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableAndWriteNode<'pr>,
+    ) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_instance_variable_and_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_instance_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableOperatorWriteNode<'pr>,
+    ) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_instance_variable_operator_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_class_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableOrWriteNode<'pr>,
+    ) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_class_variable_or_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_class_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableAndWriteNode<'pr>,
+    ) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_class_variable_and_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_class_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::ClassVariableOperatorWriteNode<'pr>,
+    ) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_class_variable_operator_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_global_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableOrWriteNode<'pr>,
+    ) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_global_variable_or_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_global_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableAndWriteNode<'pr>,
+    ) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_global_variable_and_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_global_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableOperatorWriteNode<'pr>,
+    ) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_global_variable_operator_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_constant_or_write_node(&mut self, node: &ruby_prism::ConstantOrWriteNode<'pr>) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_constant_or_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_constant_and_write_node(&mut self, node: &ruby_prism::ConstantAndWriteNode<'pr>) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_constant_and_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_constant_operator_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantOperatorWriteNode<'pr>,
+    ) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_constant_operator_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_constant_path_or_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathOrWriteNode<'pr>,
+    ) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_constant_path_or_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_constant_path_and_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathAndWriteNode<'pr>,
+    ) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_constant_path_and_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_constant_path_operator_write_node(
+        &mut self,
+        node: &ruby_prism::ConstantPathOperatorWriteNode<'pr>,
+    ) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_constant_path_operator_write_node(self, node);
+        self.value_used = prev;
+    }
+
     // Return node: returned values are used
     fn visit_return_node(&mut self, node: &ruby_prism::ReturnNode<'pr>) {
         let prev = self.value_used;
