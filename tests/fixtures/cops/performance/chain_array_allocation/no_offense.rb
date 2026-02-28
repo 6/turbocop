@@ -5,3 +5,10 @@ arr.flatten.each { |x| x }
 arr.sort.select { |x| x.valid? }
 arr.compact!.map { |x| x }
 arr.lazy.map(&:some_obj_method).reject(&:nil?).first
+arr.flatten.flat_map { |x| x }
+arr.uniq.flat_map { |x| x }
+requirements.flatten.flat_map { |r| r.split(",").map(&:strip) }
+[1, 2, 3, 4].first.uniq
+model.select(:foo, :bar).select { |item| item.do_something }
+model.select(:foo, :bar).select(:baz, :qux)
+arr.zip { |f| f }.uniq
