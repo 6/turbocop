@@ -130,14 +130,15 @@ impl Cop for StringInclude {
                     Some(a) => a,
                     None => return,
                 };
-                let first_arg = match arguments.arguments().iter().next() {
-                    Some(a) => a,
-                    None => return,
-                };
+                let args: Vec<_> = arguments.arguments().iter().collect();
+                // RuboCop only matches single-argument calls; match(re, pos) is not flagged
+                if args.len() != 1 {
+                    return;
+                }
                 let recv = call.receiver().unwrap();
 
                 // Either the argument or the receiver must be a simple regex
-                is_simple_regex_node(&first_arg) || is_simple_regex_node(&recv)
+                is_simple_regex_node(&args[0]) || is_simple_regex_node(&recv)
             }
 
             // /regex/ === str

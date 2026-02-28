@@ -28,3 +28,10 @@ str === /abc/
 /one/ !~ out
 /queued_/ !~ description
 /\./ !~ receiver
+# match/match? with multiple arguments (start position) — not flagged
+/foo/.match('foo bar', 4)
+/foo/.match('foo bar', -4)
+'foo bar'.match(/foo/, 4)
+'foo bar'.match(/foo/, -4)
+/a/.match?("a", 0)
+"abc".match?(/a/, 1)
