@@ -23,3 +23,18 @@ begin
 rescue StandardError => e
   handle(e)
 end
+# instance variable receiver — pure, should be flagged
+@params.merge!(a: 1)
+^^^^^^^^^^^^^^^^^^^^ Performance/RedundantMerge: Use `[]=` instead of `merge!` with a single key-value pair.
+# class variable receiver — pure, should be flagged
+@@defaults.merge!(key: value)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/RedundantMerge: Use `[]=` instead of `merge!` with a single key-value pair.
+# constant receiver — pure, should be flagged
+DEFAULTS.merge!(key: value)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/RedundantMerge: Use `[]=` instead of `merge!` with a single key-value pair.
+# ivar receiver with multiple pairs
+@params.merge!(a: 1, b: 2)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/RedundantMerge: Use `[]=` instead of `merge!` with 2 key-value pairs.
+# self receiver — pure, should be flagged
+self.merge!(key: value)
+^^^^^^^^^^^^^^^^^^^^^^^ Performance/RedundantMerge: Use `[]=` instead of `merge!` with a single key-value pair.

@@ -30,3 +30,7 @@ get @action, params: @params.merge!(before: Time.current.to_i.to_s)
 do_something(hash.merge!(key: val))
 # merge! result assigned to variable
 result = hash.merge!(a: 1)
+# merge! with conflict resolution block — not replaceable with []=
+hash.merge!(a: 1) { |key, old, new| old }
+hash.merge!(a: 1, b: 2) { |key, old, new| old }
+values.merge!(max_age: max_age) { |_key, v1, v2| v1 || v2 }

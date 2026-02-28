@@ -56,6 +56,11 @@ impl<'a, 'src> RedundantMergeVisitor<'a, 'src> {
             return;
         }
 
+        // merge! with a conflict resolution block cannot be replaced with []=
+        if call.block().is_some() {
+            return;
+        }
+
         let arguments = match call.arguments() {
             Some(a) => a,
             None => return,
@@ -100,7 +105,12 @@ impl<'a, 'src> RedundantMergeVisitor<'a, 'src> {
         // local variable). Method calls, indexing etc. could have side effects.
         let receiver = call.receiver().unwrap();
         if kv_count > 1 {
-            let is_pure = receiver.as_local_variable_read_node().is_some();
+            let is_pure = receiver.as_local_variable_read_node().is_some()
+                || receiver.as_instance_variable_read_node().is_some()
+                || receiver.as_class_variable_read_node().is_some()
+                || receiver.as_constant_read_node().is_some()
+                || receiver.as_constant_path_node().is_some()
+                || receiver.as_self_node().is_some();
             if !is_pure {
                 return;
             }
