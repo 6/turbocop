@@ -10,3 +10,6 @@ ary.do_something.select(key: value).map(&:to_i)
 arr.select { _1.valid? }.map { _1.name }
 arr.select { _1 > 5 }.map { _1.to_s }.uniq
 arr.filter { _1.present? }.map { _1.id }
+# Ruby 3.4 `it` parameter also creates numblock in Parser gem
+items.select { it.visible }.map { it.display_name }
+items.filter { it.present? }.map { it.name }
