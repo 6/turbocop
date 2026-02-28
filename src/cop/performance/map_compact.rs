@@ -38,8 +38,31 @@ impl Cop for MapCompact {
         }
 
         // The inner call should have a block (either { } / do..end or &:symbol)
-        if chain.inner_call.block().is_none() {
-            return;
+        let block = match chain.inner_call.block() {
+            Some(b) => b,
+            None => return,
+        };
+
+        // RuboCop's pattern matches (block ... (args ...) _) which excludes numblock/itblock.
+        // In Prism, numbered-parameter and it-parameter blocks use special parameter nodes.
+        if let Some(block_node) = block.as_block_node() {
+            if let Some(params) = block_node.parameters() {
+                if params.as_numbered_parameters_node().is_some()
+                    || params.as_it_parameters_node().is_some()
+                {
+                    return;
+                }
+            }
+        }
+
+        // RuboCop's pattern matches (block_pass (sym _)) — only &:symbol.
+        // Skip &method(:foo), &variable, etc.
+        if let Some(block_arg) = block.as_block_argument_node() {
+            if let Some(expr) = block_arg.expression() {
+                if expr.as_symbol_node().is_none() {
+                    return;
+                }
+            }
         }
 
         // Report at the inner method selector (map/collect), matching RuboCop
