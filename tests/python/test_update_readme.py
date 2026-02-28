@@ -29,8 +29,8 @@ We diff nitrocop against RuboCop on [**500 open-source repos**](docs/corpus.md) 
 
 Per-repo results (top 15 by GitHub stars):
 
-| Repo | Files | FP | FN | Agreement |
-|------|------:|---:|---:|----------:|
+| Repo | .rb files | Extra (FP) | Missed (FN) | Agreement |
+|------|----------:|-----------:|------------:|----------:|
 | [rails](https://github.com/rails/rails) | 3,000 | 240 | 240 | 95.0% |
 
 More text here.
@@ -130,7 +130,7 @@ def test_write():
         assert "167k Ruby files" in updated
         assert "Extra (FP)" in updated
         assert "Missed (FN)" in updated
-        assert "| FP | FN | Agreement |" in updated
+        assert "| Extra (FP) | Missed (FN) | Agreement |" in updated
 
 
 if __name__ == "__main__":

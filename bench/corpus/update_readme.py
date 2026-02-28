@@ -102,8 +102,8 @@ def build_top15_table(by_repo: list, manifest: dict[str, tuple[str, int]]) -> st
     top15 = enriched[:15]
 
     lines = []
-    lines.append("| Repo | Files | FP | FN | Agreement |")
-    lines.append("|------|------:|---:|---:|----------:|")
+    lines.append("| Repo | .rb files | Extra (FP) | Missed (FN) | Agreement |")
+    lines.append("|------|----------:|-----------:|------------:|----------:|")
     for r in top15:
         name_link = f"[{r['name']}]({r['url']})"
         lines.append(f"| {name_link} | {r['files']:,} | {r['fp']:,} | {r['fn']:,} | {format_match_rate(r['match_rate'])} |")
@@ -170,7 +170,7 @@ def update_readme(readme_text: str, summary: dict, by_repo: list,
     # 5. Replace the top-15 table (header + separator + data rows)
     new_table = build_top15_table(by_repo, manifest)
     readme_text = re.sub(
-        r"\| Repo \| (?:Stars|Files|FP|Offenses) [^\n]*\n\|[-| :]+\n(?:\| .+\n)*",
+        r"\| Repo \| (?:Stars|Files|\.rb files|FP|Extra|Offenses) [^\n]*\n\|[-| :]+\n(?:\| .+\n)*",
         new_table + "\n",
         readme_text,
     )

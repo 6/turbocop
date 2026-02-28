@@ -76,8 +76,8 @@ We diff nitrocop against RuboCop on [**500 open-source repos**](docs/corpus.md) 
 
 Per-repo results (top 15 by GitHub stars):
 
-| Repo | Files | FP | FN | Agreement |
-|------|------:|---:|---:|----------:|
+| Repo | .rb files | Extra (FP) | Missed (FN) | Agreement |
+|------|----------:|-----------:|------------:|----------:|
 | [rails](https://github.com/rails/rails) | 3,498 | 7,347 | 19,293 | 93.9% |
 | [jekyll](https://github.com/jekyll/jekyll) | 190 | 157 | 626 | 94.0% |
 | [mastodon](https://github.com/mastodon/mastodon) | 3,114 | 146 | 2,673 | 96.5% |
