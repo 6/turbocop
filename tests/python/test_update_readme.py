@@ -15,15 +15,23 @@ SAMPLE_README = """\
 
 Features:
 - **93.0% conformance** across a corpus of open-source repos
-- Tested against **600 open-source repos** (163k Ruby files)
+- Tested against [**500 open-source repos**](docs/corpus.md) (163k Ruby files)
 
 ## Conformance
 
-**Overall: 93.0% match rate** across 5.0M offenses compared.
+We diff nitrocop against RuboCop on [**500 open-source repos**](docs/corpus.md) (163k Ruby files) with all cops enabled.
 
-| Repo | Files | Offenses | Conformance % |
-|------|------:|---------:|--------------:|
-| [rails](https://github.com/rails/rails) | 3,000 | 12,000 | 95.0% |
+|             |    Count |  Rate |
+|:------------|--------: |------:|
+| Agreed      |     4.0M | 93.0% |
+| Extra (FP)  |   200.0K |  3.5% |
+| Missed (FN) |   200.0K |  3.5% |
+
+Per-repo results (top 15 by GitHub stars):
+
+| Repo | Files | FP | FN | Agreement |
+|------|------:|---:|---:|----------:|
+| [rails](https://github.com/rails/rails) | 3,000 | 240 | 240 | 95.0% |
 
 More text here.
 """
@@ -119,8 +127,10 @@ def test_write():
 
         updated = readme_path.read_text()
         assert "96.1% conformance" in updated
-        assert "96.1% match rate" in updated
         assert "167k Ruby files" in updated
+        assert "Extra (FP)" in updated
+        assert "Missed (FN)" in updated
+        assert "| FP | FN | Agreement |" in updated
 
 
 if __name__ == "__main__":

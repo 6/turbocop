@@ -51,9 +51,13 @@ def format_files(n: int) -> str:
     return f"{n // 1000}k"
 
 
-def format_offenses_summary(n: int) -> str:
-    """Format offense count for summary line: 4989169 -> '5.0M'."""
-    return f"{n / 1_000_000:.1f}M"
+def format_count_summary(n: int) -> str:
+    """Format count for summary: 4989169 -> '5.0M', 72659 -> '72.7K'."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    elif n >= 1_000:
+        return f"{n / 1_000:.1f}K"
+    return str(n)
 
 
 def format_match_rate(rate: float) -> str:
@@ -62,7 +66,7 @@ def format_match_rate(rate: float) -> str:
 
 
 def build_top15_table(by_repo: list, manifest: dict[str, tuple[str, int]]) -> str:
-    """Build the top-15 repos markdown table."""
+    """Build the top-15 repos markdown table with FP/FN columns."""
     # Match corpus results to manifest entries and attach stars
     enriched = []
     for repo in by_repo:
@@ -84,6 +88,8 @@ def build_top15_table(by_repo: list, manifest: dict[str, tuple[str, int]]) -> st
             "url": repo_url,
             "stars": stars,
             "files": files,
+            "fp": repo["fp"],
+            "fn": repo["fn"],
             "offenses": total_offenses,
             "match_rate": repo["match_rate"],
         })
@@ -95,23 +101,29 @@ def build_top15_table(by_repo: list, manifest: dict[str, tuple[str, int]]) -> st
     enriched.sort(key=lambda x: x["stars"], reverse=True)
     top15 = enriched[:15]
 
-    # Show Files column if per-repo file data is available
-    has_files = any(r["files"] > 0 for r in top15)
+    lines = []
+    lines.append("| Repo | Files | FP | FN | Agreement |")
+    lines.append("|------|------:|---:|---:|----------:|")
+    for r in top15:
+        name_link = f"[{r['name']}]({r['url']})"
+        lines.append(f"| {name_link} | {r['files']:,} | {r['fp']:,} | {r['fn']:,} | {format_match_rate(r['match_rate'])} |")
+
+    return "\n".join(lines)
+
+
+def build_summary_table(summary: dict) -> str:
+    """Build the FP/FN summary table."""
+    matches = summary["matches"]
+    fp = summary["fp"]
+    fn = summary["fn"]
+    total = matches + fp + fn
 
     lines = []
-    if has_files:
-        lines.append("| Repo | Files | Offenses | Conformance % |")
-        lines.append("|------|------:|---------:|--------------:|")
-        for r in top15:
-            name_link = f"[{r['name']}]({r['url']})"
-            lines.append(f"| {name_link} | {r['files']:,} | {r['offenses']:,} | {format_match_rate(r['match_rate'])} |")
-    else:
-        lines.append("| Repo | Offenses | Conformance % |")
-        lines.append("|------|---------:|--------------:|")
-        for r in top15:
-            name_link = f"[{r['name']}]({r['url']})"
-            lines.append(f"| {name_link} | {r['offenses']:,} | {format_match_rate(r['match_rate'])} |")
-
+    lines.append("|             |    Count |  Rate |")
+    lines.append("|:------------|--------: |------:|")
+    lines.append(f"| Agreed      | {format_count_summary(matches):>8} | {matches/total:.1%} |")
+    lines.append(f"| Extra (FP)  | {format_count_summary(fp):>8} | {fp/total:.1%} |")
+    lines.append(f"| Missed (FN) | {format_count_summary(fn):>8} | {fn/total:.1%} |")
     return "\n".join(lines)
 
 
@@ -120,11 +132,9 @@ def update_readme(readme_text: str, summary: dict, by_repo: list,
     """Replace conformance data in README text."""
     total_repos = summary["total_repos"]
     match_rate = summary["overall_match_rate"]
-    offenses = summary["total_offenses_compared"]
     files = summary.get("total_files_inspected", 0)
 
     rate_str = format_match_rate(match_rate)
-    offenses_str = format_offenses_summary(offenses)
     files_str = format_files(files) if files > 0 else None
 
     # 1. Features bullet: **XX.X% conformance**
@@ -134,31 +144,33 @@ def update_readme(readme_text: str, summary: dict, by_repo: list,
         readme_text,
     )
 
-    # 2. Corpus description line: **500 open-source repos** (XXXk Ruby files)
-    if files_str:
-        readme_text = re.sub(
-            r"\*\*\d+ open-source repos\*\* \(\d+k Ruby files\)",
-            f"**{total_repos} open-source repos** ({files_str} Ruby files)",
-            readme_text,
-        )
-    else:
-        readme_text = re.sub(
-            r"\*\*\d+ open-source repos\*\*",
-            f"**{total_repos} open-source repos**",
-            readme_text,
-        )
-
-    # 3. Overall line: **Overall: XX.X% match rate** across X.XM offenses compared.
+    # 2. Repo count: update all "N open-source repos" occurrences
     readme_text = re.sub(
-        r"\*\*Overall: [\d.]+% match rate\*\* across [\d.]+M offenses compared\.",
-        f"**Overall: {rate_str} match rate** across {offenses_str} offenses compared.",
+        r"\d+ open-source repos",
+        f"{total_repos} open-source repos",
         readme_text,
     )
 
-    # 4. Replace the top-15 table (header + separator + data rows)
+    # 3. File count in corpus description: (XXXk Ruby files)
+    if files_str:
+        readme_text = re.sub(
+            r"\(\d+k Ruby files\)",
+            f"({files_str} Ruby files)",
+            readme_text,
+        )
+
+    # 4. Summary table: Agreed / Extra (FP) / Missed (FN)
+    new_summary = build_summary_table(summary)
+    readme_text = re.sub(
+        r"\|[^\n]*Count[^\n]*\n\|[^\n]*-+[^\n]*\n(?:\|[^\n]*\n){2,3}",
+        new_summary + "\n",
+        readme_text,
+    )
+
+    # 5. Replace the top-15 table (header + separator + data rows)
     new_table = build_top15_table(by_repo, manifest)
     readme_text = re.sub(
-        r"\| Repo \| (?:Stars|Files|Offenses) [^\n]*\n\|[-| :]+\n(?:\| .+\n)*",
+        r"\| Repo \| (?:Stars|Files|FP|Offenses) [^\n]*\n\|[-| :]+\n(?:\| .+\n)*",
         new_table + "\n",
         readme_text,
     )
