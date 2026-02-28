@@ -17,6 +17,12 @@ fn has_symbol_block_pass(call: &ruby_prism::CallNode<'_>) -> bool {
     false
 }
 
+/// Check if a call is a map/collect call.
+fn is_map_or_collect(call: &ruby_prism::CallNode<'_>) -> bool {
+    let name = call.name().as_slice();
+    name == b"map" || name == b"collect"
+}
+
 impl Cop for MapMethodChain {
     fn name(&self) -> &'static str {
         "Performance/MapMethodChain"
@@ -44,36 +50,56 @@ impl Cop for MapMethodChain {
             None => return,
         };
 
-        let outer_method = outer_call.name().as_slice();
-        if outer_method != b"map" && outer_method != b"collect" {
+        if !is_map_or_collect(&outer_call) || !has_symbol_block_pass(&outer_call) {
             return;
         }
 
-        // Outer call must have a block_pass with symbol arg (e.g., map(&:foo))
-        if !has_symbol_block_pass(&outer_call) {
-            return;
-        }
-
-        // Inner call (receiver) must also be map/collect with symbol block_pass
+        // The receiver must also be a map/collect with symbol block_pass
         let inner_node = match outer_call.receiver() {
             Some(r) => r,
             None => return,
         };
         let inner_call = match inner_node.as_call_node() {
-            Some(c) => c,
-            None => return,
+            Some(c) if is_map_or_collect(&c) && has_symbol_block_pass(&c) => c,
+            _ => return,
         };
-        let inner_method = inner_call.name().as_slice();
-        if inner_method != b"map" && inner_method != b"collect" {
-            return;
+
+        // Walk down the receiver chain to find the deepest consecutive
+        // map/collect call with symbol block_pass (the chain start).
+        let mut chain_start = inner_call;
+        while let Some(recv) = chain_start.receiver() {
+            if let Some(c) = recv.as_call_node() {
+                if is_map_or_collect(&c) && has_symbol_block_pass(&c) {
+                    chain_start = c;
+                    continue;
+                }
+            }
+            break;
         }
-        if !has_symbol_block_pass(&inner_call) {
+
+        // Report at the chain start's selector (message_loc) position.
+        let start_offset = chain_start.message_loc().map_or_else(
+            || chain_start.location().start_offset(),
+            |loc| loc.start_offset(),
+        );
+        let (line, column) = source.offset_to_line_col(start_offset);
+
+        // Deduplicate: for chains of 3+ maps, multiple outer calls walk down
+        // to the same chain_start. Skip if already reported at this position.
+        if diagnostics
+            .iter()
+            .any(|d| d.location.line == line && d.location.column == column)
+        {
             return;
         }
 
-        let loc = node.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(source, line, column, "Use `map` with a block instead of chaining multiple `map` calls with symbol arguments.".to_string()));
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            "Use `map` with a block instead of chaining multiple `map` calls with symbol arguments."
+                .to_string(),
+        ));
     }
 }
 
