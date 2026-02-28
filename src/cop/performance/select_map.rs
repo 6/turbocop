@@ -3,12 +3,6 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
-/// NOTE: Known conformance difference (~42 excess offenses vs RuboCop).
-/// RuboCop's `map_method_candidate` checks `parent.block_type?`, but `numblock` nodes
-/// (Ruby 2.7+ numbered params `_1`/`_2` and Ruby 3.4+ `it` param) return false for
-/// `block_type?` in Parser gem. This means RuboCop silently skips select.map chains
-/// where the select block uses numbered/it parameters. Nitrocop correctly detects all
-/// patterns via Prism (no numblock distinction). This is a RuboCop bug, not ours.
 pub struct SelectMap;
 
 impl Cop for SelectMap {
@@ -48,8 +42,23 @@ impl Cop for SelectMap {
         };
 
         // The inner call should have a block
-        if chain.inner_call.block().is_none() {
-            return;
+        let inner_block = match chain.inner_call.block() {
+            Some(b) => b,
+            None => return,
+        };
+
+        // RuboCop's Parser gem has separate `block` and `numblock` node types.
+        // `numblock` (used for _1/_2 numbered params and Ruby 3.4 `it`) returns
+        // false for `block_type?`, causing RuboCop to skip these chains.
+        // Match that behavior: skip when the select/filter block uses numbered or it params.
+        if let Some(block_node) = inner_block.as_block_node() {
+            if let Some(params) = block_node.parameters() {
+                if params.as_numbered_parameters_node().is_some()
+                    || params.as_it_parameters_node().is_some()
+                {
+                    return;
+                }
+            }
         }
 
         // Report at the inner method name (.select/.filter) to match RuboCop's offense_range
