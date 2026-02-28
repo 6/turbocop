@@ -10,3 +10,6 @@ adapter.lazy.select { 'something' }.first
 adapter.lazy.select(&:even?).first
 items&.select { |x| x.valid? }&.first
 items&.filter { |x| x > 0 }&.last
+items.select { _1.active? }.first
+items.filter { _1 > 0 }.last
+items.select { it.active? }.first

@@ -87,9 +87,23 @@ impl Cop for Detect {
         }
 
         // The inner call must have a block or block_pass
-        let has_block = inner_call.block().is_some();
-        if !has_block {
-            return;
+        let inner_block = match inner_call.block() {
+            Some(b) => b,
+            None => return,
+        };
+
+        // RuboCop's Parser gem has separate `block` and `numblock` node types.
+        // `numblock` (used for _1/_2 numbered params and Ruby 3.4 `it`) returns
+        // false for `block_type?`, causing RuboCop to skip these chains.
+        // Match that behavior: skip when the block uses numbered or it params.
+        if let Some(block_node) = inner_block.as_block_node() {
+            if let Some(params) = block_node.parameters() {
+                if params.as_numbered_parameters_node().is_some()
+                    || params.as_it_parameters_node().is_some()
+                {
+                    return;
+                }
+            }
         }
 
         // Check if the inner call's receiver is `lazy` with its own receiver
