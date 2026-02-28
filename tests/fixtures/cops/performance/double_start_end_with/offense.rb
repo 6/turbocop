@@ -4,3 +4,7 @@ x.end_with?(".rb") || x.end_with?(".py")
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/DoubleStartEndWith: Use `end_with?` with multiple arguments instead of chaining `||`.
 str.start_with?("http") || str.start_with?("ftp")
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/DoubleStartEndWith: Use `start_with?` with multiple arguments instead of chaining `||`.
+!x.start_with?("test/") && !x.start_with?("spec/")
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/DoubleStartEndWith: Use `start_with?` with multiple arguments instead of chaining `||`.
+!x.end_with?("Error") && !x.end_with?("Exception")
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/DoubleStartEndWith: Use `end_with?` with multiple arguments instead of chaining `||`.
