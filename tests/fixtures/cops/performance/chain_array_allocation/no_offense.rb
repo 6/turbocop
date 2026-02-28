@@ -17,3 +17,6 @@ items&.select { |x| x.valid? }&.map(&:name)
 items&.compact&.map(&:to_s)
 records&.map(&:id)&.compact
 account.users.where(auto_offline: false)&.map(&:user_id)&.map(&:to_s)
+# block_pass inner should not trigger select-as-outer (not any_block_type?)
+items.select(&:valid?).select { |x| x.ready? }
+items.reject(&:blank?).select { |x| x.present? }

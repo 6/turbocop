@@ -130,12 +130,17 @@ impl Cop for ChainArrayAllocation {
         // Special handling for `select` as the outer method:
         // RuboCop only flags `select` when the receiver is a block with no positional args
         // (to avoid flagging Rails' QueryMethods#select which takes positional args).
+        // RuboCop uses `any_block_type?` which matches block/numblock but NOT block_pass.
         if chain.outer_method == b"select" {
-            // The receiver must be a block call (e.g., `model.select { ... }.select { ... }`)
-            // and the inner call must have no positional arguments.
-            let has_block = chain.inner_call.block().is_some();
+            // The receiver must be a real block call (e.g., `model.select { ... }.select { ... }`),
+            // not a block_pass like `select(&:active?)`.
+            let has_block_node = chain
+                .inner_call
+                .block()
+                .and_then(|b| b.as_block_node())
+                .is_some();
             let has_args = chain.inner_call.arguments().is_some();
-            if !has_block || has_args {
+            if !has_block_node || has_args {
                 return;
             }
         }
