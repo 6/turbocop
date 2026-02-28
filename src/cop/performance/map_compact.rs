@@ -33,26 +33,26 @@ impl Cop for MapCompact {
         }
 
         let inner = chain.inner_method;
-        let inner_name = if inner == b"map" {
-            "map"
-        } else if inner == b"collect" {
-            "collect"
-        } else {
+        if inner != b"map" && inner != b"collect" {
             return;
-        };
+        }
 
-        // The inner call should have a block
+        // The inner call should have a block (either { } / do..end or &:symbol)
         if chain.inner_call.block().is_none() {
             return;
         }
 
-        let loc = node.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        // Report at the inner method selector (map/collect), matching RuboCop
+        let msg_loc = match chain.inner_call.message_loc() {
+            Some(loc) => loc,
+            None => return,
+        };
+        let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,
             line,
             column,
-            format!("Use `filter_map` instead of `{inner_name}...compact`."),
+            "Use `filter_map` instead.".to_string(),
         ));
     }
 }
