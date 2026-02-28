@@ -101,7 +101,7 @@ jobs:
   oracle-repo:
     needs: [build-nitrocop, compute-matrix]
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.compute-matrix.outputs.matrix) }}
@@ -161,30 +161,47 @@ jobs:
               git -C "$DEST" checkout "$REPO_SHA" || echo "WARNING: checkout failed, using HEAD"
             fi
 
+            # Per-repo timeout (15 min each tool).
+            # Keeps one slow repo from killing the whole batch.
+            # Largest legit repos (discourse, openproject) take ~12 min for rubocop.
+            REPO_TIMEOUT=900  # 15 minutes
+
             # nitrocop
             echo "=== nitrocop: ${REPO_ID} ==="
-            BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
-            BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
+            rc=0
+            timeout "${REPO_TIMEOUT}" \
+            env BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
+                BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
             bin/nitrocop \
               --preview \
               --format json \
               --no-cache \
               --config bench/corpus/baseline_rubocop.yml \
               "$DEST" \
-              > "results/nitrocop/${REPO_ID}.json" 2>"results/nitrocop/${REPO_ID}.err" || true
+              > "results/nitrocop/${REPO_ID}.json" 2>"results/nitrocop/${REPO_ID}.err" || rc=$?
+
+            if [ "$rc" -eq 124 ]; then
+              echo "::warning::nitrocop timed out after ${REPO_TIMEOUT}s for ${REPO_ID}"
+            fi
 
             # rubocop (always runs fresh — no cross-run caching to avoid
             # environment drift causing non-deterministic baselines)
             echo "=== rubocop: ${REPO_ID} ==="
-            BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
-            BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
+            rc=0
+            timeout "${REPO_TIMEOUT}" \
+            env BUNDLE_GEMFILE=$PWD/bench/corpus/Gemfile \
+                BUNDLE_PATH=$PWD/bench/corpus/vendor/bundle \
             bundle exec rubocop \
               --config bench/corpus/baseline_rubocop.yml \
               --format json \
               --force-exclusion \
               --cache false \
               "$DEST" \
-              > "results/rubocop/${REPO_ID}.json" 2>"results/rubocop/${REPO_ID}.err" || true
+              > "results/rubocop/${REPO_ID}.json" 2>"results/rubocop/${REPO_ID}.err" || rc=$?
+
+            if [ "$rc" -eq 124 ]; then
+              echo "::warning::rubocop timed out after ${REPO_TIMEOUT}s for ${REPO_ID}"
+            fi
 
             # Free disk space between repos
             rm -rf "$DEST"
