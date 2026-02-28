@@ -19,19 +19,19 @@ Features:
 
 ## Conformance
 
-We diff nitrocop against RuboCop on [**500 open-source repos**](docs/corpus.md) (163k Ruby files) with all cops enabled.
+We diff nitrocop against RuboCop on [**500 open-source repos**](docs/corpus.md) (163k Ruby files) with all cops enabled. Every offense is compared by file, line, and cop name.
 
-|             |    Count |  Rate |
-|:------------|--------: |------:|
-| Agreed      |     4.0M | 93.0% |
-| Extra (FP)  |   200.0K |  3.5% |
-| Missed (FN) |   200.0K |  3.5% |
+|                        |    Count |  Rate |
+|:-----------------------|--------: |------:|
+| Agreed                 |     4.0M | 93.0% |
+| nitrocop extra (FP)    |   200.0K |  3.5% |
+| nitrocop missed (FN)   |   200.0K |  3.5% |
 
 Per-repo results (top 15 by GitHub stars):
 
-| Repo | .rb files | Extra (FP) | Missed (FN) | Agreement |
-|------|----------:|-----------:|------------:|----------:|
-| [rails](https://github.com/rails/rails) | 3,000 | 240 | 240 | 95.0% |
+| Repo | .rb files | RuboCop offenses | nitrocop extra (FP) | nitrocop missed (FN) | Agreement |
+|------|----------:|-----------------:|--------------------:|---------------------:|----------:|
+| [rails](https://github.com/rails/rails) | 3,000 | 11,760 | 240 | 240 | 95.0% |
 
 More text here.
 """
@@ -128,9 +128,9 @@ def test_write():
         updated = readme_path.read_text()
         assert "96.1% conformance" in updated
         assert "167k Ruby files" in updated
-        assert "Extra (FP)" in updated
-        assert "Missed (FN)" in updated
-        assert "| Extra (FP) | Missed (FN) | Agreement |" in updated
+        assert "nitrocop extra (FP)" in updated
+        assert "nitrocop missed (FN)" in updated
+        assert "| RuboCop offenses |" in updated
 
 
 if __name__ == "__main__":

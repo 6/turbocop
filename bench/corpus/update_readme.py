@@ -102,11 +102,11 @@ def build_top15_table(by_repo: list, manifest: dict[str, tuple[str, int]]) -> st
     top15 = enriched[:15]
 
     lines = []
-    lines.append("| Repo | .rb files | Extra (FP) | Missed (FN) | Agreement |")
-    lines.append("|------|----------:|-----------:|------------:|----------:|")
+    lines.append("| Repo | .rb files | RuboCop offenses | nitrocop extra (FP) | nitrocop missed (FN) | Agreement |")
+    lines.append("|------|----------:|-----------------:|--------------------:|---------------------:|----------:|")
     for r in top15:
         name_link = f"[{r['name']}]({r['url']})"
-        lines.append(f"| {name_link} | {r['files']:,} | {r['fp']:,} | {r['fn']:,} | {format_match_rate(r['match_rate'])} |")
+        lines.append(f"| {name_link} | {r['files']:,} | {r['offenses']:,} | {r['fp']:,} | {r['fn']:,} | {format_match_rate(r['match_rate'])} |")
 
     return "\n".join(lines)
 
@@ -119,11 +119,11 @@ def build_summary_table(summary: dict) -> str:
     total = matches + fp + fn
 
     lines = []
-    lines.append("|             |    Count |  Rate |")
-    lines.append("|:------------|--------: |------:|")
-    lines.append(f"| Agreed      | {format_count_summary(matches):>8} | {matches/total:.1%} |")
-    lines.append(f"| Extra (FP)  | {format_count_summary(fp):>8} | {fp/total:.1%} |")
-    lines.append(f"| Missed (FN) | {format_count_summary(fn):>8} | {fn/total:.1%} |")
+    lines.append("|                        |    Count |  Rate |")
+    lines.append("|:-----------------------|--------: |------:|")
+    lines.append(f"| Agreed                 | {format_count_summary(matches):>8} | {matches/total:.1%} |")
+    lines.append(f"| nitrocop extra (FP)    | {format_count_summary(fp):>8} | {fp/total:.1%} |")
+    lines.append(f"| nitrocop missed (FN)   | {format_count_summary(fn):>8} | {fn/total:.1%} |")
     return "\n".join(lines)
 
 
@@ -159,7 +159,7 @@ def update_readme(readme_text: str, summary: dict, by_repo: list,
             readme_text,
         )
 
-    # 4. Summary table: Agreed / Extra (FP) / Missed (FN)
+    # 4. Summary table: Agreed / nitrocop extra (FP) / nitrocop missed (FN)
     new_summary = build_summary_table(summary)
     readme_text = re.sub(
         r"\|[^\n]*Count[^\n]*\n\|[^\n]*-+[^\n]*\n(?:\|[^\n]*\n){2,3}",
@@ -167,10 +167,10 @@ def update_readme(readme_text: str, summary: dict, by_repo: list,
         readme_text,
     )
 
-    # 5. Replace the top-15 table (header + separator + data rows)
+    # 7. Replace the top-15 table (header + separator + data rows)
     new_table = build_top15_table(by_repo, manifest)
     readme_text = re.sub(
-        r"\| Repo \| (?:Stars|Files|\.rb files|FP|Extra|Offenses) [^\n]*\n\|[-| :]+\n(?:\| .+\n)*",
+        r"\| Repo \| (?:Stars|Files|\.rb files|FP|Extra|Offenses|RuboCop|nitrocop) [^\n]*\n\|[-| :]+\n(?:\| .+\n)*",
         new_table + "\n",
         readme_text,
     )
