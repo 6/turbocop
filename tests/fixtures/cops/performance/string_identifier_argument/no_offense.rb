@@ -21,3 +21,6 @@ send(42)
 # Symbol arguments
 alias_method :new, :original
 attr_accessor :name, :role
+# Safe navigation calls (RuboCop only defines on_send, not on_csend)
+obj&.respond_to?('method_name')
+obj&.send('method_name')

@@ -113,6 +113,14 @@ impl Cop for StringIdentifierArgument {
             None => return,
         };
 
+        // RuboCop only defines on_send, not on_csend — skip safe navigation calls
+        if call
+            .call_operator_loc()
+            .is_some_and(|loc| loc.as_slice() == b"&.")
+        {
+            return;
+        }
+
         let method_name = call.name().as_slice();
         if !ALL_METHODS.contains(&method_name) {
             return;
