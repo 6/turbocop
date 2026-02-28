@@ -24,3 +24,37 @@ end
 if request.path !~ /pattern/ && other
   redirect
 end
+# while/until conditions — not flagged (RuboCop only checks if/unless/case)
+while str =~ /\d+/
+  process
+end
+line = input.gets while line !~ /^>THREE/
+raw_route_info.shift until raw_route_info[0] =~ /Destination/i
+# =~ with named captures (creates local vars) — not flagged
+if /alias_(?<alias_id>.*)/ =~ something
+  do_something
+end
+# .match() without regexp/str/sym literal — not flagged
+if CONST.match(var)
+  do_something
+end
+# match without arguments — not flagged
+code if match
+# MatchData is used in same method scope — not flagged
+def foo
+  if x =~ /re/
+    do_something($1)
+  end
+end
+def bar
+  return $~ if x =~ /re/
+end
+# MatchData used after guard return — not flagged
+def check
+  return if str =~ /pattern/
+  do_something($1)
+end
+# $+ (last successful match) — not flagged
+if config.verbose.to_s =~ /^-?(v+)$/
+  result = $+
+end
