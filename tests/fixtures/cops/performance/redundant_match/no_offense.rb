@@ -35,3 +35,17 @@ if status == :starting && line.match('Streaming API')
 end
 # Inside || — same applies
 something || line.match(/pattern/)
+# Parenthesized if condition — parens break direct-predicate relationship (RuboCop doesn't flag)
+if(str.match(/pattern/))
+  do_something
+end
+# Parenthesized elsif condition
+if cond
+  do_something
+elsif(str.match(/pattern/))
+  do_other
+end
+# Splatted match result — MatchData IS used (destructured via splat)
+_, name, code = *line.match(/([A-Za-z]+);([0-9A-F]{4})/)
+# Instance variable ||= — value IS used
+@match ||= url.match(/pattern/)

@@ -293,6 +293,60 @@ impl<'pr> ruby_prism::Visit<'pr> for RedundantMatchVisitor<'_> {
         self.value_used = old;
     }
 
+    fn visit_parentheses_node(&mut self, node: &ruby_prism::ParenthesesNode<'pr>) {
+        // Parentheses break the direct-predicate relationship with if/while/until/case.
+        // RuboCop's `only_truthiness_matters?` uses `equal?(%0)` which checks the match
+        // call is the DIRECT predicate of the conditional. `if(str.match(...))` has a
+        // ParenthesesNode as the predicate, not the CallNode, so it's not flagged.
+        // When parens break a condition context, mark value as used so the match call
+        // inside is treated as "value used but not in condition" → not flagged.
+        let old_condition = self.parent_is_condition;
+        let old_used = self.value_used;
+        if self.parent_is_condition {
+            self.value_used = true;
+        }
+        self.parent_is_condition = false;
+        ruby_prism::visit_parentheses_node(self, node);
+        self.parent_is_condition = old_condition;
+        self.value_used = old_used;
+    }
+
+    fn visit_multi_write_node(&mut self, node: &ruby_prism::MultiWriteNode<'pr>) {
+        // Multi-assignment RHS: value IS used (e.g., `_, name = *str.match(...)`)
+        let old = self.value_used;
+        let old_condition = self.parent_is_condition;
+        self.value_used = true;
+        self.parent_is_condition = false;
+        ruby_prism::visit_multi_write_node(self, node);
+        self.value_used = old;
+        self.parent_is_condition = old_condition;
+    }
+
+    fn visit_splat_node(&mut self, node: &ruby_prism::SplatNode<'pr>) {
+        // Splat: value IS used (being converted to array)
+        let old = self.value_used;
+        let old_condition = self.parent_is_condition;
+        self.value_used = true;
+        self.parent_is_condition = false;
+        ruby_prism::visit_splat_node(self, node);
+        self.value_used = old;
+        self.parent_is_condition = old_condition;
+    }
+
+    fn visit_instance_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableOrWriteNode<'pr>,
+    ) {
+        // @var ||= assignment: value IS used
+        let old = self.value_used;
+        let old_condition = self.parent_is_condition;
+        self.value_used = true;
+        self.parent_is_condition = false;
+        self.visit(&node.value());
+        self.value_used = old;
+        self.parent_is_condition = old_condition;
+    }
+
     fn visit_and_node(&mut self, node: &ruby_prism::AndNode<'pr>) {
         // Inside `&&`, the direct parent of children is `and`, not `if`.
         // RuboCop's `only_truthiness_matters?` only matches when the match call
@@ -371,10 +425,14 @@ impl<'a> RedundantMatchVisitor<'a> {
             None => return,
         };
 
-        let recv_is_literal =
-            receiver.as_string_node().is_some() || receiver.as_regular_expression_node().is_some();
+        let recv_is_literal = receiver.as_string_node().is_some()
+            || receiver.as_regular_expression_node().is_some()
+            || receiver.as_interpolated_regular_expression_node().is_some();
         let arg_is_literal = first_arg.as_string_node().is_some()
-            || first_arg.as_regular_expression_node().is_some();
+            || first_arg.as_regular_expression_node().is_some()
+            || first_arg
+                .as_interpolated_regular_expression_node()
+                .is_some();
 
         if !recv_is_literal && !arg_is_literal {
             return;
