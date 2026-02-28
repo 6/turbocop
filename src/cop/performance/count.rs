@@ -28,21 +28,39 @@ impl Cop for Count {
             None => return,
         };
 
-        if chain.outer_method != b"count" {
+        let outer = chain.outer_method;
+        let outer_name = if outer == b"count" {
+            "count"
+        } else if outer == b"size" {
+            "size"
+        } else if outer == b"length" {
+            "length"
+        } else {
             return;
-        }
+        };
 
         let inner = chain.inner_method;
         let inner_name = if inner == b"select" {
             "select"
         } else if inner == b"reject" {
             "reject"
+        } else if inner == b"filter" {
+            "filter"
+        } else if inner == b"find_all" {
+            "find_all"
         } else {
             return;
         };
 
-        // The inner call should have a block
+        // The inner call must have a block (normal block or block_pass like &:symbol)
         if chain.inner_call.block().is_none() {
+            return;
+        }
+
+        // Skip if the outer call (count/size/length) itself has a block:
+        // e.g. `select { |e| e.odd? }.count { |e| e > 2 }` is allowed
+        let outer_call = node.as_call_node().unwrap();
+        if outer_call.block().is_some() {
             return;
         }
 
@@ -52,7 +70,7 @@ impl Cop for Count {
             source,
             line,
             column,
-            format!("Use `count` instead of `{inner_name}...count`."),
+            format!("Use `count` instead of `{inner_name}...{outer_name}`."),
         ));
     }
 }
