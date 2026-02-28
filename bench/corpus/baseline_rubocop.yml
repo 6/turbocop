@@ -201,6 +201,8 @@ RSpec/DescribedClassModuleWrapping:
   Enabled: true
 RSpec/Dialect:
   Enabled: true
+  PreferredMethods:
+    context: describe
 RSpec/MessageExpectation:
   Enabled: true
 RSpec/Pending:
