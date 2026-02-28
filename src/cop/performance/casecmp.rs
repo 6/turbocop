@@ -41,6 +41,13 @@ impl Cop for Casecmp {
             return;
         }
 
+        // Skip safe navigation (&.) — casecmp doesn't handle nil safely
+        if let Some(op) = chain.inner_call.call_operator_loc() {
+            if op.as_slice() == b"&." {
+                return;
+            }
+        }
+
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(
