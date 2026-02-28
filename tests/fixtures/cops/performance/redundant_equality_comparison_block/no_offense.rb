@@ -7,3 +7,11 @@ arr.include?(value)
 arr.reject { |x| x == uri }
 arr.select { |x| x == val }
 arr.detect { |x| x == val }
+# block param used on both sides of ==
+arr.any? { |bin| num[0, bin.size] == bin }
+# block param is the argument to is_a? (not the receiver)
+klasses.all? { |klass| item.is_a?(klass) }
+# trailing comma destructuring
+exps.any? { |type,| type == :static }
+# === where block param is receiver (not argument)
+arr.any? { |m| m === pattern }
