@@ -1,9 +1,57 @@
-use crate::cop::node_type::{CALL_NODE, RANGE_NODE};
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct ArraySemiInfiniteRangeSlice;
+
+fn is_string_receiver(receiver: &ruby_prism::Node<'_>) -> bool {
+    receiver.as_string_node().is_some()
+        || receiver.as_interpolated_string_node().is_some()
+        || receiver.as_x_string_node().is_some()
+        || receiver.as_interpolated_x_string_node().is_some()
+}
+
+/// Check if a node is a positive integer literal.
+fn is_positive_int(node: &ruby_prism::Node<'_>, source: &SourceFile) -> bool {
+    if let Some(int_node) = node.as_integer_node() {
+        let loc = int_node.location();
+        let src = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
+        if let Ok(s) = std::str::from_utf8(src) {
+            if let Ok(v) = s.parse::<i64>() {
+                return v > 0;
+            }
+        }
+    }
+    false
+}
+
+/// Check if a range node is a semi-infinite range with a positive integer literal endpoint.
+/// Returns Some("drop") for endless ranges (N..) and Some("take") for beginless ranges (..N).
+fn semi_infinite_range_direction(
+    range: &ruby_prism::RangeNode<'_>,
+    source: &SourceFile,
+) -> Option<&'static str> {
+    match (range.left(), range.right()) {
+        // Endless range: N.. or N...
+        (Some(left), None) => {
+            if is_positive_int(&left, source) {
+                Some("drop")
+            } else {
+                None
+            }
+        }
+        // Beginless range: ..N or ...N
+        (None, Some(right)) => {
+            if is_positive_int(&right, source) {
+                Some("take")
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
 
 impl Cop for ArraySemiInfiniteRangeSlice {
     fn name(&self) -> &'static str {
@@ -15,7 +63,7 @@ impl Cop for ArraySemiInfiniteRangeSlice {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, RANGE_NODE]
+        &[CALL_NODE]
     }
 
     fn check_node(
@@ -32,8 +80,20 @@ impl Cop for ArraySemiInfiniteRangeSlice {
             None => return,
         };
 
-        if call.name().as_slice() != b"[]" {
+        let method_name = call.name();
+        let method_bytes = method_name.as_slice();
+        let is_bracket = method_bytes == b"[]";
+        let is_slice = method_bytes == b"slice";
+
+        if !is_bracket && !is_slice {
             return;
+        }
+
+        // Skip string literal receivers
+        if let Some(receiver) = call.receiver() {
+            if is_string_receiver(&receiver) {
+                return;
+            }
         }
 
         let arguments = match call.arguments() {
@@ -52,10 +112,12 @@ impl Cop for ArraySemiInfiniteRangeSlice {
             None => return,
         };
 
-        // Semi-infinite range: has a left but no right (e.g., 2..)
-        if range.left().is_none() || range.right().is_some() {
-            return;
-        }
+        let direction = match semi_infinite_range_direction(&range, source) {
+            Some(d) => d,
+            None => return,
+        };
+
+        let method_display = if is_bracket { "[]" } else { "slice" };
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -63,7 +125,7 @@ impl Cop for ArraySemiInfiniteRangeSlice {
             source,
             line,
             column,
-            "Use `drop` instead of `[]` with a semi-infinite range.".to_string(),
+            format!("Use `{direction}` instead of `{method_display}` with a semi-infinite range."),
         ));
     }
 }
