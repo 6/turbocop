@@ -8,16 +8,57 @@ pub struct RedundantSplitRegexpArgument;
 /// Check if regex content is a simple literal that could be replaced by a string.
 /// Returns false for patterns with special regex characters like character classes,
 /// quantifiers, alternation, anchors, etc.
+///
+/// Handles escape sequences: `\.` (escaped metachar) is a simple literal (just `.`),
+/// `\n`, `\t`, `\r` are simple literals (newline/tab/CR), and `\\` is a literal
+/// backslash. But `\s`, `\d`, `\w`, `\b`, `\A`, `\Z`, `\p`, `\h` etc. are true
+/// regex features and are NOT simple literals.
 fn is_simple_literal_regex(content: &[u8]) -> bool {
+    // Empty regexp // can be replaced with ""
     if content.is_empty() {
+        return true;
+    }
+
+    // Single space / / is NOT equivalent to " " for split:
+    // "  foo  ".split(" ") strips/collapses leading whitespace,
+    // "  foo  ".split(/ /) preserves empty strings for each space.
+    if content == b" " {
         return false;
     }
-    for &b in content {
-        match b {
-            // Any regex-special character means this is NOT a simple string
-            b'.' | b'*' | b'+' | b'?' | b'|' | b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'^'
-            | b'$' | b'\\' | b'#' => return false,
-            _ => {}
+
+    let mut i = 0;
+    while i < content.len() {
+        let b = content[i];
+        if b == b'\\' {
+            // Backslash escape sequence
+            if i + 1 >= content.len() {
+                // Trailing backslash — not a simple literal
+                return false;
+            }
+            let next = content[i + 1];
+            match next {
+                // Escaped regex metacharacters — the literal character itself
+                b'.' | b'*' | b'+' | b'?' | b'|' | b'(' | b')' | b'[' | b']' | b'{' | b'}'
+                | b'^' | b'$' | b'\\' | b'#' | b'/' | b'-' => {
+                    i += 2;
+                }
+                // Simple escape sequences that produce a single literal character
+                b'n' | b't' | b'r' | b'f' | b'a' | b'e' | b'v' => {
+                    i += 2;
+                }
+                // True regex features — NOT simple literals
+                // \s \S \d \D \w \W \b \B \A \Z \z \G \p \P \h \H \R \X etc.
+                _ => return false,
+            }
+        } else {
+            match b {
+                // Unescaped regex metacharacters — this is a real regex pattern
+                b'.' | b'*' | b'+' | b'?' | b'|' | b'(' | b')' | b'[' | b']' | b'{' | b'}'
+                | b'^' | b'$' | b'#' => return false,
+                _ => {
+                    i += 1;
+                }
+            }
         }
     }
     true
