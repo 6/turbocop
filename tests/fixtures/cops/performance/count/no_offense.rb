@@ -26,3 +26,11 @@ change { items.select { |e| e.ready? }.count }
 # empty block (no body) — RuboCop skips these
 arr.select { }.count
 arr.reject { }.size
+# numbered parameters (_1) — RuboCop uses numblock which doesn't match block pattern
+items.select { _1.positive? }.count
+items.reject { _1 > 0 }.size
+records.filter { _1.active? }.length
+items.select { _1[1].positive? }.count
+# it parameter (Ruby 3.4) — also numblock in parser-gem
+records.filter { it.valid? }.length
+items.select { it > 0 }.count
