@@ -40,7 +40,13 @@ impl Cop for BlockGivenWithExplicitBlock {
             None => return,
         };
 
-        if params.block().is_none() {
+        let block_param = match params.block() {
+            Some(b) => b,
+            None => return,
+        };
+
+        // Skip anonymous block forwarding (`&` without a name, Ruby 3.1+)
+        if block_param.name().is_none() {
             return;
         }
 
