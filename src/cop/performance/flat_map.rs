@@ -59,8 +59,19 @@ impl Cop for FlatMap {
             return;
         };
 
-        // The inner call should have a block
+        // The inner call should have a block (literal block or block-pass argument)
         if chain.inner_call.block().is_none() {
+            return;
+        }
+
+        // Skip if the inner call has regular positional arguments (e.g., Parallel.map(items, opts, &block)).
+        // RuboCop's pattern only matches Enumerable#map which takes just a block, not methods
+        // like Parallel.map that accept additional positional arguments.
+        if chain
+            .inner_call
+            .arguments()
+            .is_some_and(|args| !args.arguments().is_empty())
+        {
             return;
         }
 

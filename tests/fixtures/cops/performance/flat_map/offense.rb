@@ -4,3 +4,7 @@
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/FlatMap: Use `flat_map` instead of `collect...flatten`.
 arr.map { |item| item.children }.flatten
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/FlatMap: Use `flat_map` instead of `map...flatten`.
+ancestors.map(&:instance_methods).flatten(1)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/FlatMap: Use `flat_map` instead of `map...flatten`.
+items.collect(&:children).flatten
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/FlatMap: Use `flat_map` instead of `collect...flatten`.
