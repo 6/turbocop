@@ -371,6 +371,21 @@ impl<'pr> ruby_prism::Visit<'pr> for RedundantMatchVisitor<'_> {
         self.value_used = old_used;
     }
 
+    fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
+        // When a begin block has rescue clauses, match() calls inside serve
+        // as control flow (exception handling). RuboCop's value_used? returns
+        // true in this context, so we mark value_used to avoid false positives.
+        let old_used = self.value_used;
+        let old_condition = self.parent_is_condition;
+        if node.rescue_clause().is_some() {
+            self.value_used = true;
+            self.parent_is_condition = false;
+        }
+        ruby_prism::visit_begin_node(self, node);
+        self.value_used = old_used;
+        self.parent_is_condition = old_condition;
+    }
+
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
         let old = self.value_used;
         // Block body: last expression's value may be used as block return

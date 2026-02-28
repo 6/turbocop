@@ -49,3 +49,10 @@ end
 _, name, code = *line.match(/([A-Za-z]+);([0-9A-F]{4})/)
 # Instance variable ||= — value IS used
 @match ||= url.match(/pattern/)
+# begin/rescue — match used for exception handling side effect
+begin
+  str.match(/.+?/)
+rescue
+  nil
+end
+do_something
