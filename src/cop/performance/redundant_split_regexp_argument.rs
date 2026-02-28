@@ -1,4 +1,4 @@
-use crate::cop::node_type::{CALL_NODE, REGULAR_EXPRESSION_NODE};
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -9,10 +9,13 @@ pub struct RedundantSplitRegexpArgument;
 /// Returns false for patterns with special regex characters like character classes,
 /// quantifiers, alternation, anchors, etc.
 ///
-/// Handles escape sequences: `\.` (escaped metachar) is a simple literal (just `.`),
-/// `\n`, `\t`, `\r` are simple literals (newline/tab/CR), and `\\` is a literal
-/// backslash. But `\s`, `\d`, `\w`, `\b`, `\A`, `\Z`, `\p`, `\h` etc. are true
-/// regex features and are NOT simple literals.
+/// Matches RuboCop's `LITERAL_REGEX` from `lib/rubocop/cop/util.rb`:
+///   /[\w\s\-,"'!#%&<>=;:`~/]|\\[^AbBdDgGhHkpPRwWXsSzZ0-9]/
+///
+/// Unescaped characters matching the first alternation are simple literals.
+/// Backslash escapes are simple literals as long as the next character is NOT
+/// a special regex class/anchor (`\d`, `\w`, `\A`, `\z`, `\b`, etc.) or a
+/// backreference (`\0`-`\9`).
 fn is_simple_literal_regex(content: &[u8]) -> bool {
     // Empty regexp // can be replaced with ""
     if content.is_empty() {
@@ -36,28 +39,56 @@ fn is_simple_literal_regex(content: &[u8]) -> bool {
                 return false;
             }
             let next = content[i + 1];
+            // True regex features — NOT simple literals:
+            // \A \b \B \d \D \g \G \h \H \k \p \P \R \s \S \w \W \X \z \Z \0-\9
             match next {
-                // Escaped regex metacharacters — the literal character itself
-                b'.' | b'*' | b'+' | b'?' | b'|' | b'(' | b')' | b'[' | b']' | b'{' | b'}'
-                | b'^' | b'$' | b'\\' | b'#' | b'/' | b'-' => {
+                b'A'
+                | b'b'
+                | b'B'
+                | b'd'
+                | b'D'
+                | b'g'
+                | b'G'
+                | b'h'
+                | b'H'
+                | b'k'
+                | b'p'
+                | b'P'
+                | b'R'
+                | b's'
+                | b'S'
+                | b'w'
+                | b'W'
+                | b'X'
+                | b'z'
+                | b'Z'
+                | b'0'..=b'9' => return false,
+                // Everything else after backslash is a simple literal escape
+                _ => {
                     i += 2;
                 }
-                // Simple escape sequences that produce a single literal character
-                b'n' | b't' | b'r' | b'f' | b'a' | b'e' | b'v' => {
-                    i += 2;
-                }
-                // True regex features — NOT simple literals
-                // \s \S \d \D \w \W \b \B \A \Z \z \G \p \P \h \H \R \X etc.
-                _ => return false,
             }
         } else {
+            // Unescaped characters: check against RuboCop's LITERAL_REGEX character class
+            // [\w\s\-,"'!#%&<>=;:`~/]
+            // Characters NOT in this class are regex metacharacters.
             match b {
-                // Unescaped regex metacharacters — this is a real regex pattern
-                b'.' | b'*' | b'+' | b'?' | b'|' | b'(' | b')' | b'[' | b']' | b'{' | b'}'
-                | b'^' | b'$' | b'#' => return false,
-                _ => {
+                // \w: word characters (alphanumeric + underscore)
+                b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' => {
                     i += 1;
                 }
+                // \s: whitespace
+                b' ' | b'\t' | b'\n' | b'\r' => {
+                    i += 1;
+                }
+                // Explicitly listed literal characters
+                b'-' | b',' | b'"' | b'\'' | b'!' | b'#' | b'%' | b'&' | b'<' | b'>' | b'='
+                | b';' | b':' | b'`' | b'~' | b'/' => {
+                    i += 1;
+                }
+                // Anything else (., *, +, ?, |, (, ), [, ], {, }, ^, $, etc.)
+                // is a regex metacharacter
+                _ => return false,
             }
         }
     }
@@ -74,7 +105,7 @@ impl Cop for RedundantSplitRegexpArgument {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, REGULAR_EXPRESSION_NODE]
+        &[CALL_NODE]
     }
 
     fn check_node(
@@ -123,12 +154,27 @@ impl Cop for RedundantSplitRegexpArgument {
             None => return,
         };
 
+        // Skip %r{} syntax — RuboCop's DETERMINISTIC_REGEX matches against the
+        // full source (including delimiters), and %r delimiters ({, [, (, etc.)
+        // are not in its LITERAL_REGEX character class, so %r never matches.
+        let node_loc = first_arg.location();
+        let full_bytes = &source.as_bytes()[node_loc.start_offset()..node_loc.end_offset()];
+        if full_bytes.starts_with(b"%r") {
+            return;
+        }
+
+        // Skip regexps with flags (e.g., /pattern/i)
+        let closing = regex_node.closing_loc().as_slice();
+        if closing.len() > 1 {
+            return;
+        }
+
         let content = regex_node.content_loc().as_slice();
         if !is_simple_literal_regex(content) {
             return;
         }
 
-        let loc = call.location();
+        let loc = regex_node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,

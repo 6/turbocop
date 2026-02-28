@@ -17,3 +17,11 @@ str.split(/-/, -1)
 str.split(/\d+/)
 str.split(/\w/)
 str.split(/\b/)
+# %r{} syntax — RuboCop does not flag these
+str.split(%r{,})
+str.split(%r{=})
+pair.split(%r{=})
+body.split(%r{&})
+# Regexp with flags — not a simple replacement
+str.split(/split/i)
+str.split(/,/x)
