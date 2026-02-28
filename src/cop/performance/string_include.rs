@@ -149,8 +149,8 @@ impl Cop for StringInclude {
                 is_simple_regex_node(&recv)
             }
 
-            // str =~ /regex/ or /regex/ =~ str or !~
-            b"=~" | b"!~" => {
+            // str =~ /regex/ or /regex/ =~ str (both directions)
+            b"=~" => {
                 let recv = match call.receiver() {
                     Some(r) => r,
                     None => return,
@@ -164,6 +164,19 @@ impl Cop for StringInclude {
                     None => return,
                 };
                 is_simple_regex_node(&recv) || is_simple_regex_node(&first_arg)
+            }
+
+            // str !~ /regex/ (regex as argument only; /regex/ !~ str is NOT flagged by RuboCop)
+            b"!~" => {
+                let arguments = match call.arguments() {
+                    Some(a) => a,
+                    None => return,
+                };
+                let first_arg = match arguments.arguments().iter().next() {
+                    Some(a) => a,
+                    None => return,
+                };
+                is_simple_regex_node(&first_arg)
             }
 
             _ => return,

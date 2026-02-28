@@ -23,3 +23,8 @@ str =~ /prefix./
 match(/foo/)
 # str === /regex/ (wrong direction for ===)
 str === /abc/
+# /regex/ !~ str (regex as receiver of !~, RuboCop only flags str !~ /regex/)
+/pattern/ !~ str
+/one/ !~ out
+/queued_/ !~ description
+/\./ !~ receiver
