@@ -25,3 +25,19 @@ end
 def plugin(adapter, spec, &)
   block_given? ? yield_config : default_config
 end
+
+# Block param reassignment — not an offense (RuboCop suppresses)
+def with_default_block(&block)
+  block ||= -> { default_action }
+  block.call if block_given?
+end
+
+def with_reassigned_block(&block)
+  block = proc { fallback } unless block_given?
+  block.call
+end
+
+def with_and_assign(&block)
+  block &&= wrap(block)
+  block.call if block_given?
+end

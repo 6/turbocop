@@ -46,15 +46,26 @@ impl Cop for BlockGivenWithExplicitBlock {
         };
 
         // Skip anonymous block forwarding (`&` without a name, Ruby 3.1+)
-        if block_param.name().is_none() {
-            return;
-        }
+        let block_name = match block_param.name() {
+            Some(n) => n,
+            None => return,
+        };
 
         // Walk the body looking for `block_given?` calls
         let body = match def_node.body() {
             Some(b) => b,
             None => return,
         };
+
+        // Check if the block param is reassigned in the body — if so, skip
+        let mut reassign_finder = ReassignFinder {
+            name: block_name.as_slice(),
+            found: false,
+        };
+        reassign_finder.visit(&body);
+        if reassign_finder.found {
+            return;
+        }
 
         let mut finder = BlockGivenFinder {
             offsets: Vec::new(),
@@ -80,11 +91,65 @@ impl<'pr> Visit<'pr> for BlockGivenFinder {
         {
             self.offsets.push(node.location().start_offset());
         }
-        // Don't recurse into nested def nodes
+        // Recurse into children to find block_given? inside negation,
+        // method arguments, ternary conditions, etc.
+        ruby_prism::visit_call_node(self, node);
     }
 
     fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {
         // Don't recurse into nested method definitions
+    }
+}
+
+/// Detects reassignment of the block parameter variable within the method body.
+/// When the block param is reassigned (e.g., `block ||= -> {}`, `block = proc {}`),
+/// RuboCop suppresses the offense because `block_given?` may behave differently
+/// from checking the reassigned variable.
+struct ReassignFinder<'a> {
+    name: &'a [u8],
+    found: bool,
+}
+
+impl<'pr> Visit<'pr> for ReassignFinder<'_> {
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
+        if node.name().as_slice() == self.name {
+            self.found = true;
+        }
+        ruby_prism::visit_local_variable_write_node(self, node);
+    }
+
+    fn visit_local_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+    ) {
+        if node.name().as_slice() == self.name {
+            self.found = true;
+        }
+        ruby_prism::visit_local_variable_or_write_node(self, node);
+    }
+
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        if node.name().as_slice() == self.name {
+            self.found = true;
+        }
+        ruby_prism::visit_local_variable_operator_write_node(self, node);
+    }
+
+    fn visit_local_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
+    ) {
+        if node.name().as_slice() == self.name {
+            self.found = true;
+        }
+        ruby_prism::visit_local_variable_and_write_node(self, node);
+    }
+
+    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {
+        // Don't recurse into nested method definitions (different scope)
     }
 }
 
