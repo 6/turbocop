@@ -26,6 +26,7 @@ DENYLIST = {
     "gitlabhq/gitlabhq",
     "aws/aws-sdk-ruby",
     "googleapis/google-api-ruby-client",
+    "instructure/canvas-lms",
 }
 
 
