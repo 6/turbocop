@@ -68,8 +68,18 @@ impl<'pr> Visit<'pr> for FixedSizeVisitor<'_, '_> {
     }
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        // If the call has a block, set in_block for its receiver and arguments.
+        // In RuboCop's parser gem AST, the block node wraps everything (receiver,
+        // args, block body), so literals in arguments have a block ancestor. In
+        // Prism, the block is a child of the CallNode, so we must propagate manually.
+        let has_block = node.block().is_some_and(|b| b.as_block_node().is_some());
+        let prev = self.in_block;
+        if has_block {
+            self.in_block = true;
+        }
         self.check_call(node);
         ruby_prism::visit_call_node(self, node);
+        self.in_block = prev;
     }
 }
 

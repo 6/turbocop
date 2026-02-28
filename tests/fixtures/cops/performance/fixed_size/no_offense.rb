@@ -15,3 +15,4 @@ foo.count
 "foo".count(@bar)
 [1, 2, 3].count { |v| v == 'a' }
 [1, 2, 3].count(&:any?)
+items.inject('foo'.length) { |acc, x| acc + x }
