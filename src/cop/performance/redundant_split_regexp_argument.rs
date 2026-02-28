@@ -65,7 +65,10 @@ impl Cop for RedundantSplitRegexpArgument {
         };
 
         let args = arguments.arguments();
-        if args.is_empty() {
+        // RuboCop only flags split with exactly one argument (the regexp).
+        // When a limit argument is present (e.g. str.split(/ /, 3)), the
+        // regex-to-string replacement may not be equivalent in all edge cases.
+        if args.len() != 1 {
             return;
         }
 
