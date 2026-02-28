@@ -32,6 +32,17 @@ impl Cop for ReverseFirst {
             return;
         }
 
+        // RuboCop's NodePattern: (call $(call _ :reverse) :first (int _)?)
+        // Only flag when first's argument is absent or an integer literal.
+        let outer_call = node.as_call_node().unwrap();
+        if let Some(args) = outer_call.arguments() {
+            if let Some(first_arg) = args.arguments().iter().next() {
+                if first_arg.as_integer_node().is_none() {
+                    return;
+                }
+            }
+        }
+
         // Report at the inner call's selector (.reverse), matching RuboCop's
         // `receiver.loc.selector.begin_pos`
         let inner_msg_loc = chain
@@ -40,7 +51,6 @@ impl Cop for ReverseFirst {
             .unwrap_or(chain.inner_call.location());
         let (line, column) = source.offset_to_line_col(inner_msg_loc.start_offset());
 
-        let outer_call = node.as_call_node().unwrap();
         let msg = if let Some(args) = outer_call.arguments() {
             if let Some(first_arg) = args.arguments().iter().next() {
                 let arg_text = std::str::from_utf8(first_arg.location().as_slice()).unwrap_or("n");
