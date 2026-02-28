@@ -27,7 +27,7 @@ impl Cop for Count {
             cop: self,
             source,
             diagnostics: Vec::new(),
-            in_single_stmt_block_body: false,
+            single_stmt_block_body_offset: None,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -38,48 +38,34 @@ struct CountVisitor<'a, 'src> {
     cop: &'a Count,
     source: &'src SourceFile,
     diagnostics: Vec<Diagnostic>,
-    /// True when we're visiting the sole statement of a block body.
-    /// RuboCop skips `select{}.count` when it's the only expression in a
-    /// block body (parent is block_type? in parser-gem terms).
-    in_single_stmt_block_body: bool,
+    /// Byte offset of the sole statement in the current block body, if any.
+    /// RuboCop skips `select{}.count` when its direct parent is a block node
+    /// (`node.parent&.block_type?`). We track the offset of the single
+    /// statement so we only skip when the count call IS that statement, not
+    /// when it's nested inside an assignment or other expression.
+    single_stmt_block_body_offset: Option<usize>,
 }
 
 impl<'pr> Visit<'pr> for CountVisitor<'_, '_> {
     fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
-        // Check if the block has exactly one statement in its body.
-        let is_single = is_single_statement_body(node.body());
-        if is_single {
-            let prev = self.in_single_stmt_block_body;
-            self.in_single_stmt_block_body = true;
-            ruby_prism::visit_block_node(self, node);
-            self.in_single_stmt_block_body = prev;
-        } else {
-            ruby_prism::visit_block_node(self, node);
-        }
+        // Record the byte offset of the sole statement in the block body.
+        let prev = self.single_stmt_block_body_offset;
+        self.single_stmt_block_body_offset = single_statement_offset(node.body());
+        ruby_prism::visit_block_node(self, node);
+        self.single_stmt_block_body_offset = prev;
     }
 
     fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
         // Lambdas are block-like in parser gem
-        let is_single = is_single_statement_body(node.body());
-        if is_single {
-            let prev = self.in_single_stmt_block_body;
-            self.in_single_stmt_block_body = true;
-            ruby_prism::visit_lambda_node(self, node);
-            self.in_single_stmt_block_body = prev;
-        } else {
-            ruby_prism::visit_lambda_node(self, node);
-        }
+        let prev = self.single_stmt_block_body_offset;
+        self.single_stmt_block_body_offset = single_statement_offset(node.body());
+        ruby_prism::visit_lambda_node(self, node);
+        self.single_stmt_block_body_offset = prev;
     }
 
     fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
         self.check_call(node);
-        // When visiting children of a call node, we're no longer at the
-        // top level of a single-statement block body. The block's sole
-        // statement is *this* call; its sub-expressions are deeper.
-        let prev = self.in_single_stmt_block_body;
-        self.in_single_stmt_block_body = false;
         ruby_prism::visit_call_node(self, node);
-        self.in_single_stmt_block_body = prev;
     }
 }
 
@@ -143,19 +129,27 @@ impl CountVisitor<'_, '_> {
             }
         }
 
+        // Skip if the outer call (count/size/length) has arguments.
+        // RuboCop's NodePattern only matches argumentless count/size/length.
+        if call.arguments().is_some() {
+            return;
+        }
+
         // Skip if the outer call (count/size/length) itself has a block:
         // e.g. `select { |e| e.odd? }.count { |e| e > 2 }` is allowed
         if call.block().is_some() {
             return;
         }
 
-        // Skip if this call is the sole body of a block.
+        // Skip if this call is the direct sole statement of a block body.
         // RuboCop: `return false if node.parent&.block_type?`
-        // In parser-gem, when a block has one statement, the statement's
-        // parent IS the block node. With multiple statements they're
-        // wrapped in a `begin` node, so the parent is `begin`, not block.
-        if self.in_single_stmt_block_body {
-            return;
+        // We compare the call's start offset against the recorded single
+        // statement offset — only skip when they match exactly (the call IS
+        // the statement, not nested inside an assignment or other wrapper).
+        if let Some(offset) = self.single_stmt_block_body_offset {
+            if call.location().start_offset() == offset {
+                return;
+            }
         }
 
         let loc = call.location();
@@ -169,16 +163,22 @@ impl CountVisitor<'_, '_> {
     }
 }
 
-/// Check if a block/lambda body has exactly one statement.
-fn is_single_statement_body(body: Option<ruby_prism::Node<'_>>) -> bool {
-    let body = match body {
-        Some(b) => b,
-        None => return false,
-    };
+/// If the block/lambda body has exactly one statement, return its start offset.
+fn single_statement_offset(body: Option<ruby_prism::Node<'_>>) -> Option<usize> {
+    let body = body?;
     match body.as_statements_node() {
-        Some(stmts) => stmts.body().len() == 1,
+        Some(stmts) if stmts.body().len() == 1 => Some(
+            stmts
+                .body()
+                .iter()
+                .next()
+                .unwrap()
+                .location()
+                .start_offset(),
+        ),
+        Some(_) => None,
         // Body is a single non-statements node
-        None => true,
+        None => Some(body.location().start_offset()),
     }
 }
 

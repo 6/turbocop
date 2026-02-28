@@ -28,3 +28,10 @@ items.map do |r|
   r.split(".").select { |s| s == "*" }.count
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/Count: Use `count` instead of `select...count`.
 end
+# assignment inside single-statement block body (RuboCop flags these)
+items.each { |r| x = r.values.select { |v| v > 0 }.count }
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/Count: Use `count` instead of `select...count`.
+items.map do |r|
+  total = r.entries.reject { |e| e.blank? }.size
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/Count: Use `count` instead of `reject...size`.
+end

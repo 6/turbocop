@@ -34,3 +34,7 @@ items.select { _1[1].positive? }.count
 # it parameter (Ruby 3.4) — also numblock in parser-gem
 records.filter { it.valid? }.length
 items.select { it > 0 }.count
+# count/size/length with arguments — RuboCop doesn't flag these
+array.select { |e| e > 0 }.count(5)
+items.reject { |x| x.nil? }.size(1)
+records.filter(&:active?).length(0)
