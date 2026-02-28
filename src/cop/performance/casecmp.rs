@@ -7,27 +7,28 @@ pub struct Casecmp;
 /// Check if a node is a valid RHS for casecmp: string literal, downcase/upcase call,
 /// or parenthesized string.
 fn is_valid_casecmp_operand(node: &ruby_prism::Node<'_>) -> bool {
-    // String literal
-    if node.as_string_node().is_some() || node.as_interpolated_string_node().is_some() {
+    // String literal (only simple strings, not interpolated)
+    if node.as_string_node().is_some() {
         return true;
     }
-    // downcase/upcase call
+    // downcase/upcase call (no safe navigation)
     if let Some(call) = node.as_call_node() {
         let name = call.name().as_slice();
-        if (name == b"downcase" || name == b"upcase") && call.arguments().is_none() {
+        if (name == b"downcase" || name == b"upcase")
+            && call.arguments().is_none()
+            && !has_safe_navigation(&call)
+        {
             return true;
         }
     }
-    // Parenthesized string: (begin str)
+    // Parenthesized string: (begin str) — only simple strings
     if let Some(parens) = node.as_parentheses_node() {
         if let Some(body) = parens.body() {
             if let Some(stmts) = body.as_statements_node() {
                 let body_nodes: Vec<_> = stmts.body().iter().collect();
                 if body_nodes.len() == 1 {
                     let inner = &body_nodes[0];
-                    if inner.as_string_node().is_some()
-                        || inner.as_interpolated_string_node().is_some()
-                    {
+                    if inner.as_string_node().is_some() {
                         return true;
                     }
                 }
