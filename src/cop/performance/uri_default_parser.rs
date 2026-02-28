@@ -1,6 +1,5 @@
 // Handles both as_constant_read_node and as_constant_path_node (qualified constants like ::URI)
-use crate::cop::node_type::{CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE};
-use crate::cop::util::constant_name;
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
@@ -17,7 +16,7 @@ impl Cop for UriDefaultParser {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE]
+        &[CALL_NODE]
     }
 
     fn check_node(
@@ -34,40 +33,52 @@ impl Cop for UriDefaultParser {
             None => return,
         };
 
-        let method_name = call.name().as_slice();
-        if method_name != b"decode" && method_name != b"encode" {
+        // Must be a call to `.new`
+        if call.name().as_slice() != b"new" {
             return;
         }
 
+        // The receiver must be `URI::Parser` or `::URI::Parser`
         let receiver = match call.receiver() {
             Some(r) => r,
             None => return,
         };
 
-        // Must be exactly `URI` (or `::URI`), not a namespaced variant like `Addressable::URI`
-        if receiver.as_constant_read_node().is_some() {
-            // Simple `URI` — ok
-            if constant_name(&receiver) != Some(b"URI") {
+        let parser_path = match receiver.as_constant_path_node() {
+            Some(cp) => cp,
+            None => return,
+        };
+
+        // The name (rightmost part) must be `Parser`
+        if parser_path.name().map(|n| n.as_slice()) != Some(b"Parser") {
+            return;
+        }
+
+        // The parent must be `URI` (ConstantReadNode) or `::URI` (ConstantPathNode with no parent)
+        let parent = match parser_path.parent() {
+            Some(p) => p,
+            None => return,
+        };
+
+        let double_colon;
+        if let Some(cr) = parent.as_constant_read_node() {
+            // Simple `URI::Parser.new`
+            if cr.name().as_slice() != b"URI" {
                 return;
             }
-        } else if let Some(cp) = receiver.as_constant_path_node() {
-            // `::URI` (parent is None, name is URI) — ok
-            // `Addressable::URI` (parent is Some) — skip
+            double_colon = "";
+        } else if let Some(cp) = parent.as_constant_path_node() {
+            // `::URI::Parser.new` — parent is ConstantPathNode with no parent and name URI
             if cp.parent().is_some() {
                 return;
             }
             if cp.name().map(|n| n.as_slice()) != Some(b"URI") {
                 return;
             }
+            double_colon = "::";
         } else {
             return;
         }
-
-        let suggestion = if method_name == b"decode" {
-            "URI::DEFAULT_PARSER.unescape"
-        } else {
-            "URI::DEFAULT_PARSER.escape"
-        };
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -76,8 +87,7 @@ impl Cop for UriDefaultParser {
             line,
             column,
             format!(
-                "Use `{suggestion}` instead of `URI.{}`.",
-                std::str::from_utf8(method_name).unwrap_or("?")
+                "Use `{double_colon}URI::DEFAULT_PARSER` instead of `{double_colon}URI::Parser.new`."
             ),
         ));
     }

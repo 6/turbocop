@@ -1,9 +1,12 @@
+URI::DEFAULT_PARSER.make_regexp
 URI::DEFAULT_PARSER.unescape('foo')
 URI::DEFAULT_PARSER.escape('bar')
 URI.parse('http://example.com')
-obj.decode('foo')
-CGI.escape('bar')
 ::URI.parse('http://example.com')
-# Namespaced URI classes should not be flagged
-Addressable::URI.encode(uri)
-Addressable::URI.decode(uri)
+URI.encode('foo')
+URI.decode('foo')
+::URI.encode('foo')
+::URI.decode('foo')
+obj.new
+Addressable::URI::Parser.new
+Something::Parser.new
