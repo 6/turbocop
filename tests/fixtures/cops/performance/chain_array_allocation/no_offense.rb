@@ -12,3 +12,8 @@ requirements.flatten.flat_map { |r| r.split(",").map(&:strip) }
 model.select(:foo, :bar).select { |item| item.do_something }
 model.select(:foo, :bar).select(:baz, :qux)
 arr.zip { |f| f }.uniq
+# safe navigation chains — RuboCop only matches `send`, not `csend`
+items&.select { |x| x.valid? }&.map(&:name)
+items&.compact&.map(&:to_s)
+records&.map(&:id)&.compact
+account.users.where(auto_offline: false)&.map(&:user_id)&.map(&:to_s)

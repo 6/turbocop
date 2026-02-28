@@ -95,6 +95,23 @@ impl Cop for ChainArrayAllocation {
             None => return,
         };
 
+        // RuboCop's NodePattern only matches `send` (regular `.`), not `csend` (`&.`).
+        // Skip chains where either the outer or inner call uses safe navigation.
+        let outer_call = node.as_call_node().unwrap();
+        if outer_call
+            .call_operator_loc()
+            .is_some_and(|op| op.as_slice() == b"&.")
+        {
+            return;
+        }
+        if chain
+            .inner_call
+            .call_operator_loc()
+            .is_some_and(|op| op.as_slice() == b"&.")
+        {
+            return;
+        }
+
         // Outer method must have a mutation alternative
         if !HAS_MUTATION_ALTERNATIVE.contains(&chain.outer_method) {
             return;
@@ -127,7 +144,6 @@ impl Cop for ChainArrayAllocation {
         let outer_name = String::from_utf8_lossy(chain.outer_method);
 
         // Point diagnostic at the outer method name (RuboCop uses node.loc.selector)
-        let outer_call = node.as_call_node().unwrap();
         let loc = outer_call.message_loc().unwrap_or(node.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
 
