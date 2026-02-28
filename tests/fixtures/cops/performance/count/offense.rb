@@ -22,3 +22,9 @@ foo.reject(&:blank?).size
 ^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/Count: Use `count` instead of `reject...size`.
 arr.filter(&:even?).length
 ^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/Count: Use `count` instead of `filter...length`.
+# multi-statement block body (RuboCop does flag these)
+items.map do |r|
+  x = r.to_s
+  r.split(".").select { |s| s == "*" }.count
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/Count: Use `count` instead of `select...count`.
+end

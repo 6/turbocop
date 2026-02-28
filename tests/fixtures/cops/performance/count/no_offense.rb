@@ -14,3 +14,15 @@ array.select(&:value).uniq.count
 [1, 2, 3].reject! { |e| e.odd? }.count
 # select...count with a block on count (allowed)
 [1, 2, 3].select { |e| e.odd? }.count { |e| e > 2 }
+# sole statement in a block body (RuboCop skips these)
+items.map do |r|
+  r.split(".").reject { |s| s == "*" }.count
+end
+items.map { |r| r.select { |s| s.valid? }.length }
+run(:task) do |records|
+  records.select { |r| r.active? }.size
+end
+change { items.select { |e| e.ready? }.count }
+# empty block (no body) — RuboCop skips these
+arr.select { }.count
+arr.reject { }.size
