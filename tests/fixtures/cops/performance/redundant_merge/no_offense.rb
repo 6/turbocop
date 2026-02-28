@@ -24,9 +24,9 @@ def liquid_locals
                  custom_message: @custom_message
                })
 end
-# merge! before rescue — return value used as last expression before rescue
-begin
-  h.merge!(a: 1)
-rescue StandardError => e
-  handle(e)
-end
+# merge! result used as argument to another method
+get @action, params: @params.merge!(before: Time.current.to_i.to_s)
+# merge! result used as method argument (positional)
+do_something(hash.merge!(key: val))
+# merge! result assigned to variable
+result = hash.merge!(a: 1)

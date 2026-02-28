@@ -1,9 +1,7 @@
-use crate::cop::node_type::{
-    ASSOC_SPLAT_NODE, CALL_NODE, HASH_NODE, KEYWORD_HASH_NODE, LOCAL_VARIABLE_READ_NODE,
-};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 pub struct RedundantMerge;
 
@@ -16,32 +14,39 @@ impl Cop for RedundantMerge {
         Severity::Convention
     }
 
-    fn interested_node_types(&self) -> &'static [u8] {
-        &[
-            ASSOC_SPLAT_NODE,
-            CALL_NODE,
-            HASH_NODE,
-            KEYWORD_HASH_NODE,
-            LOCAL_VARIABLE_READ_NODE,
-        ]
-    }
-
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let max_kv_pairs = config.get_usize("MaxKeyValuePairs", 2);
-
-        let call = match node.as_call_node() {
-            Some(c) => c,
-            None => return,
+        let mut visitor = RedundantMergeVisitor {
+            cop: self,
+            source,
+            diagnostics: Vec::new(),
+            max_kv_pairs,
+            value_used: false,
         };
+        visitor.visit(&parse_result.node());
+        diagnostics.extend(visitor.diagnostics);
+    }
+}
 
+struct RedundantMergeVisitor<'a, 'src> {
+    cop: &'a RedundantMerge,
+    source: &'src SourceFile,
+    diagnostics: Vec<Diagnostic>,
+    max_kv_pairs: usize,
+    /// Whether the current expression's value is used by a parent.
+    value_used: bool,
+}
+
+impl<'a, 'src> RedundantMergeVisitor<'a, 'src> {
+    fn check_merge_call(&mut self, call: &ruby_prism::CallNode<'_>) {
         if call.name().as_slice() != b"merge!" {
             return;
         }
@@ -62,8 +67,7 @@ impl Cop for RedundantMerge {
         let kv_count = if args.len() == 1 {
             let first = args.iter().next().unwrap();
             // Don't flag if argument contains a splat (**hash)
-            if first.as_keyword_hash_node().is_some() {
-                let kw = first.as_keyword_hash_node().unwrap();
+            if let Some(kw) = first.as_keyword_hash_node() {
                 if kw
                     .elements()
                     .iter()
@@ -72,8 +76,7 @@ impl Cop for RedundantMerge {
                     return;
                 }
                 kw.elements().len()
-            } else if first.as_hash_node().is_some() {
-                let hash = first.as_hash_node().unwrap();
+            } else if let Some(hash) = first.as_hash_node() {
                 if hash
                     .elements()
                     .iter()
@@ -89,7 +92,7 @@ impl Cop for RedundantMerge {
             0
         };
 
-        if kv_count == 0 || kv_count > max_kv_pairs {
+        if kv_count == 0 || kv_count > self.max_kv_pairs {
             return;
         }
 
@@ -103,98 +106,322 @@ impl Cop for RedundantMerge {
             }
         }
 
-        // Don't flag if the return value of merge! appears to be used.
-        // merge! returns the hash, while []= returns the assigned value —
-        // they're not interchangeable when the result is used.
-        //
-        // Check if the merge! call is the RHS of an assignment.
-        // The linter visits each node; we check if the call's source starts
-        // after an `=` on the same line (indicating it's an assignment RHS).
-        let call_start = call.location().start_offset();
-        let call_line_start = {
-            let mut pos = call_start;
-            while pos > 0 && source.as_bytes()[pos - 1] != b'\n' {
-                pos -= 1;
-            }
-            pos
-        };
-        let before_call = &source.as_bytes()[call_line_start..call_start];
-        // Check for assignment operator before the merge! call.
-        // Match `x = merge!` but not `==`, `!=`, `>=`, `<=`.
-        for i in 0..before_call.len() {
-            if before_call[i] == b'=' {
-                // Make sure it's not ==, !=, >=, <=
-                let prev = if i > 0 { before_call[i - 1] } else { 0 };
-                let next = if i + 1 < before_call.len() {
-                    before_call[i + 1]
-                } else {
-                    0
-                };
-                if prev != b'=' && prev != b'!' && prev != b'>' && prev != b'<' && next != b'=' {
-                    return;
-                }
-            }
-        }
-
-        let call_end = call.location().end_offset();
-        let bytes = source.as_bytes();
-        let mut pos = call_end;
-        while pos < bytes.len() && (bytes[pos] == b' ' || bytes[pos] == b'\t') {
-            pos += 1;
-        }
-        if pos < bytes.len() {
-            let next = bytes[pos];
-            // Result is chained, used as sub-expression, or otherwise consumed.
-            // Also skip `}` — merge! is the last expression in a single-line block,
-            // its return value becomes the block's return value.
-            if next == b'.' || next == b')' || next == b']' || next == b'&' || next == b'}' {
-                return;
-            }
-        }
-        // Check if merge! is the last expression in a block (its return value
-        // becomes the block's return value). Look for `end`/`}` on the next
-        // non-blank/non-comment line after the merge! END line. This also handles
-        // modifier conditionals like `h.merge!(k: v) if cond`.
-        // Use the call's END offset to handle multi-line merge! calls.
-        let end_off = call
-            .location()
-            .end_offset()
-            .saturating_sub(1)
-            .max(call.location().start_offset());
-        let (call_line, _) = source.offset_to_line_col(end_off);
-        let all_lines: Vec<&[u8]> = source.lines().collect();
-        for next_line_idx in call_line..all_lines.len() {
-            if let Some(nl) = all_lines.get(next_line_idx) {
-                let nt = nl
-                    .iter()
-                    .position(|&b| b != b' ' && b != b'\t')
-                    .map(|start| &nl[start..])
-                    .unwrap_or(&[]);
-                if nt.is_empty() || nt.starts_with(b"#") {
-                    continue;
-                }
-                if nt.starts_with(b"end")
-                    || nt.starts_with(b"}")
-                    || nt.starts_with(b"rescue")
-                    || nt.starts_with(b"ensure")
-                    || nt.starts_with(b"else")
-                    || nt.starts_with(b"elsif")
-                    || nt.starts_with(b"when")
-                {
-                    return;
-                }
-                break;
-            }
+        // Don't flag if the return value of merge! is used. merge! returns
+        // the hash, while []= returns the assigned value — they're not
+        // interchangeable when the result is consumed.
+        if self.value_used {
+            return;
         }
 
         let loc = call.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
         let msg = if kv_count == 1 {
             "Use `[]=` instead of `merge!` with a single key-value pair.".to_string()
         } else {
             format!("Use `[]=` instead of `merge!` with {kv_count} key-value pairs.")
         };
-        diagnostics.push(self.diagnostic(source, line, column, msg));
+        self.diagnostics
+            .push(self.cop.diagnostic(self.source, line, column, msg));
+    }
+}
+
+impl<'pr> Visit<'pr> for RedundantMergeVisitor<'_, '_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        // Check this call for merge! offense
+        self.check_merge_call(node);
+
+        // Visit receiver — its value is used (as the receiver)
+        if let Some(recv) = node.receiver() {
+            let prev = self.value_used;
+            self.value_used = true;
+            self.visit(&recv);
+            self.value_used = prev;
+        }
+
+        // Visit arguments — their values are used
+        if let Some(args) = node.arguments() {
+            let prev = self.value_used;
+            self.value_used = true;
+            self.visit_arguments_node(&args);
+            self.value_used = prev;
+        }
+
+        // Visit block — the block body's value may or may not be used
+        // depending on the method, but we treat it conservatively
+        if let Some(block) = node.block() {
+            self.visit(&block);
+        }
+    }
+
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
+        // RHS of assignment — value is used
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_local_variable_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_instance_variable_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableWriteNode<'pr>,
+    ) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_instance_variable_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_class_variable_write_node(&mut self, node: &ruby_prism::ClassVariableWriteNode<'pr>) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_class_variable_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_global_variable_write_node(
+        &mut self,
+        node: &ruby_prism::GlobalVariableWriteNode<'pr>,
+    ) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_global_variable_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_constant_write_node(&mut self, node: &ruby_prism::ConstantWriteNode<'pr>) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_constant_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_constant_path_write_node(&mut self, node: &ruby_prism::ConstantPathWriteNode<'pr>) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_constant_path_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_local_variable_operator_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_local_variable_or_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableOrWriteNode<'pr>,
+    ) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_local_variable_or_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_local_variable_and_write_node(
+        &mut self,
+        node: &ruby_prism::LocalVariableAndWriteNode<'pr>,
+    ) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_local_variable_and_write_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_assoc_node(&mut self, node: &ruby_prism::AssocNode<'pr>) {
+        // Value part of a hash pair — value is used
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_assoc_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_assoc_splat_node(&mut self, node: &ruby_prism::AssocSplatNode<'pr>) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_assoc_splat_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_return_node(&mut self, node: &ruby_prism::ReturnNode<'pr>) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_return_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_parentheses_node(&mut self, node: &ruby_prism::ParenthesesNode<'pr>) {
+        // Parenthesized expression passes through value_used context
+        ruby_prism::visit_parentheses_node(self, node);
+    }
+
+    fn visit_if_node(&mut self, node: &ruby_prism::IfNode<'pr>) {
+        // The condition's value is used; the branches inherit parent's value_used
+        {
+            let prev = self.value_used;
+            self.value_used = true;
+            self.visit(&node.predicate());
+            self.value_used = prev;
+        }
+        if let Some(stmts) = node.statements() {
+            self.visit_statements_node(&stmts);
+        }
+        if let Some(subsequent) = node.subsequent() {
+            self.visit(&subsequent);
+        }
+    }
+
+    fn visit_unless_node(&mut self, node: &ruby_prism::UnlessNode<'pr>) {
+        {
+            let prev = self.value_used;
+            self.value_used = true;
+            self.visit(&node.predicate());
+            self.value_used = prev;
+        }
+        if let Some(stmts) = node.statements() {
+            self.visit_statements_node(&stmts);
+        }
+        if let Some(else_clause) = node.else_clause() {
+            self.visit_else_node(&else_clause);
+        }
+    }
+
+    fn visit_while_node(&mut self, node: &ruby_prism::WhileNode<'pr>) {
+        {
+            let prev = self.value_used;
+            self.value_used = true;
+            self.visit(&node.predicate());
+            self.value_used = prev;
+        }
+        if let Some(stmts) = node.statements() {
+            self.visit_statements_node(&stmts);
+        }
+    }
+
+    fn visit_until_node(&mut self, node: &ruby_prism::UntilNode<'pr>) {
+        {
+            let prev = self.value_used;
+            self.value_used = true;
+            self.visit(&node.predicate());
+            self.value_used = prev;
+        }
+        if let Some(stmts) = node.statements() {
+            self.visit_statements_node(&stmts);
+        }
+    }
+
+    fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
+        // In a statements list, only the last statement's value is potentially
+        // used (as the implicit return). All other statements are side-effect only.
+        let stmts: Vec<_> = node.body().iter().collect();
+        let last_idx = stmts.len().saturating_sub(1);
+        for (i, stmt) in stmts.iter().enumerate() {
+            if i == last_idx {
+                // Last statement inherits parent's value_used
+                self.visit(stmt);
+            } else {
+                let prev = self.value_used;
+                self.value_used = false;
+                self.visit(stmt);
+                self.value_used = prev;
+            }
+        }
+    }
+
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        // Method body's last expression is the implicit return value —
+        // treat it as value_used
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_def_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        // Block body's last expression becomes the block's return value —
+        // conservatively treat as value_used
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_block_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_lambda_node(&mut self, node: &ruby_prism::LambdaNode<'pr>) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_lambda_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_begin_node(&mut self, node: &ruby_prism::BeginNode<'pr>) {
+        // begin..end passes through value_used to its statements
+        ruby_prism::visit_begin_node(self, node);
+    }
+
+    fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
+        // rescue clauses inherit value_used from the begin block
+        ruby_prism::visit_rescue_node(self, node);
+    }
+
+    fn visit_ensure_node(&mut self, node: &ruby_prism::EnsureNode<'pr>) {
+        ruby_prism::visit_ensure_node(self, node);
+    }
+
+    fn visit_case_node(&mut self, node: &ruby_prism::CaseNode<'pr>) {
+        // The predicate value is used; when branches inherit value_used
+        if let Some(pred) = node.predicate() {
+            let prev = self.value_used;
+            self.value_used = true;
+            self.visit(&pred);
+            self.value_used = prev;
+        }
+        for condition in node.conditions().iter() {
+            self.visit(&condition);
+        }
+        if let Some(else_clause) = node.else_clause() {
+            self.visit_else_node(&else_clause);
+        }
+    }
+
+    fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
+        // Interpolated parts have their value used
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_interpolated_string_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_embedded_statements_node(&mut self, node: &ruby_prism::EmbeddedStatementsNode<'pr>) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_embedded_statements_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_array_node(&mut self, node: &ruby_prism::ArrayNode<'pr>) {
+        // Array elements have their value used
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_array_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_hash_node(&mut self, node: &ruby_prism::HashNode<'pr>) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_hash_node(self, node);
+        self.value_used = prev;
+    }
+
+    fn visit_keyword_hash_node(&mut self, node: &ruby_prism::KeywordHashNode<'pr>) {
+        let prev = self.value_used;
+        self.value_used = true;
+        ruby_prism::visit_keyword_hash_node(self, node);
+        self.value_used = prev;
     }
 }
 

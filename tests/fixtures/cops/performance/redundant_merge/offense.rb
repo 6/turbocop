@@ -16,3 +16,10 @@ jar = cookies('foo=bar')
 jar.merge! :bar => 'baz'
 ^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/RedundantMerge: Use `[]=` instead of `merge!` with a single key-value pair.
 expect(jar).to include('bar')
+# merge! inside begin/rescue — value not used at top level
+begin
+  h.merge!(a: 1)
+  ^^^^^^^^^^^^^^^ Performance/RedundantMerge: Use `[]=` instead of `merge!` with a single key-value pair.
+rescue StandardError => e
+  handle(e)
+end
