@@ -6,3 +6,8 @@ x.match?(/fo+o/)
 # Regex with flags — can't use include?
 x.match?(/pattern/i)
 x.match?(/literal/im)
+# Regex with characters outside the literal allowlist
+str !~ /@/
+str =~ /@/
+x.match?(/@/)
+str.match?(/@/)

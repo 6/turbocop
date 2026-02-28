@@ -5,18 +5,72 @@ use crate::parse::source::SourceFile;
 
 pub struct StringInclude;
 
-/// Check if a regex pattern (raw content between slashes) contains no
-/// regex metacharacters, meaning it's a simple literal string.
+/// Check if a single byte is in RuboCop's literal character allowlist.
+/// Matches: `[\w\s\-,"'!#%&<>=;:`~/]` from RuboCop's `Util::LITERAL_REGEX`.
+fn is_literal_char(b: u8) -> bool {
+    match b {
+        // \w: [a-zA-Z0-9_]
+        b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' => true,
+        // \s: [ \t\n\r\f] (form feed = 0x0C)
+        b' ' | b'\t' | b'\n' | b'\r' | 0x0C => true,
+        // Explicit punctuation from LITERAL_REGEX
+        b'-' | b',' | b'"' | b'\'' | b'!' | b'#' | b'%' | b'&' | b'<' | b'>' | b'=' | b';'
+        | b':' | b'`' | b'~' | b'/' => true,
+        _ => false,
+    }
+}
+
+/// Characters that, when preceded by a backslash, form a regex metachar class
+/// (e.g., `\d`, `\s`, `\A`). Escaped chars NOT in this set are just literals.
+/// Matches: `\\[^AbBdDgGhHkpPRwWXsSzZ0-9]` from RuboCop's `Util::LITERAL_REGEX`.
+fn is_regex_escape_metachar(b: u8) -> bool {
+    matches!(
+        b,
+        b'A' | b'b'
+            | b'B'
+            | b'd'
+            | b'D'
+            | b'g'
+            | b'G'
+            | b'h'
+            | b'H'
+            | b'k'
+            | b'p'
+            | b'P'
+            | b'R'
+            | b'w'
+            | b'W'
+            | b'X'
+            | b's'
+            | b'S'
+            | b'z'
+            | b'Z'
+            | b'0'..=b'9'
+    )
+}
+
+/// Check if a regex pattern (raw content between slashes) contains only
+/// characters that RuboCop considers literal — matching the allowlist in
+/// `Util::LITERAL_REGEX`.
 fn is_literal_regex(content: &[u8]) -> bool {
     if content.is_empty() {
         return false;
     }
-    for &b in content {
-        match b {
-            // Regex metacharacters
-            b'.' | b'*' | b'+' | b'?' | b'|' | b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'^'
-            | b'$' | b'\\' => return false,
-            _ => {}
+    let mut i = 0;
+    while i < content.len() {
+        if content[i] == b'\\' {
+            // Backslash escape: next char must not be a regex metachar class
+            if i + 1 >= content.len() {
+                return false;
+            }
+            if is_regex_escape_metachar(content[i + 1]) {
+                return false;
+            }
+            i += 2;
+        } else if is_literal_char(content[i]) {
+            i += 1;
+        } else {
+            return false;
         }
     }
     true
