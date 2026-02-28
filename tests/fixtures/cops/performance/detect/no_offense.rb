@@ -8,3 +8,5 @@ adapter.select.first
 adapter.select('something').first
 adapter.lazy.select { 'something' }.first
 adapter.lazy.select(&:even?).first
+items&.select { |x| x.valid? }&.first
+items&.filter { |x| x > 0 }&.last

@@ -55,6 +55,15 @@ impl Cop for Detect {
             _ => return,
         };
 
+        // Skip safe-navigation on outer call (e.g., items&.select { ... }&.first)
+        // RuboCop's NodePattern uses `(send ...)` not `(csend ...)`, so &. chains don't match.
+        if outer_call
+            .call_operator_loc()
+            .is_some_and(|loc| loc.as_slice() == b"&.")
+        {
+            return;
+        }
+
         // For first/last, must have NO arguments (first(n) / last(n) should not flag)
         if !is_index && outer_call.arguments().is_some() {
             return;
@@ -108,8 +117,10 @@ impl Cop for Detect {
             format!("Use `detect` instead of `{inner_method_str}.first`.")
         };
 
-        let loc = node.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        // Report at the inner call's method name (e.g., `select`), matching RuboCop's
+        // `receiver.loc.selector` behavior, not the start of the entire expression.
+        let inner_msg_loc = inner_call.message_loc().unwrap_or(inner_call.location());
+        let (line, column) = source.offset_to_line_col(inner_msg_loc.start_offset());
         diagnostics.push(self.diagnostic(source, line, column, msg));
     }
 }
