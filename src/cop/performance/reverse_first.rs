@@ -32,14 +32,33 @@ impl Cop for ReverseFirst {
             return;
         }
 
-        let loc = node.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(
-            source,
-            line,
-            column,
-            "Use `last` instead of `reverse.first`.".to_string(),
-        ));
+        // Report at the inner call's selector (.reverse), matching RuboCop's
+        // `receiver.loc.selector.begin_pos`
+        let inner_msg_loc = chain
+            .inner_call
+            .message_loc()
+            .unwrap_or(chain.inner_call.location());
+        let (line, column) = source.offset_to_line_col(inner_msg_loc.start_offset());
+
+        let outer_call = node.as_call_node().unwrap();
+        let msg = if let Some(args) = outer_call.arguments() {
+            if let Some(first_arg) = args.arguments().iter().next() {
+                let arg_text = std::str::from_utf8(first_arg.location().as_slice()).unwrap_or("n");
+                let dot = match outer_call.call_operator_loc() {
+                    Some(loc) if loc.as_slice() == b"&." => "&.",
+                    _ => ".",
+                };
+                format!(
+                    "Use `last({arg_text}){dot}reverse` instead of `reverse{dot}first({arg_text})`."
+                )
+            } else {
+                "Use `last` instead of `reverse.first`.".to_string()
+            }
+        } else {
+            "Use `last` instead of `reverse.first`.".to_string()
+        };
+
+        diagnostics.push(self.diagnostic(source, line, column, msg));
     }
 }
 
