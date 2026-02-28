@@ -11,3 +11,15 @@ str !~ /@/
 str =~ /@/
 x.match?(/@/)
 str.match?(/@/)
+# Regex with metachar classes — not literal
+str =~ /\d/
+str =~ /\w/
+str =~ /\s/
+str.match?(/\bword\b/)
+# Regex with character class — not literal
+str =~ /[abc]/
+str =~ /prefix./
+# No receiver on match
+match(/foo/)
+# str === /regex/ (wrong direction for ===)
+str === /abc/
