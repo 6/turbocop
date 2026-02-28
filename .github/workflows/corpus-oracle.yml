@@ -9,7 +9,7 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  # Manual trigger only — corpus oracle runs against 500 repos
+  # Manual trigger only — corpus oracle runs against hundreds of repos
   workflow_dispatch:
     inputs:
       repo_filter:
@@ -309,7 +309,7 @@ jobs:
           **README**: Conformance percentages and top-15 repo table updated
           from latest corpus results.
 
-          **Corpus report**: Full 500-repo conformance breakdown at docs/corpus.md.
+          **Corpus report**: Full conformance breakdown at docs/corpus.md.
 
           CI will validate the changes compile and pass tests.
 

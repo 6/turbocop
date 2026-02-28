@@ -193,7 +193,7 @@ When all cops in the gem are at 0 FP + 0 FN (or explicitly deferred):
 
 The scoreboard (`gem_progress.py --summary`) shows per-gem stats. Prioritize by:
 
-1. **Zero untested cops** — only gems where every cop triggered on the 500-repo corpus
+1. **Zero untested cops** — only gems where every cop triggered on the corpus
    can claim true 100% conformance. Gems with untested cops get an asterisk. The "Untest"
    column in the scoreboard shows this.
 2. **Fewest diverging cops** — less work to complete the gem. The "Dvrg" column shows this.

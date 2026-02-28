@@ -15,7 +15,7 @@ SAMPLE_README = """\
 
 Features:
 - **93.0% conformance** across a corpus of open-source repos
-- Tested against **500 open-source repos** (163k Ruby files)
+- Tested against **600 open-source repos** (163k Ruby files)
 
 ## Conformance
 

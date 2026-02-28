@@ -1,6 +1,6 @@
 ---
 name: triage
-description: Rank cops by FP+FN from the 500-repo corpus oracle to find the next batch to fix
+description: Rank cops by FP+FN from the corpus oracle to find the next batch to fix
 allowed-tools: Bash(*), Read, Grep, Glob
 ---
 

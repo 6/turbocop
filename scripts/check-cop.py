@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check a single cop against the 500-repo corpus for FP regressions.
+"""Check a single cop against the corpus for FP regressions.
 
 Compares nitrocop's offense count against the RuboCop baseline from the
 latest corpus oracle CI run. Catches real-world false positive regressions
@@ -242,7 +242,7 @@ def run_nitrocop_aggregate(cop_name: str) -> int:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Check a cop against the 500-repo corpus for FP regressions")
+        description="Check a cop against the corpus for FP regressions")
     parser.add_argument("cop", help="Cop name (e.g., Lint/Void)")
     parser.add_argument("--input", type=Path,
                         help="Path to corpus-results.json (default: download from CI)")
@@ -280,7 +280,7 @@ def main():
 
     ensure_binary()
 
-    print(f"Checking {args.cop} against 500-repo corpus")
+    print(f"Checking {args.cop} against corpus")
     print(f"Baseline (from CI): {baseline_matches:,} matches, "
           f"{baseline_fp:,} FP, {baseline_fn:,} FN")
     print(f"Expected RuboCop offenses: {expected_rubocop:,}")

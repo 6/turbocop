@@ -170,7 +170,7 @@ def build_gem_stats(by_cop: list[dict], registry_cops: set[str] | None = None,
     """Aggregate per-cop data into per-gem stats.
 
     If registry_cops is provided, also tracks cops that exist in the registry
-    but have no corpus data (never triggered on the 500 repos).
+    but have no corpus data (never triggered on the corpus).
     If fixed_cops is provided, cops listed there are moved from diverging to
     "fixed (pending confirmation)" — they still show in the data but don't count
     as diverging.
@@ -320,7 +320,7 @@ def print_summary(gems: dict[str, dict], run_date: str, summary: dict, has_regis
 
     # Legend
     if has_registry:
-        legend = "  Reg=registry cops  Corpus=triggered on 500 repos  Untest=never triggered  Perf=0 FP+FN"
+        legend = "  Reg=registry cops  Corpus=triggered on corpus  Untest=never triggered  Perf=0 FP+FN"
         if has_fixed:
             legend += "  Fixed=pending confirm"
         legend += "  Dvrg=FP or FN >0"
@@ -489,7 +489,7 @@ def print_gem_detail(gem_name: str, gems: dict[str, dict], run_date: str):
 
     # Untested cops (in registry but never triggered on corpus)
     if g["untested_cops"]:
-        print(f"Untested ({g['untested']} — in registry but never triggered on 500 repos):")
+        print(f"Untested ({g['untested']} — in registry but never triggered on corpus):")
         for cop in g["untested_cops"]:
             print(f"  {cop}")
         print()

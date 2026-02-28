@@ -3,14 +3,14 @@
 # Clone all corpus repos into vendor/corpus/<repo_id>/ for local investigation.
 #
 # Usage:
-#   bench/corpus/clone_repos.sh              # clone all 500 repos
+#   bench/corpus/clone_repos.sh              # clone all corpus repos
 #   bench/corpus/clone_repos.sh --jobs 8     # parallel clones (default: 4)
 #   bench/corpus/clone_repos.sh --dry-run    # show what would be cloned
 #
 # Repos are shallow-cloned (--depth 50) at the exact SHA from the manifest,
 # with no submodules. Already-cloned repos are skipped (safe to re-run).
 #
-# Estimated disk usage: ~5GB for all 500 repos.
+# Estimated disk usage: ~5GB for all repos.
 
 set -euo pipefail
 

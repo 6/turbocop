@@ -3,7 +3,7 @@
 # the repo's own .rubocop.yml is ignored.
 #
 # Cops that are Enabled: false in vendor defaults are explicitly enabled
-# below so we test ALL implementations against the 500-repo corpus.
+# below so we test ALL implementations against the corpus.
 # NewCops: enable covers Enabled: pending cops automatically.
 
 require:

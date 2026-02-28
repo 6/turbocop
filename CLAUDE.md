@@ -312,7 +312,7 @@ Use this when `investigate-cop.py --context` shows an FP/FN in a large file and 
 
 ## Corpus Regression Testing
 
-After fixing any cop, run the corpus check to verify no FP regression against 500 real-world repos:
+After fixing any cop, run the corpus check to verify no FP regression against the real-world repo corpus:
 
 ```
 python3 scripts/check-cop.py Department/CopName                    # aggregate check (re-runs nitrocop)
