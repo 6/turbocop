@@ -16,3 +16,7 @@ result = items\
 # Safe navigation on both calls — RuboCop only fires via on_send (not csend)
 items&.map(&:name)&.map(&:to_s)
 account.users.where(active: true)&.map(&:user_id)&.map(&:to_s)
+# RuboCop skips when receiver of chain start has symbol block_pass (non-map method)
+items.select(&:active).map(&:name).map(&:to_s)
+items.flat_map(&:children).map(&:name).map(&:to_s)
+records.reject(&:blank?).map(&:id).map(&:to_s)

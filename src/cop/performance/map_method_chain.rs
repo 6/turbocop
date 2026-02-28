@@ -85,6 +85,19 @@ impl Cop for MapMethodChain {
             break;
         }
 
+        // RuboCop quirk: when walking down the chain, if the receiver of the
+        // chain start is a non-map/collect call that also has a symbol block_pass
+        // (e.g. `select(&:active).map(&:name).map(&:to_s)`), the recursive
+        // find_begin_of_chained_map_method enters that receiver but returns nil
+        // because it's not map/collect, causing the entire offense to be skipped.
+        if let Some(recv) = chain_start.receiver() {
+            if let Some(c) = recv.as_call_node() {
+                if !is_map_or_collect(&c) && has_symbol_block_pass(&c) {
+                    return;
+                }
+            }
+        }
+
         // Report at the chain start's selector (message_loc) position.
         let start_offset = chain_start.message_loc().map_or_else(
             || chain_start.location().start_offset(),
