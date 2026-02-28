@@ -46,6 +46,14 @@ impl Cop for TimesMap {
             return;
         }
 
+        // RuboCop only flags `times.map` when map/collect has a block (either
+        // `{ }` / `do..end` or a block_pass like `&method(:foo)`). Without a
+        // block, `times.map` returns an Enumerator and is not an offense.
+        let outer_call = node.as_call_node().unwrap();
+        if outer_call.block().is_none() {
+            return;
+        }
+
         let outer_name = std::str::from_utf8(chain.outer_method).unwrap_or("map");
         let loc = node.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());

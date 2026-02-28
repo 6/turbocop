@@ -7,3 +7,6 @@ Factory.times(10, :post).map(&:topic)
 Builder.times(5, :user).collect { |u| u.name }
 times.map { |time| time * 1_000 }
 times.collect { |t| t.to_s }
+10.times.map
+n.times.map.to_a
+100.times.collect.to_a.shuffle
