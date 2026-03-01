@@ -15,3 +15,7 @@ specify do
   result = service.call
   expect(result).to be(true)
 end
+
+it '', :aggregate_failures do
+  expect(subject).to be_good
+end

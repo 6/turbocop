@@ -55,16 +55,15 @@ impl Cop for ExampleWithoutDescription {
         }
 
         let style = config.get_str("EnforcedStyle", "always_allow");
+        if let Some(arguments) = call.arguments() {
+            let arg_list: Vec<_> = arguments.arguments().iter().collect();
 
-        let args = call.arguments();
-
-        // Check for empty string argument: it '' do ... end
-        if let Some(arguments) = args {
-            for arg in arguments.arguments().iter() {
-                if arg.as_keyword_hash_node().is_some() {
-                    continue;
-                }
-                if let Some(s) = arg.as_string_node() {
+            // RuboCop's matcher flags only a *single* empty-string argument:
+            //   it '' do ... end
+            // It does not flag forms with additional metadata args, e.g.:
+            //   it '', :aggregate_failures do ... end
+            if arg_list.len() == 1 {
+                if let Some(s) = arg_list[0].as_string_node() {
                     if s.unescaped().is_empty() {
                         let loc = s.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
@@ -72,13 +71,16 @@ impl Cop for ExampleWithoutDescription {
                             source,
                             line,
                             column,
-                            "Omit the argument when you want to have auto-generated description.".to_string(),
+                            "Omit the argument when you want to have auto-generated description."
+                                .to_string(),
                         ));
                     }
                 }
-                // Has a non-empty string or other arg — fine
-                return;
             }
+
+            // Any arguments (description and/or metadata) mean this is not the
+            // "missing description" form checked below.
+            return;
         }
 
         // No description argument — behavior depends on EnforcedStyle
