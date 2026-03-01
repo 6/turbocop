@@ -1,8 +1,11 @@
-use crate::cop::node_type::{CALL_NODE, KEYWORD_HASH_NODE, STRING_NODE, SYMBOL_NODE};
-use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_camel_case, is_snake_case};
+use crate::cop::util::{
+    RSPEC_DEFAULT_INCLUDE, is_camel_case, is_rspec_example_group, is_snake_case,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
 pub struct VariableName;
 
@@ -19,101 +22,151 @@ impl Cop for VariableName {
         RSPEC_DEFAULT_INCLUDE
     }
 
-    fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, KEYWORD_HASH_NODE, STRING_NODE, SYMBOL_NODE]
-    }
-
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &CodeMap,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         // Config: EnforcedStyle — "snake_case" (default) or "camelCase"
-        let enforced_style = config.get_str("EnforcedStyle", "snake_case");
+        let enforced_camel_case = config.get_str("EnforcedStyle", "snake_case") == "camelCase";
         // Config: AllowedPatterns — regex patterns to exclude
-        let allowed_patterns = config.get_string_array("AllowedPatterns");
-        let call = match node.as_call_node() {
-            Some(c) => c,
-            None => return,
+        let allowed_patterns = config
+            .get_string_array("AllowedPatterns")
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|pattern| regex::Regex::new(&pattern).ok())
+            .collect();
+
+        let mut visitor = VariableNameVisitor {
+            cop: self,
+            source,
+            diagnostics: Vec::new(),
+            in_spec_group_root: false,
+            enforced_camel_case,
+            allowed_patterns,
         };
+        visitor.visit(&parse_result.node());
+        diagnostics.extend(visitor.diagnostics);
+    }
+}
 
-        if call.receiver().is_some() {
-            return;
-        }
+struct VariableNameVisitor<'a> {
+    cop: &'a VariableName,
+    source: &'a SourceFile,
+    diagnostics: Vec<Diagnostic>,
+    // Mirrors RuboCop's InsideExampleGroup mixin: this is true only when the
+    // current top-level root expression is an RSpec example/shared group.
+    in_spec_group_root: bool,
+    enforced_camel_case: bool,
+    allowed_patterns: Vec<regex::Regex>,
+}
 
-        let method_name = call.name().as_slice();
-        if method_name != b"let"
-            && method_name != b"let!"
-            && method_name != b"subject"
-            && method_name != b"subject!"
-        {
-            return;
-        }
-
-        let args = match call.arguments() {
-            Some(a) => a,
-            None => return,
-        };
-
-        let check_style = |name_bytes: &[u8]| -> bool {
-            if enforced_style == "camelCase" {
-                is_camel_case(name_bytes)
-            } else {
-                is_snake_case(name_bytes)
-            }
-        };
-
-        let style_name = if enforced_style == "camelCase" {
+impl VariableNameVisitor<'_> {
+    fn style_name(&self) -> &'static str {
+        if self.enforced_camel_case {
             "camelCase"
         } else {
             "snake_case"
-        };
+        }
+    }
 
-        for arg in args.arguments().iter() {
-            if arg.as_keyword_hash_node().is_some() {
-                continue;
-            }
-            let name_owned: Option<Vec<u8>> = if let Some(sym) = arg.as_symbol_node() {
-                Some(sym.unescaped().to_vec())
-            } else {
-                arg.as_string_node().map(|s| s.unescaped().to_vec())
-            };
+    fn check_style(&self, name: &[u8]) -> bool {
+        if self.enforced_camel_case {
+            is_camel_case(name)
+        } else {
+            is_snake_case(name)
+        }
+    }
 
-            if let Some(ref name) = name_owned {
-                let name_str = std::str::from_utf8(name).unwrap_or("");
+    fn matches_allowed_pattern(&self, name: &[u8]) -> bool {
+        let name_str = std::str::from_utf8(name).unwrap_or("");
+        self.allowed_patterns
+            .iter()
+            .any(|pattern| pattern.is_match(name_str))
+    }
+}
 
-                // Check AllowedPatterns
-                if let Some(ref patterns) = allowed_patterns {
-                    let mut skip = false;
-                    for pat in patterns {
-                        if let Ok(re) = regex::Regex::new(pat) {
-                            if re.is_match(name_str) {
-                                skip = true;
-                                break;
-                            }
+impl<'pr> Visit<'pr> for VariableNameVisitor<'_> {
+    fn visit_program_node(&mut self, node: &ruby_prism::ProgramNode<'pr>) {
+        for stmt in node.statements().body().iter() {
+            let was = self.in_spec_group_root;
+            self.in_spec_group_root = is_spec_group_root_statement(&stmt);
+            self.visit(&stmt);
+            self.in_spec_group_root = was;
+        }
+    }
+
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if self.in_spec_group_root
+            && node.receiver().is_none()
+            && is_variable_definition_method(node.name().as_slice())
+        {
+            if let Some(args) = node.arguments() {
+                for arg in args.arguments().iter() {
+                    if arg.as_keyword_hash_node().is_some() {
+                        continue;
+                    }
+
+                    let name_owned: Option<Vec<u8>> = if let Some(sym) = arg.as_symbol_node() {
+                        Some(sym.unescaped().to_vec())
+                    } else {
+                        arg.as_string_node().map(|s| s.unescaped().to_vec())
+                    };
+
+                    if let Some(name) = name_owned {
+                        if !self.matches_allowed_pattern(&name) && !self.check_style(&name) {
+                            let loc = arg.location();
+                            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                            self.diagnostics.push(self.cop.diagnostic(
+                                self.source,
+                                line,
+                                column,
+                                format!("Use {} for variable names.", self.style_name()),
+                            ));
                         }
                     }
-                    if skip {
-                        break;
-                    }
-                }
-
-                if !check_style(name) {
-                    let loc = arg.location();
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        format!("Use {style_name} for variable names."),
-                    ));
+                    break;
                 }
             }
-            break;
+        }
+
+        ruby_prism::visit_call_node(self, node);
+    }
+}
+
+fn is_variable_definition_method(name: &[u8]) -> bool {
+    matches!(name, b"let" | b"let!" | b"subject" | b"subject!")
+}
+
+fn is_spec_group_root_statement(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_call_node()
+        .is_some_and(|call| is_spec_group_call(&call))
+}
+
+fn is_spec_group_call(call: &ruby_prism::CallNode<'_>) -> bool {
+    if call.block().is_none() {
+        return false;
+    }
+
+    let method_name = call.name().as_slice();
+    if !is_rspec_example_group(method_name) {
+        return false;
+    }
+
+    match call.receiver() {
+        None => true,
+        Some(receiver) => {
+            if let Some(cr) = receiver.as_constant_read_node() {
+                cr.name().as_slice() == b"RSpec"
+            } else if let Some(cp) = receiver.as_constant_path_node() {
+                cp.parent().is_none() && cp.name().is_some_and(|n| n.as_slice() == b"RSpec")
+            } else {
+                false
+            }
         }
     }
 }
@@ -135,7 +188,7 @@ mod tests {
             )]),
             ..CopConfig::default()
         };
-        let source = b"let(:my_var) { 'x' }\n";
+        let source = b"RSpec.describe Foo do\n  let(:my_var) { 'x' }\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&VariableName, source, config);
         assert_eq!(diags.len(), 1);
         assert!(diags[0].message.contains("camelCase"));
@@ -153,7 +206,7 @@ mod tests {
             )]),
             ..CopConfig::default()
         };
-        let source = b"let(:myVar) { 'x' }\n";
+        let source = b"RSpec.describe Foo do\n  let(:myVar) { 'x' }\nend\n";
         let diags = crate::testutil::run_cop_full_with_config(&VariableName, source, config);
         assert!(
             diags.is_empty(),
