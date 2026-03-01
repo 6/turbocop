@@ -8,3 +8,14 @@ alias :baz :qux
 alias :one :two
 x = 1
 y = 2
+
+# plugin cops with nested department path are accepted
+# rubocop:disable Discourse/Plugins/NamespaceConstants
+# rubocop:enable Discourse/Plugins/NamespaceConstants
+
+# multiple cop names separated by spaces (without commas) are accepted
+# rubocop:disable RSpec/SubjectStub RSpec/MessageSpies
+# rubocop:enable RSpec/SubjectStub RSpec/MessageSpies
+
+# odd legacy-style token fragments containing slash are accepted
+# rubocop:disable /BlockLength, Metrics/

@@ -19,6 +19,13 @@ static DIRECTIVE_RE: LazyLock<Regex> =
 static VALID_TOKEN_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z]+/[A-Za-z]+$").unwrap());
 
+/// RuboCop treats any token containing non-word chars as already-valid content
+/// token (`/\W+/`), because scanning yields punctuation/whitespace fragments.
+static NON_WORD_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\W+").unwrap());
+
+/// RuboCop-style token scanner used after the directive keyword.
+static TOKEN_SCAN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[^,]+|\W+").unwrap());
+
 /// Known departments that can be used without a slash.
 const KNOWN_DEPARTMENTS: &[&str] = &[
     "Bundler",
@@ -40,6 +47,14 @@ const KNOWN_DEPARTMENTS: &[&str] = &[
 fn contains_unexpected_char(name: &str) -> bool {
     name.bytes()
         .any(|b| !b.is_ascii_alphabetic() && b != b'/' && b != b',' && b != b' ')
+}
+
+/// Mirrors RuboCop's valid_content_token? predicate.
+fn valid_content_token(content_token: &str) -> bool {
+    content_token == "all"
+        || NON_WORD_RE.is_match(content_token)
+        || VALID_TOKEN_RE.is_match(content_token)
+        || KNOWN_DEPARTMENTS.contains(&content_token)
 }
 
 impl Cop for DepartmentName {
@@ -102,42 +117,28 @@ impl Cop for DepartmentName {
 
             let cop_list_raw = cop_list_match.as_str();
 
-            // Scan tokens separated by commas. RuboCop scans with /[^,]+|\W+/
-            // which effectively splits by comma but also yields whitespace-only tokens.
+            // RuboCop scans with /[^,]+|\W+/, then validates each token.
             let mut offset = cop_list_abs_start;
-            for segment in cop_list_raw.split(',') {
-                let trimmed = segment.trim();
-                let trimmed_start = if trimmed.is_empty() {
-                    offset
-                } else {
-                    // Find the position of trimmed within segment
-                    let leading_ws = segment.len() - segment.trim_start().len();
-                    offset + leading_ws
-                };
+            for token_match in TOKEN_SCAN_RE.find_iter(cop_list_raw) {
+                let token = token_match.as_str();
+                let trimmed = token.trim();
 
-                if !trimmed.is_empty()
-                    && trimmed != "all"
-                    && !VALID_TOKEN_RE.is_match(trimmed)
-                    && !KNOWN_DEPARTMENTS.contains(&trimmed)
-                {
-                    // Check for unexpected characters that should stop processing
-                    if contains_unexpected_char(trimmed) {
-                        break;
-                    }
+                if !valid_content_token(trimmed) {
+                    let leading_ws = token.len() - token.trim_start().len();
                     diagnostics.push(self.diagnostic(
                         source,
                         line_num,
-                        trimmed_start,
+                        offset + leading_ws,
                         "Department name is missing.".to_string(),
                     ));
                 }
 
-                // Stop if the segment contains unexpected characters (e.g. `--`, `#`)
-                if contains_unexpected_char(segment) {
+                // Stop if token contains unexpected characters (e.g. `--`, `#`)
+                if contains_unexpected_char(token) {
                     break;
                 }
 
-                offset += segment.len() + 1; // +1 for the comma
+                offset += token.len();
             }
 
             byte_offset += line_len;
