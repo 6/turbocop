@@ -4,27 +4,6 @@ use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct StartWith;
-// HANDOFF (March 1, 2026):
-// Status:
-//   Performance/StartWith = +2 FP, 0 FN (latest local full-corpus rerun).
-//
-// Verified repro command:
-//   python3 scripts/check-cop.py Performance/StartWith \
-//     --input "/var/folders/bp/9k2j7t8j4k74vtdk2twvm82m0000gn/T/gem-progress-zn88twq6/corpus-results.json" \
-//     --verbose --rerun
-//
-// Validation parity requirements:
-//   - Use --rerun (forces fresh per-repo execution).
-//   - Ensure baseline gems are installed under bench/corpus/vendor/bundle.
-//   - check-cop.py sets BUNDLE_GEMFILE/BUNDLE_PATH; avoid ad-hoc runs that skip this.
-//
-// Known hotspot:
-//   - Residual mismatch appears in jruby parser-error context where RuboCop can return rc=2
-//     but still emit partial JSON used by corpus-oracle aggregation.
-//   - Example jruby lines seen in local nitrocop output include:
-//     test/mri/rdoc/rdoc/rdoc_generator_json_index_test.rb:117/191/251
-//     test/mri/ruby/enc/test_grapheme_breaks.rb:51
-//     test/mri/ruby/test_dir_m17n.rb:406
 
 /// Check if regex content starts with \A and the rest is a simple literal.
 fn is_start_anchored_literal(content: &[u8], safe_multiline: bool) -> bool {
