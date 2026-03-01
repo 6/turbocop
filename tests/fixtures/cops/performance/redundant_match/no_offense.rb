@@ -56,3 +56,7 @@ rescue
   nil
 end
 do_something
+# Multiple arguments — not a String#match/Regexp#match call (e.g., Rails router match)
+mapper.match 'email', via: [:get, :post]
+mapper.match 'sms', via: [:get, :post]
+mapper.match '/', action: 'index', as: 'search', via: [:get, :post]

@@ -56,8 +56,9 @@ impl<'pr> ruby_prism::Visit<'pr> for RedundantMatchVisitor<'_> {
         self.visit(&node.predicate());
         self.parent_is_condition = false;
 
-        // Branches: value may be used depending on context, be conservative
-        self.value_used = true;
+        // Branches: the if body's last expression value is used only if the
+        // if node itself has its value used. Propagate old_used, not hardcoded true.
+        self.value_used = old_used;
         if let Some(stmts) = node.statements() {
             self.visit(&stmts.as_node());
         }
@@ -78,7 +79,7 @@ impl<'pr> ruby_prism::Visit<'pr> for RedundantMatchVisitor<'_> {
         self.visit(&node.predicate());
         self.parent_is_condition = false;
 
-        self.value_used = true;
+        self.value_used = old_used;
         if let Some(stmts) = node.statements() {
             self.visit(&stmts.as_node());
         }
@@ -137,7 +138,7 @@ impl<'pr> ruby_prism::Visit<'pr> for RedundantMatchVisitor<'_> {
             self.parent_is_condition = false;
         }
 
-        self.value_used = true;
+        self.value_used = old_used;
         for condition in node.conditions().iter() {
             self.visit(&condition);
         }
@@ -428,17 +429,18 @@ impl<'a> RedundantMatchVisitor<'a> {
             None => return,
         };
 
-        // Must have arguments (x.match(y))
+        // Must have exactly one argument (x.match(y)). RuboCop's node pattern
+        // `(send !nil? :match {str regexp})` only matches calls with one argument.
+        // Multi-arg calls like `mapper.match('/', action: 'index')` are not String#match.
         let arguments = match call.arguments() {
             Some(a) => a,
             None => return,
         };
-
-        // RuboCop only flags when a string or regexp literal appears on one side
-        let first_arg = match arguments.arguments().iter().next() {
-            Some(a) => a,
-            None => return,
-        };
+        let arg_list = arguments.arguments();
+        if arg_list.len() != 1 {
+            return;
+        }
+        let first_arg = arg_list.iter().next().unwrap();
 
         let recv_is_literal = receiver.as_string_node().is_some()
             || receiver.as_regular_expression_node().is_some()
