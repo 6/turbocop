@@ -82,6 +82,12 @@ impl Cop for OverwritingSetup {
                     continue;
                 }
 
+                // Match RuboCop's `(block (send nil? {let/subject} ...) ...)` shape:
+                // setup declarations must have a real block body.
+                if c.block().and_then(|b| b.as_block_node()).is_none() {
+                    continue;
+                }
+
                 let var_name = if is_subject && c.arguments().is_none() {
                     // Unnamed subject
                     Some(b"subject".to_vec())
@@ -109,7 +115,11 @@ impl Cop for OverwritingSetup {
 
 fn extract_let_name(call: &ruby_prism::CallNode<'_>) -> Option<Vec<u8>> {
     let args = call.arguments()?;
-    let first = args.arguments().iter().next()?;
+    let arg_list: Vec<_> = args.arguments().iter().collect();
+    if arg_list.len() != 1 {
+        return None;
+    }
+    let first = &arg_list[0];
     if let Some(sym) = first.as_symbol_node() {
         return Some(sym.unescaped().to_vec());
     }
@@ -132,11 +142,6 @@ fn is_example_group(name: &[u8]) -> bool {
             | b"fdescribe"
             | b"fcontext"
             | b"ffeature"
-            | b"shared_context"
-            | b"shared_examples"
-            | b"shared_examples_for"
-            | b"it_behaves_like"
-            | b"it_should_behave_like"
     )
 }
 

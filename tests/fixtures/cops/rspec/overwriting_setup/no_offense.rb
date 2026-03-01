@@ -11,3 +11,18 @@ RSpec.describe User do
 
   let(:other) { b }
 end
+
+RSpec.describe User do
+  subject(:foo) { a }
+  callback = -> {}
+
+  let(:foo, &callback)
+end
+
+shared_examples_for "parameterized setup" do
+  let(:setting) { "one" }
+  it_behaves_like "shared contract"
+
+  let(:setting) { "two" }
+  it_behaves_like "shared contract"
+end
