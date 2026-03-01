@@ -359,6 +359,22 @@ impl<'pr> Visit<'pr> for ReverseEachVisitor<'_, '_> {
         ruby_prism::visit_return_node(self, node);
         self.value_used = prev;
     }
+
+    // Implicit return: last expression in a def body is the method's return value
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        if let Some(body) = node.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                let items: Vec<_> = stmts.body().iter().collect();
+                let last_idx = items.len().wrapping_sub(1);
+                for (i, stmt) in items.iter().enumerate() {
+                    self.visit_with_used(stmt, i == last_idx);
+                }
+            } else {
+                // Single-expression body (e.g. begin/rescue) — treat as value used
+                self.visit_with_used(&body, true);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
