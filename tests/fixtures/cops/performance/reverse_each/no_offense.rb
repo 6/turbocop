@@ -14,10 +14,3 @@ return arr.reverse.each { |e| e }
 $cache ||= items.reverse.each { |x| process(x) }
 CACHE ||= items.reverse.each { |x| process(x) }
 Mod::CACHE ||= items.reverse.each { |x| process(x) }
-
-# Implicit return: last expression in method body — value is used
-class Project
-  def cleanup_records
-    records.sort_by(&:position).reverse.each(&:destroy)
-  end
-end
