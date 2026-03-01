@@ -20,3 +20,9 @@ account.users.where(auto_offline: false)&.map(&:user_id)&.map(&:to_s)
 # block_pass inner should not trigger select-as-outer (not any_block_type?)
 items.select(&:valid?).select { |x| x.ready? }
 items.reject(&:blank?).select { |x| x.present? }
+# RETURN_NEW_ARRAY_WHEN_ARGS with constant args — RuboCop excludes const from {int lvar ivar cvar gvar send}
+items.last(LIMIT).map(&:name)
+records.first(Config::MAX).select(&:active?)
+data.sample(TOP_COUNT).sort
+events.shift(BATCH_SIZE).compact
+items.pop(Settings::LIMIT).uniq

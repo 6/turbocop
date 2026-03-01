@@ -50,24 +50,18 @@ fn chain_contains_lazy(node: &ruby_prism::Node<'_>) -> bool {
     false
 }
 
+/// Check if an argument node matches RuboCop's NodePattern `{int lvar ivar cvar gvar send}`.
+/// This explicitly excludes `const` (ConstantReadNode/ConstantPathNode), strings, symbols, etc.
+fn is_acceptable_arg(node: &ruby_prism::Node<'_>) -> bool {
+    node.as_integer_node().is_some()
+        || node.as_local_variable_read_node().is_some()
+        || node.as_instance_variable_read_node().is_some()
+        || node.as_class_variable_read_node().is_some()
+        || node.as_global_variable_read_node().is_some()
+        || node.as_call_node().is_some()
+}
+
 /// Check if the inner call returns a new array based on RuboCop's rules.
-///
-/// ## Known false positives (20 FP in corpus as of 2026-03-01)
-///
-/// An attempt was made to tighten this function to match RuboCop's NodePattern
-/// more precisely (commit 8c87a7f9, reverted). The approach:
-///   1. RETURN_NEW_ARRAY_WHEN_ARGS: require exactly one arg of simple type
-///      `{int lvar ivar cvar gvar send}`, excluding constants/strings/complex exprs.
-///   2. ALWAYS_RETURNS_NEW_ARRAY with block: require NO positional args on the
-///      inner send (to skip `Parallel.map(items) { }.compact`).
-///
-/// This fixed the target FPs but introduced 39 NEW false positives (20→59 FP).
-/// Root cause: the is_simple_arg check was too narrow — it excluded constant
-/// references (ConstantReadNode, ConstantPathNode) which are common args to
-/// `first`/`last`/`sample` (e.g., `.last(LIMIT).map`). A correct fix needs to
-/// either widen the arg type allowlist or compare against RuboCop's actual
-/// NodePattern `{int lvar ivar cvar gvar send}` more carefully (noting that
-/// `send` in NodePattern means ANY method call, covering constant-like usage).
 fn inner_returns_new_array(inner: &ruby_prism::CallNode<'_>) -> bool {
     let name = inner.name().as_slice();
 
@@ -76,9 +70,18 @@ fn inner_returns_new_array(inner: &ruby_prism::CallNode<'_>) -> bool {
         return true;
     }
 
-    // RETURN_NEW_ARRAY_WHEN_ARGS — only when called with an argument
+    // RETURN_NEW_ARRAY_WHEN_ARGS — only when called with exactly one arg
+    // matching RuboCop's `{int lvar ivar cvar gvar send}` NodePattern.
     if RETURN_NEW_ARRAY_WHEN_ARGS.contains(&name) {
-        return inner.arguments().is_some();
+        if let Some(args) = inner.arguments() {
+            let arguments = args.arguments();
+            return arguments.len() == 1
+                && arguments
+                    .iter()
+                    .next()
+                    .is_some_and(|a| is_acceptable_arg(&a));
+        }
+        return false;
     }
 
     // RETURNS_NEW_ARRAY_WHEN_NO_BLOCK — only when called WITHOUT a block
