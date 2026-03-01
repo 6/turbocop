@@ -10,10 +10,12 @@ pub struct CollectionLiteralInLoop;
 const ENUMERABLE_METHODS: &[&[u8]] = &[
     b"all?",
     b"any?",
+    b"chain",
     b"chunk",
     b"chunk_while",
     b"collect",
     b"collect_concat",
+    b"compact",
     b"count",
     b"cycle",
     b"detect",
@@ -65,6 +67,7 @@ const ENUMERABLE_METHODS: &[&[u8]] = &[
     b"tally",
     b"to_a",
     b"to_h",
+    b"to_set",
     b"uniq",
     b"zip",
 ];
@@ -386,17 +389,6 @@ impl CollectionLiteralVisitor<'_, '_> {
             None => return,
         };
 
-        // If this call is itself a loop-creating method with a block,
-        // the receiver (the literal) is the loop's collection, not code
-        // inside the loop body. Don't flag it — matches RuboCop's
-        // node_within_enumerable_loop? which excludes the receiver node.
-        if call.block().is_some()
-            && call.block().unwrap().as_block_node().is_some()
-            && self.is_loop_method(call)
-        {
-            return;
-        }
-
         // Check if receiver is an Array literal with a non-mutating array method
         if let Some(array) = recv.as_array_node() {
             if !self.array_methods.contains(method_name) {
@@ -669,6 +661,82 @@ mod tests {
             &CollectionLiteralInLoop,
             b"items.each { [1, 2, 3].include?(it) }\n",
             ruby34_config(),
+        );
+    }
+
+    #[test]
+    fn detects_inside_no_receiver_each() {
+        // Bare `each` (no receiver) should be treated as a loop
+        crate::testutil::assert_cop_offenses_full(
+            &CollectionLiteralInLoop,
+            b"each do |e|\n  [1, 2, 3].include?(e)\n  ^^^^^^^^^ Performance/CollectionLiteralInLoop: Avoid immutable Array literals in loops. It is better to extract it into a local variable or a constant.\nend\n",
+        );
+    }
+
+    #[test]
+    fn detects_inside_select() {
+        crate::testutil::assert_cop_offenses_full(
+            &CollectionLiteralInLoop,
+            b"items.select do |item|\n  [1, 2, 3].include?(item)\n  ^^^^^^^^^ Performance/CollectionLiteralInLoop: Avoid immutable Array literals in loops. It is better to extract it into a local variable or a constant.\nend\n",
+        );
+    }
+
+    #[test]
+    fn detects_inside_map_brace_block() {
+        crate::testutil::assert_cop_offenses_full(
+            &CollectionLiteralInLoop,
+            b"items.map { |item| [1, 2, 3].include?(item) }\n                   ^^^^^^^^^ Performance/CollectionLiteralInLoop: Avoid immutable Array literals in loops. It is better to extract it into a local variable or a constant.\n",
+        );
+    }
+
+    #[test]
+    fn detects_post_while_loop() {
+        crate::testutil::assert_cop_offenses_full(
+            &CollectionLiteralInLoop,
+            b"begin\n  [1, 2, 3].include?(e)\n  ^^^^^^^^^ Performance/CollectionLiteralInLoop: Avoid immutable Array literals in loops. It is better to extract it into a local variable or a constant.\nend while condition\n",
+        );
+    }
+
+    #[test]
+    fn detects_post_until_loop() {
+        crate::testutil::assert_cop_offenses_full(
+            &CollectionLiteralInLoop,
+            b"begin\n  [1, 2, 3].include?(e)\n  ^^^^^^^^^ Performance/CollectionLiteralInLoop: Avoid immutable Array literals in loops. It is better to extract it into a local variable or a constant.\nend until condition\n",
+        );
+    }
+
+    #[test]
+    fn detects_literal_receiver_of_enumerable_inside_loop() {
+        // [1, 2, 3].map { } inside an each loop should be flagged:
+        // the literal array is allocated on every iteration of the outer loop
+        crate::testutil::assert_cop_offenses_full(
+            &CollectionLiteralInLoop,
+            b"items.each do |item|\n  [1, 2, 3].map { |x| x + 1 }\n  ^^^^^^^^^ Performance/CollectionLiteralInLoop: Avoid immutable Array literals in loops. It is better to extract it into a local variable or a constant.\nend\n",
+        );
+    }
+
+    #[test]
+    fn detects_percent_i_literal() {
+        crate::testutil::assert_cop_offenses_full(
+            &CollectionLiteralInLoop,
+            b"items.each do |item|\n  %i[foo bar baz].include?(item)\n  ^^^^^^^^^^^^^^^ Performance/CollectionLiteralInLoop: Avoid immutable Array literals in loops. It is better to extract it into a local variable or a constant.\nend\n",
+        );
+    }
+
+    #[test]
+    fn detects_percent_w_literal() {
+        crate::testutil::assert_cop_offenses_full(
+            &CollectionLiteralInLoop,
+            b"items.each do |item|\n  %w[foo bar baz].include?(item)\n  ^^^^^^^^^^^^^^^ Performance/CollectionLiteralInLoop: Avoid immutable Array literals in loops. It is better to extract it into a local variable or a constant.\nend\n",
+        );
+    }
+
+    #[test]
+    fn detects_nested_block_in_loop() {
+        // Collection literal inside a non-loop block inside a loop should still be flagged
+        crate::testutil::assert_cop_offenses_full(
+            &CollectionLiteralInLoop,
+            b"items.each do |item|\n  something do\n    [1, 2, 3].include?(item)\n    ^^^^^^^^^ Performance/CollectionLiteralInLoop: Avoid immutable Array literals in loops. It is better to extract it into a local variable or a constant.\n  end\nend\n",
         );
     }
 
