@@ -29,6 +29,7 @@ impl Cop for RedundantMatch {
             diagnostics: Vec::new(),
             parent_is_condition: false,
             value_used: false,
+            in_interpolation: false,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -43,6 +44,8 @@ struct RedundantMatchVisitor<'a> {
     parent_is_condition: bool,
     /// Whether the result value is used (assignment, argument, return, etc.)
     value_used: bool,
+    /// Whether the current node is inside string interpolation (`"#{...}"`).
+    in_interpolation: bool,
 }
 
 impl<'pr> ruby_prism::Visit<'pr> for RedundantMatchVisitor<'_> {
@@ -401,9 +404,12 @@ impl<'pr> ruby_prism::Visit<'pr> for RedundantMatchVisitor<'_> {
     fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
         let old_used = self.value_used;
         let old_condition = self.parent_is_condition;
+        let old_interp = self.in_interpolation;
         self.value_used = true;
         self.parent_is_condition = false;
+        self.in_interpolation = true;
         ruby_prism::visit_interpolated_string_node(self, node);
+        self.in_interpolation = old_interp;
         self.value_used = old_used;
         self.parent_is_condition = old_condition;
     }
@@ -434,6 +440,11 @@ impl<'pr> ruby_prism::Visit<'pr> for RedundantMatchVisitor<'_> {
 
 impl<'a> RedundantMatchVisitor<'a> {
     fn check_match_call(&mut self, call: &ruby_prism::CallNode<'_>) {
+        // Match result is consumed by interpolation string construction.
+        if self.in_interpolation {
+            return;
+        }
+
         // RuboCop uses RESTRICT_ON_SEND = %i[match], which only matches regular
         // method calls (send), NOT safe-navigation calls (csend / &.match).
         if let Some(op) = call.call_operator_loc() {

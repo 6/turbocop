@@ -153,11 +153,11 @@ impl Cop for StartWith {
                     Some(a) => a,
                     None => return,
                 };
-                let args = arguments.arguments();
-                let first_arg = match args.iter().next() {
-                    Some(a) => a,
-                    None => return,
-                };
+                let args: Vec<_> = arguments.arguments().iter().collect();
+                if args.len() != 1 {
+                    return;
+                }
+                let first_arg = &args[0];
 
                 // Try arg as regex (str.match?(/regex/))
                 let found = if let Some(regex_node) = extract_regex_node(&first_arg) {
@@ -197,10 +197,11 @@ impl Cop for StartWith {
                     Some(a) => a,
                     None => return,
                 };
-                let first_arg = match arguments.arguments().iter().next() {
-                    Some(a) => a,
-                    None => return,
-                };
+                let args: Vec<_> = arguments.arguments().iter().collect();
+                if args.len() != 1 {
+                    return;
+                }
+                let first_arg = &args[0];
 
                 // Check if arg is the regex
                 let found = if let Some(regex_node) = extract_regex_node(&first_arg) {
