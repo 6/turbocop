@@ -5400,14 +5400,16 @@ fn migrate_json_output() {
 #[test]
 fn migrate_clean_config_no_skips() {
     let dir = temp_dir("migrate_clean");
+    let tiers = write_preview_tiers(&dir, "Performance/BigDecimalWithNumericArgument");
     fs::write(dir.join("test.rb"), "x = 1\n").unwrap();
     fs::write(
         dir.join(".rubocop.yml"),
-        "Lint/DeprecatedClassMethods:\n  Enabled: true\n",
+        "Layout/TrailingWhitespace:\n  Enabled: true\n",
     )
     .unwrap();
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
+        .env("NITROCOP_TIERS_FILE", &tiers)
         .args([
             "--migrate",
             "--no-cache",
@@ -5598,7 +5600,10 @@ fn rules_table_output() {
 
 #[test]
 fn rules_tier_filter_preview() {
+    let dir = temp_dir("rules_tier_filter_preview");
+    let tiers = write_preview_tiers(&dir, "Performance/BigDecimalWithNumericArgument");
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_nitrocop"))
+        .env("NITROCOP_TIERS_FILE", &tiers)
         .args(["--rules", "--tier", "preview"])
         .output()
         .expect("Failed to execute nitrocop");
@@ -5610,11 +5615,17 @@ fn rules_tier_filter_preview() {
         stdout.contains("preview"),
         "Should show preview cops: {stdout}"
     );
-    // Should NOT contain stable-only cops
     assert!(
-        !stdout.contains("Lint/DeprecatedClassMethods"),
+        stdout.contains("Performance/BigDecimalWithNumericArgument"),
+        "Should show the configured preview cop: {stdout}"
+    );
+    // Should NOT contain stable cops.
+    assert!(
+        !stdout.contains("Layout/TrailingWhitespace"),
         "Should not show stable cops when filtered to preview: {stdout}"
     );
+
+    fs::remove_dir_all(&dir).ok();
 }
 
 #[test]
