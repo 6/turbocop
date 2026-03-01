@@ -127,6 +127,11 @@ Report:
 
 - Use a dedicated git worktree for all code-editing runs of this skill, including single-agent runs.
 - Only skip the worktree if the user explicitly requests working in the current tree.
+- New worktree bootstrap (run before reducers/tests/check-cop):
+  - Initialize submodules: `git submodule update --init`
+  - Ensure `vendor/corpus/` exists. If the main checkout already has corpus data, symlink it into the worktree:
+    `ln -s /absolute/path/to/nitrocop/vendor/corpus vendor/corpus`
+  - Keep corpus wiring untracked and local-only (do not commit worktree-specific symlinks).
 - Parallel-agent activity is common; expect unrelated local changes in the working tree.
 - Do not revert or include unrelated files in your commit; stage only files for the cop(s) you are fixing.
 - Treat unrelated modified files as off-limits: do not edit them unless the user explicitly asks.
