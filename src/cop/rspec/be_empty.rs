@@ -43,6 +43,15 @@ impl Cop for BeEmpty {
             return;
         }
 
+        // RuboCop only targets expect(...).to ..., not is_expected.
+        let expectation_call = match call.receiver().and_then(|r| r.as_call_node()) {
+            Some(c) => c,
+            None => return,
+        };
+        if expectation_call.receiver().is_some() || expectation_call.name().as_slice() != b"expect" {
+            return;
+        }
+
         let args = match call.arguments() {
             Some(a) => a,
             None => return,
