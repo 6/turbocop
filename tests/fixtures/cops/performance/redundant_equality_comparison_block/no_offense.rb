@@ -15,3 +15,8 @@ klasses.all? { |klass| item.is_a?(klass) }
 exps.any? { |type,| type == :static }
 # === where block param is receiver (not argument)
 arr.any? { |m| m === pattern }
+# param's receiver matches other side's receiver (RuboCop same_block_argument_and_is_a_argument?)
+items.all? { |item| item == item.do_something }
+# param used in method args of other operand
+items.any? { |item| item == do_something(item) }
+items.any? { |item| do_something(item) == item }

@@ -39,6 +39,29 @@ fn node_references_lvar(node: &ruby_prism::Node<'_>, name: &[u8]) -> bool {
     finder.found
 }
 
+/// Check if the block param is used in the method arguments of the given operand.
+///
+/// Matches RuboCop's `use_block_argument_in_method_argument_of_operand?`:
+/// only checks the method call's arguments (and their lvar descendants),
+/// NOT the receiver chain. This allows patterns like `k == k.to_i.to_s`
+/// to be flagged (the param appears in the receiver chain, not in arguments).
+fn param_in_method_args_of_operand(operand: &ruby_prism::Node<'_>, param_name: &[u8]) -> bool {
+    let call = match operand.as_call_node() {
+        Some(c) => c,
+        None => return false,
+    };
+    let args = match call.arguments() {
+        Some(a) => a,
+        None => return false,
+    };
+    for arg in args.arguments().iter() {
+        if node_references_lvar(&arg, param_name) {
+            return true;
+        }
+    }
+    false
+}
+
 impl Cop for RedundantEqualityComparisonBlock {
     fn name(&self) -> &'static str {
         "Performance/RedundantEqualityComparisonBlock"
@@ -76,11 +99,6 @@ impl Cop for RedundantEqualityComparisonBlock {
 
         let method_name = call.name().as_slice();
         if !FLAGGED_METHODS.contains(&method_name) {
-            return;
-        }
-
-        // Must have a receiver
-        if call.receiver().is_none() {
             return;
         }
 
@@ -155,7 +173,7 @@ impl Cop for RedundantEqualityComparisonBlock {
         // Check for is_a?/kind_of? pattern: item.is_a?(String)
         if body_method == b"is_a?" || body_method == b"kind_of?" {
             if self.check_is_a_pattern(&body_call, param_name) {
-                let loc = call.location();
+                let loc = call.message_loc().unwrap_or_else(|| call.location());
                 let (line, column) = source.offset_to_line_col(loc.start_offset());
                 diagnostics.push(self.diagnostic(
                     source,
@@ -215,17 +233,48 @@ impl Cop for RedundantEqualityComparisonBlock {
             return;
         }
 
-        // Check if the param is used in the OTHER side of the comparison.
-        // e.g., `arr.any? { |bin| num[0, bin.size] == bin }` — bin appears
-        // in both the receiver subtree and as the argument.
-        if recv_is_param && node_references_lvar(&arg_nodes[0], param_name) {
+        // Match RuboCop's same_block_argument_and_is_a_argument? else branch:
+        // skip when the receiver of the comparison has the same source as the
+        // receiver of the argument. e.g., `item == item.do_something` — both
+        // sides have receiver source "item", so skip.
+        if !is_case_equality {
+            let recv_source =
+                &source.as_bytes()[recv.location().start_offset()..recv.location().end_offset()];
+            let arg_recv_source = arg_nodes[0].as_call_node().and_then(|c| {
+                c.receiver().map(|r| {
+                    &source.as_bytes()[r.location().start_offset()..r.location().end_offset()]
+                })
+            });
+            if arg_recv_source.is_some_and(|s| s == recv_source) {
+                return;
+            }
+            // Also check the symmetric case: arg is param and recv is a call
+            // whose receiver matches the arg source.
+            let arg_source = &source.as_bytes()
+                [arg_nodes[0].location().start_offset()..arg_nodes[0].location().end_offset()];
+            let recv_recv_source = recv.as_call_node().and_then(|c| {
+                c.receiver().map(|r| {
+                    &source.as_bytes()[r.location().start_offset()..r.location().end_offset()]
+                })
+            });
+            if recv_recv_source.is_some_and(|s| s == arg_source) {
+                return;
+            }
+        }
+
+        // Check if the param is used in the method arguments of the OTHER side.
+        // Matches RuboCop's use_block_argument_in_method_argument_of_operand?:
+        // only checks method call arguments, not receiver chains.
+        // e.g., `arr.any? { |item| item == do_something(item) }` — skip (param in args)
+        // e.g., `items.all? { |k| k == k.to_i.to_s }` — flag (param only in receiver chain)
+        if recv_is_param && param_in_method_args_of_operand(&arg_nodes[0], param_name) {
             return;
         }
-        if arg_is_param && node_references_lvar(&recv, param_name) {
+        if arg_is_param && param_in_method_args_of_operand(&recv, param_name) {
             return;
         }
 
-        let loc = call.location();
+        let loc = call.message_loc().unwrap_or_else(|| call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         let msg = if is_regexp {
             "Use `grep` instead of block with regexp comparison."
