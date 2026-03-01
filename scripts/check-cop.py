@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Check a single cop against the corpus for FP regressions.
 
 Compares nitrocop's offense count against the RuboCop baseline from the

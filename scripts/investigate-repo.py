@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Investigate a repo's conformance from the corpus oracle data.
 
 Answers "why is repo X at Y%?" by showing the top diverging cops for that repo.

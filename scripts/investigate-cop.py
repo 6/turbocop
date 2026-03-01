@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Investigate a cop's false positives/negatives from the corpus oracle data.
 
 Reads corpus-results.json (downloaded from CI or local) and shows all FP/FN

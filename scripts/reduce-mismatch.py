@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Delta reducer for corpus mismatches.
 
 Takes a cop + corpus file with a known FP/FN and automatically shrinks it to

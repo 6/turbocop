@@ -257,4 +257,49 @@ impl Cop for CompareWithBlock {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(CompareWithBlock, "cops/performance/compare_with_block");
+
+    #[test]
+    fn detects_do_end_block() {
+        use crate::testutil::run_cop_full;
+        let source = b"arr.sort do |a, b|\n  a.name <=> b.name\nend\n";
+        let diags = run_cop_full(&CompareWithBlock, source);
+        assert!(!diags.is_empty(), "Should flag do..end block form");
+    }
+
+    #[test]
+    fn detects_multiline_brace_block() {
+        use crate::testutil::run_cop_full;
+        let source = b"arr.min { |a, b|\n  a.name <=> b.name\n}\n";
+        let diags = run_cop_full(&CompareWithBlock, source);
+        assert!(!diags.is_empty(), "Should flag multiline brace block");
+    }
+
+    #[test]
+    fn debug_various_patterns() {
+        use crate::testutil::run_cop_full;
+        // Pattern: receiver.method_call (no args) — the standard case
+        let source = b"[3,1,2].sort { |a, b| a.to_s <=> b.to_s }\n";
+        let diags = run_cop_full(&CompareWithBlock, source);
+        assert!(!diags.is_empty(), "Should flag [3,1,2].sort with to_s");
+
+        // Pattern: method with arguments like a.fetch(:key)
+        let source = b"arr.sort { |a, b| a.fetch(:key) <=> b.fetch(:key) }\n";
+        let diags = run_cop_full(&CompareWithBlock, source);
+        assert!(diags.is_empty(), "Should NOT flag fetch with args");
+
+        // Pattern: multiline do..end with min
+        let source = b"list.min do |a, b|\n  a.size <=> b.size\nend\n";
+        let diags = run_cop_full(&CompareWithBlock, source);
+        assert!(!diags.is_empty(), "Should flag multiline do..end min");
+
+        // Pattern: minmax with block
+        let source = b"items.minmax { |a, b| a.length <=> b.length }\n";
+        let diags = run_cop_full(&CompareWithBlock, source);
+        assert!(!diags.is_empty(), "Should flag minmax");
+
+        // Pattern: max with index bracket
+        let source = b"data.max { |a, b| a[:value] <=> b[:value] }\n";
+        let diags = run_cop_full(&CompareWithBlock, source);
+        assert!(!diags.is_empty(), "Should flag max with index bracket");
+    }
 }

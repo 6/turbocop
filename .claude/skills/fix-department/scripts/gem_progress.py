@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 """Gem conformance progress report from corpus oracle results.
 
 Shows per-gem conformance status to help prioritize which gem to bring
