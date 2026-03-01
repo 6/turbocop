@@ -29,12 +29,74 @@ fn is_end_anchored_literal(content: &[u8], safe_multiline: bool) -> bool {
     false
 }
 
+/// Check if a byte is a "safe literal" character per RuboCop's LITERAL_REGEX:
+/// `[\w\s\-,"'!#%&<>=;:\x60~/]` — word chars, whitespace, and specific punctuation.
+/// Characters NOT in this set (like `@`, `(`, `.`, `*`, etc.) are not considered literal.
+fn is_safe_literal_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric()
+        || b == b'_'
+        || b.is_ascii_whitespace()
+        || matches!(
+            b,
+            b'-' | b','
+                | b'"'
+                | b'\''
+                | b'!'
+                | b'#'
+                | b'%'
+                | b'&'
+                | b'<'
+                | b'>'
+                | b'='
+                | b';'
+                | b':'
+                | b'`'
+                | b'~'
+                | b'/'
+                | b'.'
+        )
+}
+
 fn is_literal_chars(bytes: &[u8]) -> bool {
-    for &b in bytes {
-        match b {
-            b'.' | b'*' | b'+' | b'?' | b'|' | b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'^'
-            | b'$' | b'\\' => return false,
-            _ => {}
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            // Escaped character: backslash + next char
+            // RuboCop allows \\[^AbBdDgGhHkpPRwWXsSzZ0-9]
+            if i + 1 >= bytes.len() {
+                return false;
+            }
+            let next = bytes[i + 1];
+            if matches!(
+                next,
+                b'A' | b'b'
+                    | b'B'
+                    | b'd'
+                    | b'D'
+                    | b'g'
+                    | b'G'
+                    | b'h'
+                    | b'H'
+                    | b'k'
+                    | b'p'
+                    | b'P'
+                    | b'R'
+                    | b'w'
+                    | b'W'
+                    | b'X'
+                    | b's'
+                    | b'S'
+                    | b'z'
+                    | b'Z'
+            ) || next.is_ascii_digit()
+            {
+                return false;
+            }
+            i += 2;
+        } else if is_safe_literal_char(bytes[i]) {
+            i += 1;
+        } else {
+            return false;
         }
     }
     true
@@ -69,9 +131,13 @@ impl Cop for DeleteSuffix {
         };
 
         let method_name = call.name().as_slice();
-        if method_name != b"gsub" && method_name != b"sub" {
-            return;
-        }
+        let (preferred, original) = match method_name {
+            b"gsub" => ("delete_suffix", "gsub"),
+            b"sub" => ("delete_suffix", "sub"),
+            b"gsub!" => ("delete_suffix!", "gsub!"),
+            b"sub!" => ("delete_suffix!", "sub!"),
+            _ => return,
+        };
 
         if call.receiver().is_none() {
             return;
@@ -97,9 +163,12 @@ impl Cop for DeleteSuffix {
             None => return,
         };
 
-        // Skip if regex has flags (e.g., /pattern\z/i) — delete_suffix can't replicate flags
-        let closing = regex_node.closing_loc().as_slice();
-        if closing.len() > 1 {
+        // RuboCop requires (regopt) — no flags. Skip if any flags are present.
+        if regex_node.is_ignore_case()
+            || regex_node.is_extended()
+            || regex_node.is_multi_line()
+            || regex_node.is_once()
+        {
             return;
         }
 
@@ -124,7 +193,7 @@ impl Cop for DeleteSuffix {
             source,
             line,
             column,
-            "Use `delete_suffix` instead of `gsub`.".to_string(),
+            format!("Use `{preferred}` instead of `{original}`."),
         ));
     }
 }
