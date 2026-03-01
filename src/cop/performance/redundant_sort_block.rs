@@ -58,45 +58,51 @@ impl Cop for RedundantSortBlock {
         };
 
         // Check if the block is `{ |a, b| a <=> b }` — the redundant default sort
-        // The block should be a BlockNode with a body that is a single CallNode for `<=>`
         let block_node = match block.as_block_node() {
             Some(b) => b,
             None => return,
         };
 
-        // Must have exactly 2 block parameters
         let params = match block_node.parameters() {
             Some(p) => p,
             None => return,
         };
 
-        let block_params = match params.as_block_parameters_node() {
-            Some(bp) => bp,
-            None => return,
-        };
+        // Determine the expected parameter names based on block type
+        let (name_a, name_b) = if let Some(block_params) = params.as_block_parameters_node() {
+            // Regular block: { |a, b| a <=> b }
+            let param_list = match block_params.parameters() {
+                Some(pl) => pl,
+                None => return,
+            };
 
-        let param_list = match block_params.parameters() {
-            Some(pl) => pl,
-            None => return,
-        };
+            let requireds: Vec<_> = param_list.requireds().iter().collect();
+            if requireds.len() != 2 {
+                return;
+            }
 
-        let requireds: Vec<_> = param_list.requireds().iter().collect();
-        if requireds.len() != 2 {
+            let param_a = match requireds[0].as_required_parameter_node() {
+                Some(p) => p,
+                None => return,
+            };
+            let param_b = match requireds[1].as_required_parameter_node() {
+                Some(p) => p,
+                None => return,
+            };
+
+            (
+                param_a.name().as_slice().to_vec(),
+                param_b.name().as_slice().to_vec(),
+            )
+        } else if let Some(numbered) = params.as_numbered_parameters_node() {
+            // Numbered params: { _1 <=> _2 }
+            if numbered.maximum() < 2 {
+                return;
+            }
+            (b"_1".to_vec(), b"_2".to_vec())
+        } else {
             return;
-        }
-
-        // Get the parameter names
-        let param_a = match requireds[0].as_required_parameter_node() {
-            Some(p) => p,
-            None => return,
         };
-        let param_b = match requireds[1].as_required_parameter_node() {
-            Some(p) => p,
-            None => return,
-        };
-
-        let name_a = param_a.name().as_slice();
-        let name_b = param_b.name().as_slice();
 
         // Body should be a single `a <=> b` call
         let body = match block_node.body() {
@@ -150,12 +156,16 @@ impl Cop for RedundantSortBlock {
         };
 
         // Check that it's `a <=> b` (same order as parameters), making it redundant
-        if recv_name != name_a || arg_name != name_b {
+        if recv_name != name_a.as_slice() || arg_name != name_b.as_slice() {
             return;
         }
 
-        let loc = call.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
+        // Report at the method selector (sort), not the entire expression
+        let msg_loc = match call.message_loc() {
+            Some(loc) => loc,
+            None => return,
+        };
+        let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,
             line,

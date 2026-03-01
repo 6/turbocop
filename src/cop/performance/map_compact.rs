@@ -37,6 +37,13 @@ impl Cop for MapCompact {
             return;
         }
 
+        // RuboCop's pattern only matches map/collect with NO method arguments.
+        // e.g. `Parallel.map(items) { ... }.compact` should NOT be flagged
+        // because map has an explicit argument — it's not Enumerable#map.
+        if chain.inner_call.arguments().is_some() {
+            return;
+        }
+
         // The inner call should have a block (either { } / do..end or &:symbol)
         let block = match chain.inner_call.block() {
             Some(b) => b,

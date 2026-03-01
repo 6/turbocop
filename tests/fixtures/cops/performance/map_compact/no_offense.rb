@@ -13,3 +13,7 @@ items.map { it.to_s }.compact
 items.map(&method(:transform)).compact
 items.map(&attr).compact
 items.collect(&method(:parse_uri)).compact
+# map/collect with method arguments — not a simple Enumerable#map call
+Parallel.map(items) { |item| transform(item) }.compact
+Parallel.map(items, in_threads: 4) { |item| transform(item) }.compact
+Helper.collect(records, batch_size: 100) { |r| r.name }.compact

@@ -8,3 +8,7 @@ collection.map(&:do_something).compact
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/MapCompact: Use `filter_map` instead.
 collection.collect(&:do_something).compact
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/MapCompact: Use `filter_map` instead.
+items.collect {|x|
+      ^^^^^^^^^^^^ Performance/MapCompact: Use `filter_map` instead.
+  x.valid? ? x.name : nil
+}.compact
