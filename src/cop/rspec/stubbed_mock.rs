@@ -55,7 +55,7 @@ impl Cop for StubbedMock {
         let method_name = call.name().as_slice();
 
         // We need this to be a `.to` call
-        if method_name != b"to" && method_name != b"not_to" && method_name != b"to_not" {
+        if method_name != b"to" {
             return;
         }
 
@@ -197,6 +197,20 @@ fn is_matcher_with_configured_response(node: &ruby_prism::Node<'_>) -> bool {
         return false;
     }
     if let Some(recv) = call.receiver() {
+        let recv_call = match recv.as_call_node() {
+            Some(c) => c,
+            None => return false,
+        };
+
+        // RuboCop's matcher requires the receiver to be a `send`, not a block-wrapped
+        // message expectation. In Prism, block-form expectations attach the block to the
+        // CallNode itself, so exclude those here.
+        if let Some(block) = recv_call.block() {
+            if block.as_block_node().is_some() {
+                return false;
+            }
+        }
+
         return is_message_expectation(&recv);
     }
     false
@@ -304,17 +318,21 @@ fn is_matcher_with_block(node: &ruby_prism::Node<'_>) -> bool {
             // Block with params like |x| or |&b| is dynamic, not a stubbed response
             // RuboCop's (args) pattern means EMPTY args — any parameter makes it not match
             if let Some(params) = bn.parameters() {
-                if let Some(bp) = params.as_block_parameters_node() {
-                    if let Some(p) = bp.parameters() {
-                        if p.requireds().iter().next().is_some()
-                            || p.optionals().iter().next().is_some()
-                            || p.rest().is_some()
-                            || p.keywords().iter().next().is_some()
-                            || p.keyword_rest().is_some()
-                            || p.block().is_some()
-                        {
-                            return false;
-                        }
+                // Numbered parameter blocks (`_1`, `_2`) are parser `numblock`
+                // and do not match RuboCop's `(block ... (args) ...)` pattern.
+                let Some(bp) = params.as_block_parameters_node() else {
+                    return false;
+                };
+
+                if let Some(p) = bp.parameters() {
+                    if p.requireds().iter().next().is_some()
+                        || p.optionals().iter().next().is_some()
+                        || p.rest().is_some()
+                        || p.keywords().iter().next().is_some()
+                        || p.keyword_rest().is_some()
+                        || p.block().is_some()
+                    {
+                        return false;
                     }
                 }
             }

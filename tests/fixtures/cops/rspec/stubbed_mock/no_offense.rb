@@ -38,3 +38,13 @@ expect(foo).to receive(:bar).and_throw(:abort, "reason")
 
 # Block with &block parameter is dynamic, not stubbed
 expect(foo).to receive(:bar) { |&b| b.call }
+
+# Configured response chained after a block-form message expectation is not matched
+expect(service).to receive(:run).with(payload) { |actual| expect(actual).to eq(payload) }.and_return(:ok)
+
+# Cop only checks `.to` expectations, not `.not_to`/`.to_not`
+expect(file).not_to receive(:open).and_yield(writer)
+expect(file).to_not receive(:open).and_yield(writer)
+
+# Numbered-parameter blocks are parser numblocks, not plain `(args)` blocks
+expect(service).to receive(:setup) { _1.to_s }
