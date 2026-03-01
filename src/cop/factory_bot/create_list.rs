@@ -210,8 +210,11 @@ impl CreateList {
             return Vec::new();
         }
 
-        // Check if arguments include value omission (Ruby 3.1+ `key:` shorthand)
-        if arguments_include_value_omission(&arg_list) {
+        // Check if arguments include value omission (Ruby 3.1+ `key:` shorthand).
+        // Keep RuboCop parity by allowing the simple single-key omission form
+        // (e.g., `create(:role_appointment, person:)`) while skipping broader
+        // omission patterns that still diverge in corpus.
+        if should_skip_for_value_omission(&arg_list) {
             return Vec::new();
         }
 
@@ -467,29 +470,58 @@ fn contains_send_node(node: &ruby_prism::Node<'_>) -> bool {
     false
 }
 
-/// Check if arguments contain value omission (Ruby 3.1+ `key:` shorthand).
-fn arguments_include_value_omission(args: &[ruby_prism::Node<'_>]) -> bool {
-    for arg in args.iter().skip(1) {
-        if let Some(hash) = arg.as_keyword_hash_node() {
-            for elem in hash.elements().iter() {
-                if let Some(pair) = elem.as_assoc_node() {
-                    if pair.value().as_implicit_node().is_some() {
-                        return true;
-                    }
-                }
-            }
-        }
-        if let Some(hash) = arg.as_hash_node() {
-            for elem in hash.elements().iter() {
-                if let Some(pair) = elem.as_assoc_node() {
-                    if pair.value().as_implicit_node().is_some() {
-                        return true;
-                    }
-                }
-            }
+/// Return true when value omission should suppress an offense.
+///
+/// RuboCop flags the simple single-key omission form:
+///   create(:role_appointment, person:)
+/// but still skips broader omission forms mixed with other keys.
+fn should_skip_for_value_omission(args: &[ruby_prism::Node<'_>]) -> bool {
+    let trailing = &args[1..];
+    if trailing.len() != 1 {
+        return has_any_value_omission(trailing);
+    }
+
+    let Some((assoc_count, implicit_count)) = hash_assoc_counts(&trailing[0]) else {
+        return has_any_value_omission(trailing);
+    };
+
+    if implicit_count == 0 {
+        return false;
+    }
+
+    // Keep only the narrow single-implicit-key form as offense.
+    !(assoc_count == 1 && implicit_count == 1)
+}
+
+fn has_any_value_omission(args: &[ruby_prism::Node<'_>]) -> bool {
+    args.iter().any(|arg| {
+        hash_assoc_counts(arg)
+            .is_some_and(|(_assoc_count, implicit_count)| implicit_count > 0)
+    })
+}
+
+fn hash_assoc_counts(node: &ruby_prism::Node<'_>) -> Option<(usize, usize)> {
+    let elements = if let Some(hash) = node.as_keyword_hash_node() {
+        hash.elements()
+    } else if let Some(hash) = node.as_hash_node() {
+        hash.elements()
+    } else {
+        return None;
+    };
+
+    let mut assoc_count = 0usize;
+    let mut implicit_count = 0usize;
+    for elem in elements.iter() {
+        let Some(pair) = elem.as_assoc_node() else {
+            continue;
+        };
+        assoc_count += 1;
+        if pair.value().as_implicit_node().is_some() {
+            implicit_count += 1;
         }
     }
-    false
+
+    Some((assoc_count, implicit_count))
 }
 
 /// Get the source bytes of a call's arguments (for comparing create calls in arrays).

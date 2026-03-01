@@ -16,3 +16,7 @@ Array.new(5) { create(:player) }
 ^^^^^^^^^^^^ FactoryBot/CreateList: Prefer create_list.
 Array.new(3) { FactoryBot.create(:user) }
 ^^^^^^^^^^^^ FactoryBot/CreateList: Prefer create_list.
+2.times.map do
+^^^^^^^^^^^ FactoryBot/CreateList: Prefer create_list.
+  create(:role_appointment, person:)
+end
