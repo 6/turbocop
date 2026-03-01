@@ -27,15 +27,89 @@ fn is_start_anchored_literal(content: &[u8], safe_multiline: bool) -> bool {
     false
 }
 
+/// Check if a byte is a "safe literal" character per RuboCop's LITERAL_REGEX:
+/// `[\w\s\-,"'!#%&<>=;:\x60~/]` — word chars, whitespace, and specific punctuation.
+/// Characters NOT in this set (like `@`, `(`, `.`, `*`, etc.) are not considered literal.
+fn is_safe_literal_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric()
+        || b == b'_'
+        || b.is_ascii_whitespace()
+        || matches!(
+            b,
+            b'-' | b','
+                | b'"'
+                | b'\''
+                | b'!'
+                | b'#'
+                | b'%'
+                | b'&'
+                | b'<'
+                | b'>'
+                | b'='
+                | b';'
+                | b':'
+                | b'`'
+                | b'~'
+                | b'/'
+                | b'.'
+        )
+}
+
 fn is_literal_chars(bytes: &[u8]) -> bool {
-    for &b in bytes {
-        match b {
-            b'.' | b'*' | b'+' | b'?' | b'|' | b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'^'
-            | b'$' | b'\\' => return false,
-            _ => {}
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            // Escaped character: backslash + next char
+            // RuboCop allows \\[^AbBdDgGhHkpPRwWXsSzZ0-9]
+            if i + 1 >= bytes.len() {
+                return false;
+            }
+            let next = bytes[i + 1];
+            if matches!(
+                next,
+                b'A' | b'b'
+                    | b'B'
+                    | b'd'
+                    | b'D'
+                    | b'g'
+                    | b'G'
+                    | b'h'
+                    | b'H'
+                    | b'k'
+                    | b'p'
+                    | b'P'
+                    | b'R'
+                    | b'w'
+                    | b'W'
+                    | b'X'
+                    | b's'
+                    | b'S'
+                    | b'z'
+                    | b'Z'
+            ) || next.is_ascii_digit()
+            {
+                return false;
+            }
+            i += 2;
+        } else if is_safe_literal_char(bytes[i]) {
+            i += 1;
+        } else {
+            return false;
         }
     }
     true
+}
+
+/// Extract regex node from a Prism node, returning it if it's a RegularExpressionNode.
+fn extract_regex_node<'a>(
+    node: &'a ruby_prism::Node<'a>,
+) -> Option<ruby_prism::RegularExpressionNode<'a>> {
+    node.as_regular_expression_node()
+}
+
+/// Check if a regex node has no flags (ignore_case, extended, multi_line, once).
+fn has_no_flags(regex: &ruby_prism::RegularExpressionNode<'_>) -> bool {
+    !regex.is_ignore_case() && !regex.is_extended() && !regex.is_multi_line() && !regex.is_once()
 }
 
 impl Cop for StartWith {
@@ -66,38 +140,103 @@ impl Cop for StartWith {
             None => return,
         };
 
-        if call.name().as_slice() != b"match?" {
-            return;
-        }
+        let method_name = call.name().as_slice();
 
-        if call.receiver().is_none() {
-            return;
-        }
+        match method_name {
+            b"match?" | b"match" => {
+                // Two orientations:
+                // 1. str.match?(/\Aabc/) — receiver is string, arg is regex
+                // 2. /\Aabc/.match?(str) — receiver is regex, arg is string
+                if call.receiver().is_none() {
+                    return;
+                }
+                let arguments = match call.arguments() {
+                    Some(a) => a,
+                    None => return,
+                };
+                let args = arguments.arguments();
+                let first_arg = match args.iter().next() {
+                    Some(a) => a,
+                    None => return,
+                };
 
-        let arguments = match call.arguments() {
-            Some(a) => a,
-            None => return,
-        };
+                // Try arg as regex (str.match?(/regex/))
+                let found = if let Some(regex_node) = extract_regex_node(&first_arg) {
+                    if !has_no_flags(&regex_node) {
+                        return;
+                    }
+                    let content = regex_node.content_loc().as_slice();
+                    is_start_anchored_literal(content, safe_multiline)
+                } else if let Some(recv) = call.receiver() {
+                    // Try receiver as regex (/regex/.match?(str))
+                    if let Some(regex_node) = extract_regex_node(&recv) {
+                        if !has_no_flags(&regex_node) {
+                            return;
+                        }
+                        let content = regex_node.content_loc().as_slice();
+                        is_start_anchored_literal(content, safe_multiline)
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
 
-        let args = arguments.arguments();
-        let first_arg = match args.iter().next() {
-            Some(a) => a,
-            None => return,
-        };
+                if !found {
+                    return;
+                }
+            }
+            b"=~" => {
+                // Two orientations:
+                // 1. str =~ /\Aabc/ — receiver is string, arg is regex
+                // 2. /\Aabc/ =~ str — receiver is regex, arg is string
+                let recv = match call.receiver() {
+                    Some(r) => r,
+                    None => return,
+                };
+                let arguments = match call.arguments() {
+                    Some(a) => a,
+                    None => return,
+                };
+                let first_arg = match arguments.arguments().iter().next() {
+                    Some(a) => a,
+                    None => return,
+                };
 
-        let regex_node = match first_arg.as_regular_expression_node() {
-            Some(r) => r,
-            None => return,
-        };
+                // Check if arg is the regex
+                let found = if let Some(regex_node) = extract_regex_node(&first_arg) {
+                    if !has_no_flags(&regex_node) {
+                        return;
+                    }
+                    let content = regex_node.content_loc().as_slice();
+                    is_start_anchored_literal(content, safe_multiline)
+                } else if let Some(regex_node) = extract_regex_node(&recv) {
+                    // Check if receiver is the regex
+                    if !has_no_flags(&regex_node) {
+                        return;
+                    }
+                    let content = regex_node.content_loc().as_slice();
+                    is_start_anchored_literal(content, safe_multiline)
+                } else {
+                    false
+                };
 
-        let content = regex_node.content_loc().as_slice();
-        if !is_start_anchored_literal(content, safe_multiline) {
-            return;
+                if !found {
+                    return;
+                }
+            }
+            _ => return,
         }
 
         let loc = call.location();
         let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(self.diagnostic(source, line, column, "Use `start_with?` instead of a regex match anchored to the beginning of the string.".to_string()));
+        diagnostics.push(self.diagnostic(
+            source,
+            line,
+            column,
+            "Use `start_with?` instead of a regex match anchored to the beginning of the string."
+                .to_string(),
+        ));
     }
 }
 
