@@ -66,33 +66,33 @@ Every cop reads its RuboCop YAML config options and has fixture-based test cover
 
 ## Conformance
 
-We diff nitrocop against RuboCop on [**1000 open-source repos**](docs/corpus.md) (228k Ruby files) with all cops enabled. Every offense is compared by file, line, and cop name.
+We diff nitrocop against RuboCop on [**1000 open-source repos**](docs/corpus.md) (234k Ruby files) with all cops enabled. Every offense is compared by file, line, and cop name.
 
 |                        |    Count |  Rate |
 |:-----------------------|--------: |------:|
-| Agreed                 |    11.4M | 94.2% |
-| nitrocop extra (FP)    |   124.7K | 1.0% |
-| nitrocop missed (FN)   |   574.4K | 4.7% |
+| Agreed                 |    11.9M | 94.2% |
+| nitrocop extra (FP)    |   126.8K | 1.0% |
+| nitrocop missed (FN)   |   599.0K | 4.7% |
 
 Per-repo results (top 15 by GitHub stars):
 
 | Repo | .rb files | RuboCop offenses | nitrocop extra (FP) | nitrocop missed (FN) | Agreement |
 |------|----------:|-----------------:|--------------------:|---------------------:|----------:|
-| [rails](https://github.com/rails/rails) | 3,498 | 314,829 | 7,343 | 19,267 | 93.9% |
+| [rails](https://github.com/rails/rails) | 3,498 | 314,829 | 7,338 | 19,250 | 93.9% |
 | [jekyll](https://github.com/jekyll/jekyll) | 190 | 13,052 | 124 | 784 | 94.0% |
-| [mastodon](https://github.com/mastodon/mastodon) | 3,114 | 76,133 | 146 | 2,672 | 96.5% |
-| [huginn](https://github.com/huginn/huginn) | 451 | 34,402 | 196 | 1,073 | 96.9% |
-| [discourse](https://github.com/discourse/discourse) | 9,157 | 616,464 | 2,587 | 14,716 | 97.6% |
-| [fastlane](https://github.com/fastlane/fastlane) | 1,302 | 118,730 | 506 | 3,887 | 96.7% |
-| [devdocs](https://github.com/freeCodeCamp/devdocs) | 833 | 19,903 | 126 | 1,369 | 93.1% |
-| [chatwoot](https://github.com/chatwoot/chatwoot) | 2,262 | 64,941 | 262 | 1,871 | 97.1% |
-| [vagrant](https://github.com/hashicorp/vagrant) | 1,460 | 86,064 | 554 | 3,201 | 96.3% |
-| [devise](https://github.com/heartcombo/devise) | 206 | 5,800 | 81 | 454 | 92.2% |
-| [forem](https://github.com/forem/forem) | 3,390 | 128,530 | 453 | 4,717 | 96.3% |
-| [postal](https://github.com/postalserver/postal) | 294 | 13,948 | 64 | 802 | 94.2% |
-| [CocoaPods](https://github.com/CocoaPods/CocoaPods) | 438 | 28,422 | 386 | 2,092 | 92.6% |
-| [openproject](https://github.com/opf/openproject) | 9,286 | 388,980 | 1,162 | 10,964 | 97.2% |
-| [gollum](https://github.com/gollum/gollum) | 55 | 3,790 | 23 | 313 | 91.7% |
+| [mastodon](https://github.com/mastodon/mastodon) | 3,114 | 76,133 | 145 | 2,672 | 96.5% |
+| [huginn](https://github.com/huginn/huginn) | 451 | 34,402 | 196 | 1,065 | 96.9% |
+| [discourse](https://github.com/discourse/discourse) | 9,157 | 616,464 | 2,580 | 14,678 | 97.6% |
+| [fastlane](https://github.com/fastlane/fastlane) | 1,302 | 118,730 | 505 | 3,884 | 96.7% |
+| [devdocs](https://github.com/freeCodeCamp/devdocs) | 833 | 19,903 | 126 | 1,352 | 93.2% |
+| [chatwoot](https://github.com/chatwoot/chatwoot) | 2,262 | 64,941 | 261 | 1,871 | 97.1% |
+| [vagrant](https://github.com/hashicorp/vagrant) | 1,460 | 86,064 | 554 | 3,203 | 96.3% |
+| [devise](https://github.com/heartcombo/devise) | 206 | 5,800 | 81 | 453 | 92.2% |
+| [forem](https://github.com/forem/forem) | 3,390 | 128,530 | 453 | 4,716 | 96.3% |
+| [postal](https://github.com/postalserver/postal) | 294 | 13,948 | 63 | 800 | 94.3% |
+| [CocoaPods](https://github.com/CocoaPods/CocoaPods) | 438 | 28,422 | 384 | 2,069 | 92.7% |
+| [openproject](https://github.com/opf/openproject) | 9,286 | 388,980 | 1,149 | 10,961 | 97.2% |
+| [gollum](https://github.com/gollum/gollum) | 55 | 3,790 | 23 | 311 | 91.8% |
 
 Remaining gaps are mostly in complex layout cops (indentation, alignment) and a few style cops. See [docs/corpus.md](docs/corpus.md) for the full corpus breakdown.
 
