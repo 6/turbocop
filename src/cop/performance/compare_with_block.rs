@@ -202,7 +202,7 @@ impl Cop for CompareWithBlock {
             return;
         }
 
-        let loc = call.location();
+        let loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
 
         if method_a == b"[]" {
