@@ -138,7 +138,7 @@ impl<'pr> ruby_prism::Visit<'pr> for RedundantMatchVisitor<'_> {
             self.parent_is_condition = false;
         }
 
-        self.value_used = old_used;
+        self.value_used = if old_condition { true } else { old_used };
         for condition in node.conditions().iter() {
             self.visit(&condition);
         }
@@ -398,6 +398,26 @@ impl<'pr> ruby_prism::Visit<'pr> for RedundantMatchVisitor<'_> {
         self.value_used = old;
     }
 
+    fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
+        let old_used = self.value_used;
+        let old_condition = self.parent_is_condition;
+        self.value_used = true;
+        self.parent_is_condition = false;
+        ruby_prism::visit_interpolated_string_node(self, node);
+        self.value_used = old_used;
+        self.parent_is_condition = old_condition;
+    }
+
+    fn visit_embedded_statements_node(&mut self, node: &ruby_prism::EmbeddedStatementsNode<'pr>) {
+        let old_used = self.value_used;
+        let old_condition = self.parent_is_condition;
+        self.value_used = true;
+        self.parent_is_condition = false;
+        ruby_prism::visit_embedded_statements_node(self, node);
+        self.value_used = old_used;
+        self.parent_is_condition = old_condition;
+    }
+
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
         let old = self.value_used;
         let old_condition = self.parent_is_condition;
@@ -424,10 +444,9 @@ impl<'a> RedundantMatchVisitor<'a> {
         }
 
         // Must have a receiver (x.match)
-        let receiver = match call.receiver() {
-            Some(r) => r,
-            None => return,
-        };
+        if call.receiver().is_none() {
+            return;
+        }
 
         // Must have exactly one argument (x.match(y)). RuboCop's node pattern
         // `(send !nil? :match {str regexp})` only matches calls with one argument.
@@ -442,9 +461,13 @@ impl<'a> RedundantMatchVisitor<'a> {
         }
         let first_arg = arg_list.iter().next().unwrap();
 
-        let recv_is_literal = receiver.as_string_node().is_some()
-            || receiver.as_regular_expression_node().is_some()
-            || receiver.as_interpolated_regular_expression_node().is_some();
+        let recv_is_literal = call
+            .receiver()
+            .is_some_and(|receiver| {
+                receiver.as_string_node().is_some()
+                    || receiver.as_regular_expression_node().is_some()
+                    || receiver.as_interpolated_regular_expression_node().is_some()
+            });
         let arg_is_literal = first_arg.as_string_node().is_some()
             || first_arg.as_regular_expression_node().is_some()
             || first_arg

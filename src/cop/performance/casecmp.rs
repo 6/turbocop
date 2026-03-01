@@ -16,6 +16,7 @@ fn is_valid_casecmp_operand(node: &ruby_prism::Node<'_>) -> bool {
         let name = call.name().as_slice();
         if (name == b"downcase" || name == b"upcase")
             && call.arguments().is_none()
+            && call.opening_loc().is_none()
             && !has_safe_navigation(&call)
         {
             return true;
@@ -51,6 +52,7 @@ fn is_case_method(call: &ruby_prism::CallNode<'_>) -> bool {
     let name = call.name().as_slice();
     (name == b"downcase" || name == b"upcase")
         && call.arguments().is_none()
+        && call.opening_loc().is_none()
         && !has_safe_navigation(call)
 }
 

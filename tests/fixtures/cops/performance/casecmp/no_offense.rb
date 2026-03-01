@@ -24,3 +24,6 @@ x.upcase == "PREFIX_#{suffix}"
 # Safe navigation on operand's downcase/upcase call
 y.downcase == x&.downcase
 "hello" == x&.upcase
+
+# Explicit parentheses on case method calls
+downcase() == 'hombre'

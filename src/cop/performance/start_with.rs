@@ -51,7 +51,6 @@ fn is_safe_literal_char(b: u8) -> bool {
                 | b'`'
                 | b'~'
                 | b'/'
-                | b'.'
         )
 }
 

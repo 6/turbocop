@@ -8,3 +8,6 @@ x =~ /\Afoo/i
 str.match?(/\A\d+/)
 str =~ /\A\w+/
 /\A\stest/.match?(str)
+%r{\Ahttps://github.com}.match?(path)
+res['Set-Cookie'] =~ /\Arack.session=caffee; /
+s.match(/\A0./)
