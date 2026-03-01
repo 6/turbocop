@@ -50,7 +50,6 @@ fn is_safe_literal_char(b: u8) -> bool {
                 | b'`'
                 | b'~'
                 | b'/'
-                | b'.'
         )
 }
 
@@ -184,7 +183,7 @@ impl Cop for DeletePrefix {
             return;
         }
 
-        let loc = call.location();
+        let loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,

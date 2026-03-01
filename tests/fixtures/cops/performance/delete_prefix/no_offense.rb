@@ -9,3 +9,7 @@ str.gsub(/\Aprefix/i, '')
 str.sub(/\Aprefix/mix, '')
 url.sub(/\Ahttp:/i, "")
 host.sub(/\Awww\./i, "")
+
+# Unescaped dot is a regex metacharacter, not a literal prefix
+str.sub(/\Awww./, '')
+str.gsub(/\A.prefix/, '')
