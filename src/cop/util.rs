@@ -142,6 +142,61 @@ fn count_body_lines_impl(
     count
 }
 
+/// Recursively collect line ranges of all inner class/module/sclass definitions
+/// within a body node. Returns (start_line, end_line) pairs (1-indexed).
+///
+/// RuboCop uses `each_descendant(:module, :class)` which traverses the entire AST,
+/// finding class/module nodes nested inside `begin`, `if`, `rescue`, `class << self`,
+/// etc. This visitor replicates that behavior.
+pub fn inner_classlike_ranges(
+    source: &SourceFile,
+    body: &ruby_prism::Node<'_>,
+) -> Vec<(usize, usize)> {
+    use ruby_prism::Visit;
+
+    struct ClasslikeFinder<'a> {
+        source: &'a SourceFile,
+        ranges: Vec<(usize, usize)>,
+    }
+
+    impl<'pr> Visit<'pr> for ClasslikeFinder<'_> {
+        fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'pr>) {
+            let loc = node.location();
+            let (start, _) = self.source.offset_to_line_col(loc.start_offset());
+            let end_off = loc.end_offset().saturating_sub(1).max(loc.start_offset());
+            let (end, _) = self.source.offset_to_line_col(end_off);
+            self.ranges.push((start, end));
+            // Do NOT recurse into class body — RuboCop's each_descendant finds
+            // nested classes but the outer class's exclusion already covers them.
+        }
+
+        fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'pr>) {
+            let loc = node.location();
+            let (start, _) = self.source.offset_to_line_col(loc.start_offset());
+            let end_off = loc.end_offset().saturating_sub(1).max(loc.start_offset());
+            let (end, _) = self.source.offset_to_line_col(end_off);
+            self.ranges.push((start, end));
+            // Do NOT recurse — same as class above.
+        }
+
+        fn visit_singleton_class_node(&mut self, node: &ruby_prism::SingletonClassNode<'pr>) {
+            let loc = node.location();
+            let (start, _) = self.source.offset_to_line_col(loc.start_offset());
+            let end_off = loc.end_offset().saturating_sub(1).max(loc.start_offset());
+            let (end, _) = self.source.offset_to_line_col(end_off);
+            self.ranges.push((start, end));
+            // Do NOT recurse — same as class above.
+        }
+    }
+
+    let mut finder = ClasslikeFinder {
+        source,
+        ranges: Vec::new(),
+    };
+    finder.visit(body);
+    finder.ranges
+}
+
 /// Collect line ranges of heredoc bodies within a node.
 /// Returns pairs of (start_line, end_line) (1-indexed) for multiline heredoc nodes.
 ///

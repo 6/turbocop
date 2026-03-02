@@ -1,5 +1,5 @@
 use crate::cop::node_type::{CLASS_NODE, MODULE_NODE, STATEMENTS_NODE};
-use crate::cop::util::{collect_foldable_ranges, count_body_lines_full};
+use crate::cop::util::{collect_foldable_ranges, count_body_lines_full, inner_classlike_ranges};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -23,32 +23,6 @@ fn is_namespace_module(module_node: &ruby_prism::ModuleNode<'_>) -> bool {
     let body_nodes: Vec<_> = stmts.body().iter().collect();
     body_nodes.len() == 1
         && (body_nodes[0].as_class_node().is_some() || body_nodes[0].as_module_node().is_some())
-}
-
-/// Collect line ranges of inner class/module definitions within a body node.
-/// Returns (start_line, end_line) pairs (1-indexed) for each inner class/module.
-fn inner_classlike_ranges(source: &SourceFile, body: &ruby_prism::Node<'_>) -> Vec<(usize, usize)> {
-    let stmts = match body.as_statements_node() {
-        Some(s) => s,
-        None => return Vec::new(),
-    };
-    let mut ranges = Vec::new();
-    for node in stmts.body().iter() {
-        if let Some(cls) = node.as_class_node() {
-            let loc = cls.location();
-            let (start, _) = source.offset_to_line_col(loc.start_offset());
-            let end_off = loc.end_offset().saturating_sub(1).max(loc.start_offset());
-            let (end, _) = source.offset_to_line_col(end_off);
-            ranges.push((start, end));
-        } else if let Some(m) = node.as_module_node() {
-            let loc = m.location();
-            let (start, _) = source.offset_to_line_col(loc.start_offset());
-            let end_off = loc.end_offset().saturating_sub(1).max(loc.start_offset());
-            let (end, _) = source.offset_to_line_col(end_off);
-            ranges.push((start, end));
-        }
-    }
-    ranges
 }
 
 impl Cop for ModuleLength {
