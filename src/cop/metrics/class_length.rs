@@ -4,6 +4,33 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+// ## Known false positives (8 FP) and false negatives (416 FN) in corpus as of 2026-03-02
+//
+// FPs (8): Mostly from files with rubocop:disable ClassLength inline comments
+// (transpec, tweetstream, fastlane, pleaserun). samg/timetrap has 3 FPs in nested classes
+// within Getopt::Declare — likely an inner-class exclusion edge case.
+//
+// FNs (416): The cop currently only handles ClassNode. RuboCop also counts:
+// - Struct.new(:foo) do ... end blocks as class-like bodies
+// - class << self (singleton class) bodies
+// - Top-level class << obj singleton classes
+//
+// Reverted attempt (2026-03-02, uncommitted): A rewrite added Struct.new block counting,
+// singleton class (class << self) counting, and class << obj handling. The approach used
+// a check_source visitor to walk the full AST. Unit tests passed (7/7) but corpus
+// validation showed 1,141 FP (up from 8) — a massive regression. The rewrite was too
+// aggressive in what it counted as class-like. Root cause of regression was not fully
+// diagnosed before revert, but likely the singleton class and Struct.new counting was
+// including constructs RuboCop doesn't count, or the line counting logic differed from
+// RuboCop's calculate_code_length method.
+//
+// A correct fix needs to:
+// - Handle each construct (Struct.new, class << self) incrementally, validating each one
+//   against the corpus independently before combining
+// - Match RuboCop's exact line counting for each construct type — check
+//   vendor/rubocop/lib/rubocop/cop/metrics/class_length.rb and its base class
+//   vendor/rubocop/lib/rubocop/cop/metrics/utils/code_length_calculator.rb
+// - Start with the FP fixes (simpler) before tackling the 416 FNs
 pub struct ClassLength;
 
 impl Cop for ClassLength {

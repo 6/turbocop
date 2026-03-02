@@ -3,6 +3,35 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+// ## Known false positives (811 FP) in corpus as of 2026-03-02
+//
+// Commit 0a021cc8 rewrote this cop from check_node to check_source with a Visit-based
+// walker. The rewrite added: (1) block parameter checking for non-lambda/proc blocks,
+// (2) MaxOptionalParameters checking, (3) Struct.new/Data.define initialize exemption.
+// This eliminated all 8 FNs but introduced 811 new FPs across the corpus.
+//
+// Investigation findings:
+// - Side-by-side comparison on specific repos (e.g., twilio-ruby) shows they MATCH on
+//   individual files. The 811 excess is aggregate across 1000 repos.
+// - The excess does NOT come from obviously wrong counting — param counts match on
+//   spot-checked files.
+// - RuboCop's on_args fires on ALL args nodes (both def and block params), and on_def
+//   fires separately for MaxOptionalParameters. nitrocop's visitor does the same but
+//   reports both on def_keyword_loc rather than separate locations.
+// - Possible cause (a): block param checking may fire on constructs RuboCop exempts via
+//   argument_to_lambda_or_proc? which uses ^lambda_or_proc? (parent-node check).
+//   nitrocop only checks for explicit proc/lambda method names as receiver-less calls.
+//   Other proc-like constructs (e.g., Proc.new, method(:foo)) might be missed.
+// - Possible cause (b): config inheritance edge cases — some repos may have
+//   MaxOptionalParameters set in inherited configs that nitrocop doesn't resolve
+//   identically to RuboCop.
+//
+// A correct fix needs to:
+// - Write a script to diff RuboCop vs nitrocop offenses per-file on a high-divergence
+//   repo to find the exact lines that differ
+// - Check if Proc.new blocks are being incorrectly flagged
+// - Validate block param counting against RuboCop's argument_to_lambda_or_proc? more
+//   carefully — it may exempt more than just proc and lambda calls
 pub struct ParameterLists;
 
 impl Cop for ParameterLists {
