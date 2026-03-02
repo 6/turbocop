@@ -50,3 +50,38 @@ end
 def annotated_then_doc
   42
 end
+
+# Private with indented def (common Ruby style)
+class IndentedPrivate
+  private
+    def indented_private_method
+      42
+    end
+
+  protected
+    def indented_protected_method
+      42
+    end
+end
+
+# Private inside class << self followed by private section
+module ActionCable
+    class Base
+      class << self
+      end
+      private
+        def delegate_connection_identifiers
+          42
+        end
+    end
+end
+
+# Private in nested class with different indentation
+class Container
+  class Nested
+    private
+      def deeply_nested_private
+        42
+      end
+  end
+end

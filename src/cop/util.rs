@@ -1325,8 +1325,11 @@ pub fn is_private_or_protected(source: &SourceFile, def_offset: usize) -> bool {
             in_private = false;
         }
 
-        // Only consider private/protected/public at the same indent level
-        if indent == def_col {
+        // Consider private/protected/public at the same or lower indent level
+        // within the same scope. Ruby allows `private` at a lower indent than
+        // the methods it affects (e.g., `private` + indented `def`). Scope
+        // boundaries (class/module/end) already reset `in_private` above.
+        if indent <= def_col {
             if trimmed == b"private"
                 || trimmed.starts_with(b"private\n")
                 || trimmed.starts_with(b"private\r")
