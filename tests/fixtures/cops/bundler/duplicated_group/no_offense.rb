@@ -11,3 +11,9 @@ end
 group :development, :test do
   gem 'factory_bot'
 end
+
+git 'https://example.com/my-gems.git' do
+  group :development, :test do
+    gem 'my_private_gem'
+  end
+end

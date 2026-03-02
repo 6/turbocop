@@ -1,86 +1,12 @@
 use std::collections::HashMap;
 
+use ruby_prism::Visit;
+
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 pub struct DuplicatedGroup;
-
-/// Extract sorted group names from a `group` declaration line.
-/// Handles: `group :dev do`, `group :dev, :test do`, `group 'dev' do`
-/// Returns None if this is not a group declaration line.
-fn extract_group_key(line: &str) -> Option<String> {
-    let trimmed = line.trim();
-    if !trimmed.starts_with("group ") && !trimmed.starts_with("group(") {
-        return None;
-    }
-    // Must end with `do` to be a block-style group
-    if !trimmed.ends_with(" do") && !trimmed.ends_with(" do") {
-        // Also check without trailing comment
-        let code_part = if let Some(idx) = trimmed.find('#') {
-            trimmed[..idx].trim()
-        } else {
-            trimmed
-        };
-        if !code_part.ends_with(" do") {
-            return None;
-        }
-    }
-
-    // Extract the part between `group` and `do`
-    // Both "group(" and "group " have the same 6-byte prefix length
-    let start = 6;
-    let end = trimmed.rfind(" do")?;
-    let args_str = &trimmed[start..end];
-
-    // Parse group names — symbols (:name) and strings ('name' or "name")
-    let mut groups: Vec<String> = Vec::new();
-    let mut rest = args_str.trim();
-
-    while !rest.is_empty() {
-        // Skip leading comma and whitespace
-        rest = rest.trim_start_matches(|c: char| c == ',' || c.is_whitespace());
-        if rest.is_empty() {
-            break;
-        }
-
-        // If we hit a keyword arg (foo: ...) that is not a group name, stop
-        if rest.contains(':') && !rest.starts_with(':') {
-            // This is something like `foo: true` — stop parsing groups
-            break;
-        }
-
-        if rest.starts_with(':') {
-            // Symbol argument :name
-            let name_end = rest[1..]
-                .find(|c: char| c == ',' || c.is_whitespace())
-                .map(|i| i + 1)
-                .unwrap_or(rest.len());
-            let name = &rest[1..name_end];
-            groups.push(name.to_string());
-            rest = &rest[name_end..];
-        } else if rest.starts_with('\'') || rest.starts_with('"') {
-            let quote = rest.as_bytes()[0];
-            if let Some(end_idx) = rest[1..].find(|c: char| c as u8 == quote) {
-                let name = &rest[1..1 + end_idx];
-                groups.push(name.to_string());
-                rest = &rest[2 + end_idx..];
-            } else {
-                break;
-            }
-        } else {
-            break;
-        }
-    }
-
-    if groups.is_empty() {
-        return None;
-    }
-
-    // Sort for canonical comparison
-    groups.sort();
-    Some(groups.join(","))
-}
 
 impl Cop for DuplicatedGroup {
     fn name(&self) -> &'static str {
@@ -95,56 +21,195 @@ impl Cop for DuplicatedGroup {
         &["**/*.gemfile", "**/Gemfile", "**/gems.rb"]
     }
 
-    fn check_lines(
+    fn check_source(
         &self,
         source: &SourceFile,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Maps group key -> first occurrence line (1-indexed)
+        let mut visitor = GroupDeclarationVisitor {
+            source,
+            declarations: Vec::new(),
+            source_scope_stack: Vec::new(),
+        };
+        visitor.visit(&parse_result.node());
+
         let mut seen: HashMap<String, usize> = HashMap::new();
 
-        for (i, line) in source.lines().enumerate() {
-            let line_str = std::str::from_utf8(line).unwrap_or("");
-            let line_num = i + 1;
-
-            if let Some(group_key) = extract_group_key(line_str) {
-                if let Some(&first_line) = seen.get(&group_key) {
-                    let display = format_group_display(line_str);
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line_num,
-                        0,
-                        format!(
-                            "Gem group `{}` already defined on line {} of the Gemfile.",
-                            display, first_line
-                        ),
-                    ));
-                } else {
-                    seen.insert(group_key, line_num);
-                }
+        for declaration in visitor.declarations {
+            if let Some(&first_line) = seen.get(&declaration.key) {
+                diagnostics.push(self.diagnostic(
+                    source,
+                    declaration.line,
+                    declaration.column,
+                    format!(
+                        "Gem group `{}` already defined on line {} of the Gemfile.",
+                        declaration.group_name, first_line
+                    ),
+                ));
+            } else {
+                seen.insert(declaration.key, declaration.line);
             }
         }
     }
 }
 
-/// Extract the group display text from the line for the error message.
-/// For `group :development do` returns `:development`.
-/// For `group :development, :test do` returns `:development, :test`.
-fn format_group_display(line: &str) -> String {
-    let trimmed = line.trim();
-    // Both "group(" and "group " have the same 6-byte prefix length
-    let start = 6;
-    let end = trimmed.rfind(" do").unwrap_or(trimmed.len());
-    let args = &trimmed[start..end];
-    // Strip keyword args for display
-    let parts: Vec<&str> = args
-        .split(',')
-        .map(|p| p.trim())
-        .filter(|p| p.starts_with(':') || p.starts_with('\'') || p.starts_with('"'))
+struct GroupDeclaration {
+    key: String,
+    group_name: String,
+    line: usize,
+    column: usize,
+}
+
+struct GroupDeclarationVisitor<'a> {
+    source: &'a SourceFile,
+    declarations: Vec<GroupDeclaration>,
+    source_scope_stack: Vec<Option<String>>,
+}
+
+impl GroupDeclarationVisitor<'_> {
+    fn nearest_source_scope_key(&self) -> Option<&str> {
+        self.source_scope_stack
+            .iter()
+            .rev()
+            .find_map(|scope| scope.as_deref())
+    }
+}
+
+impl<'pr> Visit<'pr> for GroupDeclarationVisitor<'_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        if node.receiver().is_none() && node.name().as_slice() == b"group" {
+            let mut attributes = group_attributes(self.source, node);
+            attributes.sort();
+
+            let mut key = String::new();
+            if let Some(scope_key) = self.nearest_source_scope_key() {
+                key.push_str(scope_key);
+            }
+            key.push_str(&attributes.join(""));
+
+            let group_name = group_display_name(self.source, node);
+            let loc = node.message_loc().unwrap_or(node.location());
+            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+
+            self.declarations.push(GroupDeclaration {
+                key,
+                group_name,
+                line,
+                column,
+            });
+        }
+
+        if let Some(block) = node.block() {
+            if let Some(block_node) = block.as_block_node() {
+                self.source_scope_stack
+                    .push(source_scope_key_for_call(self.source, node));
+                ruby_prism::visit_block_node(self, &block_node);
+                self.source_scope_stack.pop();
+
+                if let Some(receiver) = node.receiver() {
+                    self.visit(&receiver);
+                }
+                if let Some(arguments) = node.arguments() {
+                    self.visit_arguments_node(&arguments);
+                }
+                return;
+            }
+        }
+
+        ruby_prism::visit_call_node(self, node);
+    }
+}
+
+fn source_text(source: &SourceFile, node: &ruby_prism::Node<'_>) -> String {
+    let loc = node.location();
+    String::from_utf8_lossy(&source.as_bytes()[loc.start_offset()..loc.end_offset()]).into_owned()
+}
+
+fn source_scope_key_for_call(source: &SourceFile, call: &ruby_prism::CallNode<'_>) -> Option<String> {
+    if call.receiver().is_some() {
+        return None;
+    }
+
+    let method_name = call.name().as_slice();
+    if method_name != b"source"
+        && method_name != b"git"
+        && method_name != b"platforms"
+        && method_name != b"path"
+    {
+        return None;
+    }
+
+    let method = std::str::from_utf8(method_name).ok()?;
+    let first_arg = call
+        .arguments()
+        .and_then(|args| args.arguments().iter().next())
+        .map(|arg| source_text(source, &arg))
+        .unwrap_or_default();
+
+    Some(format!("{method}{first_arg}"))
+}
+
+fn group_display_name(source: &SourceFile, call: &ruby_prism::CallNode<'_>) -> String {
+    let Some(arguments) = call.arguments() else {
+        return String::new();
+    };
+
+    let parts: Vec<String> = arguments
+        .arguments()
+        .iter()
+        .map(|arg| source_text(source, &arg))
         .collect();
     parts.join(", ")
+}
+
+fn group_attributes(source: &SourceFile, call: &ruby_prism::CallNode<'_>) -> Vec<String> {
+    let Some(arguments) = call.arguments() else {
+        return Vec::new();
+    };
+
+    let mut attrs = Vec::new();
+
+    for argument in arguments.arguments().iter() {
+        if let Some(kw_hash) = argument.as_keyword_hash_node() {
+            let mut pairs: Vec<String> = kw_hash
+                .elements()
+                .iter()
+                .filter_map(|elem| elem.as_assoc_node().map(|_| source_text(source, &elem)))
+                .collect();
+            pairs.sort();
+            attrs.push(pairs.join(", "));
+            continue;
+        }
+
+        if let Some(hash) = argument.as_hash_node() {
+            let mut pairs: Vec<String> = hash
+                .elements()
+                .iter()
+                .filter_map(|elem| elem.as_assoc_node().map(|_| source_text(source, &elem)))
+                .collect();
+            pairs.sort();
+            attrs.push(pairs.join(", "));
+            continue;
+        }
+
+        if let Some(symbol) = argument.as_symbol_node() {
+            attrs.push(String::from_utf8_lossy(symbol.unescaped()).into_owned());
+            continue;
+        }
+
+        if let Some(string) = argument.as_string_node() {
+            attrs.push(String::from_utf8_lossy(string.unescaped()).into_owned());
+            continue;
+        }
+
+        attrs.push(source_text(source, &argument));
+    }
+
+    attrs
 }
 
 #[cfg(test)]
