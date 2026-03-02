@@ -2,10 +2,6 @@ def foo(...)
   bar(...)
 end
 
-def bar(x, *args, &block)
-  baz(*args, &block)
-end
-
 def baz(x, y)
   qux(x, y)
 end
@@ -14,25 +10,24 @@ def test
   42
 end
 
-# *args and &block used in different calls — cannot use ...
-def self.with(*args, &block)
-  new(*args).tap(&block).to_element
+# Non-redundant names: *items and &handler are NOT in the default redundant lists
+# So neither anonymous forwarding nor ... forwarding applies
+def self.with(*items, &handler)
+  new(*items).tap(&handler).to_element
 end
 
-# Block arg name 'task' is not in RedundantBlockArgumentNames — meaningful name
-# AllowOnlyRestArgument prevents suggesting ... forwarding
-def post(*args, &task)
-  @executor&.post(*args, &task)
+# Non-redundant block and rest names — no forwarding suggestions
+def process(*entries, &callback)
+  entries.each(&callback)
 end
 
-# args referenced directly (not just in *args splat) — cannot use ...
+# Both args referenced directly — no anonymous forwarding possible
 def capture(*args, &block)
-  buf.capture(*args, &block)
-  args.first
+  args.each { |a| puts a }
+  block.call
+  run(*args, &block)
 end
 
-# block referenced directly (block.call) — cannot use ...
-def wrap(*args, &block)
-  run(*args, &block)
-  block.call
+# No body — nothing to forward to
+def empty(*args, &block)
 end
