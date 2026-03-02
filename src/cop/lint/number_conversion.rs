@@ -20,6 +20,10 @@ impl Cop for NumberConversion {
         "Lint/NumberConversion"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Warning
     }

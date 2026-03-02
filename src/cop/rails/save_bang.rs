@@ -44,6 +44,10 @@ impl Cop for SaveBang {
         "Rails/SaveBang"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Convention
     }

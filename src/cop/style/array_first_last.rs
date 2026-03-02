@@ -11,6 +11,10 @@ impl Cop for ArrayFirstLast {
         "Style/ArrayFirstLast"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn check_source(
         &self,
         source: &SourceFile,

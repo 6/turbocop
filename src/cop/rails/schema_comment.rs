@@ -11,6 +11,10 @@ impl Cop for SchemaComment {
         "Rails/SchemaComment"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Convention
     }

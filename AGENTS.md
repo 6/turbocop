@@ -77,6 +77,12 @@ NITROCOP_COP_PROFILE=1 cargo run --release -- --debug bench/repos/mastodon
 - Cop trait is `Send + Sync`; cops needing mutable visitor state create a temporary `Visit` struct internally
 - Edition 2024 (Rust 1.85+)
 
+## Disabled-by-Default Cops
+
+Cops with `Enabled: false` in vendor `config/default.yml` (e.g., `Naming/InclusiveLanguage`, `Bundler/GemComment`, `Style/AsciiComments`) **must** override `fn default_enabled(&self) -> bool { false }` in their `impl Cop` block. Without this override, the cop defaults to enabled when `bundle info rubocop` fails (no vendored config loaded), causing false positives on projects without rubocop in their Gemfile.
+
+**Corpus conformance note:** The corpus oracle and `check-cop.py` use `bench/corpus/baseline_rubocop.yml`, which explicitly sets `Enabled: true` for all disabled-by-default cops. This means `default_enabled()` has **no effect on corpus FP/FN numbers** — the config layer overrides it. The `default_enabled()` override matters only for real-world usage where the vendor defaults are loaded (or fail to load).
+
 ## Autocorrect
 
 Autocorrect infrastructure is in place (Phase 0). The Cop trait methods (`check_lines`, `check_source`, `check_node`) all accept a `corrections: Option<&mut Vec<crate::correction::Correction>>` parameter. Currently all call sites pass `None`; individual cops opt in by overriding `supports_autocorrect() -> bool` and pushing `Correction` structs when `corrections` is `Some`.

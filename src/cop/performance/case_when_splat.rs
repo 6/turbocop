@@ -28,6 +28,10 @@ impl Cop for CaseWhenSplat {
         "Performance/CaseWhenSplat"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Convention
     }

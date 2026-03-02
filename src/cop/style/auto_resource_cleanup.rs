@@ -11,6 +11,10 @@ impl Cop for AutoResourceCleanup {
         "Style/AutoResourceCleanup"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn check_source(
         &self,
         source: &SourceFile,

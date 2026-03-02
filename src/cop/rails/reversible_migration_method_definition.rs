@@ -10,6 +10,10 @@ impl Cop for ReversibleMigrationMethodDefinition {
         "Rails/ReversibleMigrationMethodDefinition"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Convention
     }

@@ -12,6 +12,10 @@ impl Cop for MessageExpectation {
         "RSpec/MessageExpectation"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Convention
     }

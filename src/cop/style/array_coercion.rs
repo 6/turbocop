@@ -10,6 +10,10 @@ impl Cop for ArrayCoercion {
         "Style/ArrayCoercion"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn interested_node_types(&self) -> &'static [u8] {
         &[ARRAY_NODE, SPLAT_NODE]
     }

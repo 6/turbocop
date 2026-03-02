@@ -47,6 +47,10 @@ impl Cop for InclusiveLanguage {
         "Naming/InclusiveLanguage"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn check_lines(
         &self,
         source: &SourceFile,

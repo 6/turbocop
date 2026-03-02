@@ -10,6 +10,10 @@ impl Cop for SelectMap {
         "Performance/SelectMap"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Convention
     }

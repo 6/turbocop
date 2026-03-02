@@ -14,6 +14,10 @@ impl Cop for RedundantLineBreak {
         "Layout/RedundantLineBreak"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn check_source(
         &self,
         source: &SourceFile,

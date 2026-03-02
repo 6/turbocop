@@ -23,6 +23,10 @@ impl Cop for AsciiComments {
         "Style/AsciiComments"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn check_lines(
         &self,
         source: &SourceFile,

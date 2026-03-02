@@ -10,6 +10,10 @@ impl Cop for MultilineMethodParameterLineBreaks {
         "Layout/MultilineMethodParameterLineBreaks"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn interested_node_types(&self) -> &'static [u8] {
         &[DEF_NODE]
     }

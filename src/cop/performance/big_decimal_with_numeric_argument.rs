@@ -10,6 +10,10 @@ impl Cop for BigDecimalWithNumericArgument {
         "Performance/BigDecimalWithNumericArgument"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Convention
     }

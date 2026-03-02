@@ -12,6 +12,10 @@ impl Cop for UnlessLogicalOperators {
         "Style/UnlessLogicalOperators"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn interested_node_types(&self) -> &'static [u8] {
         &[AND_NODE, OR_NODE, UNLESS_NODE]
     }

@@ -10,6 +10,10 @@ impl Cop for AlignLeftLetBrace {
         "RSpec/AlignLeftLetBrace"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Convention
     }

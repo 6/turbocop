@@ -14,6 +14,10 @@ impl Cop for DescribedClassModuleWrapping {
         "RSpec/DescribedClassModuleWrapping"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Convention
     }

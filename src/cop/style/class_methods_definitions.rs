@@ -10,6 +10,10 @@ impl Cop for ClassMethodsDefinitions {
         "Style/ClassMethodsDefinitions"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn interested_node_types(&self) -> &'static [u8] {
         &[DEF_NODE, SELF_NODE, SINGLETON_CLASS_NODE, STATEMENTS_NODE]
     }

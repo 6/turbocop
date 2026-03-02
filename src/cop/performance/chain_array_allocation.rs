@@ -97,6 +97,10 @@ impl Cop for ChainArrayAllocation {
         "Performance/ChainArrayAllocation"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Convention
     }

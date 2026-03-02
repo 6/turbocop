@@ -10,6 +10,10 @@ impl Cop for DateTime {
         "Style/DateTime"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn interested_node_types(&self) -> &'static [u8] {
         &[CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE]
     }

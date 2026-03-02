@@ -61,6 +61,10 @@ impl Cop for Casecmp {
         "Performance/Casecmp"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Convention
     }

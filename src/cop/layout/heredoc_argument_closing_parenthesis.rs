@@ -10,6 +10,10 @@ impl Cop for HeredocArgumentClosingParenthesis {
         "Layout/HeredocArgumentClosingParenthesis"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn interested_node_types(&self) -> &'static [u8] {
         &[CALL_NODE, INTERPOLATED_STRING_NODE, STRING_NODE]
     }

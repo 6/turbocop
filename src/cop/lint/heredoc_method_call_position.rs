@@ -12,6 +12,10 @@ impl Cop for HeredocMethodCallPosition {
         "Lint/HeredocMethodCallPosition"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Warning
     }

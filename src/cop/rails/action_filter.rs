@@ -26,6 +26,10 @@ impl Cop for ActionFilter {
         "Rails/ActionFilter"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Convention
     }

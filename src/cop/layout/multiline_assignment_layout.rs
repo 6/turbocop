@@ -49,6 +49,10 @@ impl Cop for MultilineAssignmentLayout {
         "Layout/MultilineAssignmentLayout"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn interested_node_types(&self) -> &'static [u8] {
         &[
             BEGIN_NODE,

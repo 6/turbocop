@@ -11,6 +11,10 @@ impl Cop for EnvironmentVariableAccess {
         "Rails/EnvironmentVariableAccess"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Convention
     }

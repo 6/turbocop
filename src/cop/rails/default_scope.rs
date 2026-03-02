@@ -10,6 +10,10 @@ impl Cop for DefaultScope {
         "Rails/DefaultScope"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Convention
     }

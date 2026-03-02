@@ -9,6 +9,10 @@ impl Cop for DisableCopsWithinSourceCodeDirective {
         "Style/DisableCopsWithinSourceCodeDirective"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn check_lines(
         &self,
         source: &SourceFile,

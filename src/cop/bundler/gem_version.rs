@@ -10,6 +10,10 @@ impl Cop for GemVersion {
         "Bundler/GemVersion"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_include(&self) -> &'static [&'static str] {
         &["**/*.gemfile", "**/Gemfile", "**/gems.rb"]
     }

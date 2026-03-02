@@ -58,6 +58,10 @@ impl Cop for ArraySemiInfiniteRangeSlice {
         "Performance/ArraySemiInfiniteRangeSlice"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Convention
     }

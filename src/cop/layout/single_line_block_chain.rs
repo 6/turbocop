@@ -10,6 +10,10 @@ impl Cop for SingleLineBlockChain {
         "Layout/SingleLineBlockChain"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn interested_node_types(&self) -> &'static [u8] {
         &[BLOCK_NODE, CALL_NODE, LAMBDA_NODE]
     }

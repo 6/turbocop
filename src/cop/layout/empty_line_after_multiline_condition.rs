@@ -11,6 +11,10 @@ impl Cop for EmptyLineAfterMultilineCondition {
         "Layout/EmptyLineAfterMultilineCondition"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn interested_node_types(&self) -> &'static [u8] {
         &[IF_NODE, UNTIL_NODE, WHILE_NODE]
     }

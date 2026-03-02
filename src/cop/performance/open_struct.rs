@@ -12,6 +12,10 @@ impl Cop for OpenStruct {
         "Performance/OpenStruct"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Convention
     }

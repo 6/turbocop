@@ -15,6 +15,10 @@ impl Cop for DependencyVersion {
         "Gemspec/DependencyVersion"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_include(&self) -> &'static [&'static str] {
         &["**/*.gemspec"]
     }

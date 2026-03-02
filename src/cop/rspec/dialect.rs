@@ -11,6 +11,10 @@ impl Cop for Dialect {
         "RSpec/Dialect"
     }
 
+    fn default_enabled(&self) -> bool {
+        false
+    }
+
     fn default_severity(&self) -> Severity {
         Severity::Convention
     }
