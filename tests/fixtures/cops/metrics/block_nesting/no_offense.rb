@@ -48,3 +48,22 @@ def respond_to_destroy(method)
     end
   end
 end
+
+# Multiple rescue clauses are sibling nesting, not nested within each other
+def handle_connections
+  while running
+    if check_condition
+      begin
+        do_something
+      rescue IOError
+        retry
+      rescue Errno::EPIPE
+        next
+      rescue Errno::EBADF
+        break
+      rescue StandardError
+        raise
+      end
+    end
+  end
+end

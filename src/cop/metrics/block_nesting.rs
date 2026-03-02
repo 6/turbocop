@@ -205,14 +205,27 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_> {
     }
 
     fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
+        // In Prism, rescue clauses are chained via `subsequent` (each RescueNode
+        // contains a pointer to the next one). In the Parser gem AST, `resbody` nodes
+        // are siblings under a `rescue` parent. We must NOT increment depth for
+        // subsequent rescue clauses — they're at the same nesting level.
+        //
+        // Manually walk the node: visit statements at incremented depth,
+        // then visit subsequent at the ORIGINAL depth.
         self.depth += 1;
         let exceeded = self.check_nesting(&node.location());
-        if exceeded {
-            self.depth -= 1;
-            return;
+        if !exceeded {
+            // Visit the rescue body (statements) at incremented depth
+            if let Some(stmts) = node.statements() {
+                self.visit_statements_node(&stmts);
+            }
         }
-        ruby_prism::visit_rescue_node(self, node);
         self.depth -= 1;
+
+        // Visit subsequent rescue clause at the SAME depth (sibling, not nested)
+        if let Some(subsequent) = node.subsequent() {
+            self.visit_rescue_node(&subsequent);
+        }
     }
 }
 
