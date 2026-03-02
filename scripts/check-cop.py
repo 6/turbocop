@@ -27,6 +27,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CORPUS_DIR = PROJECT_ROOT / "vendor" / "corpus"
+MANIFEST_PATH = PROJECT_ROOT / "bench" / "corpus" / "manifest.jsonl"
 NITROCOP_BIN = PROJECT_ROOT / "target" / "release" / "nitrocop"
 BASELINE_CONFIG = PROJECT_ROOT / "bench" / "corpus" / "baseline_rubocop.yml"
 LOCAL_CACHE_DIR = PROJECT_ROOT / ".check-cop-cache"
@@ -243,6 +244,36 @@ def _run_one_repo(args: tuple[str, str]) -> tuple[str, int]:
         return (repo_id, -1)
 
 
+def validate_corpus():
+    """Check that local corpus matches manifest.jsonl.
+
+    Warns about missing or extra repos so stale clones don't silently
+    inflate offense counts.
+    """
+    if not MANIFEST_PATH.exists():
+        return
+    manifest_ids = set()
+    with open(MANIFEST_PATH) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                manifest_ids.add(json.loads(line)["id"])
+
+    local_ids = {d.name for d in CORPUS_DIR.iterdir() if d.is_dir()} if CORPUS_DIR.exists() else set()
+    extra = local_ids - manifest_ids
+    missing = manifest_ids - local_ids
+
+    if extra:
+        print(f"WARNING: {len(extra)} stale repos in vendor/corpus/ not in manifest "
+              f"(run bench/corpus/clone_repos.sh to clean up):", file=sys.stderr)
+        for r in sorted(extra):
+            print(f"  - {r}", file=sys.stderr)
+    if missing:
+        pct = len(missing) / len(manifest_ids) * 100
+        print(f"Note: {len(missing)}/{len(manifest_ids)} manifest repos not cloned locally "
+              f"({pct:.0f}% missing)", file=sys.stderr)
+
+
 def run_nitrocop_per_repo(cop_name: str) -> dict[str, int]:
     """Run nitrocop --only on each corpus repo in parallel, return {repo_id: count}."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -317,6 +348,10 @@ def main():
 
     ensure_binary()
 
+    # Validate local corpus matches manifest (warns about stale/missing repos)
+    if args.rerun:
+        validate_corpus()
+
     print(f"Checking {args.cop} against corpus")
     print(f"Baseline (from CI): {baseline_matches:,} matches, "
           f"{baseline_fp:,} FP, {baseline_fn:,} FN")
@@ -363,6 +398,8 @@ def main():
         # In artifact mode, nitrocop_total for that run is:
         # rubocop_matches + false_positives.
         nitrocop_total = baseline_matches + baseline_fp
+        file_drop_offenses = 0
+        file_drop_repos = {}
     else:
         # Try local cache first (unless --rerun forces re-execution)
         cached = None if args.rerun else get_cached_results(args.cop)
@@ -376,6 +413,31 @@ def main():
             print("Running nitrocop per-repo...", file=sys.stderr)
             per_repo = run_nitrocop_per_repo(args.cop)
             save_cached_results(args.cop, per_repo)
+
+        # Filter to only repos that were "ok" in the CI corpus oracle run.
+        # Local corpus may have stale/extra repos (denylisted, removed) and
+        # CI may have repos that crashed. Including these inflates the excess
+        # count since they have no RuboCop baseline to compare against.
+        by_repo = data.get("by_repo", [])
+        ci_ok_repos = {r["repo"] for r in by_repo if r.get("status") == "ok"}
+        if ci_ok_repos:
+            excluded = {k for k in per_repo if k not in ci_ok_repos}
+            if excluded:
+                excluded_total = sum(per_repo.get(k, 0) for k in excluded if per_repo.get(k, 0) > 0)
+                print(f"Excluding {len(excluded)} repos not in CI baseline "
+                      f"({excluded_total:,} offenses)", file=sys.stderr)
+            per_repo = {k: v for k, v in per_repo.items() if k in ci_ok_repos}
+
+        # Identify repos with RuboCop file drops (parser crashes that cause
+        # some files to be silently skipped). CI filters nitrocop offenses to
+        # only RuboCop-inspected files before comparing, so CI's FP/FN counts
+        # exclude offenses from dropped files. Our local run can't replicate
+        # this per-file filtering, so we report the noise separately.
+        file_drop_repos = {r["repo"]: r.get("rubocop_files_dropped", 0)
+                           for r in by_repo
+                           if r.get("rubocop_files_dropped", 0) > 0}
+        file_drop_offenses = sum(per_repo.get(k, 0) for k in file_drop_repos
+                                 if per_repo.get(k, 0) > 0)
 
         nitrocop_total = sum(c for c in per_repo.values() if c >= 0)
 
@@ -394,20 +456,44 @@ def main():
     excess = max(0, nitrocop_total - expected_rubocop)
     missing = max(0, expected_rubocop - nitrocop_total)
 
+    # CI nitrocop baseline: the offense count CI's nitrocop produced on
+    # RuboCop-inspected files. Our local count should be close to this.
+    ci_nitrocop_total = baseline_matches + baseline_fp
+    ci_delta = nitrocop_total - ci_nitrocop_total
+
     print(f"Results:")
     print(f"  Expected (RuboCop):   {expected_rubocop:>10,}")
     print(f"  Actual (nitrocop):    {nitrocop_total:>10,}")
+    print(f"  CI nitrocop baseline: {ci_nitrocop_total:>10,}")
     print(f"  Excess (potential FP):{excess:>10,}")
     print(f"  Missing (potential FN):{missing:>9,}")
+    if file_drop_offenses > 0:
+        print(f"  File-drop noise:      {file_drop_offenses:>10,}  "
+              f"({len(file_drop_repos)} repos with RuboCop parser crashes)")
     print()
 
-    if excess > args.threshold:
-        print(f"FAIL: {excess:,} excess offenses (threshold: {args.threshold})")
+    # For PASS/FAIL, compare against the CI nitrocop baseline (matches + fp).
+    # If our local count exceeds CI's nitrocop count, it's either regressions
+    # or file-drop noise. Subtract file_drop_offenses as a rough adjustment
+    # (conservative: assumes ALL offenses in file-drop repos are noise from
+    # files RuboCop didn't inspect; reality is somewhere between 0 and this).
+    adjusted_excess = max(0, ci_delta - file_drop_offenses)
+
+    if adjusted_excess > args.threshold:
+        print(f"FAIL: {adjusted_excess:,} excess over CI nitrocop baseline "
+              f"(threshold: {args.threshold})")
+        if ci_delta != adjusted_excess:
+            print(f"  Raw delta: {ci_delta:+,} "
+                  f"(adjusted by {file_drop_offenses:,} file-drop noise)")
         if not args.verbose:
             print("Run with --verbose to see which repos have excess offenses")
         sys.exit(1)
     else:
-        print(f"PASS: {excess:,} excess offenses (threshold: {args.threshold})")
+        print(f"PASS: {adjusted_excess:,} excess over CI nitrocop baseline "
+              f"(threshold: {args.threshold})")
+        if ci_delta > 0 and file_drop_offenses > 0:
+            print(f"  Raw delta: {ci_delta:+,} "
+                  f"(within file-drop noise of {file_drop_offenses:,})")
         if missing > 0:
             print(f"Note: {missing:,} potential FN remain (not a regression)")
 

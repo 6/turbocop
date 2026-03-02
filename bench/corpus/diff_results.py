@@ -176,7 +176,7 @@ def main():
     by_cop_fn = defaultdict(int)  # rubocop-only
     by_cop_fp_examples = defaultdict(list)  # (filepath, line) per cop
     by_cop_fn_examples = defaultdict(list)
-    by_repo_cop = defaultdict(lambda: defaultdict(lambda: {"fp": 0, "fn": 0}))
+    by_repo_cop = defaultdict(lambda: defaultdict(lambda: {"matches": 0, "fp": 0, "fn": 0}))
     total_matches = 0
     total_fp = 0
     total_fn = 0
@@ -274,6 +274,8 @@ def main():
         # Per-cop aggregation
         for _, _, cop in matches:
             by_cop_matches[cop] += 1
+            if multi_repo:
+                by_repo_cop[repo_id][cop]["matches"] += 1
         for filepath, line, cop in fp:
             by_cop_fp[cop] += 1
             loc = f"{repo_id}: {filepath}:{line}" if multi_repo else f"{filepath}:{line}"

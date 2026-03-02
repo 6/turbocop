@@ -172,6 +172,21 @@ for pid in "${PIDS[@]}"; do
 done
 
 echo ""
+
+# Remove stale repos not in the manifest (e.g., denylisted or removed repos)
+STALE_COUNT=0
+for dir in "$DEST_DIR"/*/; do
+    dir_name="$(basename "$dir")"
+    if ! grep -q "\"$dir_name\"" "$MANIFEST"; then
+        echo "STALE $dir_name (not in manifest) — removing"
+        rm -rf "$dir"
+        STALE_COUNT=$(( STALE_COUNT + 1 ))
+    fi
+done
+if [[ "$STALE_COUNT" -gt 0 ]]; then
+    echo "Removed $STALE_COUNT stale repos"
+fi
+
 TOTAL_CLONED=$(find "$DEST_DIR" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
 FAILED_COUNT=$(wc -l < "$FAILED_FILE" | tr -d ' ')
 echo "Done. $TOTAL_CLONED/$TOTAL repos in $DEST_DIR"
