@@ -1,6 +1,6 @@
 # NitroCop
 
-Experimental RuboCop rewrite in Rust. 900+ cops.
+Fast Ruby linter in Rust targeting RuboCop compatibility.
 
 > [!NOTE]
 > 🚧 Early-stage: Detection is high-fidelity on most codebases but edge cases remain. Autocorrect is not yet complete. Expect bugs.
