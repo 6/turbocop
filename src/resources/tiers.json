@@ -119,6 +119,7 @@
     "Naming/HeredocDelimiterCase": "stable",
     "Naming/MemoizedInstanceVariableName": "stable",
     "Naming/PredicatePrefix": "stable",
+    "Naming/VariableNumber": "stable",
     "Performance/AncestorsInclude": "stable",
     "Performance/ArraySemiInfiniteRangeSlice": "stable",
     "Performance/BigDecimalWithNumericArgument": "stable",
