@@ -87,32 +87,8 @@ impl Cop for HeredocDelimiterNaming {
         }
 
         if is_forbidden_delimiter(delimiter_str) {
-            // RuboCop points at the closing delimiter (node.loc.heredoc_end), not the opening
-            let closing_loc = if let Some(interp) = node.as_interpolated_string_node() {
-                interp.closing_loc()
-            } else if let Some(s) = node.as_string_node() {
-                s.closing_loc()
-            } else {
-                None
-            };
-
-            let offset = match closing_loc {
-                Some(loc) => loc.start_offset(),
-                None => {
-                    // Fallback to opening delimiter position
-                    opening_loc.start_offset() + opening.len()
-                        - delimiter.len()
-                        - if opening.ends_with(b"'")
-                            || opening.ends_with(b"\"")
-                            || opening.ends_with(b"`")
-                        {
-                            1
-                        } else {
-                            0
-                        }
-                }
-            };
-            let (line, column) = source.offset_to_line_col(offset);
+            // RuboCop points at the opening heredoc delimiter (<<~EOF), not the closing
+            let (line, column) = source.offset_to_line_col(opening_loc.start_offset());
             diagnostics.push(self.diagnostic(
                 source,
                 line,
