@@ -1,6 +1,4 @@
-use crate::cop::node_type::{
-    CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE, INTERPOLATED_STRING_NODE, STRING_NODE,
-};
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
@@ -17,13 +15,7 @@ impl Cop for ImplicitRuntimeError {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[
-            CALL_NODE,
-            CONSTANT_PATH_NODE,
-            CONSTANT_READ_NODE,
-            INTERPOLATED_STRING_NODE,
-            STRING_NODE,
-        ]
+        &[CALL_NODE]
     }
 
     fn check_node(
@@ -47,17 +39,10 @@ impl Cop for ImplicitRuntimeError {
             return;
         }
 
-        // Must have no explicit receiver (or Kernel/::Kernel receiver)
-        if let Some(recv) = call.receiver() {
-            let is_kernel = recv
-                .as_constant_read_node()
-                .is_some_and(|c| c.name().as_slice() == b"Kernel")
-                || recv.as_constant_path_node().is_some_and(|cp| {
-                    cp.parent().is_none() && cp.name().is_some_and(|n| n.as_slice() == b"Kernel")
-                });
-            if !is_kernel {
-                return;
-            }
+        // Must have no explicit receiver — RuboCop's pattern is (send nil? ...)
+        // which only matches bare raise/fail, not Kernel.raise or ::Kernel.raise
+        if call.receiver().is_some() {
+            return;
         }
 
         let args = match call.arguments() {
