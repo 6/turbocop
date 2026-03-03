@@ -39,8 +39,13 @@ impl Cop for DevelopmentDependencies {
                 continue;
             }
             if let Some(pos) = line_str.find(".add_development_dependency") {
-                // Check if the gem is in the allowed list
                 let after_method = &line_str[pos + ".add_development_dependency".len()..];
+                // Only flag when the first argument is a string literal (quoted).
+                // Dynamic args like `dep.name` or bare variables should be skipped,
+                // matching RuboCop's `(send _ :add_development_dependency (str ...) ...)`
+                if !has_string_literal_arg(after_method) {
+                    continue;
+                }
                 if is_gem_allowed(after_method, &allowed_gems) {
                     continue;
                 }
@@ -53,6 +58,17 @@ impl Cop for DevelopmentDependencies {
             }
         }
     }
+}
+
+/// Check if the first argument after the method call is a string literal.
+fn has_string_literal_arg(after_method: &str) -> bool {
+    let trimmed = after_method.trim_start();
+    let trimmed = if let Some(stripped) = trimmed.strip_prefix('(') {
+        stripped.trim_start()
+    } else {
+        trimmed
+    };
+    trimmed.starts_with('\'') || trimmed.starts_with('"')
 }
 
 /// Check if the gem name following the method call is in the allowed list.
