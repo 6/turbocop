@@ -204,7 +204,12 @@ Parallel-agent activity is common. If you see unrelated modified files, do not e
    Note: This still reads the original corpus data. Per-cop verification via check-cop.py
    gives the ground truth for fixed cops.
 
-6. Report to the user:
+6. **Document ALL investigation outcomes** as `///` comments on the cop's struct in its
+   source file — not just regressions and reverts, but also cops investigated and found
+   to need no fix (e.g., FPs caused by file-drop noise, config artifacts, etc.). This
+   prevents future investigators from repeating the same analysis.
+
+7. Report to the user:
    - Which cops were fixed (with FP/FN counts)
    - Estimated impact on the target repo's match rate
    - Which cops couldn't be fixed (and why)

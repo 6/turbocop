@@ -91,6 +91,17 @@ Read reduced repros from `/tmp/nitrocop-reduce/` and capture root-cause hypothes
    /// A correct fix needs to: <constraints for a future correct fix>.
    ```
 
+7. **Document ALL investigation outcomes** as `///` comments on the cop's struct in its
+   source file — not just regressions and reverts, but also cops investigated and found
+   to need no fix (e.g., FPs caused by file-drop noise, config artifacts, etc.). This
+   prevents future investigators from repeating the same analysis. Use:
+   ```rust
+   /// ## Corpus investigation (YYYY-MM-DD)
+   ///
+   /// Corpus oracle run #N reported FP=X, FN=Y. Investigation found ...
+   /// <conclusion and whether a fix is needed>
+   ```
+
 ### Phase 3: Batch Verification
 
 After all cops in the batch are fixed:

@@ -162,7 +162,18 @@ Parallel-agent activity is common. If you see unrelated modified files, do not e
    /// A correct fix needs to: ...
    ```
 
-6. Report to the user:
+6. **Document ALL investigation outcomes** as `///` comments on the cop's struct in its
+   source file — not just regressions and reverts, but also cops investigated and found
+   to need no fix (e.g., FPs caused by file-drop noise, config artifacts, etc.). This
+   prevents future investigators from repeating the same analysis. Use:
+   ```rust
+   /// ## Corpus investigation (YYYY-MM-DD)
+   ///
+   /// Corpus oracle run #N reported FP=X, FN=Y. Investigation found ...
+   /// <conclusion and whether a fix is needed>
+   ```
+
+7. Report to the user:
    - Which cops were fixed (with FP counts)
    - Which cops regressed and were reverted (with investigation comments added)
    - Summary of changes ready for commit/PR

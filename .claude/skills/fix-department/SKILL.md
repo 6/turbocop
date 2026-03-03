@@ -193,6 +193,17 @@ Parallel-agent activity is common. If you see unrelated modified files, do not e
    - Retry with more context in the next batch
    - Defer with a documented reason
 
+8. **Document ALL investigation outcomes** as `///` comments on the cop's struct in its
+   source file — not just regressions and reverts, but also cops investigated and found
+   to need no fix (e.g., FPs caused by file-drop noise, config artifacts, etc.). This
+   prevents future investigators from repeating the same analysis. Use:
+   ```rust
+   /// ## Corpus investigation (YYYY-MM-DD)
+   ///
+   /// Corpus oracle run #N reported FP=X, FN=Y. Investigation found ...
+   /// <conclusion and whether a fix is needed>
+   ```
+
 ### Phase 5: Declare Done (you do this)
 
 When all cops in the gem are at 0 FP + 0 FN (or explicitly deferred):

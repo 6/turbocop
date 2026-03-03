@@ -99,7 +99,18 @@ After all selected cops are fixed:
    /// A correct fix needs to: <constraints for future implementation>.
    ```
 
-4. Regenerate coverage artifacts after cop fixes:
+4. **Document ALL investigation outcomes** as `///` comments on the cop's struct in its
+   source file — not just regressions and reverts, but also cops investigated and found
+   to need no fix (e.g., FPs caused by file-drop noise, config artifacts, etc.). This
+   prevents future investigators from repeating the same analysis. Use:
+   ```rust
+   /// ## Corpus investigation (YYYY-MM-DD)
+   ///
+   /// Corpus oracle run #N reported FP=X, FN=Y. Investigation found ...
+   /// <conclusion and whether a fix is needed>
+   ```
+
+5. Regenerate coverage artifacts after cop fixes:
    ```bash
    cargo run --release --bin bench_nitrocop -- conform
    cargo run --bin coverage_table -- --show-missing --output docs/coverage.md

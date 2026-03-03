@@ -8,6 +8,18 @@ use crate::parse::source::SourceFile;
 
 pub struct MethodParameterName;
 
+/// ## Corpus investigation (2026-03-02)
+///
+/// Corpus oracle run #28 reported FP=33, FN=388. Investigation found that the
+/// 33 FP were entirely within file-drop noise from 1 repo (jruby) with RuboCop
+/// parser crashes — RuboCop under-counted offenses in that repo because it
+/// couldn't parse some files. Running both tools directly on the affected repos
+/// (samg/timetrap, rubyworks/facets) with the baseline config produced identical
+/// offense counts (0 for both tools). check-cop.py confirms: Excess=0 after
+/// adjusting for file-drop noise of 1,712. No implementation fix needed.
+///
+/// The 388 FN are genuine missed detections (not investigated further in this batch).
+
 const DEFAULT_ALLOWED: &[&str] = &[
     "as", "at", "by", "cc", "db", "id", "if", "in", "io", "ip", "of", "on", "os", "pp", "to",
 ];
