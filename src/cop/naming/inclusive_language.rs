@@ -357,7 +357,8 @@ fn classify_match(
         }
     } else {
         // In code — skip hash labels (tLABEL in RuboCop, not checked)
-        if is_hash_label(line, line_pos, match_len) {
+        // and tFID tokens (identifiers ending in ! or ?, not in RuboCop's check map)
+        if is_hash_label(line, line_pos, match_len) || is_fid_token(line, line_pos) {
             false
         } else {
             should_check_code
@@ -411,6 +412,25 @@ fn is_hash_label(line: &[u8], pos: usize, _len: usize) -> bool {
         return false;
     }
     true
+}
+
+/// Check if the match at `pos` in `line` is part of a tFID token (function identifier
+/// ending in `!` or `?`). RuboCop's parser gem tokenizes these as tFID which is NOT
+/// in the cop's check_token? map, so they are silently skipped.
+///
+/// Expands outward from the match position to find the full identifier, then checks
+/// if it ends with `!` or `?`.
+fn is_fid_token(line: &[u8], pos: usize) -> bool {
+    // Expand forward to find the end of the identifier
+    let mut end = pos;
+    while end < line.len() && (line[end].is_ascii_alphanumeric() || line[end] == b'_') {
+        end += 1;
+    }
+    // Check if the identifier is followed by ! or ?
+    if end < line.len() && (line[end] == b'!' || line[end] == b'?') {
+        return true;
+    }
+    false
 }
 
 fn format_message(term: &str, suggestions: &[String]) -> String {

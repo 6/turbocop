@@ -29,7 +29,10 @@ NAMES = %w[
   whitelisted_emails
   blacklisted_domains
 ]
-# Hash labels with regex-matching terms should not be flagged
+# tFID tokens (identifiers ending in ! or ?) are not checked by RuboCop
+blacklisted?
+whitelist!
+_makara_blacklist!
 validate_config(
   whitelisted_emails: [],
   blacklisted_domains: [],
