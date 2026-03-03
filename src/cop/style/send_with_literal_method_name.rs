@@ -17,7 +17,7 @@ fn is_valid_ruby_method_name(name: &[u8]) -> bool {
         b"+", b"-", b"*", b"/", b"%", b"**", b"==", b"!=", b"<", b">", b"<=", b">=", b"<=>",
         b"===", b"[]", b"[]=", b"<<", b">>", b"&", b"|", b"^", b"~", b"!", b"-@", b"+@",
     ];
-    if OPERATOR_METHODS.iter().any(|op| *op == name) {
+    if OPERATOR_METHODS.contains(&name) {
         return true;
     }
 
@@ -62,7 +62,7 @@ fn is_valid_ruby_method_name(name: &[u8]) -> bool {
         b"while",
         b"yield",
     ];
-    if RESERVED_WORDS.iter().any(|rw| *rw == name) {
+    if RESERVED_WORDS.contains(&name) {
         return false;
     }
 
@@ -137,10 +137,10 @@ impl Cop for SendWithLiteralMethodName {
         // Reserved words (class, if, end, etc.) can't be used as direct method calls.
         let is_valid_literal = if let Some(sym) = arg_list[0].as_symbol_node() {
             let name = sym.unescaped();
-            !name.ends_with(b"=") && is_valid_ruby_method_name(&name)
+            !name.ends_with(b"=") && is_valid_ruby_method_name(name)
         } else if let Some(s) = arg_list[0].as_string_node() {
             let content = s.unescaped();
-            !content.ends_with(b"=") && is_valid_ruby_method_name(&content)
+            !content.ends_with(b"=") && is_valid_ruby_method_name(content)
         } else {
             false
         };
