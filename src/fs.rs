@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use anyhow::{Context, Result};
 use ignore::WalkBuilder;
@@ -60,7 +61,63 @@ fn walk_directory(dir: &Path, _config: &ResolvedConfig) -> Result<Vec<PathBuf>> 
         }
     }
 
+    // RuboCop includes tracked files even when they match .gitignore patterns.
+    // The ignore crate does not have git index awareness, so merge git-tracked
+    // Ruby files to avoid false negatives (for example, tracked files under
+    // ignored directories).
+    files.extend(tracked_ruby_files(dir));
+
     Ok(files)
+}
+
+fn tracked_ruby_files(dir: &Path) -> Vec<PathBuf> {
+    let toplevel = match Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if root.is_empty() {
+                return Vec::new();
+            }
+            PathBuf::from(root)
+        }
+        _ => return Vec::new(),
+    };
+
+    let root = toplevel.canonicalize().unwrap_or(toplevel);
+    let dir_abs = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    let rel_prefix = dir_abs
+        .strip_prefix(&root)
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(&root).arg("ls-files");
+    if !rel_prefix.as_os_str().is_empty() {
+        cmd.arg("--").arg(&rel_prefix);
+    }
+
+    let output = match cmd.output() {
+        Ok(output) if output.status.success() => output,
+        _ => return Vec::new(),
+    };
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            let rel_from_root = Path::new(line);
+            let rel_to_dir = if rel_prefix.as_os_str().is_empty() {
+                rel_from_root
+            } else {
+                rel_from_root.strip_prefix(&rel_prefix).ok()?
+            };
+            Some(dir.join(rel_to_dir))
+        })
+        .filter(|path| path.is_file() && is_ruby_file(path))
+        .collect()
 }
 
 /// RuboCop-compatible Ruby file extensions (from AllCops.Include defaults).
@@ -169,12 +226,34 @@ mod tests {
     use super::*;
     use crate::config::load_config;
     use std::fs;
+    use std::process::Command;
 
     fn setup_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("nitrocop_test_fs_{name}"));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    fn git_available() -> bool {
+        Command::new("git")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let status = Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .status()
+            .unwrap();
+        assert!(
+            status.success(),
+            "git command failed: git {}",
+            args.join(" ")
+        );
     }
 
     #[test]
@@ -374,6 +453,60 @@ mod tests {
         let discovered = discover_files(&[dir.clone()], &config).unwrap();
 
         assert_eq!(discovered.files.len(), 2);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn discovers_tracked_hidden_ruby_file() {
+        if !git_available() {
+            eprintln!("Skipping: git not available");
+            return;
+        }
+
+        let dir = setup_dir("tracked_hidden");
+        fs::write(dir.join(".irbrc"), "IO.read('x')\n").unwrap();
+        git(&dir, &["init", "-q"]);
+        git(&dir, &["add", ".irbrc"]);
+
+        let config = load_config(Some(Path::new("/nonexistent")), None, None).unwrap();
+        let discovered = discover_files(&[dir.clone()], &config).unwrap();
+        let contains = discovered
+            .files
+            .iter()
+            .any(|p| p.file_name().and_then(|n| n.to_str()) == Some(".irbrc"));
+        assert!(contains, "tracked .irbrc should be discovered");
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn discovers_tracked_gitignored_ruby_file() {
+        if !git_available() {
+            eprintln!("Skipping: git not available");
+            return;
+        }
+
+        let dir = setup_dir("tracked_gitignored");
+        let sandbox_dir = dir.join("work").join("sandbox");
+        fs::create_dir_all(&sandbox_dir).unwrap();
+        fs::write(dir.join(".gitignore"), "work/sandbox\n").unwrap();
+        fs::write(sandbox_dir.join("multiton2.rb"), "Marshal.load(str)\n").unwrap();
+
+        git(&dir, &["init", "-q"]);
+        git(&dir, &["add", ".gitignore"]);
+        git(&dir, &["add", "-f", "work/sandbox/multiton2.rb"]);
+
+        let config = load_config(Some(Path::new("/nonexistent")), None, None).unwrap();
+        let discovered = discover_files(&[dir.clone()], &config).unwrap();
+        let contains = discovered
+            .files
+            .iter()
+            .any(|p| p.ends_with(Path::new("work/sandbox/multiton2.rb")));
+        assert!(
+            contains,
+            "tracked gitignored Ruby files should be discovered"
+        );
+
         fs::remove_dir_all(&dir).ok();
     }
 }

@@ -7,11 +7,10 @@ use crate::parse::source::SourceFile;
 ///
 /// Corpus oracle reported FP=0, FN=1.
 ///
-/// FN=1: In a `.irbrc` dotfile. Nitrocop's file discovery (via the `ignore` crate)
-/// likely skips dotfiles by default, while the corpus oracle's RuboCop run includes
-/// them. This is a **file discovery issue**, not a cop logic bug — the cop would
-/// correctly flag the call if it saw the file. Deferred; fixing dotfile discovery
-/// is a cross-cutting concern affecting multiple cops.
+/// FN=1: In a tracked `.irbrc` dotfile that was skipped by discovery. Fixed in
+/// `src/fs.rs` by merging `git ls-files` tracked Ruby files into discovery results,
+/// which makes tracked hidden files visible to cops while preserving normal
+/// directory walking behavior.
 pub struct IoMethods;
 
 const DANGEROUS_METHODS: &[&[u8]] = &[
