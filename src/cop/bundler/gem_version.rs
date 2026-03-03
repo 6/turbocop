@@ -45,11 +45,10 @@ pub struct GemVersion;
 /// strings inside ArrayNode) — matching RuboCop's `(send nil? :gem <(str ...) ...>)`
 /// node pattern, which also only matches direct str args.
 ///
-/// ### 3 remaining FN — NOT ACTIONABLE
+/// ### Remaining FN — expected zero after fix
 ///
-/// The 3 remaining FN (expected=14,201, actual=14,198) are file-drop noise from
-/// repos where Prism has parser crashes, causing nitrocop to skip files that
-/// RuboCop successfully parses. These are not bugs in this cop's logic.
+/// The `is_version_specification()` rewrite covers all 29 corpus FN. No remaining
+/// FN are attributable to parse-error file drops. Awaiting fresh corpus run to confirm.
 impl Cop for GemVersion {
     fn name(&self) -> &'static str {
         "Bundler/GemVersion"
