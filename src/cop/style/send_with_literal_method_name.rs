@@ -5,6 +5,85 @@ use crate::parse::source::SourceFile;
 
 pub struct SendWithLiteralMethodName;
 
+/// Valid Ruby method name: starts with letter/underscore, contains alphanumerics/underscores,
+/// optionally ends with ! or ?
+fn is_valid_ruby_method_name(name: &[u8]) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+
+    // Check for Ruby operator methods that can be called directly
+    const OPERATOR_METHODS: &[&[u8]] = &[
+        b"+", b"-", b"*", b"/", b"%", b"**", b"==", b"!=", b"<", b">", b"<=", b">=", b"<=>",
+        b"===", b"[]", b"[]=", b"<<", b">>", b"&", b"|", b"^", b"~", b"!", b"-@", b"+@",
+    ];
+    if OPERATOR_METHODS.iter().any(|op| *op == name) {
+        return true;
+    }
+
+    // Check for reserved words that cannot be used as direct method calls
+    const RESERVED_WORDS: &[&[u8]] = &[
+        b"BEGIN",
+        b"END",
+        b"alias",
+        b"and",
+        b"begin",
+        b"break",
+        b"case",
+        b"class",
+        b"def",
+        b"defined?",
+        b"do",
+        b"else",
+        b"elsif",
+        b"end",
+        b"ensure",
+        b"false",
+        b"for",
+        b"if",
+        b"in",
+        b"module",
+        b"next",
+        b"nil",
+        b"not",
+        b"or",
+        b"redo",
+        b"rescue",
+        b"retry",
+        b"return",
+        b"self",
+        b"super",
+        b"then",
+        b"true",
+        b"undef",
+        b"unless",
+        b"until",
+        b"when",
+        b"while",
+        b"yield",
+    ];
+    if RESERVED_WORDS.iter().any(|rw| *rw == name) {
+        return false;
+    }
+
+    // Match /\A[a-zA-Z_][a-zA-Z0-9_]*[!?]?\z/
+    let first = name[0];
+    if !first.is_ascii_alphabetic() && first != b'_' {
+        return false;
+    }
+
+    let last = *name.last().unwrap();
+    let check_end = if last == b'!' || last == b'?' {
+        &name[1..name.len() - 1]
+    } else {
+        &name[1..]
+    };
+
+    check_end
+        .iter()
+        .all(|&b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
 impl Cop for SendWithLiteralMethodName {
     fn name(&self) -> &'static str {
         "Style/SendWithLiteralMethodName"
@@ -52,15 +131,16 @@ impl Cop for SendWithLiteralMethodName {
             return;
         }
 
-        // First argument must be a static symbol or string with a valid method name.
-        // Strings with spaces or special chars are NOT valid method names.
-        // Setter methods (ending in =) can't be converted to direct calls.
+        // First argument must be a static symbol or string with a valid Ruby method name.
+        // Setter methods (ending in =) can't be converted because behavior differs.
+        // Names with special chars (hyphens, dots, brackets, etc.) require send/public_send.
+        // Reserved words (class, if, end, etc.) can't be used as direct method calls.
         let is_valid_literal = if let Some(sym) = arg_list[0].as_symbol_node() {
             let name = sym.unescaped();
-            !name.contains(&b' ') && !name.ends_with(b"=")
+            !name.ends_with(b"=") && is_valid_ruby_method_name(&name)
         } else if let Some(s) = arg_list[0].as_string_node() {
             let content = s.unescaped();
-            !content.is_empty() && !content.contains(&b' ') && !content.ends_with(b"=")
+            !content.ends_with(b"=") && is_valid_ruby_method_name(&content)
         } else {
             false
         };
