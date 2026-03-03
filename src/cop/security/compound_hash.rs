@@ -228,9 +228,12 @@ impl Cop for CompoundHash {
                     {
                         let loc = c.location();
                         let (line, column) = source.offset_to_line_col(loc.start_offset());
-                        diagnostics.push(
-                            self.diagnostic(source, line, column, REDUNDANT_MSG.to_string()),
-                        );
+                        diagnostics.push(self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            REDUNDANT_MSG.to_string(),
+                        ));
                     }
                 }
             }
@@ -243,4 +246,14 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(CompoundHash, "cops/security/compound_hash");
+
+    #[test]
+    fn define_method_hash_combinator() {
+        let source = b"define_method(:hash) do\n  1.hash ^ 2.hash\nend\n";
+        crate::testutil::assert_cop_offenses_full(
+            &CompoundHash,
+            // Use nitrocop-expect to mark offenses
+            b"define_method(:hash) do\n  1.hash ^ 2.hash\n  ^^^^^^^^^^^^^^^^ Security/CompoundHash: Use `[...].hash` instead of combining hash values manually.\nend\n",
+        );
+    }
 }
