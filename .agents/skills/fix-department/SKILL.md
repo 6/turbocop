@@ -166,6 +166,9 @@ Do not leave retained progress only in a worktree branch.
 - Do not pause or block on unrelated working-tree changes; continue your task and leave those files untouched.
 - Commit each cop fix separately for safe cherry-picks, then integrate into `main` before ending the run.
 - Never use `git stash` or `git stash pop`.
+- **Do not run nitrocop or rubocop directly on corpus repos** — they require special env vars
+  (BUNDLE_GEMFILE, BUNDLE_PATH, GIT_CEILING_DIRECTORIES) that only `check-cop.py` sets up
+  correctly. Use `check-cop.py --rerun` to verify corpus behavior.
 - Use local corpus files under `vendor/corpus/` when available.
 - Do not copy identifiers from private repositories into source, fixtures, or commit messages.
 

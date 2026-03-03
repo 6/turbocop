@@ -123,6 +123,9 @@ Parallel-agent activity is common. If you see unrelated modified files, do not e
 
 2. **Understand the FP/FN pattern** from the examples provided in your prompt.
    If needed, read the actual source files from `vendor/corpus/<repo_id>/<path>` to see more context.
+   **DO NOT run nitrocop or rubocop directly on corpus repos** — they require special
+   env vars (BUNDLE_GEMFILE, BUNDLE_PATH, GIT_CEILING_DIRECTORIES) that only `check-cop.py`
+   sets up correctly. If you need to verify corpus behavior, use `check-cop.py --rerun`.
 
 3. **Add test cases (TDD)**:
    - For FP fixes: add the false-positive pattern to `tests/fixtures/cops/<dept>/<cop_name>/no_offense.rb`
