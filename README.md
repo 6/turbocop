@@ -71,27 +71,27 @@ We diff nitrocop against RuboCop on [**1,000 open-source repos**](docs/corpus.md
 |                        |    Count |  Rate |
 |:-----------------------|--------: |------:|
 | Agreed                 |    11.4M | 94.5% |
-| nitrocop extra (FP)    |    98.3K | 0.8% |
-| nitrocop missed (FN)   |   564.8K | 4.7% |
+| nitrocop extra (FP)    |    97.8K | 0.8% |
+| nitrocop missed (FN)   |   564.6K | 4.7% |
 
 Per-repo results (top 15 by GitHub stars):
 
 | Repo | .rb files | RuboCop offenses | nitrocop extra (FP) | nitrocop missed (FN) | Agreement |
 |------|----------:|-----------------:|--------------------:|---------------------:|----------:|
-| [rails](https://github.com/rails/rails) | 3,498 | 314,853 | 1,154 | 17,658 | 94.4% |
+| [rails](https://github.com/rails/rails) | 3,498 | 314,853 | 1,150 | 17,654 | 94.4% |
 | [jekyll](https://github.com/jekyll/jekyll) | 190 | 13,052 | 98 | 769 | 94.1% |
-| [mastodon](https://github.com/mastodon/mastodon) | 3,120 | 76,221 | 128 | 2,643 | 96.5% |
-| [huginn](https://github.com/huginn/huginn) | 451 | 34,402 | 173 | 1,008 | 97.1% |
-| [discourse](https://github.com/discourse/discourse) | 9,158 | 617,538 | 2,265 | 14,542 | 97.7% |
-| [fastlane](https://github.com/fastlane/fastlane) | 1,302 | 118,730 | 219 | 3,224 | 97.3% |
+| [mastodon](https://github.com/mastodon/mastodon) | 3,120 | 76,223 | 128 | 2,643 | 96.5% |
+| [huginn](https://github.com/huginn/huginn) | 451 | 34,402 | 169 | 1,008 | 97.1% |
+| [discourse](https://github.com/discourse/discourse) | 9,161 | 618,035 | 2,263 | 14,563 | 97.6% |
+| [fastlane](https://github.com/fastlane/fastlane) | 1,302 | 118,730 | 218 | 3,224 | 97.3% |
 | [devdocs](https://github.com/freeCodeCamp/devdocs) | 833 | 19,903 | 121 | 1,320 | 93.4% |
 | [chatwoot](https://github.com/chatwoot/chatwoot) | 2,262 | 64,941 | 115 | 1,679 | 97.4% |
 | [vagrant](https://github.com/hashicorp/vagrant) | 1,460 | 86,064 | 473 | 3,270 | 96.2% |
 | [devise](https://github.com/heartcombo/devise) | 206 | 5,800 | 20 | 423 | 92.7% |
-| [forem](https://github.com/forem/forem) | 3,390 | 128,530 | 358 | 4,587 | 96.4% |
+| [forem](https://github.com/forem/forem) | 3,390 | 128,530 | 353 | 4,587 | 96.4% |
 | [postal](https://github.com/postalserver/postal) | 294 | 13,948 | 46 | 733 | 94.7% |
-| [CocoaPods](https://github.com/CocoaPods/CocoaPods) | 438 | 28,422 | 333 | 2,097 | 92.6% |
-| [openproject](https://github.com/opf/openproject) | 9,286 | 388,980 | 896 | 10,956 | 97.2% |
+| [CocoaPods](https://github.com/CocoaPods/CocoaPods) | 438 | 28,422 | 330 | 2,096 | 92.6% |
+| [openproject](https://github.com/opf/openproject) | 9,286 | 388,980 | 895 | 10,956 | 97.2% |
 | [gollum](https://github.com/gollum/gollum) | 55 | 3,790 | 23 | 309 | 91.8% |
 
 Remaining gaps are mostly in complex layout cops (indentation, alignment) and a few style cops. See [docs/corpus.md](docs/corpus.md) for the full corpus breakdown.
