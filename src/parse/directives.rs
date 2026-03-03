@@ -6,7 +6,7 @@ use regex::Regex;
 use crate::parse::source::SourceFile;
 
 static DIRECTIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"#\s*(?:rubocop|nitrocop|standard)\s*:\s*(disable|enable|todo)\s+(.+)").unwrap()
+    Regex::new(r"#\s*(?:rubocop|nitrocop)\s*:\s*(disable|enable|todo)\s+(.+)").unwrap()
 });
 
 /// Reverse map from new cop name -> list of old cop names that were renamed to it.
@@ -364,9 +364,9 @@ mod tests {
     }
 
     #[test]
-    fn standard_alias() {
+    fn standard_alias_not_supported() {
         let dr = disabled_ranges("x = 1 # standard:disable Foo/Bar\ny = 2\n");
-        assert!(dr.is_disabled("Foo/Bar", 1));
+        assert!(!dr.is_disabled("Foo/Bar", 1));
         assert!(!dr.is_disabled("Foo/Bar", 2));
     }
 
