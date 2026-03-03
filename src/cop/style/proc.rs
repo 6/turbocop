@@ -48,10 +48,12 @@ impl Cop for Proc {
             return;
         }
 
-        // Only flag Proc.new when it has a block (Proc.new { ... } or Proc.new do...end).
+        // Only flag Proc.new when it has a literal block (Proc.new { ... } or Proc.new do...end).
         // Bare Proc.new (e.g., as a default parameter value) is intentional.
-        if call.block().is_none() {
-            return;
+        // Proc.new(&block) / Proc.new(&:sym) use BlockArgumentNode, not BlockNode — skip those.
+        match call.block() {
+            Some(b) if b.as_block_node().is_some() => {}
+            _ => return,
         }
 
         let loc = receiver.location();
