@@ -10,9 +10,12 @@ const MONUPLE_MSG: &str =
     "Delegate hash directly without wrapping in an array when only using a single value.";
 const REDUNDANT_MSG: &str = "Calling `.hash` on elements of a hashed array is redundant.";
 
-/// Combinator operator names: ^, +, *, |
+/// Combinator operator names: ^, +, *, | (and their op-asgn forms ^=, +=, *=, |=)
 fn is_combinator_op(name: &[u8]) -> bool {
-    matches!(name, b"^" | b"+" | b"*" | b"|")
+    matches!(
+        name,
+        b"^" | b"+" | b"*" | b"|" | b"^=" | b"+=" | b"*=" | b"|="
+    )
 }
 
 /// Walk the body of a hash method to find outermost combinator expressions.
@@ -246,6 +249,14 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(CompoundHash, "cops/security/compound_hash");
+
+    #[test]
+    fn op_asgn_in_block_inside_def_hash() {
+        crate::testutil::assert_cop_offenses_full(
+            &CompoundHash,
+            b"def hash\n  h = 0\n  things.each do |thing|\n    h ^= thing.hash\n    ^^^^^^^^^^^^^^^ Security/CompoundHash: Use `[...].hash` instead of combining hash values manually.\n  end\n  h\nend\n",
+        );
+    }
 
     #[test]
     fn define_method_hash_combinator() {
