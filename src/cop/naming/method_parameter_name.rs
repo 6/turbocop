@@ -19,7 +19,6 @@ pub struct MethodParameterName;
 /// adjusting for file-drop noise of 1,712. No implementation fix needed.
 ///
 /// The 388 FN are genuine missed detections (not investigated further in this batch).
-
 const DEFAULT_ALLOWED: &[&str] = &[
     "as", "at", "by", "cc", "db", "id", "if", "in", "io", "ip", "of", "on", "os", "pp", "to",
 ];
