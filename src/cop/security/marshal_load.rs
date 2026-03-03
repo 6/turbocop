@@ -3,6 +3,20 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-03)
+///
+/// Corpus oracle reported FP=7, FN=3.
+///
+/// FP=7: Fixed by checking argument count — RuboCop's NodePattern matches exactly
+/// one argument, so `Marshal.load(data, filter)` (2+ args) is not flagged. Fix in
+/// commit fe41845.
+///
+/// FN=3: All in `rubyworks__facets__12326d4` at `work/sandbox/multiton2.rb` (lines
+/// 68, 210, 460). Each is a single-arg `Marshal.load(str)` call that the cop would
+/// correctly flag if it saw the file. The issue is **file discovery**: the corpus
+/// oracle's RuboCop run finds the file but nitrocop's `ignore`-crate walker may
+/// skip it (possibly a `.gitignore` or path-exclusion difference). This is not a
+/// cop logic bug — it needs investigation at the file discovery layer.
 pub struct MarshalLoad;
 
 impl Cop for MarshalLoad {

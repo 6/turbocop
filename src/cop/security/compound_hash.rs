@@ -3,6 +3,19 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-03)
+///
+/// Corpus oracle reported FP=0, FN=137.
+///
+/// FN=137: Fixed by implementing the COMBINATOR pattern — detecting `^`/`+`/`*`/`|`
+/// operators (and their `^=`/`+=`/`*=`/`|=` op-asgn forms) inside `def hash` methods,
+/// `define_method(:hash)` blocks, and `define_singleton_method(:hash)` blocks. Also
+/// fixed the REDUNDANT pattern to flag each individual `.hash` element (ANY, not ALL).
+/// Commits: 2f9d59d, ef273b9, 967ffa0.
+///
+/// After fix: FP=0, FN=2. The 2 remaining FN are within corpus file-drop noise (7
+/// repos with RuboCop parser crashes produce noise offenses). No further cop logic
+/// changes needed.
 pub struct CompoundHash;
 
 const COMBINATOR_MSG: &str = "Use `[...].hash` instead of combining hash values manually.";
