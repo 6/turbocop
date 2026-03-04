@@ -1,4 +1,4 @@
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
@@ -8,6 +8,18 @@ use crate::parse::source::SourceFile;
 ///
 /// - `shared_context` with only examples (no let/subject/hooks) -> use `shared_examples`
 /// - `shared_examples` with only let/subject/hooks (no examples) -> use `shared_context`
+///
+/// ## Investigation notes (2026-03-04)
+///
+/// **FP=40 root cause:** The cop was only checking direct children of the shared block
+/// for example/context methods. RuboCop uses `def_node_search` which searches
+/// **recursively** through the entire block body. When a `shared_context` has a
+/// `describe` block containing a `before` hook inside it, RuboCop sees the nested
+/// `before` and counts it as context setup (so no offense). Our cop only saw `describe`
+/// at the top level and classified it as examples-only, producing false positives.
+///
+/// **Fix:** Changed from direct-child iteration to recursive AST search using
+/// `has_examples_recursive` and `has_context_recursive` to match RuboCop behavior.
 pub struct SharedContext;
 
 impl Cop for SharedContext {
@@ -24,7 +36,7 @@ impl Cop for SharedContext {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE, STATEMENTS_NODE]
+        &[CALL_NODE]
     }
 
     fn check_node(
@@ -65,29 +77,11 @@ impl Cop for SharedContext {
             Some(b) => b,
             None => return, // Empty body is OK
         };
-        let stmts = match body.as_statements_node() {
-            Some(s) => s,
-            None => return,
-        };
 
-        let nodes: Vec<_> = stmts.body().iter().collect();
-        if nodes.is_empty() {
-            return;
-        }
-
-        let mut has_examples = false;
-        let mut has_context_setup = false; // let, subject, hooks
-
-        for stmt in &nodes {
-            if let Some(c) = stmt.as_call_node() {
-                let m = c.name().as_slice();
-                if is_example_method(m) {
-                    has_examples = true;
-                } else if is_context_method(m) || is_context_inclusion(m) {
-                    has_context_setup = true;
-                }
-            }
-        }
+        // RuboCop uses def_node_search which searches recursively through
+        // the entire block body, not just direct children. We must do the same.
+        let has_examples = has_examples_recursive(&body);
+        let has_context_setup = has_context_recursive(&body);
 
         let loc = call.location();
         let (line, col) = source.offset_to_line_col(loc.start_offset());
@@ -110,6 +104,55 @@ impl Cop for SharedContext {
             ));
         }
     }
+}
+
+/// Recursively search for example methods in the AST.
+fn has_examples_recursive(node: &ruby_prism::Node<'_>) -> bool {
+    use ruby_prism::Visit;
+    struct F {
+        found: bool,
+    }
+    impl<'pr> Visit<'pr> for F {
+        fn visit_call_node(&mut self, n: &ruby_prism::CallNode<'pr>) {
+            if self.found {
+                return;
+            }
+            if n.receiver().is_none() && is_example_method(n.name().as_slice()) {
+                self.found = true;
+                return;
+            }
+            ruby_prism::visit_call_node(self, n);
+        }
+    }
+    let mut f = F { found: false };
+    f.visit(node);
+    f.found
+}
+
+/// Recursively search for context/setup methods in the AST.
+fn has_context_recursive(node: &ruby_prism::Node<'_>) -> bool {
+    use ruby_prism::Visit;
+    struct F {
+        found: bool,
+    }
+    impl<'pr> Visit<'pr> for F {
+        fn visit_call_node(&mut self, n: &ruby_prism::CallNode<'pr>) {
+            if self.found {
+                return;
+            }
+            if n.receiver().is_none() {
+                let m = n.name().as_slice();
+                if is_context_method(m) || is_context_inclusion(m) {
+                    self.found = true;
+                    return;
+                }
+            }
+            ruby_prism::visit_call_node(self, n);
+        }
+    }
+    let mut f = F { found: false };
+    f.visit(node);
+    f.found
 }
 
 fn is_example_method(name: &[u8]) -> bool {
