@@ -503,9 +503,7 @@ mod tests {
         assert!(!has_any_version_string(
             "'coverage' if RUBY_VERSION >= '2.7.0'"
         ));
-        assert!(!has_any_version_string(
-            "'pry' if ENV['ENABLE_PRY']"
-        ));
+        assert!(!has_any_version_string("'pry' if ENV['ENABLE_PRY']"));
         // But version before the modifier IS counted
         assert!(has_any_version_string(
             "'filemagic', '~> 0.7' unless RUBY_ENGINE == 'jruby'"
