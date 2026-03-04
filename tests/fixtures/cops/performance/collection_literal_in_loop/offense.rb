@@ -71,3 +71,11 @@ end
     puts values
   end
 end
+records.each do |record|
+  ['en', 'pt', 'fr'].each do |locale|
+  ^^^^^^^^^^^^^^^^^^^ Performance/CollectionLiteralInLoop: Avoid immutable Array literals in loops. It is better to extract it into a local variable or a constant.
+    puts locale
+  end
+end
+[1,2].zip([0].cycle){|a| arr << a}
+          ^^^ Performance/CollectionLiteralInLoop: Avoid immutable Array literals in loops. It is better to extract it into a local variable or a constant.

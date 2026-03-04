@@ -28,6 +28,16 @@ use std::sync::LazyLock;
 ///   5. Safe navigation in include? arguments: `a&.parent&.name` is NOT
 ///      optimized by Ruby 3.4 (only `send` chains, not `csend`), so still
 ///      flag the offense.
+///   6. Loop scope for arguments: RuboCop considers the entire block AST
+///      node (including receiver and arguments of the send) as "within"
+///      the loop. Previously we only set loop context for the block body,
+///      missing literals in arguments (e.g., `[1,2].zip([0].cycle) { }`
+///      where `[0]` was not flagged). Fixed by entering loop context
+///      before visiting receiver/arguments.
+///   7. Descendant exclusion: RuboCop's `!receiver.descendants.include?(node)`
+///      excludes literals that are part of the loop receiver expression
+///      (e.g., `[1,2].sort.each { }` — `[1,2]` is a descendant of receiver
+///      `[1,2].sort`). Implemented via byte-range containment check.
 pub struct CollectionLiteralInLoop;
 
 const ENUMERABLE_METHODS: &[&[u8]] = &[
@@ -348,6 +358,24 @@ impl<'pr> Visit<'pr> for CollectionLiteralVisitor<'_, '_> {
             self.check_call(node, method_name);
         }
 
+        // When this call is a loop (has block + enumerable method), RuboCop
+        // considers the entire block AST node — including receiver and
+        // arguments — as being "within" the loop. So we enter loop context
+        // before visiting receiver/arguments, not just the block body.
+        if is_loop_call {
+            self.loop_depth += 1;
+            // Track the receiver's source bytes for value-equality exclusion.
+            // RuboCop's `node_within_enumerable_loop?` checks
+            // `receiver != node` using AST value equality — if the literal
+            // has the same source text as the loop receiver, skip it.
+            // Also excludes descendants of the receiver.
+            if let Some(recv) = node.receiver() {
+                let loc = recv.location();
+                self.loop_receiver_sources
+                    .push((loc.start_offset(), loc.end_offset()));
+            }
+        }
+
         // Visit receiver
         if let Some(recv) = node.receiver() {
             self.visit(&recv);
@@ -357,21 +385,9 @@ impl<'pr> Visit<'pr> for CollectionLiteralVisitor<'_, '_> {
             self.visit(&args.as_node());
         }
 
-        // Visit block body with loop context if needed
+        // Visit block body (already in loop context if is_loop_call)
         if let Some(block) = node.block() {
             if let Some(block_node) = block.as_block_node() {
-                if is_loop_call {
-                    self.loop_depth += 1;
-                    // Track the receiver's source bytes for value-equality exclusion.
-                    // RuboCop's `node_within_enumerable_loop?` checks
-                    // `receiver != node` using AST value equality — if the literal
-                    // has the same source text as the loop receiver, skip it.
-                    if let Some(recv) = node.receiver() {
-                        let loc = recv.location();
-                        self.loop_receiver_sources
-                            .push((loc.start_offset(), loc.end_offset()));
-                    }
-                }
                 // Visit block parameters
                 if let Some(params) = block_node.parameters() {
                     self.visit(&params);
@@ -380,14 +396,15 @@ impl<'pr> Visit<'pr> for CollectionLiteralVisitor<'_, '_> {
                 if let Some(body) = block_node.body() {
                     self.visit(&body);
                 }
-                if is_loop_call {
-                    self.loop_depth -= 1;
-                    if node.receiver().is_some() {
-                        self.loop_receiver_sources.pop();
-                    }
-                }
             } else {
                 self.visit(&block);
+            }
+        }
+
+        if is_loop_call {
+            self.loop_depth -= 1;
+            if node.receiver().is_some() {
+                self.loop_receiver_sources.pop();
             }
         }
     }
@@ -434,15 +451,23 @@ impl CollectionLiteralVisitor<'_, '_> {
         self.enumerable_methods.contains(method_name)
     }
 
-    /// Check if a literal node's source bytes match any enclosing loop receiver.
-    /// This implements RuboCop's `receiver != node` value-equality check:
-    /// if a literal inside a loop has the same source text as the receiver
-    /// driving one of the enclosing loops, it is excluded from offense.
+    /// Check if a literal node matches or is a descendant of any enclosing
+    /// loop receiver. This implements RuboCop's two exclusion checks:
+    ///
+    ///   1. `receiver != node` — value equality (same source text)
+    ///   2. `!receiver.descendants.include?(node)` — node is part of receiver
+    ///
+    /// Both are approximated via byte-range checks: exact match OR containment.
     fn matches_enclosing_loop_receiver(&self, node_start: usize, node_end: usize) -> bool {
         let node_bytes = &self.source.as_bytes()[node_start..node_end];
         for &(recv_start, recv_end) in &self.loop_receiver_sources {
+            // Exact match (value equality: receiver == node)
             let recv_bytes = &self.source.as_bytes()[recv_start..recv_end];
             if node_bytes == recv_bytes {
+                return true;
+            }
+            // Containment (node is a descendant of receiver)
+            if node_start >= recv_start && node_end <= recv_end {
                 return true;
             }
         }
@@ -963,6 +988,26 @@ mod tests {
         crate::testutil::assert_cop_offenses_full(
             &CollectionLiteralInLoop,
             b"items.each do |item|\n  [1..10, 20..30].include?(item)\n  ^^^^^^^^^^^^^^^ Performance/CollectionLiteralInLoop: Avoid immutable Array literals in loops. It is better to extract it into a local variable or a constant.\nend\n",
+        );
+    }
+
+    #[test]
+    fn detects_literal_as_loop_receiver_inside_outer_loop() {
+        // When a literal array is the receiver of .each inside an outer loop,
+        // it gets re-allocated on each iteration of the outer loop.
+        crate::testutil::assert_cop_offenses_full(
+            &CollectionLiteralInLoop,
+            b"records.each do |record|\n  ['en', 'pt', 'fr'].each do |locale|\n  ^^^^^^^^^^^^^^^^^^^ Performance/CollectionLiteralInLoop: Avoid immutable Array literals in loops. It is better to extract it into a local variable or a constant.\n    puts locale\n  end\nend\n",
+        );
+    }
+
+    #[test]
+    fn detects_literal_arg_in_zip_with_block() {
+        // [0].cycle inside a .zip() call that has a block — the block makes
+        // zip a loop-like call, and [0] is a literal argument inside it.
+        crate::testutil::assert_cop_offenses_full(
+            &CollectionLiteralInLoop,
+            b"[1,2].zip([0].cycle){|a| arr << a}\n          ^^^ Performance/CollectionLiteralInLoop: Avoid immutable Array literals in loops. It is better to extract it into a local variable or a constant.\n",
         );
     }
 }

@@ -47,3 +47,7 @@ end
 ([:install, "install", :gem, "gem"] - [type]).each do |other|
   puts other
 end
+# Literal that is a descendant of the loop receiver should not be flagged
+[1, 2].sort.each { |x| puts x }
+# Literal in arguments to zip without a block (not a loop)
+[1, 2].zip([3, 4])
