@@ -34,3 +34,7 @@ str =~ /\#bar/
 ^^^^^^^^^^^^^^ Performance/StringInclude: Use `String#include?` instead of a regex match with literal-only pattern.
 /\\/.match?(str)
 ^^^^^^^^^^^^^^^^ Performance/StringInclude: Use `String#include?` instead of a regex match with literal-only pattern.
+/\c(\cH\ch/.match(str)
+^^^^^^^^^^^^^^^^^^^^^^ Performance/StringInclude: Use `String#include?` instead of a regex match with literal-only pattern.
+/\C-*\C-J\C-j/.match(str)
+^^^^^^^^^^^^^^^^^^^^^^^^^^ Performance/StringInclude: Use `String#include?` instead of a regex match with literal-only pattern.

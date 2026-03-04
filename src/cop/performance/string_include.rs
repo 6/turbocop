@@ -3,6 +3,18 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// ## Investigation (2026-03-04)
+///
+/// 10 FNs in jruby and natalie repos, all involving `\c` and `\C-` control
+/// character escapes in regex patterns (e.g., `/\c(\cH\ch/.match(str)`).
+///
+/// **Root cause:** RuboCop's parser gem pre-interprets regex content, so `\c(`
+/// becomes byte `\x08` before `LITERAL_REGEX` checks it. Prism gives raw source,
+/// so `is_literal_regex()` saw `(` after `\c` and rejected it as non-literal.
+///
+/// **Fix:** Added handling for `\cX` (3-byte) and `\C-X`/`\M-X` (4-byte) control
+/// and meta character escapes in `is_literal_regex()`, treating them as literal
+/// character sequences.
 pub struct StringInclude;
 
 /// Check if a single byte is in RuboCop's literal character allowlist.
@@ -52,6 +64,14 @@ fn is_regex_escape_metachar(b: u8) -> bool {
 /// Check if a regex pattern (raw content between slashes) contains only
 /// characters that RuboCop considers literal — matching the allowlist in
 /// `Util::LITERAL_REGEX`.
+///
+/// RuboCop's parser gem pre-interprets regex escape sequences (e.g., `\c(`
+/// becomes `\x08`), so its LITERAL_REGEX only sees plain bytes. Prism gives
+/// us raw source, so we must also accept Ruby regex control-char escapes:
+/// - `\cX` (3 bytes: `\`, `c`, any char) — control character
+/// - `\C-X` (4 bytes: `\`, `C`, `-`, any char) — control character
+/// - `\M-X` (4 bytes: `\`, `M`, `-`, any char) — meta character
+/// - `\M-\C-X` / `\M-\cX` (nested meta+control combos)
 fn is_literal_regex(content: &[u8]) -> bool {
     if content.is_empty() {
         return false;
@@ -59,14 +79,31 @@ fn is_literal_regex(content: &[u8]) -> bool {
     let mut i = 0;
     while i < content.len() {
         if content[i] == b'\\' {
-            // Backslash escape: next char must not be a regex metachar class
             if i + 1 >= content.len() {
                 return false;
             }
-            if is_regex_escape_metachar(content[i + 1]) {
+            let next = content[i + 1];
+            if next == b'c' {
+                // \cX — control char escape, consumes 3 bytes total
+                if i + 2 >= content.len() {
+                    return false;
+                }
+                i += 3;
+            } else if (next == b'C' || next == b'M')
+                && i + 2 < content.len()
+                && content[i + 2] == b'-'
+            {
+                // \C-X or \M-X — control/meta char escape, consumes 4 bytes total
+                if i + 3 >= content.len() {
+                    return false;
+                }
+                i += 4;
+            } else if is_regex_escape_metachar(next) {
                 return false;
+            } else {
+                // Simple backslash escape of a non-metachar (e.g., `\.`, `\t`, `\n`)
+                i += 2;
             }
-            i += 2;
         } else if is_literal_char(content[i]) {
             i += 1;
         } else {
