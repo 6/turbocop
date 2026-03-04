@@ -1,12 +1,29 @@
 use ruby_prism::Visit;
 
 use crate::cop::node_type::{
-    BLOCK_NODE, CALL_NODE, DEF_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE,
+    CALL_NODE, DEF_NODE, LOCAL_VARIABLE_READ_NODE, LOCAL_VARIABLE_WRITE_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Metrics/CyclomaticComplexity
+///
+/// Investigation: FP=150 FN=1,399 (as of 2026-03-03)
+///
+/// FN root causes (fixed):
+/// - Missing `define_method` blocks: only DefNode was handled, but
+///   `define_method(:name) do...end` is CallNode + BlockNode.
+/// - Missing `block_pass` iterating methods: `items.map(&:foo)` uses
+///   BlockArgumentNode, not BlockNode.
+/// - Missing compound assignment nodes: `IndexOrWriteNode`,
+///   `IndexAndWriteNode`, `CallOrWriteNode`, `CallAndWriteNode` were
+///   not counted as conditions.
+///
+/// FP root causes (fixed):
+/// - AllowedPatterns used substring match instead of regex.
+/// - Pattern matching `if` guards: in `case/in` with `in :x if guard`,
+///   Prism nests an IfNode inside InNode's pattern, causing double-counting.
 pub struct CyclomaticComplexity;
 
 #[derive(Default)]
@@ -19,6 +36,9 @@ struct CyclomaticCounter {
     /// Only the first `&.` call on a variable counts; subsequent ones on the
     /// same variable are discounted (matching RuboCop's RepeatedCsendDiscount).
     seen_csend_vars: std::collections::HashSet<Vec<u8>>,
+    /// Set when visiting an InNode's pattern to suppress counting guard
+    /// IfNode/UnlessNode as separate decision points.
+    in_pattern_guard: bool,
 }
 
 /// Known iterating method names that make blocks count toward complexity.
@@ -91,17 +111,23 @@ const KNOWN_ITERATING_METHODS: &[&[u8]] = &[
 impl CyclomaticCounter {
     fn count_node(&mut self, node: &ruby_prism::Node<'_>) {
         match node {
-            ruby_prism::Node::IfNode { .. }
-            | ruby_prism::Node::UnlessNode { .. }
-            | ruby_prism::Node::WhileNode { .. }
+            // Skip IfNode/UnlessNode when they are pattern guards inside InNode.
+            // Prism wraps `in :x if guard` as InNode(pattern=IfNode(...)), so the
+            // guard IfNode would be double-counted (InNode already counts +1).
+            ruby_prism::Node::IfNode { .. } | ruby_prism::Node::UnlessNode { .. } => {
+                if !self.in_pattern_guard {
+                    self.complexity += 1;
+                }
+            }
+            ruby_prism::Node::WhileNode { .. }
             | ruby_prism::Node::UntilNode { .. }
             | ruby_prism::Node::ForNode { .. }
             | ruby_prism::Node::WhenNode { .. }
             | ruby_prism::Node::AndNode { .. }
-            | ruby_prism::Node::OrNode { .. }
-            | ruby_prism::Node::InNode { .. } => {
+            | ruby_prism::Node::OrNode { .. } => {
                 self.complexity += 1;
             }
+            // InNode is handled in visit_in_node to manage guard suppression.
             // Note: RescueNode is NOT counted here — it is handled in visit_rescue_node
             // to ensure it counts as a single decision point regardless of how many
             // rescue clauses exist (Prism chains them via `subsequent`).
@@ -122,7 +148,15 @@ impl CyclomaticCounter {
                 self.complexity += 1;
             }
 
-            // CallNode: count &. (safe navigation) and iterating blocks
+            // Index and call compound assignments: h["key"] ||=, obj.attr &&=
+            ruby_prism::Node::IndexOrWriteNode { .. }
+            | ruby_prism::Node::IndexAndWriteNode { .. }
+            | ruby_prism::Node::CallOrWriteNode { .. }
+            | ruby_prism::Node::CallAndWriteNode { .. } => {
+                self.complexity += 1;
+            }
+
+            // CallNode: count &. (safe navigation) and iterating blocks/block_pass
             ruby_prism::Node::CallNode { .. } => {
                 if let Some(call) = node.as_call_node() {
                     // Safe navigation (&.) counts, with repeated csend discount:
@@ -146,11 +180,15 @@ impl CyclomaticCounter {
                             self.complexity += 1;
                         }
                     }
-                    // Iterating block counts
-                    if call.block().is_some_and(|b| b.as_block_node().is_some()) {
-                        let method_name = call.name().as_slice();
-                        if KNOWN_ITERATING_METHODS.contains(&method_name) {
-                            self.complexity += 1;
+                    // Iterating block or block_pass counts
+                    if let Some(block) = call.block() {
+                        if block.as_block_node().is_some()
+                            || block.as_block_argument_node().is_some()
+                        {
+                            let method_name = call.name().as_slice();
+                            if KNOWN_ITERATING_METHODS.contains(&method_name) {
+                                self.complexity += 1;
+                            }
                         }
                     }
                 }
@@ -194,6 +232,37 @@ impl<'pr> Visit<'pr> for CyclomaticCounter {
             ruby_prism::visit_rescue_node(self, node);
         }
     }
+
+    // InNode: count +1 for the `in` clause, then visit children with guard
+    // suppression. In Prism, `in :x if guard` wraps the pattern as IfNode
+    // inside InNode, which would be double-counted without suppression.
+    fn visit_in_node(&mut self, node: &ruby_prism::InNode<'pr>) {
+        self.complexity += 1;
+        // Visit the pattern with guard suppression active so that any
+        // IfNode/UnlessNode guard is not counted as a separate decision point.
+        self.in_pattern_guard = true;
+        let pattern = node.pattern();
+        self.visit(&pattern);
+        self.in_pattern_guard = false;
+        // Visit the body normally
+        if let Some(stmts) = node.statements() {
+            self.visit(&stmts.as_node());
+        }
+    }
+}
+
+/// Extract the method name from a `define_method` call's first argument.
+fn extract_define_method_name(call: &ruby_prism::CallNode<'_>) -> Option<String> {
+    let args = call.arguments()?;
+    let first = args.arguments().iter().next()?;
+
+    if let Some(sym) = first.as_symbol_node() {
+        return Some(String::from_utf8_lossy(sym.unescaped()).into_owned());
+    }
+    if let Some(s) = first.as_string_node() {
+        return Some(String::from_utf8_lossy(s.unescaped()).into_owned());
+    }
+    None
 }
 
 impl Cop for CyclomaticComplexity {
@@ -203,7 +272,6 @@ impl Cop for CyclomaticComplexity {
 
     fn interested_node_types(&self) -> &'static [u8] {
         &[
-            BLOCK_NODE,
             CALL_NODE,
             DEF_NODE,
             LOCAL_VARIABLE_READ_NODE,
@@ -220,9 +288,41 @@ impl Cop for CyclomaticComplexity {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let def_node = match node.as_def_node() {
-            Some(d) => d,
-            None => return,
+        // Extract method name, body, and report location from DefNode or
+        // define_method CallNode with block.
+        let (method_name_str, body, report_offset) = if let Some(def_node) = node.as_def_node() {
+            let body = match def_node.body() {
+                Some(b) => b,
+                None => return,
+            };
+            let name = std::str::from_utf8(def_node.name().as_slice())
+                .unwrap_or("")
+                .to_string();
+            (name, body, def_node.def_keyword_loc().start_offset())
+        } else if let Some(call_node) = node.as_call_node() {
+            // Handle define_method(:name) do...end
+            if call_node.name().as_slice() != b"define_method" || call_node.receiver().is_some() {
+                return;
+            }
+            if let Some(block) = call_node.block() {
+                if let Some(block_node) = block.as_block_node() {
+                    let method_name = match extract_define_method_name(&call_node) {
+                        Some(name) => name,
+                        None => return,
+                    };
+                    let body = match block_node.body() {
+                        Some(b) => b,
+                        None => return,
+                    };
+                    (method_name, body, call_node.location().start_offset())
+                } else {
+                    return;
+                }
+            } else {
+                return;
+            }
+        } else {
+            return;
         };
 
         let max = config.get_usize("Max", 7);
@@ -230,39 +330,31 @@ impl Cop for CyclomaticComplexity {
         // AllowedMethods / AllowedPatterns: skip methods matching these
         let allowed_methods = config.get_string_array("AllowedMethods");
         let allowed_patterns = config.get_string_array("AllowedPatterns");
-        let method_name_str = std::str::from_utf8(def_node.name().as_slice()).unwrap_or("");
         if let Some(allowed) = &allowed_methods {
-            if allowed.iter().any(|m| m == method_name_str) {
+            if allowed.iter().any(|m| m == &method_name_str) {
                 return;
             }
         }
         if let Some(patterns) = &allowed_patterns {
             if patterns
                 .iter()
-                .any(|p| method_name_str.contains(p.as_str()))
+                .any(|p| regex::Regex::new(p).is_ok_and(|re| re.is_match(&method_name_str)))
             {
                 return;
             }
         }
-
-        let body = match def_node.body() {
-            Some(b) => b,
-            None => return,
-        };
 
         let mut counter = CyclomaticCounter::default();
         counter.visit(&body);
 
         let score = 1 + counter.complexity;
         if score > max {
-            let method_name = std::str::from_utf8(def_node.name().as_slice()).unwrap_or("unknown");
-            let start_offset = def_node.def_keyword_loc().start_offset();
-            let (line, column) = source.offset_to_line_col(start_offset);
+            let (line, column) = source.offset_to_line_col(report_offset);
             diagnostics.push(self.diagnostic(
                 source,
                 line,
                 column,
-                format!("Cyclomatic complexity for {method_name} is too high. [{score}/{max}]"),
+                format!("Cyclomatic complexity for {method_name_str} is too high. [{score}/{max}]"),
             ));
         }
     }

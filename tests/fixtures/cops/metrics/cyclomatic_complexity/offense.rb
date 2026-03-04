@@ -84,3 +84,91 @@ def iterating_bang_method(values)
   end
   result = values.join(', ') if values.any?
 end
+
+# define_method blocks should be treated like def
+define_method(:complex_handler) do |x|
+^^^ Metrics/CyclomaticComplexity: Cyclomatic complexity for complex_handler is too high. [8/7]
+  if x > 0
+    1
+  end
+  if x > 1
+    2
+  end
+  if x > 2
+    3
+  end
+  if x > 3
+    4
+  end
+  if x > 4
+    5
+  end
+  if x > 5
+    6
+  end
+  if x > 6
+    7
+  end
+end
+
+# define_method with string name
+define_method("dynamic_handler") do |x|
+^^^ Metrics/CyclomaticComplexity: Cyclomatic complexity for dynamic_handler is too high. [8/7]
+  if x > 0
+    1
+  end
+  if x > 1
+    2
+  end
+  if x > 2
+    3
+  end
+  if x > 3
+    4
+  end
+  if x > 4
+    5
+  end
+  if x > 5
+    6
+  end
+  if x > 6
+    7
+  end
+end
+
+# block_pass (&:method) should count for iterating methods
+def method_with_block_pass(items)
+^^^ Metrics/CyclomaticComplexity: Cyclomatic complexity for method_with_block_pass is too high. [9/7]
+  if items.empty?
+    return
+  end
+  if items.size > 1
+    items.map(&:to_s)
+  end
+  if items.first.nil?
+    return
+  end
+  if items.last.nil?
+    return
+  end
+  items.select(&:present?)
+  items.reject(&:blank?)
+  items.flat_map(&:values)
+end
+
+# Compound assignment operators (index and call or/and write)
+def method_with_compound_asgn(h, obj)
+^^^ Metrics/CyclomaticComplexity: Cyclomatic complexity for method_with_compound_asgn is too high. [8/7]
+  if h.nil?
+    return
+  end
+  if obj.nil?
+    return
+  end
+  h["key"] ||= "default"
+  h["other"] &&= transform(h["other"])
+  obj.attr ||= "value"
+  obj.other &&= process(obj.other)
+  result = h || obj
+end
