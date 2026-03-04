@@ -135,7 +135,7 @@ def test_write():
         assert result.returncode == 0, f"Script failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
 
         updated = readme_path.read_text()
-        assert "96.1% conformance" in updated
+        assert "96.0% conformance" in updated
         assert "167k Ruby files" in updated
         assert "nitrocop extra (FP)" in updated
         assert "nitrocop missed (FN)" in updated
@@ -147,7 +147,7 @@ def test_conformance_includes_fp():
 
     With asymmetric FP/FN the two formulas diverge:
     - matches/(matches+fn) = 10M/(10M+500K) = 95.2%
-    - matches/(matches+fp+fn) = 10M/(10M+120K+500K) = 94.2%
+    - matches/(matches+fp+fn) = 10M/(10M+120K+500K) = 94.1% (floored)
     """
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
@@ -169,9 +169,9 @@ def test_conformance_includes_fp():
         assert result.returncode == 0, f"Script failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
 
         updated = readme_path.read_text()
-        # matches/(matches+fp+fn) = 10M/10.62M = 94.2%
-        assert "94.2% conformance" in updated, (
-            f"Expected 94.2% (includes FP in denominator), got: "
+        # matches/(matches+fp+fn) = 10M/10.62M = 94.1% (floored from 94.16%)
+        assert "94.1% conformance" in updated, (
+            f"Expected 94.1% (includes FP in denominator, floored), got: "
             + next(l for l in updated.splitlines() if "conformance" in l)
         )
         # NOT 95.2% (which would be matches/(matches+fn), ignoring FP)
