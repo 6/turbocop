@@ -3,6 +3,18 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Performance/StringReplacement
+///
+/// Identifies places where `gsub`/`gsub!` can be replaced by `tr`/`delete`.
+///
+/// Investigation notes:
+/// - Original implementation only handled `gsub` (not `gsub!`) and only single-byte chars.
+/// - Root cause of 1054 FNs: byte length check (`len() != 1`) rejected multi-byte UTF-8
+///   single characters (e.g., "Á" is 2 bytes but 1 char). Also missed empty replacement
+///   pattern (→ `delete`) and `gsub!` (→ `tr!`/`delete!`).
+/// - RuboCop only flags `gsub`/`gsub!`, NOT `sub`/`sub!`.
+/// - Message format: "Use `tr` instead of `gsub`." / "Use `delete` instead of `gsub`."
+///   with bang variants for `gsub!`.
 pub struct StringReplacement;
 
 impl Cop for StringReplacement {
@@ -32,9 +44,12 @@ impl Cop for StringReplacement {
             None => return,
         };
 
-        if call.name().as_slice() != b"gsub" {
-            return;
-        }
+        let method_name = call.name().as_slice();
+        let is_bang = match method_name {
+            b"gsub" => false,
+            b"gsub!" => true,
+            _ => return,
+        };
 
         // Must have a receiver (str.gsub)
         if call.receiver().is_none() {
@@ -71,19 +86,51 @@ impl Cop for StringReplacement {
             None => return,
         };
 
-        // Both must be single-character strings
-        if first.unescaped().len() != 1 || second.unescaped().len() != 1 {
+        let first_str = first.unescaped();
+        let second_str = second.unescaped();
+
+        // First arg must be a single character (by char count, not byte count)
+        let first_text = String::from_utf8_lossy(first_str);
+        if first_text.chars().count() != 1 {
             return;
         }
 
-        // RuboCop points at the gsub method name (node.loc.selector), not the whole expression
+        // Empty first arg is not flagged
+        if first_text.is_empty() {
+            return;
+        }
+
+        // Second arg must be empty or a single character
+        let second_text = String::from_utf8_lossy(second_str);
+        let second_char_count = second_text.chars().count();
+        if second_char_count > 1 {
+            return;
+        }
+
+        let (prefer, current) = if second_char_count == 0 {
+            // Empty replacement → delete
+            if is_bang {
+                ("delete!", "gsub!")
+            } else {
+                ("delete", "gsub")
+            }
+        } else {
+            // Single char replacement → tr
+            if is_bang {
+                ("tr!", "gsub!")
+            } else {
+                ("tr", "gsub")
+            }
+        };
+
+        // RuboCop points at the method name through end of args (node.loc.selector → end)
         let loc = call.message_loc().unwrap_or_else(|| call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,
             line,
             column,
-            "Use `tr` instead of `gsub` when replacing single characters.".to_string(),
+            format!("Use `{prefer}` instead of `{current}`."),
         ));
     }
 }
