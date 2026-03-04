@@ -255,8 +255,8 @@ def _run_one_repo(args: tuple[str, str]) -> tuple[str, int]:
 def validate_corpus():
     """Check that local corpus matches manifest.jsonl.
 
-    Warns about missing or extra repos so stale clones don't silently
-    inflate offense counts.
+    Fails fast on missing or extra repos so local reruns use the exact
+    same corpus checkout as CI.
     """
     if not MANIFEST_PATH.exists():
         return
@@ -272,14 +272,17 @@ def validate_corpus():
     missing = manifest_ids - local_ids
 
     if extra:
-        print(f"WARNING: {len(extra)} stale repos in vendor/corpus/ not in manifest "
-              f"(run bench/corpus/clone_repos.sh to clean up):", file=sys.stderr)
+        print(f"ERROR: {len(extra)} stale repos in vendor/corpus/ not in manifest:", file=sys.stderr)
         for r in sorted(extra):
             print(f"  - {r}", file=sys.stderr)
     if missing:
         pct = len(missing) / len(manifest_ids) * 100
-        print(f"Note: {len(missing)}/{len(manifest_ids)} manifest repos not cloned locally "
+        print(f"ERROR: {len(missing)}/{len(manifest_ids)} manifest repos not cloned locally "
               f"({pct:.0f}% missing)", file=sys.stderr)
+    if extra or missing:
+        print("Corpus checkout does not match bench/corpus/manifest.jsonl. "
+              "Run bench/corpus/clone_repos.sh to sync repos.", file=sys.stderr)
+        sys.exit(1)
 
 
 def run_nitrocop_per_repo(cop_name: str) -> dict[str, int]:
