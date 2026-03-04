@@ -3,6 +3,15 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Corpus investigation (2026-03-04):
+/// - 7 FNs: all involved regex args with flags (/o, /m) that were incorrectly skipped.
+/// - Root cause: cop skipped ALL regexes with flags (`closing.len() > 1`), but RuboCop
+///   only skips `/i` (case insensitive). Flags /o, /m, /x don't affect simple literal
+///   pattern matching in split.
+/// - Also fixed: `%r/pattern/` (slash-delimited %r) was incorrectly skipped. RuboCop's
+///   DETERMINISTIC_REGEX matches the full source, and `/` is in LITERAL_REGEX, so
+///   `%r/pattern/` should be checked. Only `%r{pattern}` and other non-slash delimiters
+///   are correctly skipped (braces, brackets, parens not in LITERAL_REGEX).
 pub struct RedundantSplitRegexpArgument;
 
 /// Check if regex content is a simple literal that could be replaced by a string.
@@ -154,18 +163,23 @@ impl Cop for RedundantSplitRegexpArgument {
             None => return,
         };
 
-        // Skip %r{} syntax — RuboCop's DETERMINISTIC_REGEX matches against the
-        // full source (including delimiters), and %r delimiters ({, [, (, etc.)
-        // are not in its LITERAL_REGEX character class, so %r never matches.
+        // Skip %r syntax with non-slash delimiters — RuboCop's DETERMINISTIC_REGEX
+        // matches against the full source (including delimiters), and %r delimiters
+        // like {, [, ( are not in its LITERAL_REGEX character class, so they never match.
+        // However, %r/pattern/ uses / delimiters which ARE in LITERAL_REGEX, so those
+        // should be checked like regular /pattern/ regexps.
         let node_loc = first_arg.location();
         let full_bytes = &source.as_bytes()[node_loc.start_offset()..node_loc.end_offset()];
-        if full_bytes.starts_with(b"%r") {
+        if full_bytes.starts_with(b"%r") && !full_bytes.starts_with(b"%r/") {
             return;
         }
 
-        // Skip regexps with flags (e.g., /pattern/i)
+        // Skip regexps with /i flag (case insensitive) — changes matching semantics.
+        // Other flags like /o (once), /m (multiline), /x (extended) don't affect
+        // matching of simple literal patterns in split, so we still flag those.
+        // This matches RuboCop's behavior which only checks `ignore_case?`.
         let closing = regex_node.closing_loc().as_slice();
-        if closing.len() > 1 {
+        if closing.contains(&b'i') {
             return;
         }
 

@@ -22,6 +22,5 @@ str.split(%r{,})
 str.split(%r{=})
 pair.split(%r{=})
 body.split(%r{&})
-# Regexp with flags — not a simple replacement
+# Regexp with /i flag — case insensitive changes matching semantics
 str.split(/split/i)
-str.split(/,/x)
