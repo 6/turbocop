@@ -6,6 +6,9 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Corpus FP fix: `.to eql(false), msg` passes a custom failure message as a
+/// second argument to `.to`. RuboCop's pattern matches `.to` with exactly one
+/// argument. Fixed by checking `arg_list.len() == 1` on the `.to` call's args.
 pub struct BeEql;
 
 impl Cop for BeEql {
@@ -60,7 +63,9 @@ impl Cop for BeEql {
         };
 
         let arg_list: Vec<_> = args.arguments().iter().collect();
-        if arg_list.is_empty() {
+        // .to must have exactly one argument (the matcher). A second argument
+        // is a custom failure message — not a matcher pattern we should flag.
+        if arg_list.len() != 1 {
             return;
         }
 
