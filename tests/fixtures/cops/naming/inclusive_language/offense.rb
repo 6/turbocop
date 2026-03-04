@@ -23,3 +23,17 @@ def blacklisted?
     ^^^^^^^^^^^^ Naming/InclusiveLanguage: Use inclusive language instead of `blacklist`. Suggested alternatives: `denylist`, `block`.
   false
 end
+
+alias allowlist= whitelist=
+                 ^^^^^^^^^ Naming/InclusiveLanguage: Use inclusive language instead of `whitelist`. Suggested alternatives: `allowlist`, `permit`.
+
+alias blocklist= blacklist=
+                 ^^^^^^^^^ Naming/InclusiveLanguage: Use inclusive language instead of `blacklist`. Suggested alternatives: `denylist`, `block`.
+
+query = "grant select to '#{env.db_slave_user}'"
+                                   ^^^^^ Naming/InclusiveLanguage: Use inclusive language instead of `slave`. Suggested alternatives: `replica`, `secondary`, `follower`.
+
+script = <<~SQL
+  grant select on *.* to '#{env.db_slave_user}'@'%'
+                                   ^^^^^ Naming/InclusiveLanguage: Use inclusive language instead of `slave`. Suggested alternatives: `replica`, `secondary`, `follower`.
+SQL

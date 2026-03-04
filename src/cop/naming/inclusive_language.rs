@@ -478,6 +478,20 @@ fn collect_symbol_ranges(parse_result: &ruby_prism::ParseResult<'_>) -> Vec<(usi
             }
             ruby_prism::visit_interpolated_symbol_node(self, node);
         }
+
+        fn visit_alias_method_node(&mut self, node: &ruby_prism::AliasMethodNode<'pr>) {
+            // `alias foo bar` names are symbols without a leading `:`. RuboCop
+            // still checks these under CheckSymbols.
+            if let Some(sym) = node.new_name().as_symbol_node() {
+                let loc = sym.location();
+                self.ranges.push((loc.start_offset(), loc.end_offset()));
+            }
+            if let Some(sym) = node.old_name().as_symbol_node() {
+                let loc = sym.location();
+                self.ranges.push((loc.start_offset(), loc.end_offset()));
+            }
+            ruby_prism::visit_alias_method_node(self, node);
+        }
     }
 
     let mut collector = SymbolRangeCollector { ranges: Vec::new() };
