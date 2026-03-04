@@ -45,6 +45,13 @@ impl Cop for Sum {
         };
 
         let method_name = call.name().as_slice();
+
+        // Check for map/collect { ... }.sum pattern
+        if method_name == b"sum" {
+            self.check_map_sum(source, &call, diagnostics);
+            return;
+        }
+
         if method_name != b"inject" && method_name != b"reduce" {
             return;
         }
@@ -163,6 +170,69 @@ impl Cop for Sum {
             }
             _ => {}
         }
+    }
+}
+
+impl Sum {
+    /// Check for `map/collect { ... }.sum` or `map/collect(&:method).sum` patterns
+    fn check_map_sum(
+        &self,
+        source: &SourceFile,
+        sum_call: &ruby_prism::CallNode<'_>,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        // .sum must not have a block itself (except sum with no block is fine)
+        // If .sum has a block or block_arg, skip: `map(&:count).sum { |x| x }` is not flagged
+        if let Some(block) = sum_call.block() {
+            if block.as_block_node().is_some() {
+                return;
+            }
+            // block_arg on sum like `.sum(&:count)` — also skip
+            if block.as_block_argument_node().is_some() {
+                return;
+            }
+        }
+
+        // Receiver must be a map/collect call
+        let receiver = match sum_call.receiver() {
+            Some(r) => r,
+            None => return,
+        };
+        let map_call = match receiver.as_call_node() {
+            Some(c) => c,
+            None => return,
+        };
+        let map_method = map_call.name().as_slice();
+        if map_method != b"map" && map_method != b"collect" {
+            return;
+        }
+
+        // map/collect must have a block or block_arg
+        let has_block = map_call.block().is_some();
+        if !has_block {
+            return;
+        }
+
+        let map_method_str = std::str::from_utf8(map_method).unwrap_or("map");
+
+        // Get the message_loc of the map/collect call for the offense location
+        let msg_loc = match map_call.message_loc() {
+            Some(loc) => loc,
+            None => return,
+        };
+        let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
+
+        // Check if .sum has an initial value argument
+        let sum_init = get_raw_init_text(source, sum_call.arguments());
+
+        let message = match &sum_init {
+            Some(init) => format!(
+                "Use `sum({init}) {{ ... }}` instead of `{map_method_str} {{ ... }}.sum({init})`."
+            ),
+            None => format!("Use `sum {{ ... }}` instead of `{map_method_str} {{ ... }}.sum`."),
+        };
+
+        diagnostics.push(self.diagnostic(source, line, column, message));
     }
 }
 

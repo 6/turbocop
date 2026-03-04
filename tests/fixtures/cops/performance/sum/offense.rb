@@ -38,3 +38,11 @@ items.inject(0, &:+)
       ^^^^^^ Performance/Sum: Use `sum` instead of `inject(0, &:+)`.
 items.reduce(0, &:+)
       ^^^^^^ Performance/Sum: Use `sum` instead of `reduce(0, &:+)`.
+items.map { |x| x.value }.sum
+      ^^^ Performance/Sum: Use `sum { ... }` instead of `map { ... }.sum`.
+items.collect { |x| x ** 2 }.sum
+      ^^^^^^^ Performance/Sum: Use `sum { ... }` instead of `collect { ... }.sum`.
+items.map(&:count).sum
+      ^^^ Performance/Sum: Use `sum { ... }` instead of `map { ... }.sum`.
+items.map { |x| x.value }.sum(10)
+      ^^^ Performance/Sum: Use `sum(10) { ... }` instead of `map { ... }.sum(10)`.
