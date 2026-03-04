@@ -203,6 +203,17 @@ jobs:
               echo "::warning::rubocop timed out after ${REPO_TIMEOUT}s for ${REPO_ID}"
             fi
 
+            # Resolve symlink paths in JSON output before deleting the repo.
+            # RuboCop follows symlinks and reports offenses on both the symlink
+            # path (e.g., docs/gem/foo.gemspec) and the canonical path (gem/foo.gemspec).
+            # This causes phantom FP/FN when the tools pick different paths for the
+            # same physical file. Resolving to realpath while the repo is still on
+            # disk ensures consistent paths in the diff.
+            python3 bench/corpus/resolve_symlink_paths.py \
+              "results/nitrocop/${REPO_ID}.json" \
+              "results/rubocop/${REPO_ID}.json" \
+              2>/dev/null || true
+
             # Free disk space between repos
             rm -rf "$DEST"
 

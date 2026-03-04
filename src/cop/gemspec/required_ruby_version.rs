@@ -6,9 +6,12 @@ use crate::parse::source::SourceFile;
 ///
 /// Corpus oracle (run 22651309591) reported FP=0, FN=1.
 ///
-/// FN=1: pagy docs/gem/pagy.gemspec — TargetRubyVersion mismatch (3.2 vs 3.4).
-/// Local run detects this correctly at gem/pagy.gemspec:25. The FN is a corpus
-/// state discrepancy (CI file at docs/gem/ vs local at gem/).
+/// FN=1: pagy `docs/gem/pagy.gemspec` — symlink path mismatch. The pagy repo has
+/// `docs/gem -> ../gem` (a directory symlink). RuboCop follows the symlink and
+/// reports offenses at `docs/gem/pagy.gemspec`; nitrocop discovers the canonical
+/// path `gem/pagy.gemspec`. The corpus diff treats these as different files.
+/// Fixed by adding `resolve_symlink_paths.py` to the CI workflow to normalize
+/// paths in both tools' JSON output before diffing.
 pub struct RequiredRubyVersion;
 
 /// Extract version digits from a version string like RuboCop does:
