@@ -191,22 +191,24 @@ fn count_method_lines(
         start_offset
     };
 
-    // Always fold heredoc lines to match RuboCop behavior. In RuboCop's
-    // Parser AST, `body.source` for a heredoc returns only the opening
-    // delimiter, so heredoc content is never counted toward method length.
-    // Prism includes heredoc content in the node's byte range, so we must
-    // explicitly fold those lines.
-    let mut all_foldable: Vec<(usize, usize)> = {
-        let mut ranges = collect_heredoc_ranges(source, &body);
-        if let Some(cao) = &cfg.count_as_one {
-            if !cao.is_empty() {
-                ranges.extend(collect_foldable_ranges(source, &body, cao));
+    // Collect foldable ranges from CountAsOne config. Heredocs are only
+    // folded when "heredoc" is explicitly in CountAsOne (default: []).
+    // RuboCop's CodeLengthCalculator counts heredoc content lines toward
+    // method length by default (via source_from_node_with_heredoc). Prism
+    // includes heredoc content in the body's byte range, so lines are
+    // naturally counted. We only fold them when CountAsOne says to.
+    let mut all_foldable: Vec<(usize, usize)> = Vec::new();
+    if let Some(cao) = &cfg.count_as_one {
+        if !cao.is_empty() {
+            all_foldable.extend(collect_foldable_ranges(source, &body, cao));
+            // collect_foldable_ranges can't fold heredocs correctly in Prism
+            // (InterpolatedStringNode.location() only covers the opening).
+            // Use collect_heredoc_ranges which uses closing_loc().
+            if cao.iter().any(|s| s == "heredoc") {
+                all_foldable.extend(collect_heredoc_ranges(source, &body));
             }
         }
-        ranges
-    };
-    // Deduplicate: heredoc ranges may already be in foldable ranges if
-    // CountAsOne includes "heredoc"
+    }
     all_foldable.sort();
     all_foldable.dedup();
 

@@ -3,35 +3,23 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
-// ## Known false positives (811 FP) in corpus as of 2026-03-02
+// ## Investigation history
 //
-// Commit 0a021cc8 rewrote this cop from check_node to check_source with a Visit-based
-// walker. The rewrite added: (1) block parameter checking for non-lambda/proc blocks,
-// (2) MaxOptionalParameters checking, (3) Struct.new/Data.define initialize exemption.
-// This eliminated all 8 FNs but introduced 811 new FPs across the corpus.
+// Commit 0a021cc8 rewrote from check_node to check_source with Visit-based walker.
+// Added block param checking, MaxOptionalParameters, Struct.new/Data.define exemption.
 //
-// Investigation findings:
-// - Side-by-side comparison on specific repos (e.g., twilio-ruby) shows they MATCH on
-//   individual files. The 811 excess is aggregate across 1000 repos.
-// - The excess does NOT come from obviously wrong counting — param counts match on
-//   spot-checked files.
-// - RuboCop's on_args fires on ALL args nodes (both def and block params), and on_def
-//   fires separately for MaxOptionalParameters. nitrocop's visitor does the same but
-//   reports both on def_keyword_loc rather than separate locations.
-// - Possible cause (a): block param checking may fire on constructs RuboCop exempts via
-//   argument_to_lambda_or_proc? which uses ^lambda_or_proc? (parent-node check).
-//   nitrocop only checks for explicit proc/lambda method names as receiver-less calls.
-//   Other proc-like constructs (e.g., Proc.new, method(:foo)) might be missed.
-// - Possible cause (b): config inheritance edge cases — some repos may have
-//   MaxOptionalParameters set in inherited configs that nitrocop doesn't resolve
-//   identically to RuboCop.
-//
-// A correct fix needs to:
-// - Write a script to diff RuboCop vs nitrocop offenses per-file on a high-divergence
-//   repo to find the exact lines that differ
-// - Check if Proc.new blocks are being incorrectly flagged
-// - Validate block param counting against RuboCop's argument_to_lambda_or_proc? more
-//   carefully — it may exempt more than just proc and lambda calls
+// 2026-03-03: Fixed two issues reducing FP=3 FN=8 → FP=2 FN=0:
+// (1) Struct.new/Data.define initialize exemption was too broad — exempted ALL
+//     initialize methods inside the block. RuboCop only exempts when initialize is the
+//     sole statement (no begin wrapper in AST). When block has multiple methods,
+//     parent.parent gives begin instead of block, so RuboCop's pattern doesn't match.
+//     Fix: only exempt when block body has exactly one statement.
+// (2) Block param offenses reported at ParametersNode location (first param after pipe)
+//     instead of BlockParametersNode location (opening pipe). For multi-line blocks,
+//     this put the offense on a different line than RuboCop, causing FP+FN pair.
+//     Fix: report at block_params_node.location() start.
+// (3) consuldemocracy FPs (2): rubocop:disable ParameterLists comment on line above.
+//     This is a framework-level directive handling issue, not cop-level.
 pub struct ParameterLists;
 
 impl Cop for ParameterLists {
@@ -59,7 +47,7 @@ impl Cop for ParameterLists {
             max,
             count_keyword_args,
             max_optional,
-            in_struct_or_data_block: false,
+            in_struct_or_data_single_child: false,
         };
         visitor.visit(&parse_result.node());
         diagnostics.extend(visitor.diagnostics);
@@ -73,7 +61,10 @@ struct ParameterListsVisitor<'a> {
     max: usize,
     count_keyword_args: bool,
     max_optional: usize,
-    in_struct_or_data_block: bool,
+    /// True when inside a Struct.new/Data.define block whose body has exactly
+    /// one statement (the initialize def). RuboCop's exemption only applies
+    /// when `parent.parent` directly reaches the block node (no begin wrapper).
+    in_struct_or_data_single_child: bool,
 }
 
 impl<'a> ParameterListsVisitor<'a> {
@@ -136,8 +127,12 @@ impl<'a> ParameterListsVisitor<'a> {
 
 impl<'pr> Visit<'pr> for ParameterListsVisitor<'_> {
     fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
-        // Skip initialize inside Struct.new/Data.define blocks
-        let is_initialize = self.in_struct_or_data_block && node.name().as_slice() == b"initialize";
+        // Skip initialize inside Struct.new/Data.define blocks when it's the sole child.
+        // RuboCop's on_args checks `parent.parent` which only reaches the block node
+        // (matching struct_new_or_data_define_block?) when there's no begin wrapper,
+        // i.e., when initialize is the only statement in the block body.
+        let is_initialize =
+            self.in_struct_or_data_single_child && node.name().as_slice() == b"initialize";
 
         if !is_initialize {
             if let Some(params) = node.parameters() {
@@ -194,11 +189,14 @@ impl<'pr> Visit<'pr> for ParameterListsVisitor<'_> {
                 }
 
                 if Self::is_struct_new_or_data_define(node) {
-                    // Set context for children (def initialize exemption)
-                    let prev = self.in_struct_or_data_block;
-                    self.in_struct_or_data_block = true;
+                    // Set context for children (def initialize exemption).
+                    // Only exempt when block body has exactly one statement,
+                    // matching RuboCop's parent.parent check behavior.
+                    let single_child = Self::block_has_single_child(&block_node);
+                    let prev = self.in_struct_or_data_single_child;
+                    self.in_struct_or_data_single_child = single_child;
                     ruby_prism::visit_call_node(self, node);
-                    self.in_struct_or_data_block = prev;
+                    self.in_struct_or_data_single_child = prev;
                     return;
                 }
             }
@@ -214,6 +212,21 @@ impl<'pr> Visit<'pr> for ParameterListsVisitor<'_> {
 }
 
 impl ParameterListsVisitor<'_> {
+    /// Check if a block body has exactly one statement.
+    /// In Prism, a block body is either None, a StatementsNode (with body list),
+    /// or a single node. When there's a single statement, RuboCop's `parent.parent`
+    /// from the def's args node reaches the block node directly (no begin wrapper).
+    fn block_has_single_child(block_node: &ruby_prism::BlockNode<'_>) -> bool {
+        if let Some(body) = block_node.body() {
+            if let Some(stmts) = body.as_statements_node() {
+                return stmts.body().len() == 1;
+            }
+            // Non-statements body (e.g., a single node) counts as one child
+            return true;
+        }
+        false // empty body
+    }
+
     fn check_block_params(&mut self, block_node: &ruby_prism::BlockNode<'_>) {
         let block_params = match block_node.parameters() {
             Some(p) => p,
@@ -230,8 +243,9 @@ impl ParameterListsVisitor<'_> {
 
         let count = self.count_params(&params);
         if count > self.max {
-            // Report on the parameters (inside the pipes)
-            let start_offset = params.location().start_offset();
+            // Report at the BlockParametersNode location (opening pipe),
+            // matching RuboCop's on_args reporting location.
+            let start_offset = block_params_node.location().start_offset();
             let (line, column) = self.source.offset_to_line_col(start_offset);
             self.diagnostics.push(self.cop.diagnostic(
                 self.source,

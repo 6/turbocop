@@ -8,8 +8,9 @@ use crate::parse::source::SourceFile;
 /// ## Corpus investigation (2026-03-03)
 ///
 /// Corpus oracle reported FP=4, FN=3. FP fixed by handling `__FILE__` (SourceFileNode).
-/// FN=3 are all from lines with `# standard:disable Security/Open` comments — nitrocop
-/// correctly honors these while RuboCop ignores them. These are expected FNs, not bugs.
+/// FN=3 were from lines with `# standard:disable Security/Open` comments. Fixed by
+/// parsing only `rubocop:`/`nitrocop:` directives in `parse/directives.rs`, matching
+/// RuboCop's source-directive behavior.
 pub struct Open;
 
 /// Check if the argument is a "safe" string literal.

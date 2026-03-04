@@ -76,3 +76,20 @@ define_method(:another_dynamic) { |x|
   j = 10
   k = 11
 }
+
+# Heredoc content lines count toward method length
+def heredoc_method
+^^^ Metrics/MethodLength: Method has too many lines. [12/10]
+  <<~SQL
+    SELECT *
+    FROM users
+    WHERE active = true
+    AND created_at > '2024-01-01'
+    ORDER BY name ASC
+    LIMIT 100
+    OFFSET 0
+    -- long query
+    -- more comments
+    -- even more
+  SQL
+end

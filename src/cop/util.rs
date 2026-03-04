@@ -200,12 +200,10 @@ pub fn inner_classlike_ranges(
 /// Collect line ranges of heredoc bodies within a node.
 /// Returns pairs of (start_line, end_line) (1-indexed) for multiline heredoc nodes.
 ///
-/// This matches RuboCop's behavior where heredoc content lines are NOT counted
-/// toward method/block length. In RuboCop's Parser AST, `body.source` for a
-/// heredoc only returns the opening delimiter (e.g. `<<~HEREDOC`), so heredoc
-/// content lines are implicitly excluded from line counts. In Prism, the node's
-/// location spans the full heredoc content, so we must explicitly exclude those
-/// lines by treating them as foldable ranges.
+/// Used when `CountAsOne` includes "heredoc" to fold each heredoc to a single
+/// line. In Prism, InterpolatedStringNode.location() only covers the opening
+/// delimiter (e.g. `<<~HEREDOC`), but closing_loc() gives the end of the
+/// heredoc content. This function uses closing_loc() to get the correct range.
 pub fn collect_heredoc_ranges(
     source: &SourceFile,
     body_node: &ruby_prism::Node<'_>,
@@ -302,7 +300,11 @@ impl<'pr> ruby_prism::Visit<'pr> for FoldableVisitor<'_> {
             ruby_prism::Node::ArrayNode { .. } => self.count_as_one.iter().any(|s| s == "array"),
             ruby_prism::Node::HashNode { .. } => self.count_as_one.iter().any(|s| s == "hash"),
             ruby_prism::Node::InterpolatedStringNode { .. } => {
-                self.count_as_one.iter().any(|s| s == "heredoc")
+                // Heredocs are handled separately by collect_heredoc_ranges()
+                // because InterpolatedStringNode.location() only covers the
+                // opening delimiter in Prism, not the heredoc content/closing.
+                // collect_heredoc_ranges uses closing_loc() to get the full range.
+                false
             }
             ruby_prism::Node::CallNode { .. } => {
                 self.count_as_one.iter().any(|s| s == "method_call")

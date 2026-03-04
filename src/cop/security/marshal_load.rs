@@ -12,11 +12,9 @@ use crate::parse::source::SourceFile;
 /// commit fe41845.
 ///
 /// FN=3: All in `rubyworks__facets__12326d4` at `work/sandbox/multiton2.rb` (lines
-/// 68, 210, 460). Each is a single-arg `Marshal.load(str)` call that the cop would
-/// correctly flag if it saw the file. The issue is **file discovery**: the corpus
-/// oracle's RuboCop run finds the file but nitrocop's `ignore`-crate walker may
-/// skip it (possibly a `.gitignore` or path-exclusion difference). This is not a
-/// cop logic bug — it needs investigation at the file discovery layer.
+/// 68, 210, 460). These files are tracked but under a `.gitignore`d directory.
+/// Fixed in `src/fs.rs` by merging `git ls-files` tracked Ruby files into discovery,
+/// so tracked ignored files are linted like RuboCop.
 pub struct MarshalLoad;
 
 impl Cop for MarshalLoad {

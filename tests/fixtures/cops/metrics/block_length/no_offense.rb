@@ -25,48 +25,22 @@ Entry = Struct.new(:type, :body, :ref_type, :ref_id, :user) do
   def baz; 3; end
 end
 
-# Heredoc content within a block should NOT count toward block body lines.
-# The heredoc physically appears between opening/closing but is logically 1 line.
+# Heredoc content lines count toward block body length (RuboCop's
+# CodeLengthCalculator includes them). This block has a small heredoc
+# that keeps the total under Max:25.
 render do
   x1 = 1
   x2 = 2
-  x3 = 3
-  x4 = 4
-  x5 = 5
-  x6 = 6
-  x7 = 7
-  x8 = 8
-  x9 = 9
-  x10 = 10
-  x11 = 11
-  x12 = 12
-  x13 = 13
-  x14 = 14
-  x15 = 15
-  x16 = 16
-  x17 = 17
-  x18 = 18
-  x19 = 19
-  x20 = 20
-  x21 = 21
-  x22 = 22
   msg = <<~HEREDOC
     line1
     line2
     line3
-    line4
-    line5
-    line6
-    line7
-    line8
-    line9
-    line10
   HEREDOC
-  x24 = 24
-  x25 = 25
+  x3 = 3
 end
 
-# Block whose body IS a heredoc literal (body = 1 line, not heredoc content lines)
+# Block whose body IS a heredoc — content lines count toward length.
+# 20 content lines + heredoc opening + closing = 22 body lines (under 25).
 process do
   <<~RUBY
     line1
@@ -89,15 +63,5 @@ process do
     line18
     line19
     line20
-    line21
-    line22
-    line23
-    line24
-    line25
-    line26
-    line27
-    line28
-    line29
-    line30
   RUBY
 end

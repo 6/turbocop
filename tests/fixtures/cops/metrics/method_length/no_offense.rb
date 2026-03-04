@@ -32,9 +32,9 @@ def with_branch
   end
 end
 
-# Heredoc-only methods: RuboCop counts the heredoc body as part of the
-# AST node's source which is just the opening delimiter, so content lines
-# are not counted toward method length.
+# Heredoc content lines count toward method length (RuboCop's
+# CodeLengthCalculator includes them via source_from_node_with_heredoc).
+# This heredoc has 8 content lines => 10 total body lines (at Max:10).
 def heredoc_method
   <<~SQL
     SELECT *
@@ -44,10 +44,6 @@ def heredoc_method
     ORDER BY name ASC
     LIMIT 100
     OFFSET 0
-    -- long query
-    -- more comments
-    -- even more
-    -- still going
   SQL
 end
 

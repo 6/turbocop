@@ -171,19 +171,20 @@ fn count_block_lines(
         opening_offset
     };
 
-    // Always fold heredoc lines to match RuboCop behavior. In RuboCop's
-    // Parser AST, heredoc content is not included in body.source, so
-    // it never counts toward block length. Prism includes it in the
-    // byte range, so we must fold explicitly.
-    let mut all_foldable: Vec<(usize, usize)> = {
-        let mut ranges = collect_heredoc_ranges(source, &body);
-        if let Some(cao) = count_as_one {
-            if !cao.is_empty() {
-                ranges.extend(collect_foldable_ranges(source, &body, cao));
+    // Collect foldable ranges from CountAsOne config. Heredocs are only
+    // folded when "heredoc" is explicitly in CountAsOne (default: []).
+    // RuboCop's CodeLengthCalculator counts heredoc content lines toward
+    // block length by default. Prism includes heredoc content in the body's
+    // byte range, so lines are naturally counted.
+    let mut all_foldable: Vec<(usize, usize)> = Vec::new();
+    if let Some(cao) = count_as_one {
+        if !cao.is_empty() {
+            all_foldable.extend(collect_foldable_ranges(source, &body, cao));
+            if cao.iter().any(|s| s == "heredoc") {
+                all_foldable.extend(collect_heredoc_ranges(source, &body));
             }
         }
-        ranges
-    };
+    }
     all_foldable.sort();
     all_foldable.dedup();
 
