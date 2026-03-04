@@ -8,3 +8,9 @@
           ^^^^^^^^^^^^^^^^^^^^^ Performance/ZipWithoutBlock: Use `zip` without a block argument instead.
 foo.map { |id| [id] }
     ^^^^^^^^^^^^^^^^^ Performance/ZipWithoutBlock: Use `zip` without a block argument instead.
+[1, 2, 3].map { [_1] }
+          ^^^^^^^^^^^^ Performance/ZipWithoutBlock: Use `zip` without a block argument instead.
+[1, 2, 3].collect { [_1] }
+          ^^^^^^^^^^^^^^^^ Performance/ZipWithoutBlock: Use `zip` without a block argument instead.
+[1, 2, 3].map { [it] }
+          ^^^^^^^^^^^^ Performance/ZipWithoutBlock: Use `zip` without a block argument instead.

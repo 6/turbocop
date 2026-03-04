@@ -1,11 +1,22 @@
 use crate::cop::node_type::{
-    ARRAY_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, LOCAL_VARIABLE_READ_NODE,
+    ARRAY_NODE, BLOCK_NODE, BLOCK_PARAMETERS_NODE, CALL_NODE, IT_LOCAL_VARIABLE_READ_NODE,
+    IT_PARAMETERS_NODE, LOCAL_VARIABLE_READ_NODE, NUMBERED_PARAMETERS_NODE,
     REQUIRED_PARAMETER_NODE, STATEMENTS_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Performance/ZipWithoutBlock
+///
+/// Detects `map { |x| [x] }` / `collect { |x| [x] }` patterns that can be
+/// replaced with `.zip`.
+///
+/// ## FN investigation (2026-03-04)
+/// Root cause: only handled explicit `BlockParametersNode` (`|x|` style).
+/// Missed `NumberedParametersNode` (`_1`) and `ItParametersNode` (`it`).
+/// Fix: added branches for both implicit parameter styles, checking that the
+/// block body is `[_1]` / `[it]` respectively.
 pub struct ZipWithoutBlock;
 
 impl Cop for ZipWithoutBlock {
@@ -23,7 +34,10 @@ impl Cop for ZipWithoutBlock {
             BLOCK_NODE,
             BLOCK_PARAMETERS_NODE,
             CALL_NODE,
+            IT_LOCAL_VARIABLE_READ_NODE,
+            IT_PARAMETERS_NODE,
             LOCAL_VARIABLE_READ_NODE,
+            NUMBERED_PARAMETERS_NODE,
             REQUIRED_PARAMETER_NODE,
             STATEMENTS_NODE,
         ]
@@ -64,39 +78,13 @@ impl Cop for ZipWithoutBlock {
             None => return,
         };
 
-        // Get the block parameter name
+        // Check block parameter style and verify body is `[param]`
         let params = match block_node.parameters() {
             Some(p) => p,
             None => return,
         };
 
-        let block_params = match params.as_block_parameters_node() {
-            Some(bp) => bp,
-            None => return,
-        };
-
-        let param_list = match block_params.parameters() {
-            Some(pl) => pl,
-            None => return,
-        };
-
-        let requireds = param_list.requireds();
-        if requireds.len() != 1 {
-            return;
-        }
-
-        let first_param = match requireds.iter().next() {
-            Some(p) => p,
-            None => return,
-        };
-
-        let param_name = match first_param.as_required_parameter_node() {
-            Some(rp) => rp.name(),
-            None => return,
-        };
-
-        // Body must be a single array literal containing only one element:
-        // the same variable as the block parameter
+        // Get the single body statement (must be a 1-element array)
         let body = match block_node.body() {
             Some(b) => b,
             None => return,
@@ -132,12 +120,51 @@ impl Cop for ZipWithoutBlock {
             None => return,
         };
 
-        let local_var = match elem.as_local_variable_read_node() {
-            Some(lv) => lv,
-            None => return,
-        };
+        if params.as_numbered_parameters_node().is_some() {
+            // Numbered parameters: body must be [_1]
+            let local_var = match elem.as_local_variable_read_node() {
+                Some(lv) => lv,
+                None => return,
+            };
+            if local_var.name().as_slice() != b"_1" {
+                return;
+            }
+        } else if params.as_it_parameters_node().is_some() {
+            // Ruby 3.4+ `it` implicit parameter: body must be [it]
+            if elem.as_it_local_variable_read_node().is_none() {
+                return;
+            }
+        } else if let Some(block_params) = params.as_block_parameters_node() {
+            // Explicit block parameters: body must be [param]
+            let param_list = match block_params.parameters() {
+                Some(pl) => pl,
+                None => return,
+            };
 
-        if local_var.name().as_slice() != param_name.as_slice() {
+            let requireds = param_list.requireds();
+            if requireds.len() != 1 {
+                return;
+            }
+
+            let first_param = match requireds.iter().next() {
+                Some(p) => p,
+                None => return,
+            };
+
+            let param_name = match first_param.as_required_parameter_node() {
+                Some(rp) => rp.name(),
+                None => return,
+            };
+
+            let local_var = match elem.as_local_variable_read_node() {
+                Some(lv) => lv,
+                None => return,
+            };
+
+            if local_var.name().as_slice() != param_name.as_slice() {
+                return;
+            }
+        } else {
             return;
         }
 
