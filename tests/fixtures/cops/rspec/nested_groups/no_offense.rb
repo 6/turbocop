@@ -91,3 +91,38 @@ module MyNamespace
     end
   end
 end
+
+# Bare `context` reference without a block should NOT count as nesting
+# (e.g., `expect(context).to be_failure` where context is a variable)
+describe SomeModel do
+  context 'when active' do
+    context 'when verified' do
+      it 'checks context value' do
+        expect(context).to be_valid
+      end
+    end
+  end
+end
+
+# RSpec.shared_examples (with receiver) should walk body at depth 0
+# 3 levels inside = depth 3 = Max, so no offense
+RSpec.shared_examples 'reusable pattern' do
+  describe 'feature' do
+    context 'one' do
+      context 'two' do
+        it { expect(subject).to be_valid }
+      end
+    end
+  end
+end
+
+# RSpec.shared_context (with receiver) should walk body at depth 0
+RSpec.shared_context 'with setup' do
+  context 'first' do
+    context 'second' do
+      context 'third' do
+        it { expect(subject).to be_ready }
+      end
+    end
+  end
+end

@@ -8,6 +8,19 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Corpus investigation (2026-03-04): 784 FPs, 194 FNs.
+///
+/// Root causes:
+/// 1. FPs: Bare `context` calls without blocks (e.g., `expect(context).to be_failure`)
+///    were matched as example groups and counted toward nesting depth. Fix: require
+///    a block (`do...end`) on the call node before counting it as an example group,
+///    matching RuboCop's behavior where only `:block` children are recursed into.
+/// 2. FNs: `RSpec.shared_examples`, `RSpec.shared_examples_for`, `RSpec.shared_context`
+///    (with `RSpec` receiver) were not recognized as shared groups. Only receiverless
+///    forms were handled. Fix: also check for `RSpec.` prefix on shared group methods.
+/// 3. FNs: `RSpec.feature` and other example group methods with `RSpec.` prefix were
+///    not recognized as example groups. Only `RSpec.describe` was handled. Fix: accept
+///    any `is_rspec_example_group` method name with `RSpec` receiver.
 pub struct NestedGroups;
 
 impl Cop for NestedGroups {
@@ -183,11 +196,19 @@ impl NestedGroups {
         // Determine if this is a shared group or example group.
         // Shared groups are checked first because is_rspec_example_group also
         // matches shared group names.
-        let is_shared_group = call.receiver().is_none() && is_rspec_shared_group(method_name);
+        // Shared groups can be either receiverless (`shared_examples 'name' do`)
+        // or with RSpec receiver (`RSpec.shared_examples 'name' do`).
+        let is_shared_group = if call.receiver().is_none() {
+            is_rspec_shared_group(method_name)
+        } else {
+            util::constant_name(&call.receiver().unwrap()).is_some_and(|n| n == b"RSpec")
+                && is_rspec_shared_group(method_name)
+        };
         let is_example_group = if is_shared_group {
             false
         } else if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).is_some_and(|n| n == b"RSpec") && method_name == b"describe"
+            util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+                && is_rspec_example_group(method_name)
         } else {
             is_rspec_example_group(method_name)
         };
@@ -244,7 +265,13 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_, 'pr> {
         // Shared group definitions (shared_examples, shared_context) do NOT
         // increment nesting depth — they define reusable groups with their own
         // independent scope.  Recurse into their block body at the SAME depth.
-        if node.receiver().is_none() && is_rspec_shared_group(method_name) {
+        let is_shared = if node.receiver().is_none() {
+            is_rspec_shared_group(method_name)
+        } else {
+            util::constant_name(&node.receiver().unwrap()).is_some_and(|n| n == b"RSpec")
+                && is_rspec_shared_group(method_name)
+        };
+        if is_shared {
             if let Some(block) = node.block() {
                 if let Some(bn) = block.as_block_node() {
                     if let Some(body) = bn.body() {
@@ -255,12 +282,20 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_, 'pr> {
             return;
         }
 
-        // Only count receiverless example group calls as nesting
+        // Only count receiverless example group calls WITH a block as nesting.
+        // RuboCop's find_nested_example_groups only recurses into :block and :begin
+        // children, so bare calls like `context` (a variable reference) or
+        // `context(...)` without a block are never matched as example groups.
         let is_allowed = self
             .allowed_groups
             .iter()
             .any(|g| g.as_bytes() == method_name);
-        if node.receiver().is_none() && is_rspec_example_group(method_name) && !is_allowed {
+        let has_block = node.block().is_some_and(|b| b.as_block_node().is_some());
+        if node.receiver().is_none()
+            && is_rspec_example_group(method_name)
+            && !is_allowed
+            && has_block
+        {
             let new_depth = self.depth + 1;
 
             if new_depth > self.max {
@@ -350,6 +385,53 @@ mod tests {
         assert!(
             diags.is_empty(),
             "Module with require sibling should not be unwrapped for top-level group detection"
+        );
+    }
+
+    #[test]
+    fn reduced_fp_case() {
+        // Reduced from corpus FP in light-service. This file has depth 3 nesting
+        // (RSpec.describe > describe > context) which equals Max=3, NOT exceeding it.
+        // nitrocop was reporting a false positive somewhere in this structure.
+        let source = b"RSpec.describe LightService::Context do\n  describe \"can be made\" do\n    context \"with no arguments\" do\n      specify \"message is empty string\" do\n      end\n    end\n    context \"with a hash\" do\n    end\n    context \"with FAILURE\" do\n      it \"is failed\" do\n        expect(context).to be_failure\n      end\n    end\n  end\n  it \"can be pushed\" do\n    it \"uses localization\" do\n    end\n  end\n  it \"can set a flag\" do\n    let(:context) do\n      LightService::Context.make(\n      )\n    end\n    it \"contains the aliases\" do\n    end\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&NestedGroups, source);
+        for d in &diags {
+            eprintln!(
+                "  offense at line {} col {}: {}",
+                d.location.line, d.location.column, d.message
+            );
+        }
+        assert!(
+            diags.is_empty(),
+            "Max nesting of 3 should not exceed Max=3; got {} offenses",
+            diags.len()
+        );
+    }
+
+    #[test]
+    fn rspec_shared_examples_as_top_level_group() {
+        // RSpec.shared_examples (with RSpec receiver) should be recognized as a
+        // shared group — its block should be walked but its nesting should start at 0.
+        // 4 levels inside: describe > context > context > context = depth 4 > Max 3
+        let source = b"RSpec.shared_examples 'reusable' do\n  describe 'feature' do\n    context 'a' do\n      context 'b' do\n        context 'c' do\n          it 'works' do\n          end\n        end\n      end\n    end\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&NestedGroups, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "RSpec.shared_examples should be walked; depth 4 > Max 3 should fire"
+        );
+    }
+
+    #[test]
+    fn rspec_feature_as_top_level_group() {
+        // RSpec.feature (with RSpec receiver) should be recognized as an example group.
+        // RSpec.feature > describe > context > context = depth 4 > Max 3
+        let source = b"RSpec.feature 'something', type: :feature do\n  describe 'foo' do\n    context 'bar' do\n      context 'baz' do\n        it 'works' do\n        end\n      end\n    end\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&NestedGroups, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "RSpec.feature should be a top-level group; depth 4 > Max 3 should fire"
         );
     }
 

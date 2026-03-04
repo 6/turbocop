@@ -44,3 +44,27 @@ describe Wrapper do
     end
   end
 end
+
+RSpec.shared_examples 'deeply nested' do
+  describe 'feature' do
+    context 'level one' do
+      context 'level two' do
+        context 'level three' do
+        ^^^^^^^^^^^^^^^^^^^^^^ RSpec/NestedGroups: Maximum example group nesting exceeded [4/3].
+          it { expect(subject).to be_valid }
+        end
+      end
+    end
+  end
+end
+
+RSpec.feature 'checkout', type: :feature do
+  describe 'payment' do
+    context 'with credit card' do
+      context 'when declined' do
+      ^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/NestedGroups: Maximum example group nesting exceeded [4/3].
+        it { expect(page).to have_content('Error') }
+      end
+    end
+  end
+end
