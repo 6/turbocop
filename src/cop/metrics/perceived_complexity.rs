@@ -8,6 +8,28 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Metrics/PerceivedComplexity
+///
+/// ## Corpus investigation (2026-03-04)
+///
+/// Corpus oracle baseline reported FP=166 and FN=457. A local `check-cop --rerun`
+/// after prior Metrics fixes still showed FN-only drift (missing offenses, no excess).
+///
+/// FN root causes fixed in this change:
+/// - Prism represents inline rescue (`expr rescue fallback`) as
+///   `RescueModifierNode`, but this cop only counted `RescueNode` chains.
+/// - Rescue-chain tracking used a single boolean guard, which also suppressed
+///   nested rescues inside rescue bodies (it should suppress only subsequent
+///   clauses in the same chain).
+///
+/// Fix:
+/// - Count `RescueModifierNode` as +1 decision point (same weight as rescue).
+/// - Walk `RescueNode` chains manually so only `subsequent` clauses are
+///   de-duplicated while nested rescues still contribute complexity.
+///
+/// Remaining gaps:
+/// - Additional FN remain and require follow-up investigation on other
+///   constructs beyond rescue modifiers.
 pub struct PerceivedComplexity;
 
 /// Known iterating method names that make blocks count toward complexity.
@@ -115,9 +137,6 @@ const KNOWN_ITERATING_METHODS: &[&[u8]] = &[
 #[derive(Default)]
 struct PerceivedCounter {
     complexity: usize,
-    /// Tracks whether we are already inside a rescue chain to avoid
-    /// counting subsequent rescue clauses (Prism chains them via `subsequent`).
-    in_rescue_chain: bool,
     /// Tracks local variable names that have been seen with `&.` (safe navigation).
     /// RuboCop discounts repeated `&.` on the same variable — only the first counts.
     /// When the variable is reassigned, it is removed from the set (reset).
@@ -159,7 +178,8 @@ impl PerceivedCounter {
             | ruby_prism::Node::ForNode { .. }
             | ruby_prism::Node::AndNode { .. }
             | ruby_prism::Node::OrNode { .. }
-            | ruby_prism::Node::InNode { .. } => {
+            | ruby_prism::Node::InNode { .. }
+            | ruby_prism::Node::RescueModifierNode { .. } => {
                 self.complexity += 1;
             }
             // Note: RescueNode is NOT counted here — it is handled in visit_rescue_node
@@ -266,6 +286,24 @@ impl PerceivedCounter {
         // Insert returns false if the value was already present (= repeated)
         !self.seen_csend_vars.insert(var_name)
     }
+
+    /// Visit a rescue chain without adding extra complexity for subsequent clauses.
+    /// Subsequent rescue clauses are siblings in Parser AST terms and should not add
+    /// another decision point, but nested rescues in clause bodies should still count.
+    fn visit_rescue_chain<'pr>(&mut self, node: &ruby_prism::RescueNode<'pr>) {
+        for exception in &node.exceptions() {
+            self.visit(&exception);
+        }
+        if let Some(reference) = node.reference() {
+            self.visit(&reference);
+        }
+        if let Some(statements) = node.statements() {
+            self.visit_statements_node(&statements);
+        }
+        if let Some(subsequent) = node.subsequent() {
+            self.visit_rescue_chain(&subsequent);
+        }
+    }
 }
 
 impl<'pr> Visit<'pr> for PerceivedCounter {
@@ -285,18 +323,12 @@ impl<'pr> Visit<'pr> for PerceivedCounter {
 
     // RescueNode is visited via visit_rescue_node (not visit_branch_node_enter)
     // because Prism's visit_begin_node calls visitor.visit_rescue_node directly.
-    // In Prism, rescue clauses are chained via `subsequent`, so visit_rescue_node
-    // is called once per clause. RuboCop counts `rescue` as a single decision point,
-    // so we only count +1 for the first rescue in the chain.
+    // In Prism, rescue clauses are chained via `subsequent`, and each clause is a
+    // separate RescueNode. RuboCop treats clauses in the same rescue chain as one
+    // decision point, while nested rescues still count separately.
     fn visit_rescue_node(&mut self, node: &ruby_prism::RescueNode<'pr>) {
-        if !self.in_rescue_chain {
-            self.complexity += 1;
-            self.in_rescue_chain = true;
-            ruby_prism::visit_rescue_node(self, node);
-            self.in_rescue_chain = false;
-        } else {
-            ruby_prism::visit_rescue_node(self, node);
-        }
+        self.complexity += 1;
+        self.visit_rescue_chain(node);
     }
 }
 

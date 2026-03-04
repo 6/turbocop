@@ -129,3 +129,47 @@ def method_with_block_pass(items)
   items.all?(&:ready?)
   items.detect(&:present?)
 end
+
+def method_with_many_rescue_modifiers
+^^^ Metrics/PerceivedComplexity: Perceived complexity for method_with_many_rescue_modifiers is too high. [9/8]
+  a = first_call rescue nil
+  b = second_call rescue nil
+  c = third_call rescue nil
+  d = fourth_call rescue nil
+  e = fifth_call rescue nil
+  f = sixth_call rescue nil
+  g = seventh_call rescue nil
+  h = eighth_call rescue nil
+end
+
+def method_with_nested_rescues(flag)
+^^^ Metrics/PerceivedComplexity: Perceived complexity for method_with_nested_rescues is too high. [9/8]
+  begin
+    first_call
+  rescue StandardError
+    begin
+      second_call
+    rescue StandardError
+      fallback_call
+    end
+  end
+
+  if flag == 1
+    1
+  end
+  if flag == 2
+    2
+  end
+  if flag == 3
+    3
+  end
+  if flag == 4
+    4
+  end
+  if flag == 5
+    5
+  end
+  if flag == 6
+    6
+  end
+end
