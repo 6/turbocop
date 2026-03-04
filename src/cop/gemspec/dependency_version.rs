@@ -25,6 +25,20 @@ use crate::parse::source::SourceFile;
 /// these blocks entirely via GemspecHelp NodePattern). FN from interpolated strings
 /// like `"~> #{VERSION}"` being treated as version specifiers (RuboCop only considers
 /// plain `str` nodes, not `dstr`/interpolated strings).
+///
+/// ## Corpus investigation (2026-03-04)
+///
+/// Corpus oracle reported FN=761 across 103 repos.
+///
+/// Root cause: RuboCop's NodePattern `<(str #version_specification?) ...>` only matches
+/// direct `str` arguments to the send node. When version strings are wrapped in array
+/// literals like `[">= 0"]`, the `str` is nested inside an `array` node and doesn't
+/// match. nitrocop's `has_any_version_string` was scanning all string literals including
+/// those inside `[...]` brackets, incorrectly treating array-wrapped versions as present.
+///
+/// Fix: Track bracket depth in `has_any_version_string` and skip strings found at
+/// depth > 0. Common patterns affected: `add_dependency('foo', [">= 0"])`,
+/// `add_dependency(%q<foo>.freeze, ["~> 2.4.1"])`.
 pub struct DependencyVersion;
 
 const DEP_METHODS: &[&str] = &[
@@ -198,30 +212,50 @@ fn extract_first_string(s: &str) -> Option<String> {
 /// since gem names like 'rails' don't match the version regex anyway (no leading digit
 /// or operator), but version strings like '>= 1.0' do.
 ///
+/// RuboCop's NodePattern `<(str #version_specification?) ...>` only matches direct
+/// `str` arguments to the send node. Strings nested inside array literals (`[...]`)
+/// are NOT matched — so `add_dependency('foo', [">= 1.0"])` is treated as having
+/// no version. We track bracket depth to replicate this behavior.
+///
 /// Matches RuboCop's `/^\s*[~<>=]*\s*[0-9.]+/` applied to each `(str ...)` node.
 fn has_any_version_string(s: &str) -> bool {
     let bytes = s.as_bytes();
     let mut pos = 0;
+    let mut bracket_depth: u32 = 0;
     while pos < bytes.len() {
-        if bytes[pos] == b'\'' || bytes[pos] == b'"' {
-            let quote = bytes[pos];
-            let start = pos + 1;
-            // Find closing quote
-            let mut end = start;
-            while end < bytes.len() && bytes[end] != quote {
-                end += 1;
+        match bytes[pos] {
+            b'[' => {
+                bracket_depth += 1;
+                pos += 1;
             }
-            if end < bytes.len() {
-                let content = &s[start..end];
-                if is_version_content(content) {
-                    return true;
+            b']' => {
+                bracket_depth = bracket_depth.saturating_sub(1);
+                pos += 1;
+            }
+            b'\'' | b'"' => {
+                let quote = bytes[pos];
+                let start = pos + 1;
+                // Find closing quote
+                let mut end = start;
+                while end < bytes.len() && bytes[end] != quote {
+                    end += 1;
                 }
-                pos = end + 1;
-            } else {
-                break; // Unclosed quote
+                if end < bytes.len() {
+                    // Only consider strings that are direct args (not inside brackets)
+                    if bracket_depth == 0 {
+                        let content = &s[start..end];
+                        if is_version_content(content) {
+                            return true;
+                        }
+                    }
+                    pos = end + 1;
+                } else {
+                    break; // Unclosed quote
+                }
             }
-        } else {
-            pos += 1;
+            _ => {
+                pos += 1;
+            }
         }
     }
     false

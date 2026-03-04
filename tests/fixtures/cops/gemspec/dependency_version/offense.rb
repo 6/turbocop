@@ -17,4 +17,11 @@ Gem::Specification.new do |spec|
   # != is not a version operator per RuboCop's regex /^\s*[~<>=]*\s*[0-9.]+/
   spec.add_dependency 'excluded', '!= 0.3.1'
        ^^^^^^^^^^^^^^ Gemspec/DependencyVersion: Dependency version is required.
+  # Array-wrapped version strings don't count — RuboCop only matches direct str args
+  spec.add_dependency(%q<json_pure>.freeze, [">= 0"])
+       ^^^^^^^^^^^^^^ Gemspec/DependencyVersion: Dependency version is required.
+  spec.add_dependency(%q<coffee-script>, ["~> 2.4.1"])
+       ^^^^^^^^^^^^^^ Gemspec/DependencyVersion: Dependency version is required.
+  spec.add_dependency 'multi-ver', [">= 1.0", "< 3.0"]
+       ^^^^^^^^^^^^^^ Gemspec/DependencyVersion: Dependency version is required.
 end
