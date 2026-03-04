@@ -1,12 +1,18 @@
-use crate::cop::node_type::{
-    BLOCK_ARGUMENT_NODE, CALL_NODE, CONSTANT_PATH_NODE, CONSTANT_READ_NODE,
-    GLOBAL_VARIABLE_READ_NODE, KEYWORD_HASH_NODE,
-};
 use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
+use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 
+/// RSpec/Output: flags output calls (p, puts, print, pp, $stdout.write, etc.) in specs.
+///
+/// Investigation: 81 FPs caused by flagging `p(...)` when used as a method argument
+/// (e.g., `expect(p("abc/").normalized_pattern)`) or as a receiver of a chained call
+/// (e.g., `p.trigger`). RuboCop checks `node.parent&.call_type?` and skips when the
+/// output call's parent is another call node. Switched from check_node to check_source
+/// with a visitor that tracks parent-is-call context. This matches the RuboCop behavior
+/// at vendor/rubocop-rspec/lib/rubocop/cop/rspec/output.rb:61.
 pub struct Output;
 
 /// Output methods without a receiver (Kernel print methods)
@@ -34,98 +40,112 @@ impl Cop for Output {
         RSPEC_DEFAULT_INCLUDE
     }
 
-    fn interested_node_types(&self) -> &'static [u8] {
-        &[
-            BLOCK_ARGUMENT_NODE,
-            CALL_NODE,
-            CONSTANT_PATH_NODE,
-            CONSTANT_READ_NODE,
-            GLOBAL_VARIABLE_READ_NODE,
-            KEYWORD_HASH_NODE,
-        ]
-    }
-
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &CodeMap,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let call = match node.as_call_node() {
-            Some(c) => c,
-            None => return,
+        let mut visitor = OutputVisitor {
+            cop: self,
+            source,
+            diagnostics: Vec::new(),
+            parent_is_call: false,
         };
+        visitor.visit(&parse_result.node());
+        diagnostics.extend(visitor.diagnostics);
+    }
+}
 
-        let method = call.name().as_slice();
+struct OutputVisitor<'a> {
+    cop: &'a Output,
+    source: &'a SourceFile,
+    diagnostics: Vec<Diagnostic>,
+    /// True when the current node is a direct child (receiver/argument) of a CallNode.
+    parent_is_call: bool,
+}
 
-        // Case 1: bare p/puts/print/pp without receiver
-        if PRINT_METHODS.contains(&method) && call.receiver().is_none() {
-            // Skip if it has a block (p { ... } is DSL usage like phlex)
-            if call.block().is_some() {
-                return;
-            }
+impl<'pr> Visit<'pr> for OutputVisitor<'_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        let method = node.name().as_slice();
 
-            // For `p`, skip if there are keyword args or symbol proc args
-            // (which indicates DSL usage, not printing)
-            if method == b"p" {
-                if let Some(args) = call.arguments() {
-                    let arg_list: Vec<ruby_prism::Node<'_>> = args.arguments().iter().collect();
-                    for arg in &arg_list {
-                        if arg.as_keyword_hash_node().is_some() {
-                            return;
+        // Check for output calls only when parent is NOT a call
+        // (matches RuboCop: `return if node.parent&.call_type?`)
+        if !self.parent_is_call {
+            if PRINT_METHODS.contains(&method) && node.receiver().is_none() {
+                // Skip if it has a block (p { ... } is DSL usage like phlex)
+                if node.block().is_none() {
+                    let mut skip = false;
+                    // For `p`, skip if there are keyword args or symbol proc args
+                    if method == b"p" {
+                        if let Some(args) = node.arguments() {
+                            for arg in args.arguments().iter() {
+                                if arg.as_keyword_hash_node().is_some()
+                                    || arg.as_block_argument_node().is_some()
+                                {
+                                    skip = true;
+                                    break;
+                                }
+                            }
                         }
-                        if arg.as_block_argument_node().is_some() {
-                            return;
-                        }
+                    }
+                    if !skip {
+                        let loc = node.location();
+                        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                        self.diagnostics.push(self.cop.diagnostic(
+                            self.source,
+                            line,
+                            column,
+                            "Do not write to stdout in specs.".to_string(),
+                        ));
+                    }
+                }
+            } else if IO_WRITE_METHODS.contains(&method) {
+                if let Some(recv) = node.receiver() {
+                    let is_io_target = if let Some(gv) = recv.as_global_variable_read_node() {
+                        GLOBAL_VARS.contains(&gv.name().as_slice())
+                    } else if let Some(c) = recv.as_constant_read_node() {
+                        CONST_NAMES.contains(&c.name().as_slice())
+                    } else if let Some(cp) = recv.as_constant_path_node() {
+                        cp.parent().is_none()
+                            && cp.name().is_some()
+                            && CONST_NAMES.contains(&cp.name().unwrap().as_slice())
+                    } else {
+                        false
+                    };
+
+                    if is_io_target && node.block().is_none() {
+                        let loc = node.location();
+                        let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                        self.diagnostics.push(self.cop.diagnostic(
+                            self.source,
+                            line,
+                            column,
+                            "Do not write to stdout in specs.".to_string(),
+                        ));
                     }
                 }
             }
-
-            let loc = call.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(self.diagnostic(
-                source,
-                line,
-                column,
-                "Do not write to stdout in specs.".to_string(),
-            ));
         }
 
-        // Case 2: $stdout.write, $stderr.syswrite, STDOUT.write, STDERR.write, etc.
-        if IO_WRITE_METHODS.contains(&method) {
-            if let Some(recv) = call.receiver() {
-                let is_io_target = if let Some(gv) = recv.as_global_variable_read_node() {
-                    GLOBAL_VARS.contains(&gv.name().as_slice())
-                } else if let Some(c) = recv.as_constant_read_node() {
-                    CONST_NAMES.contains(&c.name().as_slice())
-                } else if let Some(cp) = recv.as_constant_path_node() {
-                    // ::STDOUT, ::STDERR
-                    cp.parent().is_none()
-                        && cp.name().is_some()
-                        && CONST_NAMES.contains(&cp.name().unwrap().as_slice())
-                } else {
-                    false
-                };
+        // Visit children with parent_is_call = true for receiver/arguments,
+        // but preserve default visiting for the block body
+        let was = self.parent_is_call;
+        self.parent_is_call = true;
+        if let Some(recv) = node.receiver() {
+            self.visit(&recv);
+        }
+        if let Some(args) = node.arguments() {
+            self.visit_arguments_node(&args);
+        }
+        self.parent_is_call = was;
 
-                if is_io_target {
-                    // Skip if it has a block (write { ... })
-                    if call.block().is_some() {
-                        return;
-                    }
-
-                    let loc = call.location();
-                    let (line, column) = source.offset_to_line_col(loc.start_offset());
-                    diagnostics.push(self.diagnostic(
-                        source,
-                        line,
-                        column,
-                        "Do not write to stdout in specs.".to_string(),
-                    ));
-                }
-            }
+        // Visit block normally (block body is not "inside a call argument")
+        if let Some(block) = node.block() {
+            self.visit(&block);
         }
     }
 }

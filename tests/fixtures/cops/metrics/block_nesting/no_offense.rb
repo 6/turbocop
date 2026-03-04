@@ -80,3 +80,16 @@ def handle_connections
     end
   end
 end
+
+# Ternary if and rescue modifier under the same expression should not stack
+# nesting depth (mirrors parser AST sibling traversal in RuboCop).
+def cast_time(input)
+  if input.is_a?(Array)
+    Time.zone.local(*input) rescue nil
+  else
+    unless input.acts_like?(:time)
+      input = input.is_a?(String) ? Time.zone.parse(input) : input.to_time rescue input
+    end
+    input.in_time_zone rescue nil
+  end
+end

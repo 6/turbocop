@@ -110,21 +110,23 @@ impl MethodLength {
         cfg: &MethodLengthConfig,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        // Skip endless methods (no end keyword)
-        let end_loc = match def_node.end_keyword_loc() {
-            Some(loc) => loc,
-            None => return,
-        };
-
         let method_name_str = std::str::from_utf8(def_node.name().as_slice()).unwrap_or("");
         if cfg.is_allowed(method_name_str) {
             return;
         }
 
         let start_offset = def_node.def_keyword_loc().start_offset();
-        let end_offset = end_loc.start_offset();
-
-        let count = count_method_lines(source, start_offset, end_offset, cfg, def_node.body());
+        let count = if let Some(end_loc) = def_node.end_keyword_loc() {
+            let end_offset = end_loc.start_offset();
+            count_method_lines(source, start_offset, end_offset, cfg, def_node.body())
+        } else {
+            // Endless methods (`def foo = ...`) have no `end` keyword.
+            // RuboCop measures body.source lines for these definitions.
+            match def_node.body() {
+                Some(body) => count_endless_method_lines(source, &body, cfg),
+                None => 0,
+            }
+        };
 
         if count > cfg.max {
             let (line, column) = source.offset_to_line_col(start_offset);
@@ -144,11 +146,8 @@ impl MethodLength {
         cfg: &MethodLengthConfig,
         diagnostics: &mut Vec<Diagnostic>,
     ) {
-        // Only handle define_method calls with no receiver
+        // Handle define_method calls with or without receiver.
         if call_node.name().as_slice() != b"define_method" {
-            return;
-        }
-        if call_node.receiver().is_some() {
             return;
         }
 
@@ -270,6 +269,87 @@ fn count_method_lines(
     )
 }
 
+fn count_endless_method_lines(
+    source: &SourceFile,
+    body: &ruby_prism::Node<'_>,
+    cfg: &MethodLengthConfig,
+) -> usize {
+    if is_single_heredoc_expression(source, body) {
+        return 1;
+    }
+
+    let mut all_foldable: Vec<(usize, usize)> = Vec::new();
+    if let Some(cao) = &cfg.count_as_one {
+        if !cao.is_empty() {
+            all_foldable.extend(collect_foldable_ranges(source, body, cao));
+            if cao.iter().any(|s| s == "heredoc") {
+                all_foldable.extend(collect_heredoc_ranges(source, body));
+            }
+        }
+    }
+    all_foldable.sort();
+    all_foldable.dedup();
+
+    count_node_lines(source, body, cfg.count_comments, &all_foldable)
+}
+
+fn count_node_lines(
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+    count_comments: bool,
+    foldable_ranges: &[(usize, usize)],
+) -> usize {
+    let loc = node.location();
+    let (start_line, _) = source.offset_to_line_col(loc.start_offset());
+    let end_off = loc.end_offset().saturating_sub(1).max(loc.start_offset());
+    let (end_line, _) = source.offset_to_line_col(end_off);
+
+    let mut folded_lines = std::collections::HashSet::new();
+    for &(fold_start, fold_end) in foldable_ranges {
+        for line in (fold_start + 1)..=fold_end {
+            folded_lines.insert(line);
+        }
+    }
+
+    let lines: Vec<&[u8]> = source.lines().collect();
+    let mut count = 0;
+    for line_num in start_line..=end_line {
+        if line_num == 0 || line_num > lines.len() {
+            continue;
+        }
+        if folded_lines.contains(&line_num) {
+            continue;
+        }
+
+        let trimmed = trim_line(lines[line_num - 1]);
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !count_comments && trimmed.starts_with(b"#") {
+            continue;
+        }
+        count += 1;
+    }
+
+    count
+}
+
+fn trim_line(line: &[u8]) -> &[u8] {
+    let start = line
+        .iter()
+        .position(|&c| c != b' ' && c != b'\t' && c != b'\r');
+    match start {
+        Some(s) => {
+            let end = line
+                .iter()
+                .rposition(|&c| c != b' ' && c != b'\t' && c != b'\r')
+                .unwrap_or(s);
+            &line[s..=end]
+        }
+        None => &[],
+    }
+}
+
 /// Extract the method name from a `define_method` call's first argument.
 /// Handles symbol literals (:name), string literals ("name"), and returns
 /// None for dynamic/interpolated names.
@@ -310,10 +390,20 @@ fn is_heredoc_node(source: &SourceFile, node: &ruby_prism::Node<'_>) -> bool {
     }
 
     if let Some(s) = node.as_interpolated_string_node() {
-        return s
+        let is_heredoc = s
             .opening_loc()
             .map(|o| source.as_bytes()[o.start_offset()..o.end_offset()].starts_with(b"<<"))
             .unwrap_or(false);
+        if !is_heredoc {
+            return false;
+        }
+
+        // Keep the one-line special-case only for plain heredocs. Interpolated
+        // heredocs (`#{...}` parts present) are counted by RuboCop as multiline.
+        return !s
+            .parts()
+            .iter()
+            .any(|part| part.as_embedded_statements_node().is_some());
     }
 
     false

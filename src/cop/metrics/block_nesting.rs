@@ -8,10 +8,17 @@ use crate::parse::source::SourceFile;
 ///
 /// Corpus oracle reported FP=1, FN=0.
 ///
-/// The remaining FP example was investigated (ransack `value.rb:62`). This
-/// batch did not change cop-local nesting rules; instead it fixed framework
-/// directive matching for short-form disables in `parse::directives` and
-/// revalidated this cop with corpus gates.
+/// FP=1 was from ternary + inline rescue in
+/// `activerecord-hackery__ransack__271cb42/lib/ransack/nodes/value.rb:62`.
+/// Prism nests ternary `IfNode` under `RescueModifierNode`, while Parser AST
+/// (RuboCop) traverses ternary `if` and `resbody` as siblings under `rescue`.
+/// This cop now emulates Parser semantics for the ternary+rescue shape so the
+/// two nesting increments do not stack.
+///
+/// Added fixture coverage in `tests/fixtures/cops/metrics/block_nesting/no_offense.rb`.
+/// Local corpus rerun delta vs unchanged baseline binary was repo-local and
+/// isolated to the target file (`3 -> 2` offenses in ransack), with no other
+/// repo-level count changes.
 pub struct BlockNesting;
 
 impl Cop for BlockNesting {
@@ -230,16 +237,37 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_> {
     }
 
     fn visit_rescue_modifier_node(&mut self, node: &ruby_prism::RescueModifierNode<'pr>) {
-        // Inline rescue (e.g. `foo rescue nil`) counts as nesting in RuboCop
-        // (resbody is in NESTING_BLOCKS). Report at the `rescue` keyword location
-        // to match RuboCop's resbody node location.
+        let expression = node.expression();
+        let rescue_expression = node.rescue_expression();
+
+        // In Parser AST (used by RuboCop), modifier rescue wraps a ternary as
+        // sibling nodes under :rescue (if + resbody), so their nesting does not
+        // stack. Prism nests the ternary under RescueModifierNode, so emulate
+        // Parser semantics only for this shape.
+        let is_ternary_expression = expression
+            .as_if_node()
+            .is_some_and(|if_node| if_node.if_keyword_loc().is_none());
+
+        if is_ternary_expression {
+            self.visit(&expression);
+            self.depth += 1;
+            let exceeded = self.check_nesting(&node.keyword_loc());
+            if !exceeded {
+                self.visit(&rescue_expression);
+            }
+            self.depth -= 1;
+            return;
+        }
+
+        // Default behavior: inline rescue contributes one nesting level.
         self.depth += 1;
         let exceeded = self.check_nesting(&node.keyword_loc());
         if exceeded {
             self.depth -= 1;
             return;
         }
-        ruby_prism::visit_rescue_modifier_node(self, node);
+        self.visit(&expression);
+        self.visit(&rescue_expression);
         self.depth -= 1;
     }
 

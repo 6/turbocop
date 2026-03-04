@@ -1,11 +1,18 @@
 use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
 use crate::cop::util::{
-    self, RSPEC_DEFAULT_INCLUDE, is_blank_line, is_rspec_example_group, is_rspec_let, line_at,
+    self, RSPEC_DEFAULT_INCLUDE, is_blank_line, is_rspec_example_group, is_rspec_let,
+    is_rspec_shared_group, line_at,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// RSpec/EmptyLineAfterFinalLet
+///
+/// Investigation: RuboCop's `example_group_with_body?` only matches ExampleGroups
+/// (describe, context, feature, etc.) and NOT SharedGroups (shared_examples,
+/// shared_examples_for, shared_context). 47+ corpus FPs were caused by our cop
+/// firing inside shared group blocks. Fix: exclude shared groups from the check.
 pub struct EmptyLineAfterFinalLet;
 
 impl Cop for EmptyLineAfterFinalLet {
@@ -41,11 +48,13 @@ impl Cop for EmptyLineAfterFinalLet {
 
         let method_name = call.name().as_slice();
 
-        // Check for example group calls (including ::RSpec.describe)
+        // Check for example group calls (including ::RSpec.describe), but NOT
+        // shared groups (shared_examples, shared_examples_for, shared_context).
+        // RuboCop's example_group_with_body? only matches ExampleGroups, not SharedGroups.
         let is_example_group = if let Some(recv) = call.receiver() {
             util::constant_name(&recv).is_some_and(|n| n == b"RSpec") && method_name == b"describe"
         } else {
-            is_rspec_example_group(method_name)
+            is_rspec_example_group(method_name) && !is_rspec_shared_group(method_name)
         };
 
         if !is_example_group {

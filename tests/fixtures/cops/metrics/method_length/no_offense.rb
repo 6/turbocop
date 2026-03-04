@@ -119,3 +119,17 @@ define_method(:brace_dynamic) { |x|
 define_method("string_name") do
   a = 1
 end
+
+# Receiver-qualified define_method with short body (no offense)
+builder.define_method(:short_generated) do
+  a = 1
+  b = 2
+  c = 3
+end
+
+# Endless method with short multiline body (no offense)
+def compact_settings = {
+  one: 1,
+  two: 2,
+  three: 3
+}
