@@ -6,13 +6,7 @@ use crate::parse::source::SourceFile;
 
 /// ## Corpus investigation (2026-03-03)
 ///
-/// Corpus oracle reported FP=0, FN=4.
-///
-/// FN=4: All FNs are from gitignored gemspec files. em-websocket and redis-objects
-/// have `*.gemspec` in `.gitignore`; dependabot-core has `vendor` in `.gitignore`
-/// covering `vendor/cache/` paths. nitrocop's file walker (ignore crate) correctly
-/// skips gitignored files; RuboCop does not respect `.gitignore`. No cop logic fix
-/// needed — this is a file-discovery behavioral difference.
+/// Corpus oracle (run 22651309591) reported FP=0, FN=0. 100% conformance.
 pub struct RequireMfa;
 
 const MSG: &str = "`metadata['rubygems_mfa_required']` must be set to `'true'`.";

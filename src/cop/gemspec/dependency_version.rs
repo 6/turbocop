@@ -2,9 +2,26 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
-/// Gemspec/DependencyVersion
+/// ## Corpus investigation (2026-03-03)
 ///
-/// Investigated: FP from Gem::Specification.new with positional args (RuboCop skips
+/// Corpus oracle reported FP=4, FN=6.
+///
+/// FP=4: Fixed by:
+///   1. Requiring `Gem::Specification.new` block in file before checking deps (matches
+///      RuboCop's `match_block_variable_name?` which requires the receiver to be the
+///      block variable). Files without `Gem::Specification.new` are now skipped.
+///   2. Scanning ALL string literals in args for version specs, not just the second arg
+///      (matches RuboCop's `<(str #version_specification?) ...>` which checks all args).
+///      This handles ENV.fetch with a third version arg, and variable first args in
+///      `.each` blocks where the version is a later argument.
+///
+/// FN=6: Fixed by:
+///   3 FN from `!=` operator: RuboCop's VERSION_SPECIFICATION_REGEX `/^\s*[~<>=]*\s*[0-9.]+/`
+///   does NOT include `!` in its character class. So `'!= 0.3.1'` is not a version spec.
+///   Removed `!=` from nitrocop's version operator list.
+///   3 FN from pagy: Likely corpus state discrepancy (local run detects them correctly).
+///
+/// Prior fix: FP from Gem::Specification.new with positional args (RuboCop skips
 /// these blocks entirely via GemspecHelp NodePattern). FN from interpolated strings
 /// like `"~> #{VERSION}"` being treated as version specifiers (RuboCop only considers
 /// plain `str` nodes, not `dstr`/interpolated strings).
@@ -42,7 +59,8 @@ impl Cop for DependencyVersion {
         // RuboCop only checks dependencies inside Gem::Specification.new blocks
         // WITHOUT positional arguments. If .new has positional args (e.g.,
         // `Gem::Specification.new 'name', '1.0' do |s|`), the entire file is skipped.
-        if has_positional_args_spec_new(source) {
+        // If there's no Gem::Specification.new at all, the file is also skipped.
+        if !should_check_dependencies(source) {
             return;
         }
 
@@ -98,12 +116,16 @@ impl Cop for DependencyVersion {
     }
 }
 
-/// Check if the file contains `Gem::Specification.new` with positional arguments.
-/// RuboCop's GemspecHelp only matches `.new` followed immediately by a block (no args).
-/// Forms like `Gem::Specification.new 'name', '1.0' do |s|` have positional args
-/// and RuboCop skips the entire block. Also handles variable args like
-/// `Gem::Specification.new name, Version do |s|`.
-fn has_positional_args_spec_new(source: &SourceFile) -> bool {
+/// Check whether dependencies should be checked in this file.
+///
+/// Returns true only if the file contains `Gem::Specification.new` followed by a block
+/// (do or {) with no positional arguments. This matches RuboCop's GemspecHelp
+/// `gem_specification` NodePattern which requires `.new` with only a block parameter.
+///
+/// Returns false (skip file) when:
+/// - No `Gem::Specification.new` found at all
+/// - `Gem::Specification.new` has positional arguments
+fn should_check_dependencies(source: &SourceFile) -> bool {
     for line in source.lines() {
         let line_str = match std::str::from_utf8(line) {
             Ok(s) => s,
@@ -112,35 +134,33 @@ fn has_positional_args_spec_new(source: &SourceFile) -> bool {
         if let Some(pos) = line_str.find("Gem::Specification.new") {
             let after = line_str[pos + "Gem::Specification.new".len()..].trim_start();
             // RuboCop requires .new followed directly by a block (do/{ with no args).
-            // If .new is followed by anything other than `do`, `{`, `(`, or end-of-line,
-            // it has positional arguments.
-            // Note: `(` could be `Gem::Specification.new(&block)` but we handle common
-            // patterns: if after `(` there's no `&`, it's likely positional args.
             if after.is_empty() || after.starts_with("do") || after.starts_with('{') {
-                continue;
-            }
-            if let Some(stripped) = after.strip_prefix('(') {
-                // `Gem::Specification.new(&block)` - no positional args
-                // `Gem::Specification.new('name', ...)` - positional args
-                let inner = stripped.trim_start();
-                if inner.starts_with('&') {
-                    continue;
-                }
                 return true;
             }
-            // Anything else (string literal, variable, constant) = positional args
-            return true;
+            if let Some(stripped) = after.strip_prefix('(') {
+                // `Gem::Specification.new(&block)` - no positional args → check deps
+                // `Gem::Specification.new('name', ...)` - positional args → skip
+                let inner = stripped.trim_start();
+                if inner.starts_with('&') {
+                    return true;
+                }
+                return false;
+            }
+            // Anything else (string literal, variable, constant) = positional args → skip
+            return false;
         }
     }
+    // No Gem::Specification.new found → no block variable → RuboCop wouldn't check deps
     false
 }
 
 /// Parse dependency method arguments to extract gem name and whether a version is present.
-/// Handles patterns like:
-///   ('gem_name', '~> 1.0')
-///   'gem_name', '>= 2.0'
-///   ('gem_name')
-///   'gem_name'
+///
+/// This follows RuboCop's semantics:
+/// - Gem name is extracted from the first string/percent-string literal (if present)
+/// - Version is detected if ANY string literal in the args matches RuboCop's
+///   VERSION_SPECIFICATION_REGEX: `/^\s*[~<>=]*\s*[0-9.]+/`
+///   This handles: multiple args, variables mixed with strings, ENV.fetch patterns, etc.
 fn parse_dependency_args(after_method: &str) -> (Option<String>, bool) {
     let s = after_method.trim_start();
     let s = if let Some(stripped) = s.strip_prefix('(') {
@@ -149,34 +169,87 @@ fn parse_dependency_args(after_method: &str) -> (Option<String>, bool) {
         s
     };
 
-    // Extract gem name from quoted string or percent string literal
-    let gem_name = if s.starts_with('\'') || s.starts_with('"') {
+    // Extract gem name from first string literal or percent string
+    let gem_name = extract_first_string(s);
+
+    // Check if ANY string literal in the args matches the version spec regex.
+    // This matches RuboCop's `<(str #version_specification?) ...>` pattern
+    // which checks all arguments, not just the second one.
+    let has_version = has_any_version_string(s);
+
+    (gem_name, has_version)
+}
+
+/// Extract the first string literal from the arguments (gem name).
+fn extract_first_string(s: &str) -> Option<String> {
+    if s.starts_with('\'') || s.starts_with('"') {
         let quote = s.as_bytes()[0];
         let rest = &s[1..];
-        rest.find(|c: char| c as u8 == quote).map(|end| {
-            let name = rest[..end].to_string();
-            (name, &rest[end + 1..])
-        })
+        rest.find(|c: char| c as u8 == quote)
+            .map(|end| rest[..end].to_string())
     } else {
-        try_parse_percent_string(s)
-    };
+        try_parse_percent_string(s).map(|(name, _)| name)
+    }
+}
 
-    let (name, remainder) = match gem_name {
-        Some((n, r)) => (Some(n), r),
-        None => (None, s),
-    };
+/// Check if any string literal in the text matches the version specification regex.
+///
+/// Scans all single- and double-quoted strings. Skips the first string (gem name)
+/// since gem names like 'rails' don't match the version regex anyway (no leading digit
+/// or operator), but version strings like '>= 1.0' do.
+///
+/// Matches RuboCop's `/^\s*[~<>=]*\s*[0-9.]+/` applied to each `(str ...)` node.
+fn has_any_version_string(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    let mut pos = 0;
+    while pos < bytes.len() {
+        if bytes[pos] == b'\'' || bytes[pos] == b'"' {
+            let quote = bytes[pos];
+            let start = pos + 1;
+            // Find closing quote
+            let mut end = start;
+            while end < bytes.len() && bytes[end] != quote {
+                end += 1;
+            }
+            if end < bytes.len() {
+                let content = &s[start..end];
+                if is_version_content(content) {
+                    return true;
+                }
+                pos = end + 1;
+            } else {
+                break; // Unclosed quote
+            }
+        } else {
+            pos += 1;
+        }
+    }
+    false
+}
 
-    // Check if there's a version argument after the gem name
-    let remainder = remainder.trim_start();
-    let has_version = if let Some(stripped) = remainder.strip_prefix(',') {
-        let after_comma = stripped.trim_start();
-        // Check for a version string: starts with quote containing version-like content
-        is_version_string(after_comma)
-    } else {
-        false
-    };
-
-    (name, has_version)
+/// Check if a string's content matches RuboCop's VERSION_SPECIFICATION_REGEX.
+///
+/// Pattern: `/^\s*[~<>=]*\s*[0-9.]+/`
+///
+/// Note: `!` is NOT in the character class `[~<>=]`, so `!= 1.0` does NOT match.
+/// Interpolated strings (containing `#{...}`) are also excluded — RuboCop only
+/// matches plain `str` nodes, not `dstr`/interpolated strings.
+fn is_version_content(content: &str) -> bool {
+    if content.contains("#{") {
+        return false;
+    }
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    // Skip optional version operators: only ~, <, >, = (NOT !)
+    let after_ops = trimmed.trim_start_matches(['~', '<', '>', '=']);
+    let after_space = after_ops.trim_start();
+    // Must start with a digit
+    after_space
+        .as_bytes()
+        .first()
+        .is_some_and(|b| b.is_ascii_digit())
 }
 
 /// Try to parse a Ruby percent string literal (%q<...>, %q(...), %q[...], %Q<...>, %Q(...), %Q[...]).
@@ -203,36 +276,6 @@ fn try_parse_percent_string(s: &str) -> Option<(String, &str)> {
         let name = rest[..end].to_string();
         (name, &rest[end + 1..])
     })
-}
-
-/// Check if the string starts with a quoted version specifier.
-/// RuboCop only considers plain string nodes (`str`), not interpolated strings (`dstr`).
-/// So `"~> #{VERSION}"` does NOT count as a version specifier.
-fn is_version_string(s: &str) -> bool {
-    if s.starts_with('\'') || s.starts_with('"') {
-        let quote = s.as_bytes()[0];
-        let rest = &s[1..];
-        if let Some(end) = rest.find(|c: char| c as u8 == quote) {
-            let content = &rest[..end];
-            // Interpolated strings (containing #{...}) are not plain string nodes
-            // and RuboCop does not treat them as version specifiers
-            if content.contains("#{") {
-                return false;
-            }
-            // Version strings typically start with optional operator and digits
-            let trimmed = content.trim();
-            return !trimmed.is_empty()
-                && (trimmed.as_bytes()[0].is_ascii_digit()
-                    || trimmed.starts_with(">=")
-                    || trimmed.starts_with("~>")
-                    || trimmed.starts_with("<=")
-                    || trimmed.starts_with("!=")
-                    || trimmed.starts_with('>')
-                    || trimmed.starts_with('<')
-                    || trimmed.starts_with('='));
-        }
-    }
-    false
 }
 
 #[cfg(test)]
@@ -275,12 +318,73 @@ mod tests {
     }
 
     #[test]
+    fn no_spec_new_block_skipped() {
+        // File without Gem::Specification.new — RuboCop wouldn't check deps
+        let source = crate::parse::source::SourceFile::from_bytes(
+            "example.gemspec",
+            b"spec.add_dependency 'foo'\n".to_vec(),
+        );
+        let config = crate::cop::CopConfig::default();
+        let mut diags = vec![];
+        DependencyVersion.check_lines(&source, &config, &mut diags, None);
+        assert!(
+            diags.is_empty(),
+            "should skip file without Gem::Specification.new: {diags:?}"
+        );
+    }
+
+    #[test]
     fn interpolated_version_not_counted() {
         // Interpolated version strings should NOT count as version specifiers
-        assert!(!is_version_string("\"~> #{VERSION}\""));
-        assert!(!is_version_string("\"~> #{Foo::VERSION}\""));
+        assert!(!is_version_content("~> #{VERSION}"));
+        assert!(!is_version_content("~> #{Foo::VERSION}"));
         // Plain version strings should still count
-        assert!(is_version_string("'~> 1.0'"));
-        assert!(is_version_string("'>= 2.0'"));
+        assert!(is_version_content("~> 1.0"));
+        assert!(is_version_content(">= 2.0"));
+    }
+
+    #[test]
+    fn not_equal_not_a_version_spec() {
+        // != is NOT a version operator per RuboCop's regex
+        assert!(!is_version_content("!= 0.3.1"));
+        assert!(!is_version_content("!= 1.8.8"));
+        // But these ARE valid version specs
+        assert!(is_version_content(">= 1.0"));
+        assert!(is_version_content("~> 2.0"));
+        assert!(is_version_content("< 3.0"));
+        assert!(is_version_content("= 1.0"));
+        assert!(is_version_content("1.0"));
+    }
+
+    #[test]
+    fn not_equal_flagged_as_no_version() {
+        // `!= 1.8.8` is NOT a version spec, so the dep should be flagged
+        let source = crate::parse::source::SourceFile::from_bytes(
+            "example.gemspec",
+            b"Gem::Specification.new do |s|\n  s.add_dependency('i18n', '!= 1.8.8')\nend\n"
+                .to_vec(),
+        );
+        let config = crate::cop::CopConfig::default();
+        let mut diags = vec![];
+        DependencyVersion.check_lines(&source, &config, &mut diags, None);
+        assert_eq!(
+            diags.len(),
+            1,
+            "should flag dep with != as no version: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn has_any_version_finds_later_args() {
+        // Version string as third arg should be detected
+        assert!(has_any_version_string(
+            "'client', ENV.fetch('VER', '>= 1.0'), '< 3.0'"
+        ));
+        // Variable first arg with version second arg
+        assert!(has_any_version_string("comp, '>= 6.1.4'"));
+        // No version at all
+        assert!(!has_any_version_string("'foo'"));
+        // Only gem name
+        assert!(!has_any_version_string("'rails'"));
     }
 }

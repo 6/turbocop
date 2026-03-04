@@ -2,6 +2,13 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-03)
+///
+/// Corpus oracle (run 22651309591) reported FP=0, FN=1.
+///
+/// FN=1: pagy docs/gem/pagy.gemspec — TargetRubyVersion mismatch (3.2 vs 3.4).
+/// Local run detects this correctly at gem/pagy.gemspec:25. The FN is a corpus
+/// state discrepancy (CI file at docs/gem/ vs local at gem/).
 pub struct RequiredRubyVersion;
 
 /// Extract version digits from a version string like RuboCop does:

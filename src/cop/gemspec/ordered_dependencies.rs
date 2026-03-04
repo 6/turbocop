@@ -4,12 +4,7 @@ use crate::parse::source::SourceFile;
 
 /// ## Corpus investigation (2026-03-03)
 ///
-/// Corpus oracle reported FP=0, FN=3.
-///
-/// FN=3: All FNs are in redis-objects, whose `.gitignore` contains `*.gemspec`.
-/// nitrocop's file walker (ignore crate) correctly skips gitignored files; RuboCop
-/// does not respect `.gitignore`. No cop logic fix needed — this is a file-discovery
-/// behavioral difference.
+/// Corpus oracle (run 22651309591) reported FP=0, FN=0. 100% conformance.
 pub struct OrderedDependencies;
 
 const DEP_METHODS: &[&str] = &[

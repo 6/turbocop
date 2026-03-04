@@ -14,4 +14,7 @@ Gem::Specification.new do |spec|
        ^^^^^^^^^^^^^^^^^^^^^^^^^^ Gemspec/DependencyVersion: Dependency version is required.
   spec.add_dependency 'interp', "~> #{VERSION}"
        ^^^^^^^^^^^^^^ Gemspec/DependencyVersion: Dependency version is required.
+  # != is not a version operator per RuboCop's regex /^\s*[~<>=]*\s*[0-9.]+/
+  spec.add_dependency 'excluded', '!= 0.3.1'
+       ^^^^^^^^^^^^^^ Gemspec/DependencyVersion: Dependency version is required.
 end
