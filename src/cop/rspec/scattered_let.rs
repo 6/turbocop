@@ -1,9 +1,17 @@
 use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
-use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_let};
+use crate::cop::util::{
+    self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_let, is_rspec_shared_group,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// RSpec/ScatteredLet checks for let/let! declarations scattered across an example group.
+///
+/// FP root cause (43 FPs): The cop was running inside shared_examples/shared_examples_for/
+/// shared_context blocks. RuboCop's `example_group_with_body?` matcher only matches
+/// ExampleGroups (describe/context/feature), NOT SharedGroups. Fixed by skipping
+/// shared group method names.
 pub struct ScatteredLet;
 
 impl Cop for ScatteredLet {
@@ -40,6 +48,12 @@ impl Cop for ScatteredLet {
         let method_name = call.name().as_slice();
 
         // Check for example group calls (including ::RSpec.describe)
+        // Skip shared groups (shared_examples, shared_examples_for, shared_context)
+        // — RuboCop's example_group_with_body? only matches ExampleGroups, not SharedGroups.
+        if is_rspec_shared_group(method_name) {
+            return;
+        }
+
         let is_example_group = if let Some(recv) = call.receiver() {
             util::constant_name(&recv).is_some_and(|n| n == b"RSpec") && method_name == b"describe"
         } else {
