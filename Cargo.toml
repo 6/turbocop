@@ -42,8 +42,8 @@ tempfile = "3"
 proptest = "1"
 
 [profile.release]
-lto = true
-codegen-units = 1
+lto = "thin"
+codegen-units = 16
 strip = true
 
 [profile.ci]
