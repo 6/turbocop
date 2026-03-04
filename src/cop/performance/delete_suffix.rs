@@ -3,6 +3,13 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Corpus investigation (2026-03): FP=2, FN=2 all caused by using `call.location()`
+/// (full expression including receiver) instead of `call.message_loc()` (method name only).
+/// This made multi-line chained calls report at the receiver's line instead of the method's
+/// line, creating both a FP (wrong line) and FN (missing at correct line) simultaneously.
+/// Fixed by switching to `call.message_loc().unwrap_or(call.location())`, matching
+/// DeletePrefix's existing behavior. Also added test coverage for escaped chars in regex
+/// (`\}`) and `%r{}` syntax.
 pub struct DeleteSuffix;
 
 fn is_end_anchored_literal(content: &[u8], safe_multiline: bool) -> bool {
@@ -186,7 +193,7 @@ impl Cop for DeleteSuffix {
             return;
         }
 
-        let loc = call.location();
+        let loc = call.message_loc().unwrap_or(call.location());
         let (line, column) = source.offset_to_line_col(loc.start_offset());
         diagnostics.push(self.diagnostic(
             source,
