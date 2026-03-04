@@ -33,7 +33,7 @@ end
 # Hooks with same metadata should still be flagged
 describe SameMetadata do
   before(:each, :special_case) { foo }
-  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/ScatteredSetup: Do not define multiple `before` hooks in the same example group (also defined on line 26).
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/ScatteredSetup: Do not define multiple `before` hooks in the same example group (also defined on line 27).
   before(:example, :special_case) { bar }
-  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/ScatteredSetup: Do not define multiple `before` hooks in the same example group (also defined on line 25).
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/ScatteredSetup: Do not define multiple `before` hooks in the same example group (also defined on line 26).
 end
