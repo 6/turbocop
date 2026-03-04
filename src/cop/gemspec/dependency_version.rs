@@ -2,6 +2,12 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Gemspec/DependencyVersion
+///
+/// Investigated: FP from Gem::Specification.new with positional args (RuboCop skips
+/// these blocks entirely via GemspecHelp NodePattern). FN from interpolated strings
+/// like `"~> #{VERSION}"` being treated as version specifiers (RuboCop only considers
+/// plain `str` nodes, not `dstr`/interpolated strings).
 pub struct DependencyVersion;
 
 const DEP_METHODS: &[&str] = &[
@@ -32,6 +38,13 @@ impl Cop for DependencyVersion {
     ) {
         let style = config.get_str("EnforcedStyle", "required");
         let allowed_gems = config.get_string_array("AllowedGems").unwrap_or_default();
+
+        // RuboCop only checks dependencies inside Gem::Specification.new blocks
+        // WITHOUT positional arguments. If .new has positional args (e.g.,
+        // `Gem::Specification.new 'name', '1.0' do |s|`), the entire file is skipped.
+        if has_positional_args_spec_new(source) {
+            return;
+        }
 
         for (line_idx, line) in source.lines().enumerate() {
             let line_str = match std::str::from_utf8(line) {
@@ -83,6 +96,43 @@ impl Cop for DependencyVersion {
             }
         }
     }
+}
+
+/// Check if the file contains `Gem::Specification.new` with positional arguments.
+/// RuboCop's GemspecHelp only matches `.new` followed immediately by a block (no args).
+/// Forms like `Gem::Specification.new 'name', '1.0' do |s|` have positional args
+/// and RuboCop skips the entire block. Also handles variable args like
+/// `Gem::Specification.new name, Version do |s|`.
+fn has_positional_args_spec_new(source: &SourceFile) -> bool {
+    for line in source.lines() {
+        let line_str = match std::str::from_utf8(line) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        if let Some(pos) = line_str.find("Gem::Specification.new") {
+            let after = line_str[pos + "Gem::Specification.new".len()..].trim_start();
+            // RuboCop requires .new followed directly by a block (do/{ with no args).
+            // If .new is followed by anything other than `do`, `{`, `(`, or end-of-line,
+            // it has positional arguments.
+            // Note: `(` could be `Gem::Specification.new(&block)` but we handle common
+            // patterns: if after `(` there's no `&`, it's likely positional args.
+            if after.is_empty() || after.starts_with("do") || after.starts_with('{') {
+                continue;
+            }
+            if after.starts_with('(') {
+                // `Gem::Specification.new(&block)` - no positional args
+                // `Gem::Specification.new('name', ...)` - positional args
+                let inner = after[1..].trim_start();
+                if inner.starts_with('&') {
+                    continue;
+                }
+                return true;
+            }
+            // Anything else (string literal, variable, constant) = positional args
+            return true;
+        }
+    }
+    false
 }
 
 /// Parse dependency method arguments to extract gem name and whether a version is present.
@@ -156,12 +206,19 @@ fn try_parse_percent_string(s: &str) -> Option<(String, &str)> {
 }
 
 /// Check if the string starts with a quoted version specifier.
+/// RuboCop only considers plain string nodes (`str`), not interpolated strings (`dstr`).
+/// So `"~> #{VERSION}"` does NOT count as a version specifier.
 fn is_version_string(s: &str) -> bool {
     if s.starts_with('\'') || s.starts_with('"') {
         let quote = s.as_bytes()[0];
         let rest = &s[1..];
         if let Some(end) = rest.find(|c: char| c as u8 == quote) {
             let content = &rest[..end];
+            // Interpolated strings (containing #{...}) are not plain string nodes
+            // and RuboCop does not treat them as version specifiers
+            if content.contains("#{") {
+                return false;
+            }
             // Version strings typically start with optional operator and digits
             let trimmed = content.trim();
             return !trimmed.is_empty()
@@ -182,4 +239,48 @@ fn is_version_string(s: &str) -> bool {
 mod tests {
     use super::*;
     crate::cop_fixture_tests!(DependencyVersion, "cops/gemspec/dependency_version");
+
+    #[test]
+    fn positional_args_string_literal_skipped() {
+        // Gem::Specification.new with string literal positional args — RuboCop skips
+        let source = crate::parse::source::SourceFile::from_bytes(
+            "example.gemspec",
+            b"Gem::Specification.new 'example', '1.0' do |s|\n  s.add_dependency 'foo'\nend\n"
+                .to_vec(),
+        );
+        let config = crate::cop::CopConfig::default();
+        let mut diags = vec![];
+        DependencyVersion.check_lines(&source, &config, &mut diags, None);
+        assert!(
+            diags.is_empty(),
+            "should skip file with positional args: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn positional_args_variable_skipped() {
+        // Gem::Specification.new with variable positional args — also skipped
+        let source = crate::parse::source::SourceFile::from_bytes(
+            "example.gemspec",
+            b"Gem::Specification.new name, VERSION do |s|\n  s.add_dependency 'foo'\nend\n"
+                .to_vec(),
+        );
+        let config = crate::cop::CopConfig::default();
+        let mut diags = vec![];
+        DependencyVersion.check_lines(&source, &config, &mut diags, None);
+        assert!(
+            diags.is_empty(),
+            "should skip file with variable positional args: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn interpolated_version_not_counted() {
+        // Interpolated version strings should NOT count as version specifiers
+        assert!(!is_version_string("\"~> #{VERSION}\""));
+        assert!(!is_version_string("\"~> #{Foo::VERSION}\""));
+        // Plain version strings should still count
+        assert!(is_version_string("'~> 1.0'"));
+        assert!(is_version_string("'>= 2.0'"));
+    }
 }
