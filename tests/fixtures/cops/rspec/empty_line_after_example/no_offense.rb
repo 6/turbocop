@@ -82,4 +82,30 @@ RSpec.describe Foo do
   its(:name) { should be_present }
   it { is_expected.to validate_presence_of(:name) }
   its(:role) { should eq 'user' }
+
+  # Heredoc inside example — heredoc terminator extends past the block end
+  # so the cop must account for heredoc extent when computing the end line
+  context 'with heredoc' do
+    it { should == normalize_indent(<<-OUT) }
+      some content here
+    OUT
+
+    it 'does something else' do
+      expect(true).to be true
+    end
+  end
+
+  # Heredoc with squiggly syntax
+  context 'with squiggly heredoc' do
+    it 'renders output' do
+      expect(result).to eq(<<~EXPECTED)
+        line one
+        line two
+      EXPECTED
+    end
+
+    it 'does another thing' do
+      expect(true).to be true
+    end
+  end
 end

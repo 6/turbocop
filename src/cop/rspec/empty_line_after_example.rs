@@ -7,6 +7,13 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// FP investigation (2026-03): 86 false positives caused by heredocs inside
+/// examples. When an example contains a heredoc like `it { should == normalize_indent(<<-OUT) }`,
+/// Prism's CallNode/BlockNode location ends at the `}` on the call line, but the heredoc
+/// content and terminator extend below. The cop saw non-blank lines (heredoc content) after
+/// the example's computed end line and incorrectly fired. Fix: walk the node's descendants
+/// to find heredoc StringNode/InterpolatedStringNode closing_loc offsets that extend past
+/// the node's own location, and use the maximum offset as the true end line.
 pub struct EmptyLineAfterExample;
 
 impl Cop for EmptyLineAfterExample {
@@ -55,9 +62,15 @@ impl Cop for EmptyLineAfterExample {
 
         let allow_consecutive = config.get_bool("AllowConsecutiveOneLiners", true);
 
-        // Determine the end line of this example
+        // Determine the end line of this example, accounting for heredocs
+        // whose content extends past the node's own location.
         let loc = node.location();
-        let end_offset = loc.end_offset().saturating_sub(1).max(loc.start_offset());
+        let mut max_end_offset = loc.end_offset();
+        let heredoc_max = find_max_heredoc_end_offset(source, node);
+        if heredoc_max > max_end_offset {
+            max_end_offset = heredoc_max;
+        }
+        let end_offset = max_end_offset.saturating_sub(1).max(loc.start_offset());
         let (end_line, _) = source.offset_to_line_col(end_offset);
 
         let is_one_liner = node_on_single_line(source, &loc);
@@ -135,6 +148,57 @@ impl Cop for EmptyLineAfterExample {
             format!("Add an empty line after `{method_str}`."),
         ));
     }
+}
+
+/// Walk descendants of `node` to find the maximum `closing_loc().end_offset()`
+/// among heredoc StringNode/InterpolatedStringNode children. Heredocs in Prism
+/// have their `location()` covering only the opening delimiter (`<<-OUT`), but
+/// `closing_loc()` covers the terminator line. Returns 0 if no heredocs found.
+fn find_max_heredoc_end_offset(source: &SourceFile, node: &ruby_prism::Node<'_>) -> usize {
+    use ruby_prism::Visit;
+
+    struct MaxHeredocVisitor<'a> {
+        source: &'a SourceFile,
+        max_offset: usize,
+    }
+
+    impl<'pr> Visit<'pr> for MaxHeredocVisitor<'_> {
+        fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+            if let Some(opening) = node.opening_loc() {
+                let bytes = &self.source.as_bytes()[opening.start_offset()..opening.end_offset()];
+                if bytes.starts_with(b"<<") {
+                    if let Some(closing) = node.closing_loc() {
+                        self.max_offset = self.max_offset.max(closing.end_offset());
+                    }
+                    return;
+                }
+            }
+            ruby_prism::visit_string_node(self, node);
+        }
+
+        fn visit_interpolated_string_node(
+            &mut self,
+            node: &ruby_prism::InterpolatedStringNode<'pr>,
+        ) {
+            if let Some(opening) = node.opening_loc() {
+                let bytes = &self.source.as_bytes()[opening.start_offset()..opening.end_offset()];
+                if bytes.starts_with(b"<<") {
+                    if let Some(closing) = node.closing_loc() {
+                        self.max_offset = self.max_offset.max(closing.end_offset());
+                    }
+                    return;
+                }
+            }
+            ruby_prism::visit_interpolated_string_node(self, node);
+        }
+    }
+
+    let mut visitor = MaxHeredocVisitor {
+        source,
+        max_offset: 0,
+    };
+    visitor.visit(node);
+    visitor.max_offset
 }
 
 /// Returns true if the trimmed line starts with `#`.
