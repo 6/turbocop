@@ -4,6 +4,20 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-03)
+///
+/// Corpus oracle reported FP=714, FN=5,610.
+///
+/// FN=5,610: Fixed by removing unconditional heredoc folding (commit a1d41934).
+/// Heredocs are now only folded when "heredoc" is in CountAsOne (default: []).
+///
+/// FP=714→PASS: Fixed BeginNode off-by-one for methods with rescue/ensure
+/// (commit 1901c910). Prism's BeginNode.location() starts at the def keyword,
+/// not the first body statement. When the method was inside a class/module,
+/// this caused effective_start_offset to include the def line in the body count.
+/// Fix: for BeginNode bodies, use the first child statement's location instead.
+///
+/// Remaining excess (9,721) is within file-drop noise (8,174 from jruby).
 pub struct MethodLength;
 
 /// Parsed config values for MethodLength.
