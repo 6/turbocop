@@ -213,15 +213,27 @@ fn extract_first_string(s: &str) -> Option<String> {
 /// or operator), but version strings like '>= 1.0' do.
 ///
 /// RuboCop's NodePattern `<(str #version_specification?) ...>` only matches direct
-/// `str` arguments to the send node. Strings nested inside array literals (`[...]`)
-/// are NOT matched — so `add_dependency('foo', [">= 1.0"])` is treated as having
-/// no version. We track bracket depth to replicate this behavior.
+/// `str` arguments to the send node. Strings nested inside array literals (`[...]`),
+/// method calls like `ENV.fetch(...)`, or other parenthesized expressions are NOT
+/// matched. We track bracket and paren nesting depth to replicate this behavior.
+///
+/// Additionally, Ruby `if`/`unless` statement modifiers introduce conditional
+/// expressions that are NOT part of the method arguments. We stop scanning when
+/// we encounter ` if ` or ` unless ` at nesting depth 0.
+///
+/// Note: the outer parentheses from `add_dependency(...)` are already stripped by
+/// `parse_dependency_args` before this function is called, so paren depth 0 means
+/// we're at the top-level arg list.
 ///
 /// Matches RuboCop's `/^\s*[~<>=]*\s*[0-9.]+/` applied to each `(str ...)` node.
 fn has_any_version_string(s: &str) -> bool {
+    // Truncate at `if`/`unless` statement modifiers at the top level.
+    // These introduce conditional expressions that aren't part of the args.
+    let s = truncate_at_statement_modifier(s);
     let bytes = s.as_bytes();
     let mut pos = 0;
     let mut bracket_depth: u32 = 0;
+    let mut paren_depth: u32 = 0;
     while pos < bytes.len() {
         match bytes[pos] {
             b'[' => {
@@ -230,6 +242,14 @@ fn has_any_version_string(s: &str) -> bool {
             }
             b']' => {
                 bracket_depth = bracket_depth.saturating_sub(1);
+                pos += 1;
+            }
+            b'(' => {
+                paren_depth += 1;
+                pos += 1;
+            }
+            b')' => {
+                paren_depth = paren_depth.saturating_sub(1);
                 pos += 1;
             }
             b'\'' | b'"' => {
@@ -241,8 +261,8 @@ fn has_any_version_string(s: &str) -> bool {
                     end += 1;
                 }
                 if end < bytes.len() {
-                    // Only consider strings that are direct args (not inside brackets)
-                    if bracket_depth == 0 {
+                    // Only consider strings that are direct args (not inside brackets or nested parens)
+                    if bracket_depth == 0 && paren_depth == 0 {
                         let content = &s[start..end];
                         if is_version_content(content) {
                             return true;
@@ -259,6 +279,41 @@ fn has_any_version_string(s: &str) -> bool {
         }
     }
     false
+}
+
+/// Truncate a string at the first ` if ` or ` unless ` keyword that appears
+/// outside of quotes. This strips Ruby statement modifiers so that conditional
+/// expressions like `if RUBY_VERSION >= '2.7.0'` aren't scanned for version strings.
+fn truncate_at_statement_modifier(s: &str) -> &str {
+    let bytes = s.as_bytes();
+    let mut pos = 0;
+    while pos < bytes.len() {
+        if bytes[pos] == b'\'' || bytes[pos] == b'"' {
+            // Skip quoted strings
+            let quote = bytes[pos];
+            pos += 1;
+            while pos < bytes.len() && bytes[pos] != quote {
+                pos += 1;
+            }
+            if pos < bytes.len() {
+                pos += 1; // skip closing quote
+            }
+        } else if bytes[pos] == b' ' {
+            // Check for ` if ` or ` unless `
+            let rest = &s[pos..];
+            if rest.starts_with(" if ")
+                || rest.starts_with(" unless ")
+                || rest.starts_with(" if\t")
+                || rest.starts_with(" unless\t")
+            {
+                return &s[..pos];
+            }
+            pos += 1;
+        } else {
+            pos += 1;
+        }
+    }
+    s
 }
 
 /// Check if a string's content matches RuboCop's VERSION_SPECIFICATION_REGEX.
@@ -420,5 +475,43 @@ mod tests {
         assert!(!has_any_version_string("'foo'"));
         // Only gem name
         assert!(!has_any_version_string("'rails'"));
+    }
+
+    #[test]
+    fn version_inside_env_fetch_not_counted() {
+        // ENV.fetch wraps the version in a method call — not a direct str arg
+        assert!(!has_any_version_string(
+            "'model', ENV.fetch('RAILS_VER', '>= 4.0.0')"
+        ));
+        // But if there's also a direct version arg after, it should be found
+        assert!(has_any_version_string(
+            "'lib', ENV.fetch('VER', '>= 1.0'), '< 3.0'"
+        ));
+    }
+
+    #[test]
+    fn version_in_parenthesized_ternary_not_counted() {
+        // Parenthesized ternary — version strings are inside parens
+        assert!(!has_any_version_string(
+            "\"parser\", (RUBY_VERSION < '2.3' ? '< 2.0.0' : '> 2.0.0')"
+        ));
+    }
+
+    #[test]
+    fn version_in_if_unless_modifier_not_counted() {
+        // Version-looking string in if/unless modifier condition
+        assert!(!has_any_version_string(
+            "'coverage' if RUBY_VERSION >= '2.7.0'"
+        ));
+        assert!(!has_any_version_string(
+            "'pry' if ENV['ENABLE_PRY']"
+        ));
+        // But version before the modifier IS counted
+        assert!(has_any_version_string(
+            "'filemagic', '~> 0.7' unless RUBY_ENGINE == 'jruby'"
+        ));
+        assert!(has_any_version_string(
+            "'rubocop', '1.50.0' unless ENV['CI']"
+        ));
     }
 }

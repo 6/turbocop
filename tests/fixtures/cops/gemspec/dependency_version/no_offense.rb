@@ -19,4 +19,7 @@ Gem::Specification.new do |spec|
   %w[core utils].each do |gem_name|
     spec.add_dependency(gem_name, '>= 6.1')
   end
+  # Version arg before if/unless modifier — version IS present
+  spec.add_dependency 'filemagic', '~> 0.7' unless RUBY_ENGINE == 'jruby'
+  spec.add_dependency 'rubocop', '1.50.0' unless ENV['CI']
 end
