@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release (e.g. 0.1.0)"
+        description: "Version to release (e.g. 0.1.0 or 0.0.1-pre2)"
         required: true
         type: string
 
@@ -18,34 +18,58 @@ jobs:
   prepare:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    outputs:
+      cargo_version: ${{ steps.version.outputs.cargo }}
+      gem_version: ${{ steps.version.outputs.gem }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate version
+      - name: Validate and normalize version
+        id: version
         run: |
-          if ! echo "${{ inputs.version }}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::Invalid version format. Use semver like 0.1.0"
+          INPUT="${{ inputs.version }}"
+          if ! echo "$INPUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9]+)?$'; then
+            echo "::error::Invalid version format. Use semver like 0.1.0 or 0.0.1-pre2"
             exit 1
           fi
-          if git rev-parse "v${{ inputs.version }}" >/dev/null 2>&1; then
-            echo "::error::Tag v${{ inputs.version }} already exists"
+          BASE=$(echo "$INPUT" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+')
+          SUFFIX=$(echo "$INPUT" | sed -n 's/^[0-9]*\.[0-9]*\.[0-9]*[.-]//p')
+          if [ -n "$SUFFIX" ]; then
+            echo "cargo=${BASE}-${SUFFIX}" >> "$GITHUB_OUTPUT"
+            echo "gem=${BASE}.${SUFFIX}" >> "$GITHUB_OUTPUT"
+            echo "tag=${BASE}-${SUFFIX}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "cargo=${BASE}" >> "$GITHUB_OUTPUT"
+            echo "gem=${BASE}" >> "$GITHUB_OUTPUT"
+            echo "tag=${BASE}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          TAG="v${BASE}${SUFFIX:+-${SUFFIX}}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG already exists"
             exit 1
           fi
 
       - name: Bump version and tag
         run: |
-          sed -i 's/^version = ".*"/version = "${{ inputs.version }}"/' Cargo.toml
-          sed -i 's/VERSION = ".*"/VERSION = "${{ inputs.version }}"/' gem/lib/nitrocop.rb
+          sed -i 's/^version = ".*"/version = "${{ steps.version.outputs.cargo }}"/' Cargo.toml
+          sed -i 's/VERSION = ".*"/VERSION = "${{ steps.version.outputs.gem }}"/' gem/lib/nitrocop.rb
           cargo update -p nitrocop
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Cargo.toml Cargo.lock gem/lib/nitrocop.rb
-          git commit -m "Release v${{ inputs.version }}"
-          git tag "v${{ inputs.version }}"
+          git commit -m "Release v${{ steps.version.outputs.tag }}"
+          git tag "v${{ steps.version.outputs.tag }}"
           git push origin main --tags
 
   build:
     needs: prepare
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      GEM_VERSION: ${{ needs.prepare.outputs.gem_version }}
     strategy:
       matrix:
         include:
@@ -70,7 +94,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: v${{ inputs.version }}
+          ref: v${{ env.TAG }}
           submodules: true
 
       - uses: dtolnay/rust-toolchain@stable
@@ -101,7 +125,7 @@ jobs:
       - uses: ruby/setup-ruby@v1
 
       - name: Package platform gem
-        run: ruby gem/build_gem.rb ${{ inputs.version }} --platform ${{ matrix.platform }} --binary target/${{ matrix.target }}/release/nitrocop
+        run: ruby gem/build_gem.rb ${{ env.GEM_VERSION }} --platform ${{ matrix.platform }} --binary target/${{ matrix.target }}/release/nitrocop
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -112,13 +136,13 @@ jobs:
             nitrocop-*.gem
 
   release:
-    needs: build
+    needs: [build, prepare]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: v${{ inputs.version }}
+          ref: v${{ needs.prepare.outputs.tag }}
 
       - uses: actions/download-artifact@v4
         with:
@@ -126,18 +150,23 @@ jobs:
           merge-multiple: true
 
       - name: Create GitHub release
-        run: gh release create "v${{ inputs.version }}" nitrocop-*.tar.gz --generate-notes
+        run: |
+          FLAGS="--generate-notes"
+          if [ "${{ needs.prepare.outputs.prerelease }}" = "true" ]; then
+            FLAGS="$FLAGS --prerelease"
+          fi
+          gh release create "v${{ needs.prepare.outputs.tag }}" nitrocop-*.tar.gz $FLAGS
         env:
           GH_TOKEN: ${{ github.token }}
 
   publish-crates:
-    needs: build
+    needs: [build, prepare]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: v${{ inputs.version }}
+          ref: v${{ needs.prepare.outputs.tag }}
           submodules: true
 
       - uses: dtolnay/rust-toolchain@stable
@@ -149,13 +178,13 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   publish-gems:
-    needs: build
+    needs: [build, prepare]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: v${{ inputs.version }}
+          ref: v${{ needs.prepare.outputs.tag }}
 
       - uses: ruby/setup-ruby@v1
 
@@ -165,13 +194,13 @@ jobs:
           merge-multiple: true
 
       - name: Build base gem
-        run: ruby gem/build_gem.rb ${{ inputs.version }}
+        run: ruby gem/build_gem.rb ${{ needs.prepare.outputs.gem_version }}
 
       - name: Publish all gems
         env:
           GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
         run: |
-          gem push nitrocop-${{ inputs.version }}.gem
-          for f in nitrocop-${{ inputs.version }}-*.gem; do
+          gem push nitrocop-${{ needs.prepare.outputs.gem_version }}.gem
+          for f in nitrocop-${{ needs.prepare.outputs.gem_version }}-*.gem; do
             gem push "$f"
           done
