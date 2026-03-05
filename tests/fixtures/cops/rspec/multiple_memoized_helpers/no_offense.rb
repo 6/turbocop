@@ -43,3 +43,15 @@ describe Overrides do
     it { expect(a).to eq(10) }
   end
 end
+
+# Helpers nested in if/case/begin still count but stay within limit
+describe NestedButUnderLimit do
+  let(:a) { 1 }
+  let(:b) { 2 }
+
+  if ENV['CI']
+    let(:c) { 3 }
+    let(:d) { 4 }
+    let(:e) { 5 }
+  end
+end

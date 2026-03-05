@@ -50,3 +50,45 @@ describe Qux do
     it { expect(true).to be true }
   end
 end
+
+# Helpers nested inside if/case/begin are still counted (recursive walk)
+describe NestedInIf do
+^^^^^^^^^^^^^^^^^^^^^^ RSpec/MultipleMemoizedHelpers: Example group has too many memoized helpers [6/5]
+  let(:a) { 1 }
+  let(:b) { 2 }
+  let(:c) { 3 }
+
+  if ENV['CI']
+    let(:d) { 4 }
+    let(:e) { 5 }
+    let(:f) { 6 }
+  end
+end
+
+describe NestedInCase do
+^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/MultipleMemoizedHelpers: Example group has too many memoized helpers [6/5]
+  let(:a) { 1 }
+  let(:b) { 2 }
+
+  case ENV['MODE']
+  when 'fast'
+    let(:c) { 3 }
+    let(:d) { 4 }
+    let(:e) { 5 }
+    let(:f) { 6 }
+  end
+end
+
+describe NestedInBeginRescue do
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/MultipleMemoizedHelpers: Example group has too many memoized helpers [6/5]
+  begin
+    let(:a) { 1 }
+    let(:b) { 2 }
+    let(:c) { 3 }
+    let(:d) { 4 }
+    let(:e) { 5 }
+    let(:f) { 6 }
+  rescue StandardError
+    # ignore
+  end
+end

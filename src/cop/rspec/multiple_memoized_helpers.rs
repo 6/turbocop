@@ -1,11 +1,24 @@
 use std::collections::HashSet;
 
-use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_let};
+use crate::cop::util::{
+    self, RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group, is_rspec_let,
+    is_rspec_shared_group,
+};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// Checks if example groups contain too many `let` and `subject` calls.
+///
+/// ## Root cause of FNs (fixed)
+///
+/// The original implementation only looked at direct statements in the block body
+/// (`collect_direct_helper_names`). Helpers nested inside control structures
+/// (if/unless/case/begin/rescue) were missed. RuboCop's `ExampleGroup.find_all_in_scope()`
+/// recursively walks the entire subtree, only stopping at scope boundaries (other
+/// example groups, shared groups) and examples (it, specify, etc.). The fix replaces
+/// the flat scan with a recursive depth-first walker that matches RuboCop's behavior.
 pub struct MultipleMemoizedHelpers;
 
 impl Cop for MultipleMemoizedHelpers {
@@ -94,6 +107,56 @@ fn extract_helper_name(call: &ruby_prism::CallNode<'_>) -> Option<Vec<u8>> {
     None
 }
 
+/// Inner visitor that recursively collects helper names within a scope.
+///
+/// Matches RuboCop's `ExampleGroup.find_all_in_scope()` behavior:
+/// - Traverses the entire subtree using the Visit trait
+/// - Collects all let/let!/subject/subject! calls found anywhere
+/// - Stops recursion at scope boundaries (other example groups, shared groups)
+/// - Stops recursion at examples (it, specify, etc.)
+struct HelperCollector {
+    allow_subject: bool,
+    names: HashSet<Vec<u8>>,
+}
+
+impl<'pr> Visit<'pr> for HelperCollector {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        let method_name = node.name().as_slice();
+        let has_block = node.block().is_some_and(|b| b.as_block_node().is_some());
+
+        // Stop at scope boundaries: example groups and shared groups with blocks
+        if has_block {
+            let is_scope_boundary = if let Some(recv) = node.receiver() {
+                util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+                    && method_name == b"describe"
+            } else {
+                is_rspec_example_group(method_name) || is_rspec_shared_group(method_name)
+            };
+            if is_scope_boundary {
+                return;
+            }
+        }
+
+        // Stop at examples (it, specify, etc.) — helpers inside examples don't count
+        if node.receiver().is_none() && is_rspec_example(method_name) {
+            return;
+        }
+
+        // Collect helper names from let/let!/subject/subject! calls
+        if node.receiver().is_none()
+            && (is_rspec_let(method_name)
+                || (!self.allow_subject && util::is_rspec_subject(method_name)))
+        {
+            if let Some(name) = extract_helper_name(node) {
+                self.names.insert(name);
+            }
+        }
+
+        // Continue recursing into children
+        ruby_prism::visit_call_node(self, node);
+    }
+}
+
 impl<'a> MemoizedHelperVisitor<'a> {
     /// Check if a call node is an example group (describe, context, etc.)
     fn is_example_group_call(&self, call: &ruby_prism::CallNode<'_>) -> bool {
@@ -105,32 +168,16 @@ impl<'a> MemoizedHelperVisitor<'a> {
         }
     }
 
-    /// Collect the set of helper names defined directly in a block body.
-    fn collect_direct_helper_names(&self, block: &ruby_prism::BlockNode<'_>) -> HashSet<Vec<u8>> {
-        let mut names = HashSet::new();
-        let body = match block.body() {
-            Some(b) => b,
-            None => return names,
+    /// Collect all helper names within a block's scope using recursive depth-first search.
+    fn collect_helper_names_in_scope(&self, block: &ruby_prism::BlockNode<'_>) -> HashSet<Vec<u8>> {
+        let mut collector = HelperCollector {
+            allow_subject: self.allow_subject,
+            names: HashSet::new(),
         };
-        let stmts = match body.as_statements_node() {
-            Some(s) => s,
-            None => return names,
-        };
-        for stmt in stmts.body().iter() {
-            if let Some(c) = stmt.as_call_node() {
-                if c.receiver().is_none() {
-                    let method_name = c.name().as_slice();
-                    if is_rspec_let(method_name)
-                        || (!self.allow_subject && util::is_rspec_subject(method_name))
-                    {
-                        if let Some(name) = extract_helper_name(&c) {
-                            names.insert(name);
-                        }
-                    }
-                }
-            }
+        if let Some(body) = block.body() {
+            collector.visit(&body);
         }
-        names
+        collector.names
     }
 }
 
@@ -156,8 +203,8 @@ impl<'pr> Visit<'pr> for MemoizedHelperVisitor<'_> {
             }
         };
 
-        // Collect direct helper names for this group
-        let direct_names = self.collect_direct_helper_names(&block);
+        // Collect helper names in this group's scope (recursive walk)
+        let direct_names = self.collect_helper_names_in_scope(&block);
 
         // Total = union of all ancestor names + this group's names
         // Overrides (same name in child) don't increase the count.
@@ -273,5 +320,33 @@ mod tests {
             "Overriding lets should not increase count: {:?}",
             diags
         );
+    }
+
+    #[test]
+    fn helpers_nested_in_if_are_counted() {
+        // 3 direct lets + 3 inside if = 6, exceeds max of 5
+        let source = b"describe Foo do\n  let(:a) { 1 }\n  let(:b) { 2 }\n  let(:c) { 3 }\n\n  if ENV['CI']\n    let(:d) { 4 }\n    let(:e) { 5 }\n    let(:f) { 6 }\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&MultipleMemoizedHelpers, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should fire when helpers are nested in if: {:?}",
+            diags
+        );
+        assert!(diags[0].message.contains("[6/5]"));
+    }
+
+    #[test]
+    fn helpers_nested_in_begin_rescue_are_counted() {
+        // 6 lets inside begin/rescue = 6, exceeds max of 5
+        let source = b"describe Foo do\n  begin\n    let(:a) { 1 }\n    let(:b) { 2 }\n    let(:c) { 3 }\n    let(:d) { 4 }\n    let(:e) { 5 }\n    let(:f) { 6 }\n  rescue StandardError\n    nil\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&MultipleMemoizedHelpers, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should fire when helpers are in begin/rescue: {:?}",
+            diags
+        );
+        assert!(diags[0].message.contains("[6/5]"));
     }
 }
