@@ -75,3 +75,25 @@ module A
     end
   end
 end
+
+# Class.new without a block — argument should still be flagged
+describe MyClass do
+  let(:subclass) { Class.new(MyClass) }
+                             ^^^^^^^ RSpec/DescribedClass: Use `described_class` instead of `MyClass`.
+end
+
+# Struct.new without a block — argument should still be flagged
+describe MyClass do
+  let(:record) { Struct.new(MyClass) }
+                            ^^^^^^^ RSpec/DescribedClass: Use `described_class` instead of `MyClass`.
+end
+
+# Non-scope-change method ending in _eval — should still flag
+describe MyClass do
+  before do
+    safe_eval do
+      MyClass.new
+      ^^^^^^^ RSpec/DescribedClass: Use `described_class` instead of `MyClass`.
+    end
+  end
+end

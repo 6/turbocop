@@ -5,6 +5,23 @@ use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
 /// RSpec/DescribedClass: Use `described_class` instead of referencing the class directly.
+///
+/// ## Root cause analysis (199 FNs, 2026-03-05)
+///
+/// Two bugs in scope change detection caused false negatives:
+///
+/// 1. **`Class.new`/`Module.new`/`Struct.new`/`Data.define` without a block were
+///    treated as scope changes.** RuboCop's `common_instance_exec_closure?` pattern
+///    requires a block (`(block (send ...) ...)`). Without a block, arguments like
+///    `Class.new(MyClass)` should still be checked for offenses. Fixed by requiring
+///    `call.block().is_some()` before treating these as scope changes.
+///
+/// 2. **Overly broad `_eval`/`_exec` suffix matching.** Any method ending in `_eval`
+///    or `_exec` was treated as a scope change, regardless of block presence. RuboCop
+///    only matches the 6 specific methods (`class_eval`, `module_eval`, `instance_eval`,
+///    `class_exec`, `module_exec`, `instance_exec`) and requires a block. Methods like
+///    `safe_eval`, `batch_exec`, etc. were incorrectly skipped. Fixed by matching only
+///    the 6 specific methods and requiring a block.
 pub struct DescribedClass;
 
 impl Cop for DescribedClass {
@@ -187,20 +204,39 @@ impl DescribedClassVisitor<'_> {
 
     fn is_scope_change(call: &ruby_prism::CallNode<'_>) -> bool {
         let name = call.name().as_slice();
-        if let Some(recv) = call.receiver() {
-            if let Some(cr) = recv.as_constant_read_node() {
-                let class_name = cr.name().as_slice();
-                if (class_name == b"Class"
-                    || class_name == b"Module"
-                    || class_name == b"Struct"
-                    || class_name == b"Data")
-                    && (name == b"new" || name == b"define")
-                {
-                    return true;
+        let has_block = call.block().is_some();
+
+        // Class.new { }, Module.new { }, Struct.new { }, Data.define { }
+        // Only scope changes when they have a block (matching RuboCop's
+        // common_instance_exec_closure? pattern). Without a block, arguments
+        // should still be checked for offenses.
+        if has_block {
+            if let Some(recv) = call.receiver() {
+                if let Some(cr) = recv.as_constant_read_node() {
+                    let class_name = cr.name().as_slice();
+                    if (class_name == b"Class"
+                        || class_name == b"Module"
+                        || class_name == b"Struct"
+                        || class_name == b"Data")
+                        && (name == b"new" || name == b"define")
+                    {
+                        return true;
+                    }
                 }
             }
         }
-        if name.ends_with(b"_eval") || name.ends_with(b"_exec") {
+
+        // Only the 6 specific eval/exec methods are scope changes, and only
+        // when they have a block. RuboCop matches: class_eval, module_eval,
+        // instance_eval, class_exec, module_exec, instance_exec.
+        if has_block
+            && (name == b"class_eval"
+                || name == b"module_eval"
+                || name == b"instance_eval"
+                || name == b"class_exec"
+                || name == b"module_exec"
+                || name == b"instance_exec")
+        {
             return true;
         }
         false
@@ -366,7 +402,7 @@ impl<'pr> Visit<'pr> for DescribedClassVisitor<'_> {
             }
         }
 
-        // Scope changes: don't recurse into Class.new, class_eval, etc.
+        // Scope changes: don't recurse into Class.new { }, class_eval { }, etc.
         if Self::is_scope_change(node) {
             let was = self.in_scope_change;
             self.in_scope_change = true;
@@ -731,6 +767,62 @@ mod tests {
             diags.len(),
             0,
             "MyNamespace::MyClass should not match describe MyClass in module UnrelatedNamespace"
+        );
+    }
+
+    #[test]
+    fn class_new_without_block_flags_argument() {
+        let source = b"describe MyClass do\n  let(:sub) { Class.new(MyClass) }\nend\n";
+        let diags = crate::testutil::run_cop_full(&DescribedClass, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "Class.new(MyClass) without block should flag MyClass"
+        );
+    }
+
+    #[test]
+    fn class_new_with_block_is_scope_change() {
+        let source = b"describe MyClass do\n  Class.new { foo = MyClass }\nend\n";
+        let diags = crate::testutil::run_cop_full(&DescribedClass, source);
+        assert_eq!(
+            diags.len(),
+            0,
+            "Class.new with block body is a scope change"
+        );
+    }
+
+    #[test]
+    fn non_eval_exec_method_not_scope_change() {
+        let source = b"describe MyClass do\n  safe_eval do\n    MyClass.new\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&DescribedClass, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "safe_eval is not a scope change, should flag MyClass"
+        );
+    }
+
+    #[test]
+    fn class_eval_with_block_is_scope_change() {
+        let source =
+            b"describe MyClass do\n  before do\n    obj.class_eval do\n      MyClass.new\n    end\n  end\nend\n";
+        let diags = crate::testutil::run_cop_full(&DescribedClass, source);
+        assert_eq!(
+            diags.len(),
+            0,
+            "class_eval with block should be a scope change"
+        );
+    }
+
+    #[test]
+    fn instance_exec_without_block_not_scope_change() {
+        let source = b"describe MyClass do\n  it { obj.instance_exec(MyClass) }\nend\n";
+        let diags = crate::testutil::run_cop_full(&DescribedClass, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "instance_exec without block should not be a scope change"
         );
     }
 }
