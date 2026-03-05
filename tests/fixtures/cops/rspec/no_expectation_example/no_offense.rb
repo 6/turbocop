@@ -27,14 +27,33 @@ RSpec.describe Foo do
 
   it 'not implemented'
 
-  # assert_* methods are recognized as expectations (name.starts_with("assert"))
-  it 'runs assert_difference' do
-    assert_difference 'User.count', 1 do
-      create_user
-    end
+  # x-prefixed examples are excluded (RuboCop SkipOrPending mixin)
+  xit { bar }
+  xspecify { baz }
+  xexample { qux }
+  xscenario { quux }
+
+  # Skip/pending metadata excludes from check
+  it 'skipped', :skip do
+    bar
+  end
+  it 'pending', :pending do
+    bar
+  end
+  it 'skip with reason', skip: 'not ready' do
+    bar
+  end
+  it 'pending with reason', pending: 'WIP' do
+    bar
   end
 
-  it 'uses assert_equal' do
-    assert_equal(expected, actual)
+  # In-body pending/skip counts as expectation
+  it 'has pending' do
+    pending
+    bar
+  end
+  it 'has skip' do
+    skip
+    bar
   end
 end

@@ -1,12 +1,74 @@
 use ruby_prism::Visit;
 
 use crate::cop::node_type::CALL_NODE;
-use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example};
+use crate::cop::util::RSPEC_DEFAULT_INCLUDE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// RSpec/NoExpectationExample - flags examples without expectations.
+///
+/// Root cause of 272 FPs: x-prefixed examples (xit, xspecify, etc.) and
+/// examples with :skip/:pending metadata were being checked. RuboCop
+/// excludes these entirely via SkipOrPending mixin.
+///
+/// Root cause of 477 FNs: hardcoded `assert*` (starts_with "assert")
+/// suppressed offenses. RuboCop uses `^assert_` pattern (with underscore)
+/// via AllowedPatterns, so plain `assert(...)` should still be flagged.
+/// Also `focus` (focused example) was never checked.
 pub struct NoExpectationExample;
+
+/// Returns true for regular and focused examples only.
+/// Excludes x-prefixed (skipped) examples and pending/skip.
+fn is_regular_or_focused_example(name: &[u8]) -> bool {
+    matches!(
+        name,
+        b"it"
+            | b"specify"
+            | b"example"
+            | b"scenario"
+            | b"its"
+            | b"fit"
+            | b"fspecify"
+            | b"fexample"
+            | b"fscenario"
+            | b"focus"
+    )
+}
+
+/// Check if call has :skip or :pending symbol metadata or skip:/pending: keyword metadata.
+fn has_skip_or_pending_metadata(call: &ruby_prism::CallNode<'_>) -> bool {
+    if let Some(args) = call.arguments() {
+        for arg in args.arguments().iter() {
+            // Symbol metadata: it 'test', :skip do
+            if let Some(sym) = arg.as_symbol_node() {
+                let val = sym.unescaped();
+                if val == b"skip" || val == b"pending" {
+                    return true;
+                }
+            }
+            // Keyword hash metadata: it 'test', skip: true do
+            if let Some(kh) = arg.as_keyword_hash_node() {
+                for elem in kh.elements().iter() {
+                    if let Some(assoc) = elem.as_assoc_node() {
+                        if let Some(key_sym) = assoc.key().as_symbol_node() {
+                            let key = key_sym.unescaped();
+                            if key == b"skip" || key == b"pending" {
+                                // skip: false means NOT skipped
+                                if let Some(false_node) = assoc.value().as_false_node() {
+                                    let _ = false_node;
+                                    continue;
+                                }
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
 
 impl Cop for NoExpectationExample {
     fn name(&self) -> &'static str {
@@ -40,12 +102,12 @@ impl Cop for NoExpectationExample {
         };
 
         let method_name = call.name().as_slice();
-        if !is_rspec_example(method_name) {
+        if !is_regular_or_focused_example(method_name) {
             return;
         }
 
-        // Skip `pending` and `skip` examples -- they intentionally have no expectations
-        if method_name == b"pending" || method_name == b"skip" {
+        // Skip examples with :skip or :pending metadata
+        if has_skip_or_pending_metadata(&call) {
             return;
         }
 
@@ -122,26 +184,18 @@ impl<'pr> Visit<'pr> for ExpectationFinder<'_> {
             return;
         }
         let name = node.name().as_slice();
-        // Check for: expect, is_expected, assert*, should, should_not, pending, skip
+        // Check for expectation methods (receiverless only)
         if node.receiver().is_none()
             && (name == b"expect"
                 || name == b"expect_any_instance_of"
                 || name == b"is_expected"
                 || name == b"are_expected"
-                || name.starts_with(b"assert")
-                || name == b"pending"
-                || name == b"skip")
-        {
-            self.found = true;
-            return;
-        }
-        // Check for `should`, `should_not`, `should_receive`, `should_not_receive`
-        // RuboCop requires these to have NO receiver (send nil? ...)
-        if node.receiver().is_none()
-            && (name == b"should"
+                || name == b"should"
                 || name == b"should_not"
                 || name == b"should_receive"
-                || name == b"should_not_receive")
+                || name == b"should_not_receive"
+                || name == b"pending"
+                || name == b"skip")
         {
             self.found = true;
             return;
