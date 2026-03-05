@@ -17,8 +17,11 @@ import json
 import re
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
+
+# Allow importing from the main scripts/ directory
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+sys.path.insert(0, str(_PROJECT_ROOT / "scripts"))
 
 # Maps gem names to the cop department prefixes they own.
 # Keep this mapping in sync with department ownership in AGENTS.md.
@@ -41,51 +44,7 @@ for gem, depts in GEM_DEPARTMENTS.items():
         DEPT_TO_GEM[dept] = gem
 
 
-def download_latest_corpus_results() -> tuple[Path, int, str]:
-    """Download corpus-results.json from the latest successful corpus-oracle CI run.
-
-    Returns (path_to_json, run_id, head_sha).
-    """
-    result = subprocess.run(
-        ["gh", "run", "list", "--workflow=corpus-oracle.yml",
-         "--status=success", "--limit=1", "--json=databaseId,headSha"],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        print(f"Error listing runs: {result.stderr}", file=sys.stderr)
-        sys.exit(1)
-
-    runs = json.loads(result.stdout)
-    if not runs:
-        print("No successful corpus-oracle runs found", file=sys.stderr)
-        sys.exit(1)
-
-    run_id = runs[0]["databaseId"]
-    head_sha = runs[0].get("headSha", "")
-    print(f"Downloading corpus-report from run {run_id}...", file=sys.stderr)
-
-    tmpdir = tempfile.mkdtemp(prefix="gem-progress-")
-    result = subprocess.run(
-        ["gh", "run", "download", str(run_id), "--name=corpus-report", f"--dir={tmpdir}"],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        print(f"Error downloading artifact: {result.stderr}", file=sys.stderr)
-        sys.exit(1)
-
-    path = Path(tmpdir) / "corpus-results.json"
-    if not path.exists():
-        print(f"corpus-results.json not found in artifact", file=sys.stderr)
-        sys.exit(1)
-
-    # Clean up stale local corpus-results.json in the project root
-    project_root = find_project_root()
-    stale_local = project_root / "corpus-results.json"
-    if stale_local.exists():
-        stale_local.unlink()
-        print(f"Removed stale {stale_local.name} from project root", file=sys.stderr)
-
-    return path, run_id, head_sha
+from corpus_download import download_corpus_results as download_latest_corpus_results
 
 
 def get_fixed_cops_from_git(oracle_sha: str) -> set[str]:

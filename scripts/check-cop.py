@@ -25,6 +25,10 @@ import sys
 import tempfile
 from pathlib import Path
 
+# Allow importing corpus_download from the same directory
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from corpus_download import download_corpus_results as _download_corpus
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CORPUS_DIR = PROJECT_ROOT / "vendor" / "corpus"
 MANIFEST_PATH = PROJECT_ROOT / "bench" / "corpus" / "manifest.jsonl"
@@ -35,44 +39,7 @@ LOCAL_CACHE_DIR = PROJECT_ROOT / ".check-cop-cache"
 
 def download_corpus_results() -> Path:
     """Download corpus-results.json from the latest successful CI run."""
-    result = subprocess.run(
-        ["gh", "run", "list", "--workflow=corpus-oracle.yml",
-         "--status=success", "--limit=1", "--json=databaseId"],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        print(f"Error listing runs: {result.stderr}", file=sys.stderr)
-        sys.exit(1)
-
-    runs = json.loads(result.stdout)
-    if not runs:
-        print("No successful corpus-oracle runs found", file=sys.stderr)
-        sys.exit(1)
-
-    run_id = runs[0]["databaseId"]
-    print(f"Downloading corpus-results.json from run {run_id}...", file=sys.stderr)
-
-    tmpdir = tempfile.mkdtemp(prefix="check-cop-")
-    result = subprocess.run(
-        ["gh", "run", "download", str(run_id), "--name=corpus-report", f"--dir={tmpdir}"],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        print(f"Error downloading artifact: {result.stderr}", file=sys.stderr)
-        sys.exit(1)
-
-    path = Path(tmpdir) / "corpus-results.json"
-    if not path.exists():
-        print("corpus-results.json not found in artifact", file=sys.stderr)
-        sys.exit(1)
-
-    # Clean up stale local corpus-results.json in the project root
-    project_root = Path(__file__).resolve().parent.parent
-    stale_local = project_root / "corpus-results.json"
-    if stale_local.exists():
-        stale_local.unlink()
-        print(f"Removed stale {stale_local.name} from project root", file=sys.stderr)
-
+    path, _run_id, _sha = _download_corpus()
     return path
 
 
