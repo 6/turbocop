@@ -4,8 +4,9 @@ from __future__ import annotations
 
 Tries multiple strategies in order:
 1. `gh` CLI (if installed and authenticated)
-2. `curl` with GH_TOKEN env var (for environments without `gh`)
-3. Helpful error message with instructions
+2. GitHub REST API with GH_TOKEN env var
+3. Parse checked-in docs/corpus.md (summary data only, no per-file detail)
+4. Helpful error message with instructions
 
 All scripts that need corpus-results.json should use this module instead of
 duplicating the download logic.
@@ -20,6 +21,7 @@ Usage:
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -248,12 +250,141 @@ def _try_curl_api(repo: str | None) -> tuple[Path, int, str] | None:
     return cache_path, run_id, head_sha
 
 
+def _try_corpus_md() -> tuple[Path, int, str] | None:
+    """Parse docs/corpus.md to build a minimal corpus-results.json.
+
+    This is a last-resort fallback when no GitHub token is available.
+    It provides summary and by_cop data (enough for gem_progress.py, triage.py)
+    but NOT per-file detail (investigate-cop.py, check-cop.py need the full JSON).
+    """
+    project_root = _find_project_root()
+    corpus_md = project_root / "docs" / "corpus.md"
+    if not corpus_md.exists():
+        return None
+
+    text = corpus_md.read_text()
+
+    # Parse "Last updated: YYYY-MM-DD" from the header
+    run_date = "unknown"
+    m = re.search(r"Last updated:\s*(\d{4}-\d{2}-\d{2})", text)
+    if m:
+        run_date = m.group(1)
+
+    # Parse summary table
+    total_repos = 0
+    total_offenses = 0
+    total_fp = 0
+    total_fn = 0
+    total_matches = 0
+    for line in text.splitlines():
+        if "| Repos |" in line and "100%" not in line:
+            m = re.search(r"\|\s*([\d,]+)\s*\|?\s*$", line)
+            if m:
+                total_repos = int(m.group(1).replace(",", ""))
+        elif "| Offenses compared |" in line:
+            m = re.search(r"\|\s*([\d,]+)\s*\|?\s*$", line)
+            if m:
+                total_offenses = int(m.group(1).replace(",", ""))
+        elif "| FP (nitrocop extra) |" in line:
+            m = re.search(r"\|\s*([\d,]+)\s*\|?\s*$", line)
+            if m:
+                total_fp = int(m.group(1).replace(",", ""))
+        elif "| FN (nitrocop missing) |" in line:
+            m = re.search(r"\|\s*([\d,]+)\s*\|?\s*$", line)
+            if m:
+                total_fn = int(m.group(1).replace(",", ""))
+        elif "| Matches (both agree) |" in line:
+            m = re.search(r"\|\s*([\d,]+)\s*\|?\s*$", line)
+            if m:
+                total_matches = int(m.group(1).replace(",", ""))
+
+    # Parse diverging cops table (| Department/CopName | Matches | FP | FN | Match % |)
+    by_cop = []
+    seen_cops = set()
+    diverging_pattern = re.compile(
+        r"^\|\s*([A-Z]\w+/\w+)\s*\|\s*([\d,]+)\s*\|\s*([\d,]+)\s*\|\s*([\d,]+)\s*\|\s*([\d.]+)%\s*\|"
+    )
+    for line in text.splitlines():
+        m = diverging_pattern.match(line)
+        if m:
+            cop_name = m.group(1)
+            matches = int(m.group(2).replace(",", ""))
+            fp = int(m.group(3).replace(",", ""))
+            fn = int(m.group(4).replace(",", ""))
+            total = matches + fp + fn
+            match_rate = matches / total if total > 0 else 1.0
+            by_cop.append({
+                "cop": cop_name,
+                "matches": matches,
+                "fp": fp,
+                "fn": fn,
+                "match_rate": match_rate,
+            })
+            seen_cops.add(cop_name)
+
+    # Parse perfect cops table (| Department/CopName | Matches |)
+    perfect_pattern = re.compile(
+        r"^\|\s*([A-Z]\w+/\w+)\s*\|\s*([\d,]+)\s*\|$"
+    )
+    for line in text.splitlines():
+        m = perfect_pattern.match(line)
+        if m:
+            cop_name = m.group(1)
+            if cop_name not in seen_cops:
+                matches = int(m.group(2).replace(",", ""))
+                by_cop.append({
+                    "cop": cop_name,
+                    "matches": matches,
+                    "fp": 0,
+                    "fn": 0,
+                    "match_rate": 1.0,
+                })
+                seen_cops.add(cop_name)
+
+    if not by_cop:
+        return None
+
+    data = {
+        "run_date": run_date,
+        "summary": {
+            "total_repos": total_repos,
+            "total_offenses_compared": total_offenses,
+            "total_matches": total_matches,
+            "total_fp": total_fp,
+            "total_fn": total_fn,
+        },
+        "by_cop": by_cop,
+        "_source": "docs/corpus.md (summary only, no per-file detail)",
+    }
+
+    # Write to cache
+    cache_path = _cache_dir() / f"corpus-results-from-md-{run_date}.json"
+    cache_path.write_text(json.dumps(data))
+
+    # Determine head_sha from the corpus oracle commit if possible
+    head_sha = ""
+    sha_result = subprocess.run(
+        ["git", "log", "--all", "--oneline", "--grep=corpus oracle", "-1",
+         "--format=%H"],
+        capture_output=True, text=True,
+    )
+    if sha_result.returncode == 0 and sha_result.stdout.strip():
+        head_sha = sha_result.stdout.strip()
+
+    print(f"Using docs/corpus.md as fallback (summary data only, dated {run_date})", file=sys.stderr)
+    return cache_path, 0, head_sha
+
+
 def download_corpus_results(
     *, include_head_sha: bool = True
 ) -> tuple[Path, int, str]:
     """Download corpus-results.json from the latest successful corpus-oracle CI run.
 
-    Tries gh CLI first, then falls back to GitHub REST API with token.
+    Tries strategies in order:
+    1. gh CLI (if installed and authenticated)
+    2. GitHub REST API with GH_TOKEN/GITHUB_TOKEN env var
+    3. Parse checked-in docs/corpus.md (summary data only)
+    4. Exit with helpful error message
 
     Returns (path_to_json, run_id, head_sha).
     If include_head_sha is False, head_sha may be empty.
@@ -269,6 +400,12 @@ def download_corpus_results(
 
     # Try curl/API fallback
     result = _try_curl_api(repo)
+    if result:
+        _clean_stale_local(project_root)
+        return result
+
+    # Try parsing checked-in docs/corpus.md
+    result = _try_corpus_md()
     if result:
         _clean_stale_local(project_root)
         return result

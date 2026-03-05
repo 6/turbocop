@@ -235,13 +235,127 @@ class TestTryCurlApi(unittest.TestCase):
         self.assertIsNone(result)
 
 
+class TestTryCorpusMd(unittest.TestCase):
+    """Tests for _try_corpus_md()."""
+
+    def _write_corpus_md(self, tmpdir: str, content: str) -> None:
+        docs = Path(tmpdir) / "docs"
+        docs.mkdir()
+        (docs / "corpus.md").write_text(content)
+
+    SAMPLE_MD = """\
+# Corpus Oracle Results
+
+> Last updated: 2026-03-04
+
+## Summary
+
+| Metric | Value |
+|--------|------:|
+| Repos | 1000 |
+| Offenses compared | 500,000 |
+| Matches (both agree) | 490,000 |
+| FP (nitrocop extra) | 5,000 |
+| FN (nitrocop missing) | 5,000 |
+
+## Diverging Cops
+
+| Cop | Matches | FP | FN | Match % |
+|-----|--------:|---:|---:|--------:|
+| Style/Foo | 100 | 10 | 5 | 87.0% |
+| RSpec/Bar | 200 | 0 | 20 | 90.9% |
+
+<details>
+<summary>Perfect cops</summary>
+
+| Cop | Matches |
+|-----|--------:|
+| Lint/Baz | 500 |
+| Style/Qux | 300 |
+
+</details>
+"""
+
+    @patch("corpus_download._find_project_root")
+    @patch("corpus_download.subprocess.run")
+    def test_parses_diverging_cops(self, mock_run, mock_root):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._write_corpus_md(tmpdir, self.SAMPLE_MD)
+            mock_root.return_value = Path(tmpdir)
+            mock_run.return_value = MagicMock(returncode=1, stdout="")
+
+            result = cd._try_corpus_md()
+            self.assertIsNotNone(result)
+            path, run_id, sha = result
+            data = json.loads(path.read_text())
+
+            self.assertEqual(data["run_date"], "2026-03-04")
+            self.assertEqual(data["summary"]["total_repos"], 1000)
+            self.assertEqual(data["summary"]["total_offenses_compared"], 500000)
+
+            cops = {c["cop"]: c for c in data["by_cop"]}
+            self.assertIn("Style/Foo", cops)
+            self.assertEqual(cops["Style/Foo"]["fp"], 10)
+            self.assertEqual(cops["Style/Foo"]["fn"], 5)
+
+    @patch("corpus_download._find_project_root")
+    @patch("corpus_download.subprocess.run")
+    def test_parses_perfect_cops(self, mock_run, mock_root):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._write_corpus_md(tmpdir, self.SAMPLE_MD)
+            mock_root.return_value = Path(tmpdir)
+            mock_run.return_value = MagicMock(returncode=1, stdout="")
+
+            result = cd._try_corpus_md()
+            data = json.loads(result[0].read_text())
+
+            cops = {c["cop"]: c for c in data["by_cop"]}
+            self.assertIn("Lint/Baz", cops)
+            self.assertEqual(cops["Lint/Baz"]["fp"], 0)
+            self.assertEqual(cops["Lint/Baz"]["fn"], 0)
+            self.assertEqual(cops["Lint/Baz"]["matches"], 500)
+            self.assertEqual(cops["Lint/Baz"]["match_rate"], 1.0)
+
+    @patch("corpus_download._find_project_root")
+    @patch("corpus_download.subprocess.run")
+    def test_total_cop_count(self, mock_run, mock_root):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._write_corpus_md(tmpdir, self.SAMPLE_MD)
+            mock_root.return_value = Path(tmpdir)
+            mock_run.return_value = MagicMock(returncode=1, stdout="")
+
+            result = cd._try_corpus_md()
+            data = json.loads(result[0].read_text())
+            # 2 diverging + 2 perfect = 4 total
+            self.assertEqual(len(data["by_cop"]), 4)
+
+    @patch("corpus_download._find_project_root")
+    def test_no_corpus_md_returns_none(self, mock_root):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_root.return_value = Path(tmpdir)
+            self.assertIsNone(cd._try_corpus_md())
+
+    @patch("corpus_download._find_project_root")
+    @patch("corpus_download.subprocess.run")
+    def test_source_marker(self, mock_run, mock_root):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._write_corpus_md(tmpdir, self.SAMPLE_MD)
+            mock_root.return_value = Path(tmpdir)
+            mock_run.return_value = MagicMock(returncode=1, stdout="")
+
+            result = cd._try_corpus_md()
+            data = json.loads(result[0].read_text())
+            self.assertIn("docs/corpus.md", data.get("_source", ""))
+
+
 class TestDownloadCorpusResults(unittest.TestCase):
     """Tests for the main download_corpus_results() entry point."""
 
+    @patch("corpus_download._try_corpus_md", return_value=None)
     @patch("corpus_download._try_curl_api", return_value=None)
     @patch("corpus_download._try_gh", return_value=None)
     @patch("corpus_download._detect_github_repo", return_value="owner/repo")
-    def test_all_methods_fail_exits(self, _repo, _gh, _curl):
+    def test_all_methods_fail_exits(self, _repo, _gh, _curl, _md):
         with self.assertRaises(SystemExit) as ctx:
             cd.download_corpus_results()
         self.assertEqual(ctx.exception.code, 1)
@@ -268,6 +382,19 @@ class TestDownloadCorpusResults(unittest.TestCase):
         path, run_id, sha = cd.download_corpus_results()
         self.assertEqual(path, fake_path)
         self.assertEqual(run_id, 456)
+        mock_clean.assert_called_once()
+
+    @patch("corpus_download._clean_stale_local")
+    @patch("corpus_download._try_corpus_md")
+    @patch("corpus_download._try_curl_api", return_value=None)
+    @patch("corpus_download._try_gh", return_value=None)
+    @patch("corpus_download._detect_github_repo", return_value="owner/repo")
+    def test_falls_back_to_corpus_md(self, _repo, _gh, _curl, mock_md, mock_clean):
+        fake_path = Path("/tmp/fake3.json")
+        mock_md.return_value = (fake_path, 0, "")
+        path, run_id, sha = cd.download_corpus_results()
+        self.assertEqual(path, fake_path)
+        self.assertEqual(run_id, 0)
         mock_clean.assert_called_once()
 
 
