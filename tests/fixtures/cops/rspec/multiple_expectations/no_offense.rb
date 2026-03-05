@@ -13,6 +13,27 @@ RSpec.describe Foo do
 
   it { expect(true).to be(true) }
 
+  # Single should-style expectations are fine
+  it 'uses should once' do
+    should eq(1)
+  end
+
+  it 'uses should_not once' do
+    should_not eq(1)
+  end
+
+  it 'uses are_expected once' do
+    are_expected.to include(1)
+  end
+
+  it 'uses should_receive once' do
+    should_receive(:foo)
+  end
+
+  it 'uses should_not_receive once' do
+    should_not_receive(:foo)
+  end
+
   # aggregate_failures metadata on example — skip
   it 'many expectations with aggregate_failures', :aggregate_failures do
     expect(foo).to eq(bar)
