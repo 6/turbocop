@@ -16,6 +16,43 @@ RSpec.describe Foo do
     expect { something }.to change(Foo, :count)
     expect { other }.to change(Bar, :count)
   end
+
+  # should-style expectations (implicit subject)
+  it 'uses should twice' do
+  ^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/MultipleExpectations: Example has too many expectations [2/1].
+    should eq(1)
+    should eq(2)
+  end
+
+  it 'uses should_not twice' do
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/MultipleExpectations: Example has too many expectations [2/1].
+    should_not eq(1)
+    should_not eq(2)
+  end
+
+  it 'uses are_expected twice' do
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/MultipleExpectations: Example has too many expectations [2/1].
+    are_expected.to include(1)
+    are_expected.to include(2)
+  end
+
+  it 'uses should_receive twice' do
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/MultipleExpectations: Example has too many expectations [2/1].
+    should_receive(:foo)
+    should_receive(:bar)
+  end
+
+  it 'uses should_not_receive twice' do
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/MultipleExpectations: Example has too many expectations [2/1].
+    should_not_receive(:foo)
+    should_not_receive(:bar)
+  end
+
+  it 'mixes expect and should' do
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/MultipleExpectations: Example has too many expectations [2/1].
+    expect(foo).to eq(bar)
+    should eq(1)
+  end
 end
 
 # aggregate_failures: false overrides inherited aggregate_failures

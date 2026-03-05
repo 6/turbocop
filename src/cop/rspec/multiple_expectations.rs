@@ -5,6 +5,17 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Checks if examples contain too many `expect` calls.
+///
+/// ## Root causes of corpus divergence (fixed):
+/// - **173 FNs**: ExpectCounter only matched `expect`, `expect_any_instance_of`, and
+///   `is_expected`. RuboCop's `Expectations.all` also includes `should`, `should_not`,
+///   `should_receive`, `should_not_receive`, and `are_expected` (all without receiver,
+///   i.e. implicit subject style). Added all missing expectation methods.
+///
+/// ## Expectation methods matched (from rubocop-rspec config/default.yml):
+/// `are_expected`, `expect`, `expect_any_instance_of`, `is_expected`, `should`,
+/// `should_not`, `should_not_receive`, `should_receive` — all without receiver only.
 pub struct MultipleExpectations;
 
 impl Cop for MultipleExpectations {
@@ -175,6 +186,22 @@ fn has_aggregate_failures_metadata(call: &ruby_prism::CallNode<'_>) -> Option<bo
     None
 }
 
+/// Check if a method name is an RSpec expectation method (called without receiver).
+/// Matches rubocop-rspec's `Language::Expectations` config from `config/default.yml`.
+fn is_rspec_expectation(name: &[u8]) -> bool {
+    matches!(
+        name,
+        b"are_expected"
+            | b"expect"
+            | b"expect_any_instance_of"
+            | b"is_expected"
+            | b"should"
+            | b"should_not"
+            | b"should_not_receive"
+            | b"should_receive"
+    )
+}
+
 struct ExpectCounter {
     count: usize,
 }
@@ -187,9 +214,10 @@ impl<'pr> Visit<'pr> for ExpectCounter {
             self.count += 1;
             return; // Don't recurse into aggregate_failures block
         }
-        if node.receiver().is_none()
-            && (name == b"expect" || name == b"expect_any_instance_of" || name == b"is_expected")
-        {
+        // All RSpec expectation methods (from rubocop-rspec Expectations config):
+        // are_expected, expect, expect_any_instance_of, is_expected,
+        // should, should_not, should_not_receive, should_receive
+        if node.receiver().is_none() && is_rspec_expectation(name) {
             self.count += 1;
         }
         ruby_prism::visit_call_node(self, node);
