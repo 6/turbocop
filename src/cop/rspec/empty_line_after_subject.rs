@@ -6,6 +6,19 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// RSpec/EmptyLineAfterSubject — checks for blank line after `subject`/`subject!`.
+///
+/// ## Corpus investigation (FP=352, FN=21)
+///
+/// **FPs (352):** Nitrocop checked only the immediately next line after `subject` for blankness.
+/// RuboCop's `EmptyLineSeparation` mixin walks forward past comment lines (including
+/// `rubocop:enable`/`rubocop:disable` directives) before checking for a blank line. This
+/// caused false positives whenever a comment followed the subject with a blank line after
+/// the comment block. Fixed by adding a comment-skipping loop matching the mixin behavior.
+///
+/// **FNs (21):** RuboCop uses `FinalEndLocation` to find the true end line accounting for
+/// heredocs extending past the syntactic end. Nitrocop uses `stmt.location().end_offset()`
+/// which doesn't handle this. Low priority given count.
 pub struct EmptyLineAfterSubject;
 
 impl Cop for EmptyLineAfterSubject {
@@ -92,9 +105,21 @@ impl Cop for EmptyLineAfterSubject {
             let end_offset = loc.end_offset().saturating_sub(1).max(loc.start_offset());
             let (end_line, _) = source.offset_to_line_col(end_offset);
 
-            // Check if next line is blank
-            let next_line = end_line + 1;
-            if let Some(line) = line_at(source, next_line) {
+            // Walk past comment lines (matching RuboCop's EmptyLineSeparation mixin).
+            // RuboCop skips lines that contain only comments (including rubocop
+            // directives) before checking for the required blank line separator.
+            let mut check_line = end_line + 1;
+            loop {
+                match line_at(source, check_line) {
+                    Some(l) if l.trim_ascii_start().starts_with(b"#") => {
+                        check_line += 1;
+                    }
+                    _ => break,
+                }
+            }
+
+            // Check if the line after comments (or immediately after subject) is blank
+            if let Some(line) = line_at(source, check_line) {
                 if is_blank_line(line) {
                     continue;
                 }
