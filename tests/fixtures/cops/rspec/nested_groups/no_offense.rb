@@ -126,3 +126,41 @@ RSpec.shared_context 'with setup' do
     end
   end
 end
+
+# def containing example group calls should NOT count toward nesting
+# RuboCop only recurses into :block and :begin children, not :def
+RSpec.describe Foo do
+  context 'level1' do
+    context 'level2' do
+      def helper_method
+        context 'should not count' do
+          it 'inner' do; end
+        end
+      end
+    end
+  end
+end
+
+# class inside spec block should NOT be recursed into
+RSpec.describe Foo do
+  context 'level1' do
+    context 'level2' do
+      class TestHelper
+        describe 'inner' do; end
+      end
+    end
+  end
+end
+
+# if/unless wrapping context should NOT be recursed into
+RSpec.describe Foo do
+  context 'level1' do
+    context 'level2' do
+      if ENV['EXTENDED']
+        context 'conditional' do
+          it 'works' do; end
+        end
+      end
+    end
+  end
+end

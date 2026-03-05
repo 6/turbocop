@@ -21,6 +21,17 @@ use crate::parse::source::SourceFile;
 /// 3. FNs: `RSpec.feature` and other example group methods with `RSpec.` prefix were
 ///    not recognized as example groups. Only `RSpec.describe` was handled. Fix: accept
 ///    any `is_rspec_example_group` method name with `RSpec` receiver.
+///
+/// Corpus investigation (2026-03-05): 218 FPs, 0 FNs.
+///
+/// Root cause: `NestingVisitor::visit_call_node` used `ruby_prism::visit_call_node`
+/// (generic Visit trait) as fallback for non-example-group calls, which recurses into
+/// ALL child nodes including `def`, `class`, `module`, `if`, `case`, etc. RuboCop's
+/// `find_nested_example_groups` uses `each_child_node(:block, :begin)` which restricts
+/// recursion to only block and begin children. Fix: for non-example-group calls, only
+/// recurse into their block argument. Also override `visit_def_node`, `visit_class_node`,
+/// `visit_module_node`, `visit_if_node`, `visit_unless_node`, `visit_case_node`, and
+/// `visit_singleton_class_node` to prevent recursion into those node types.
 pub struct NestedGroups;
 
 impl Cop for NestedGroups {
@@ -327,8 +338,48 @@ impl<'pr> Visit<'pr> for NestingVisitor<'_, 'pr> {
             return;
         }
 
-        // For non-example-group calls, recurse into their blocks
-        ruby_prism::visit_call_node(self, node);
+        // For non-example-group calls, only recurse into their block argument
+        // (if any). Do NOT use the generic Visit fallback which recurses into ALL
+        // children (def, class, module, if, case, etc.). RuboCop's
+        // find_nested_example_groups only recurses into :block and :begin children.
+        if let Some(block) = node.block() {
+            if let Some(bn) = block.as_block_node() {
+                if let Some(body) = bn.body() {
+                    self.visit(&body);
+                }
+            }
+        }
+    }
+
+    // Override visit methods for node types that RuboCop does NOT recurse into.
+    // RuboCop's find_nested_example_groups uses `each_child_node(:block, :begin)`,
+    // which skips def, class, module, if, unless, case, etc.
+    fn visit_def_node(&mut self, _node: &ruby_prism::DefNode<'pr>) {
+        // Do not recurse into method definitions
+    }
+
+    fn visit_class_node(&mut self, _node: &ruby_prism::ClassNode<'pr>) {
+        // Do not recurse into class definitions
+    }
+
+    fn visit_module_node(&mut self, _node: &ruby_prism::ModuleNode<'pr>) {
+        // Do not recurse into module definitions
+    }
+
+    fn visit_singleton_class_node(&mut self, _node: &ruby_prism::SingletonClassNode<'pr>) {
+        // Do not recurse into singleton class definitions
+    }
+
+    fn visit_if_node(&mut self, _node: &ruby_prism::IfNode<'pr>) {
+        // Do not recurse into if/unless nodes
+    }
+
+    fn visit_unless_node(&mut self, _node: &ruby_prism::UnlessNode<'pr>) {
+        // Do not recurse into unless nodes
+    }
+
+    fn visit_case_node(&mut self, _node: &ruby_prism::CaseNode<'pr>) {
+        // Do not recurse into case nodes
     }
 }
 
