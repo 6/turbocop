@@ -4,17 +4,43 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
-/// Investigation: 149 FPs caused by matching `receive('string_arg')` calls.
-/// RuboCop only groups `receive(:symbol_arg)` stubs for the `receive_messages`
-/// suggestion. Fixed by requiring the first arg to `receive()` to be a symbol node.
+/// RSpec/ReceiveMessages: Prefer `receive_messages` over multiple `receive` stubs
+/// on the same object.
+///
+/// ## Investigation findings (102 FPs, 317 FNs):
+///
+/// ### Root causes of FPs:
+/// 1. Chain-walking approach matched stubs with `.once`/`.twice`/`.ordered`/
+///    `.exactly(n).times` chained after `.and_return()`. RuboCop's NodePattern
+///    requires `and_return` to be the OUTERMOST call on `receive(:sym)` — any
+///    chaining after `and_return` disqualifies the stub.
+/// 2. Stubs with multiple `and_return` arguments (e.g., `and_return(1, 2)`) were
+///    matched. RuboCop requires exactly one argument.
+/// 3. Stubs with splat args (`and_return(*array)`) were matched. RuboCop excludes
+///    splat arguments.
+/// 4. Stubs with heredoc args were matched. RuboCop excludes heredoc returns.
+///
+/// ### Root causes of FNs:
+/// 1. Incorrect duplicate handling: old code skipped the ENTIRE group if any
+///    receive message appeared twice. RuboCop's `uniq_items` removes only the
+///    items with duplicate receive args, then checks if >=2 unique items remain.
+/// 2. The `.with` and `.has_block` filters were applied during grouping instead
+///    of during extraction. This caused stubs with `.with` or blocks to remain
+///    in the group and potentially trigger the duplicate filter, preventing valid
+///    stubs from being reported.
+///
+/// ### Fix applied:
+/// Replaced chain-walking extraction with exact structural matching:
+/// `allow(X).to receive(:sym).and_return(single_non_splat_arg)`.
+/// The argument to `.to` must be EXACTLY `receive(:sym).and_return(val)` — no
+/// extra chaining, no `.with`, no blocks on receive, no multiple args, no splats.
+/// Fixed duplicate handling to match RuboCop's `uniq_items` behavior.
 pub struct ReceiveMessages;
 
 struct StubInfo {
     receiver_text: String,
     receive_msg: String,
     offset: usize,
-    has_block: bool,
-    has_with: bool,
 }
 
 impl Cop for ReceiveMessages {
@@ -66,16 +92,18 @@ impl Cop for ReceiveMessages {
             }
         }
 
+        // Group by receiver text
         let mut processed = vec![false; stubs.len()];
 
         for i in 0..stubs.len() {
-            if processed[i] || stubs[i].has_block || stubs[i].has_with {
+            if processed[i] {
                 continue;
             }
 
+            // Collect all stubs for this receiver
             let mut group = vec![i];
             for j in (i + 1)..stubs.len() {
-                if processed[j] || stubs[j].has_block || stubs[j].has_with {
+                if processed[j] {
                     continue;
                 }
                 if stubs[i].receiver_text == stubs[j].receiver_text {
@@ -87,22 +115,27 @@ impl Cop for ReceiveMessages {
                 continue;
             }
 
-            // Check for duplicate receive messages within this group
-            let mut receive_msgs: Vec<&str> = Vec::new();
-            let mut has_dups = false;
-            for &idx in &group {
-                if receive_msgs.contains(&&*stubs[idx].receive_msg) {
-                    has_dups = true;
-                    break;
-                }
-                receive_msgs.push(&stubs[idx].receive_msg);
-            }
+            // Filter out items with duplicate receive messages (RuboCop's uniq_items).
+            // An item is removed if ANY other item in the group has the same receive_msg.
+            let unique_group: Vec<usize> = group
+                .iter()
+                .copied()
+                .filter(|&idx| {
+                    !group.iter().any(|&other| {
+                        other != idx && stubs[idx].receive_msg == stubs[other].receive_msg
+                    })
+                })
+                .collect();
 
-            if has_dups {
+            if unique_group.len() < 2 {
+                // Mark all as processed so we don't revisit
+                for &idx in &group {
+                    processed[idx] = true;
+                }
                 continue;
             }
 
-            for &idx in &group {
+            for &idx in &unique_group {
                 processed[idx] = true;
                 let (line, column) = source.offset_to_line_col(stubs[idx].offset);
                 diagnostics.push(self.diagnostic(
@@ -112,34 +145,47 @@ impl Cop for ReceiveMessages {
                     "Use `receive_messages` instead of multiple stubs.".to_string(),
                 ));
             }
+            // Also mark non-unique items as processed
+            for &idx in &group {
+                processed[idx] = true;
+            }
         }
     }
 }
 
+/// Match the exact pattern: `allow(X).to receive(:sym).and_return(single_arg)`
+///
+/// RuboCop's NodePattern:
+/// ```text
+/// (send (send nil? :allow ...) :to
+///   (send (send nil? :receive (sym _)) :and_return !#heredoc_or_splat?))
+/// ```
+///
+/// This means:
+/// - The statement must be a `.to` call on `allow(X)`
+/// - The argument to `.to` must be EXACTLY `receive(:sym).and_return(val)`
+/// - `and_return` is called directly on `receive(:sym)` — no `.with`, no other chaining
+/// - `and_return` takes exactly one argument
+/// - That argument is not a splat node
+/// - No blocks on receive (e.g., `receive(:foo) { ... }` is excluded)
+/// - No chaining after `and_return` (e.g., `.once`, `.ordered` disqualify)
 fn extract_allow_receive_info(
     source: &SourceFile,
     node: &ruby_prism::Node<'_>,
 ) -> Option<StubInfo> {
-    // Pattern: allow(X).to receive(:y).and_return(z)
-    // AST: CallNode(.to)
-    //   receiver: CallNode(allow) with arg X
-    //   arguments: [CallNode(.and_return)
-    //     receiver: CallNode(receive) with arg :y
-    //     arguments: [z]
-    //   ]
     let to_call = node.as_call_node()?;
 
     if to_call.name().as_slice() != b"to" {
         return None;
     }
 
-    // Check receiver is allow(X)
+    // Check receiver is allow(X) with no receiver (bare `allow`)
     let allow_call = to_call.receiver()?.as_call_node()?;
     if allow_call.name().as_slice() != b"allow" || allow_call.receiver().is_some() {
         return None;
     }
 
-    // Get receiver text
+    // Get receiver text (the argument to allow())
     let allow_args = allow_call.arguments()?;
     let allow_arg_list: Vec<_> = allow_args.arguments().iter().collect();
     if allow_arg_list.is_empty() {
@@ -150,65 +196,74 @@ fn extract_allow_receive_info(
         .byte_slice(recv_loc.start_offset(), recv_loc.end_offset(), "")
         .to_string();
 
-    // Get the argument chain: receive(:y).and_return(z)
+    // Get the argument to .to — must be exactly one argument
     let to_args = to_call.arguments()?;
     let to_arg_list: Vec<_> = to_args.arguments().iter().collect();
-    if to_arg_list.is_empty() {
+    if to_arg_list.len() != 1 {
         return None;
     }
 
     let arg = &to_arg_list[0];
 
-    // Walk the argument chain to find receive() and and_return()
-    let mut has_and_return = false;
-    let mut has_block = false;
-    let mut has_with = false;
-    let mut receive_msg = String::new();
-
-    let mut current = arg.as_call_node()?;
-
-    loop {
-        let method = current.name().as_slice();
-        match method {
-            b"receive" if current.receiver().is_none() => {
-                // Found the receive call — only match symbol args (RuboCop
-                // ignores string args like receive('method_name'))
-                if let Some(args) = current.arguments() {
-                    let arg_list: Vec<_> = args.arguments().iter().collect();
-                    if !arg_list.is_empty() {
-                        arg_list[0].as_symbol_node()?;
-                        let msg_loc = arg_list[0].location();
-                        receive_msg = source
-                            .byte_slice(msg_loc.start_offset(), msg_loc.end_offset(), "")
-                            .to_string();
-                    }
-                }
-                break;
-            }
-            b"and_return" => {
-                has_and_return = true;
-            }
-            b"with" => {
-                has_with = true;
-            }
-            _ => {}
-        }
-
-        if current.block().is_some() {
-            has_block = true;
-        }
-
-        let recv = current.receiver()?;
-        current = recv.as_call_node()?;
-    }
-
-    if !has_and_return || receive_msg.is_empty() {
+    // The argument must be a CallNode for `and_return`
+    let and_return_call = arg.as_call_node()?;
+    if and_return_call.name().as_slice() != b"and_return" {
         return None;
     }
 
-    // Also check for block on the to_call itself
-    if to_call.block().is_some() {
-        has_block = true;
+    // `and_return` must have exactly one argument, and it must not be a splat
+    let and_return_args = and_return_call.arguments()?;
+    let and_return_arg_list: Vec<_> = and_return_args.arguments().iter().collect();
+    if and_return_arg_list.len() != 1 {
+        return None;
+    }
+
+    // Check the argument is not a splat node
+    if and_return_arg_list[0].as_splat_node().is_some() {
+        return None;
+    }
+
+    // Check the argument is not a heredoc (string/interpolated string with heredoc flag)
+    // In Prism, heredocs are represented as StringNode or InterpolatedStringNode
+    // with opening_loc containing "<<" prefix
+    if is_heredoc_arg(&and_return_arg_list[0]) {
+        return None;
+    }
+
+    // `and_return` must not have a block
+    if and_return_call.block().is_some() {
+        return None;
+    }
+
+    // The receiver of `and_return` must be `receive(:sym)` — a bare receive call
+    let receive_call = and_return_call.receiver()?.as_call_node()?;
+    if receive_call.name().as_slice() != b"receive" {
+        return None;
+    }
+    // receive must have no receiver (bare function call)
+    if receive_call.receiver().is_some() {
+        return None;
+    }
+    // receive must not have a block
+    if receive_call.block().is_some() {
+        return None;
+    }
+
+    // receive must have exactly one argument, which must be a symbol
+    let receive_args = receive_call.arguments()?;
+    let receive_arg_list: Vec<_> = receive_args.arguments().iter().collect();
+    if receive_arg_list.len() != 1 {
+        return None;
+    }
+    receive_arg_list[0].as_symbol_node()?;
+
+    let msg_loc = receive_arg_list[0].location();
+    let receive_msg = source
+        .byte_slice(msg_loc.start_offset(), msg_loc.end_offset(), "")
+        .to_string();
+
+    if receive_msg.is_empty() {
+        return None;
     }
 
     let stmt_loc = node.location();
@@ -217,9 +272,25 @@ fn extract_allow_receive_info(
         receiver_text,
         receive_msg,
         offset: stmt_loc.start_offset(),
-        has_block,
-        has_with,
     })
+}
+
+/// Check if a node represents a heredoc argument.
+/// In Prism, heredoc strings have an opening_loc that starts with "<<".
+fn is_heredoc_arg(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(str_node) = node.as_string_node() {
+        if let Some(opening) = str_node.opening_loc() {
+            let slice = opening.as_slice();
+            return slice.starts_with(b"<<");
+        }
+    }
+    if let Some(istr_node) = node.as_interpolated_string_node() {
+        if let Some(opening) = istr_node.opening_loc() {
+            let slice = opening.as_slice();
+            return slice.starts_with(b"<<");
+        }
+    }
+    false
 }
 
 #[cfg(test)]
