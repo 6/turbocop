@@ -22,3 +22,16 @@ describe 'doing y' do
   ^^^^^^^^^^ RSpec/RepeatedDescription: Don't repeat descriptions within an example group.
   end
 end
+
+# examples inside non-scope-changing blocks (iterators) are still checked
+describe 'doing z' do
+  %i[foo bar].each do |type|
+    it "does a thing" do
+    ^^^^^^^^^^^^^^^^^ RSpec/RepeatedDescription: Don't repeat descriptions within an example group.
+    end
+
+    it "does a thing" do
+    ^^^^^^^^^^^^^^^^^ RSpec/RepeatedDescription: Don't repeat descriptions within an example group.
+    end
+  end
+end

@@ -23,3 +23,9 @@ shared_examples 'default locale' do
     2
   end
 end
+
+# its() with same argument but different block body is NOT a repeat
+describe 'doing z' do
+  its(:name) { is_expected.to be_present }
+  its(:name) { is_expected.to be_blank }
+end

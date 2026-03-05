@@ -1,11 +1,30 @@
 use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
-use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example};
+use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use std::collections::HashMap;
 
 /// RSpec/RepeatedDescription: Don't repeat descriptions within an example group.
+///
+/// ## Corpus investigation findings
+///
+/// **FP root cause (408 FPs):** `its` calls were grouped together with `it`/`specify` using
+/// only their arguments as signature. RuboCop treats `its` separately (`repeated_its` vs
+/// `repeated_descriptions`) and includes the full block body in the `its` signature. So
+/// `its(:x) { be_present }` and `its(:x) { be_blank }` are distinct in RuboCop but were
+/// colliding in nitrocop.
+///
+/// **Fix:** For `its` calls, include the block body source text in the signature, and group
+/// `its` calls separately from `it`/`specify`/etc. calls.
+///
+/// **FN root cause (914 FNs):** RuboCop's `ExampleGroup#examples` uses `find_all_in_scope`,
+/// which recursively descends into child nodes, stopping only at scope boundaries (nested
+/// `describe`/`context`/`shared_examples` blocks). Nitrocop only iterated direct children,
+/// missing examples inside iterator blocks like `%i[foo bar].each do |type| ... end`.
+///
+/// **Fix:** Added recursive `collect_examples` helper that walks the AST collecting example
+/// calls, stopping at scope-changing boundaries (example group / shared group blocks).
 pub struct RepeatedDescription;
 
 impl Cop for RepeatedDescription {
@@ -56,46 +75,82 @@ impl Cop for RepeatedDescription {
             Some(b) => b,
             None => return,
         };
-        let stmts = match body.as_statements_node() {
-            Some(s) => s,
-            None => return,
-        };
 
-        // Collect example descriptions: signature -> list of (line, col, end_line, end_col)
-        #[allow(clippy::type_complexity)] // internal collection used only in this function
-        let mut desc_map: HashMap<Vec<u8>, Vec<(usize, usize, usize, usize)>> = HashMap::new();
+        // Collect examples recursively, stopping at scope boundaries.
+        // RuboCop separates `its` from `it`/`specify` etc., so we use two maps.
+        #[allow(clippy::type_complexity)]
+        let mut desc_map: HashMap<Vec<u8>, Vec<(usize, usize)>> = HashMap::new();
+        #[allow(clippy::type_complexity)]
+        let mut its_map: HashMap<Vec<u8>, Vec<(usize, usize)>> = HashMap::new();
 
-        for stmt in stmts.body().iter() {
-            if let Some(c) = stmt.as_call_node() {
-                let m = c.name().as_slice();
-                if is_rspec_example(m) || m == b"its" {
-                    // Build a signature from the full source of the call (without block)
-                    let sig = example_signature(source, &c);
-                    if let Some(s) = sig {
-                        let loc = c.location();
-                        let (line, col) = source.offset_to_line_col(loc.start_offset());
-                        let end_off = loc.end_offset();
-                        desc_map.entry(s).or_default().push((
-                            line,
-                            col,
-                            loc.start_offset(),
-                            end_off,
-                        ));
-                    }
-                }
-            }
-        }
+        collect_examples(source, &body, &mut desc_map, &mut its_map);
 
-        for locs in desc_map.values() {
+        for locs in desc_map.values().chain(its_map.values()) {
             if locs.len() > 1 {
-                for &(line, col, start, end) in locs {
-                    let _ = (start, end);
+                for &(line, col) in locs {
                     diagnostics.push(self.diagnostic(
                         source,
                         line,
                         col,
                         "Don't repeat descriptions within an example group.".to_string(),
                     ));
+                }
+            }
+        }
+    }
+}
+
+/// Recursively collect example calls within a node, stopping at scope boundaries
+/// (nested describe/context/shared_examples blocks). This matches RuboCop's
+/// `find_all_in_scope` behavior.
+fn collect_examples(
+    source: &SourceFile,
+    node: &ruby_prism::Node<'_>,
+    desc_map: &mut HashMap<Vec<u8>, Vec<(usize, usize)>>,
+    its_map: &mut HashMap<Vec<u8>, Vec<(usize, usize)>>,
+) {
+    // Handle statements node: iterate each statement
+    if let Some(stmts) = node.as_statements_node() {
+        for stmt in stmts.body().iter() {
+            collect_examples(source, &stmt, desc_map, its_map);
+        }
+        return;
+    }
+
+    // Handle call nodes
+    if let Some(c) = node.as_call_node() {
+        let m = c.name().as_slice();
+
+        // If this is a scope-changing call (example group) with a block, do NOT recurse
+        if is_scope_change(m) && c.block().is_some() {
+            return;
+        }
+
+        if m == b"its" {
+            // For `its`, signature includes block body (RuboCop's its_signature)
+            if let Some(s) = its_signature(source, &c) {
+                let loc = c.location();
+                let (line, col) = source.offset_to_line_col(loc.start_offset());
+                its_map.entry(s).or_default().push((line, col));
+            }
+            return;
+        }
+
+        if is_rspec_example(m) {
+            // For it/specify/etc, signature is just the arguments
+            if let Some(s) = example_signature(source, &c) {
+                let loc = c.location();
+                let (line, col) = source.offset_to_line_col(loc.start_offset());
+                desc_map.entry(s).or_default().push((line, col));
+            }
+            return;
+        }
+
+        // Not an example and not a scope change — recurse into block body if present
+        if let Some(block) = c.block() {
+            if let Some(block_node) = block.as_block_node() {
+                if let Some(body) = block_node.body() {
+                    collect_examples(source, &body, desc_map, its_map);
                 }
             }
         }
@@ -115,6 +170,43 @@ fn example_signature(source: &SourceFile, call: &ruby_prism::CallNode<'_>) -> Op
     let args_loc = args.location();
     let sig = source.as_bytes()[args_loc.start_offset()..args_loc.end_offset()].to_vec();
     Some(sig)
+}
+
+/// Build a signature for an `its` call that includes the block body.
+/// This matches RuboCop's `its_signature` which is `[doc_string, example_node]`.
+/// Including the block body ensures `its(:x) { be_present }` and `its(:x) { be_blank }`
+/// get different signatures.
+fn its_signature(source: &SourceFile, call: &ruby_prism::CallNode<'_>) -> Option<Vec<u8>> {
+    let args = call.arguments()?;
+    let arg_list: Vec<_> = args.arguments().iter().collect();
+    if arg_list.is_empty() {
+        return None;
+    }
+
+    // Start with arguments text
+    let args_loc = args.location();
+    let mut sig = source.as_bytes()[args_loc.start_offset()..args_loc.end_offset()].to_vec();
+
+    // Append block body source text if present
+    if let Some(block) = call.block() {
+        if let Some(block_node) = block.as_block_node() {
+            if let Some(body) = block_node.body() {
+                let body_loc = body.location();
+                sig.push(b'\0'); // separator
+                sig.extend_from_slice(
+                    &source.as_bytes()[body_loc.start_offset()..body_loc.end_offset()],
+                );
+            }
+        }
+    }
+
+    Some(sig)
+}
+
+/// Check if a method name is a scope-changing boundary for RSpec example collection.
+/// This includes example groups and shared groups — recursion should stop at these.
+fn is_scope_change(name: &[u8]) -> bool {
+    is_rspec_example_group(name)
 }
 
 fn is_example_group(name: &[u8]) -> bool {
