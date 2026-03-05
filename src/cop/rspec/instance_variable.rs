@@ -6,6 +6,20 @@ use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// Checks for instance variable usage in specs.
+///
+/// ## Investigation findings
+///
+/// ### Root cause of 306 FNs
+/// `check_direct_spec_group` and `collect_top_level_groups` only recognized
+/// `RSpec.describe` with an RSpec receiver. Other methods like `RSpec.shared_examples`,
+/// `RSpec.shared_context`, `RSpec.context`, `RSpec.feature` were missed.
+/// Fix: `is_spec_group_call()` checks ALL example/shared group methods.
+///
+/// ### Root cause of 7 FPs
+/// `collect_top_level_groups` unwrapped `BeginNode` (including `begin..rescue..end`).
+/// In RuboCop, `begin..rescue..end` is `:kwbegin` and NOT unwrapped.
+/// Fix: Removed `BeginNode` unwrapping from `collect_top_level_groups`.
 pub struct InstanceVariable;
 
 impl Cop for InstanceVariable {
@@ -196,7 +210,7 @@ fn find_top_level_group_offsets(program: &ruby_prism::ProgramNode<'_>) -> HashSe
 
     if stmts.len() == 1 {
         // Single top-level statement: mirror RuboCop's module/class/else branches.
-        // Unwrap module/class/begin, or check if it's a spec group directly.
+        // Unwrap module/class, or check if it's a spec group directly.
         collect_top_level_groups(&stmts[0], &mut offsets);
     } else {
         // Multiple top-level statements (like `require 'spec_helper'` + `module Pod`):
@@ -214,13 +228,8 @@ fn find_top_level_group_offsets(program: &ruby_prism::ProgramNode<'_>) -> HashSe
 /// top-level statements (the `:begin` case in RuboCop).
 fn check_direct_spec_group(node: &ruby_prism::Node<'_>, offsets: &mut HashSet<usize>) {
     if let Some(call) = node.as_call_node() {
-        if call.block().is_some() {
-            let name = call.name().as_slice();
-            let is_eg = call.receiver().is_none() && is_rspec_example_group(name);
-            let is_rspec_describe = is_rspec_receiver(&call) && name == b"describe";
-            if is_eg || is_rspec_describe {
-                offsets.insert(call.location().start_offset());
-            }
+        if call.block().is_some() && is_spec_group_call(&call) {
+            offsets.insert(call.location().start_offset());
         }
     }
 }
@@ -231,14 +240,9 @@ fn check_direct_spec_group(node: &ruby_prism::Node<'_>, offsets: &mut HashSet<us
 fn collect_top_level_groups(node: &ruby_prism::Node<'_>, offsets: &mut HashSet<usize>) {
     // Check if this node is a spec group call (describe/context/etc with a block)
     if let Some(call) = node.as_call_node() {
-        if call.block().is_some() {
-            let name = call.name().as_slice();
-            let is_eg = call.receiver().is_none() && is_rspec_example_group(name);
-            let is_rspec_describe = is_rspec_receiver(&call) && name == b"describe";
-            if is_eg || is_rspec_describe {
-                offsets.insert(call.location().start_offset());
-                return;
-            }
+        if call.block().is_some() && is_spec_group_call(&call) {
+            offsets.insert(call.location().start_offset());
+            return;
         }
     }
 
@@ -263,16 +267,17 @@ fn collect_top_level_groups(node: &ruby_prism::Node<'_>, offsets: &mut HashSet<u
                 }
             }
         }
-        return;
     }
+    // NOTE: BeginNode is NOT unwrapped. RuboCop treats begin..rescue as :kwbegin.
+}
 
-    // Unwrap begin nodes (explicit begin..end)
-    if let Some(begin_node) = node.as_begin_node() {
-        if let Some(stmts) = begin_node.statements() {
-            for child in stmts.body().iter() {
-                collect_top_level_groups(&child, offsets);
-            }
-        }
+/// Check if a call is a spec group (receiverless or with RSpec/::RSpec receiver).
+fn is_spec_group_call(call: &ruby_prism::CallNode<'_>) -> bool {
+    let name = call.name().as_slice();
+    if call.receiver().is_none() {
+        is_rspec_example_group(name)
+    } else {
+        is_rspec_receiver(call) && is_rspec_example_group(name)
     }
 }
 
@@ -576,14 +581,59 @@ mod tests {
 
     #[test]
     fn describe_with_require_sibling_is_still_detected() {
-        // When describe is a direct top-level statement alongside require,
-        // it should still be detected as a top-level group
         let source = b"require 'spec_helper'\ndescribe Foo do\n  it { @bar }\nend\n";
         let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
-        assert_eq!(
-            diags.len(),
-            1,
-            "Direct describe alongside require should still be detected"
-        );
+        assert_eq!(diags.len(), 1);
+    }
+
+    #[test]
+    fn rspec_shared_examples_is_detected() {
+        let source = b"RSpec.shared_examples 'shared' do\n  it { @bar }\nend\n";
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
+        assert_eq!(diags.len(), 1);
+    }
+
+    #[test]
+    fn rspec_shared_context_is_detected() {
+        let source =
+            b"RSpec.shared_context 'setup' do\n  before { @foo = 1 }\n  it { @foo }\nend\n";
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
+        assert_eq!(diags.len(), 1);
+    }
+
+    #[test]
+    fn rspec_shared_examples_with_require_sibling() {
+        let source =
+            b"require 'spec_helper'\nRSpec.shared_examples 'shared' do\n  it { @bar }\nend\n";
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
+        assert_eq!(diags.len(), 1);
+    }
+
+    #[test]
+    fn rspec_context_is_detected() {
+        let source = b"RSpec.context 'group' do\n  it { @bar }\nend\n";
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
+        assert_eq!(diags.len(), 1);
+    }
+
+    #[test]
+    fn rspec_feature_is_detected() {
+        let source = b"RSpec.feature 'login' do\n  it { @user }\nend\n";
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
+        assert_eq!(diags.len(), 1);
+    }
+
+    #[test]
+    fn describe_inside_begin_rescue_is_not_flagged() {
+        let source = b"begin\n  require 'optional'\n  describe Foo do\n    it { @bar }\n  end\nrescue LoadError\nend\n";
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
+        assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn describe_inside_begin_ensure_is_not_flagged() {
+        let source = b"begin\n  describe Foo do\n    it { @bar }\n  end\nensure\n  cleanup\nend\n";
+        let diags = crate::testutil::run_cop_full(&InstanceVariable, source);
+        assert!(diags.is_empty());
     }
 }

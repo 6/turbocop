@@ -54,3 +54,22 @@ describe EvalBlocks do
     end
   end
 end
+
+# RSpec.shared_examples with explicit receiver is a top-level group
+RSpec.shared_examples 'shared behavior' do
+  it { expect(@item).to be_valid }
+              ^^^^^ RSpec/InstanceVariable: Avoid instance variables - use let, a method call, or a local variable (if possible).
+end
+
+# RSpec.shared_context with explicit receiver is a top-level group
+RSpec.shared_context 'with setup' do
+  before { @config = build(:config) }
+  it { @config.valid? }
+       ^^^^^^^ RSpec/InstanceVariable: Avoid instance variables - use let, a method call, or a local variable (if possible).
+end
+
+# RSpec.context with explicit receiver is a top-level group
+RSpec.context 'standalone context' do
+  it { @value }
+       ^^^^^^ RSpec/InstanceVariable: Avoid instance variables - use let, a method call, or a local variable (if possible).
+end

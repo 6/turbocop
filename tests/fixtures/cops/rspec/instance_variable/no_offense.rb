@@ -128,3 +128,16 @@ end
     it { expect(@val).to eq(val) }
   end
 end
+
+# Instance variables inside describe wrapped in begin..rescue..end
+# RuboCop treats begin..rescue as opaque (kwbegin), NOT a plain begin
+begin
+  require 'optional_dependency'
+
+  describe OptionalFeature do
+    before { @conn = connect }
+    it { @conn.active? }
+  end
+rescue LoadError
+  # skip when dependency is not available
+end
