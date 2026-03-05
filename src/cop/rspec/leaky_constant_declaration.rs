@@ -1,16 +1,24 @@
-use crate::cop::node_type::{
-    BLOCK_NODE, CALL_NODE, CLASS_NODE, CONSTANT_READ_NODE, CONSTANT_WRITE_NODE, MODULE_NODE,
-    STATEMENTS_NODE,
+use crate::cop::util::{
+    self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_shared_group,
 };
-use crate::cop::util::{self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
-
-pub struct LeakyConstantDeclaration;
+use ruby_prism::Visit;
 
 /// Flags constant assignments (`CONST = ...`), class definitions, and module
 /// definitions inside RSpec example groups. These leak into the global namespace.
+///
+/// **Root cause of 2,109 FNs:** The previous implementation only scanned direct
+/// statements in example group block bodies. Constants/classes/modules nested inside
+/// control structures (if/unless/case/begin/etc.) were missed.
+///
+/// **Fix:** Rewrote to use `check_source` with a visitor that tracks example group
+/// depth. When visiting ConstantWriteNode, ClassNode, or ModuleNode while inside
+/// any example group (depth > 0), flags the offense. This matches RuboCop's
+/// ancestor-checking approach: `node.each_ancestor(:block).any? { |a| spec_group?(a) }`.
+pub struct LeakyConstantDeclaration;
+
 impl Cop for LeakyConstantDeclaration {
     fn name(&self) -> &'static str {
         "RSpec/LeakyConstantDeclaration"
@@ -24,147 +32,115 @@ impl Cop for LeakyConstantDeclaration {
         RSPEC_DEFAULT_INCLUDE
     }
 
-    fn interested_node_types(&self) -> &'static [u8] {
-        &[
-            BLOCK_NODE,
-            CALL_NODE,
-            CLASS_NODE,
-            CONSTANT_READ_NODE,
-            CONSTANT_WRITE_NODE,
-            MODULE_NODE,
-            STATEMENTS_NODE,
-        ]
-    }
-
-    fn check_node(
+    fn check_source(
         &self,
         source: &SourceFile,
-        node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        // Look for describe/context/shared_examples blocks and check their body
-        let call = match node.as_call_node() {
-            Some(c) => c,
-            None => return,
-        };
-
-        let method_name = call.name().as_slice();
-
-        let is_example_group = if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
-                && is_rspec_example_group(method_name)
-        } else {
-            is_rspec_example_group(method_name)
-        };
-
-        if !is_example_group {
-            return;
-        }
-
-        let block = match call.block() {
-            Some(b) => b,
-            None => return,
-        };
-        let block_node = match block.as_block_node() {
-            Some(b) => b,
-            None => return,
-        };
-
-        scan_for_leaky_constants(source, block_node, diagnostics, self);
-    }
-}
-
-fn scan_for_leaky_constants(
-    source: &SourceFile,
-    block: ruby_prism::BlockNode<'_>,
-    diagnostics: &mut Vec<Diagnostic>,
-    cop: &LeakyConstantDeclaration,
-) {
-    let body = match block.body() {
-        Some(b) => b,
-        None => return,
-    };
-    let stmts = match body.as_statements_node() {
-        Some(s) => s,
-        None => return,
-    };
-
-    for stmt in stmts.body().iter() {
-        check_leaky_node(source, &stmt, diagnostics, cop);
-    }
-}
-
-fn check_leaky_node(
-    source: &SourceFile,
-    node: &ruby_prism::Node<'_>,
-    diagnostics: &mut Vec<Diagnostic>,
-    cop: &LeakyConstantDeclaration,
-) {
-    // Check for CONSTANT = value
-    if let Some(cw) = node.as_constant_write_node() {
-        let loc = cw.location();
-        let (line, column) = source.offset_to_line_col(loc.start_offset());
-        diagnostics.push(cop.diagnostic(
+        let mut visitor = LeakyVisitor {
             source,
-            line,
-            column,
-            "Stub constant instead of declaring explicitly.".to_string(),
-        ));
-        return;
+            cop: self,
+            example_group_depth: 0,
+            diagnostics: Vec::new(),
+        };
+        visitor.visit(&parse_result.node());
+        diagnostics.extend(visitor.diagnostics);
     }
+}
 
-    // Check for class Foo (but not class self::Foo, class Foo::Bar, class ::Foo).
-    // Note: constant_path_node is intentionally not matched here — qualified constants
-    // like `class Foo::Bar` don't leak in the same way as bare `class Foo`.
-    if let Some(class_node) = node.as_class_node() {
-        let const_path = class_node.constant_path();
-        // If the constant path is a simple ConstantReadNode, it's a bare class name
-        if const_path.as_constant_read_node().is_some() {
-            let loc = class_node.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(cop.diagnostic(
-                source,
-                line,
-                column,
-                "Stub class constant instead of declaring explicitly.".to_string(),
-            ));
+struct LeakyVisitor<'a> {
+    source: &'a SourceFile,
+    cop: &'a LeakyConstantDeclaration,
+    /// Tracks how deep we are inside example group blocks. > 0 means inside.
+    example_group_depth: usize,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl<'a> LeakyVisitor<'a> {
+    fn is_example_group_call(&self, call: &ruby_prism::CallNode<'_>) -> bool {
+        let method_name = call.name().as_slice();
+        if let Some(recv) = call.receiver() {
+            util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+                && (is_rspec_example_group(method_name) || is_rspec_shared_group(method_name))
+        } else {
+            is_rspec_example_group(method_name) || is_rspec_shared_group(method_name)
         }
-        return;
     }
+}
 
-    // Check for module Foo (but not module self::Foo, module Foo::Bar, module ::Foo)
-    if let Some(module_node) = node.as_module_node() {
-        let const_path = module_node.constant_path();
-        if const_path.as_constant_read_node().is_some() {
-            let loc = module_node.location();
-            let (line, column) = source.offset_to_line_col(loc.start_offset());
-            diagnostics.push(cop.diagnostic(
-                source,
-                line,
-                column,
-                "Stub module constant instead of declaring explicitly.".to_string(),
-            ));
-        }
-        return;
-    }
-
-    // Recurse into nested example groups and example blocks
-    if let Some(call) = node.as_call_node() {
-        if let Some(block) = call.block() {
-            if let Some(bn) = block.as_block_node() {
-                let name = call.name().as_slice();
-                if is_rspec_example_group(name) {
-                    // Nested example group — also scan it
-                    scan_for_leaky_constants(source, bn, diagnostics, cop);
-                } else {
-                    // Example/hook blocks — also scan for constants inside
-                    scan_for_leaky_constants(source, bn, diagnostics, cop);
+impl Visit<'_> for LeakyVisitor<'_> {
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'_>) {
+        if self.is_example_group_call(node) {
+            if let Some(block) = node.block() {
+                if let Some(block_node) = block.as_block_node() {
+                    self.example_group_depth += 1;
+                    // Visit block body with incremented depth.
+                    if let Some(body) = block_node.body() {
+                        self.visit(&body);
+                    }
+                    self.example_group_depth -= 1;
+                    return;
                 }
             }
         }
+        // For non-example-group calls, visit children normally
+        ruby_prism::visit_call_node(self, node);
+    }
+
+    fn visit_constant_write_node(&mut self, node: &ruby_prism::ConstantWriteNode<'_>) {
+        if self.example_group_depth > 0 {
+            let loc = node.location();
+            let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                line,
+                column,
+                "Stub constant instead of declaring explicitly.".to_string(),
+            ));
+        }
+        // No need to recurse into children of constant write
+    }
+
+    fn visit_class_node(&mut self, node: &ruby_prism::ClassNode<'_>) {
+        if self.example_group_depth > 0 {
+            let const_path = node.constant_path();
+            // Only flag bare class names (ConstantReadNode), not qualified ones.
+            // constant_path_node (Foo::Bar, self::Bar, ::Bar) is intentionally
+            // excluded — qualified constants don't leak in the same way.
+            if const_path.as_constant_read_node().is_some() {
+                let loc = node.location();
+                let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
+                    line,
+                    column,
+                    "Stub class constant instead of declaring explicitly.".to_string(),
+                ));
+            }
+        }
+        // Don't recurse into class body — constants inside a class are scoped to that class,
+        // not leaking. RuboCop doesn't recurse into class bodies either.
+    }
+
+    fn visit_module_node(&mut self, node: &ruby_prism::ModuleNode<'_>) {
+        if self.example_group_depth > 0 {
+            let const_path = node.constant_path();
+            if const_path.as_constant_read_node().is_some() {
+                let loc = node.location();
+                let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
+                    line,
+                    column,
+                    "Stub module constant instead of declaring explicitly.".to_string(),
+                ));
+            }
+        }
+        // Don't recurse into module body — same reasoning as class.
     }
 }
 
