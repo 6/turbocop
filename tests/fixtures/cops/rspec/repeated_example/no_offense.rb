@@ -53,3 +53,48 @@ describe 'heredoc examples' do
     RUBY
   end
 end
+
+# Tag metadata makes examples non-duplicate even with same body
+describe 'doing x' do
+  it "does x" do
+    expect(foo).to be(bar)
+  end
+
+  it "does y", :focus do
+    expect(foo).to be(bar)
+  end
+end
+
+# Repeated examples in different scopes are NOT duplicates
+describe 'doing x' do
+  it "does x" do
+    expect(foo).to be(bar)
+  end
+
+  context 'when the scope changes' do
+    it 'does not flag anything' do
+      expect(foo).to be(bar)
+    end
+  end
+end
+
+# Nested contexts with same implementation in each — NOT duplicates
+describe 'doing x' do
+  context 'context A' do
+    it "does x" do
+      expect(foo).to be(bar)
+    end
+  end
+
+  context 'context B' do
+    it "does x" do
+      expect(foo).to be(bar)
+    end
+  end
+end
+
+# its() with different block expectations
+describe 'doing x' do
+  its(:x) { is_expected.to be_present }
+  its(:x) { is_expected.to be_blank }
+end

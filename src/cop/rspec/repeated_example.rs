@@ -1,10 +1,9 @@
-use crate::cop::node_type::{
-    BLOCK_NODE, CALL_NODE, INTERPOLATED_STRING_NODE, STATEMENTS_NODE, STRING_NODE,
-};
+use crate::cop::node_type::{BLOCK_NODE, CALL_NODE};
 use crate::cop::util::{RSPEC_DEFAULT_INCLUDE, is_rspec_example};
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
+use ruby_prism::Visit;
 use std::collections::HashMap;
 
 /// RSpec/RepeatedExample: Don't repeat examples (same body) within an example group.
@@ -14,7 +13,28 @@ use std::collections::HashMap;
 /// function was skipping the first string arg (treating it as a description like `it`), but
 /// for `its`, the first string arg is the attribute accessor (e.g., `its('Server.Version')`).
 /// Fix: include the first string arg in the signature when the method is `its`.
-/// FN=893 not addressed — likely missing patterns beyond this fix.
+///
+/// **Investigation (2026-03-05):** 893 FNs and 22 FPs caused by raw source-text comparison
+/// for example body signatures. RuboCop uses AST structural equality, meaning examples with
+/// the same AST but different formatting (e.g., `do..end` vs `{ }`, different indentation,
+/// semicolons vs newlines) are correctly identified as duplicates. Raw source comparison
+/// missed all of these.
+///
+/// Root cause of FNs: identical example bodies with different whitespace/formatting produced
+/// different raw source signatures, so they were not detected as duplicates.
+///
+/// Root cause of FPs: metadata args (like `:focus` tags) were compared as raw source text
+/// which could accidentally match in edge cases.
+///
+/// Fix: replaced raw source comparison with AST-based structural fingerprinting. The new
+/// `AstFingerprinter` walks the AST recursively, emitting node type tags and literal values
+/// (strings, symbols, integers, identifiers) but ignoring whitespace and source locations.
+/// This produces a canonical representation matching RuboCop's AST equality semantics.
+///
+/// The signature now consists of:
+/// 1. Metadata args (everything after the first string description arg) — AST fingerprint
+/// 2. Block body (the implementation) — AST fingerprint
+/// 3. For `its()` calls, the first arg (attribute accessor) is also included
 pub struct RepeatedExample;
 
 impl Cop for RepeatedExample {
@@ -31,13 +51,7 @@ impl Cop for RepeatedExample {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[
-            BLOCK_NODE,
-            CALL_NODE,
-            INTERPOLATED_STRING_NODE,
-            STATEMENTS_NODE,
-            STRING_NODE,
-        ]
+        &[BLOCK_NODE, CALL_NODE]
     }
 
     fn check_node(
@@ -77,14 +91,13 @@ impl Cop for RepeatedExample {
         };
 
         // Collect examples: body_signature -> list of (line, col)
-        // Body signature = source bytes of the block body + all metadata args
         let mut body_map: HashMap<Vec<u8>, Vec<(usize, usize)>> = HashMap::new();
 
         for stmt in stmts.body().iter() {
             if let Some(c) = stmt.as_call_node() {
                 let m = c.name().as_slice();
                 if is_rspec_example(m) || m == b"its" {
-                    if let Some(sig) = example_body_signature(source, &c, m) {
+                    if let Some(sig) = example_body_signature(&c, m) {
                         let loc = c.location();
                         let (line, col) = source.offset_to_line_col(loc.start_offset());
                         body_map.entry(sig).or_default().push((line, col));
@@ -113,16 +126,23 @@ impl Cop for RepeatedExample {
     }
 }
 
-/// Build a signature from the example's block body + metadata (excluding description).
-/// Two examples with same body and metadata are duplicates.
-/// For `its()` calls, the first string arg is an attribute accessor (not a description),
-/// so it must be included in the signature to distinguish `its('x')` from `its('y')`.
-fn example_body_signature(
-    source: &SourceFile,
-    call: &ruby_prism::CallNode<'_>,
-    method_name: &[u8],
-) -> Option<Vec<u8>> {
-    let mut sig = Vec::new();
+/// Build a structural AST signature from the example's metadata + block body.
+///
+/// Two examples with the same AST structure (ignoring whitespace/formatting) and
+/// same metadata are considered duplicates, matching RuboCop's behavior.
+///
+/// RuboCop's `build_example_signature` returns `[metadata, implementation]` where:
+/// - `metadata` = args after the first string description (tags like `:focus`)
+/// - `implementation` = block body AST node
+///
+/// Both are compared using Ruby's AST structural equality.
+///
+/// For `its()` calls, the first arg (attribute accessor) is included per RuboCop behavior.
+fn example_body_signature(call: &ruby_prism::CallNode<'_>, method_name: &[u8]) -> Option<Vec<u8>> {
+    let mut fp = AstFingerprinter::new();
+
+    // Separator between metadata and body sections
+    const SECTION_SEP: u8 = 0xFF;
 
     // Include metadata args (skip the first string/symbol description if present).
     // For `its()`, the first string arg is an attribute accessor, not a description,
@@ -138,28 +158,254 @@ fn example_body_signature(
             {
                 continue;
             }
-            let loc = arg.location();
-            sig.extend_from_slice(&source.as_bytes()[loc.start_offset()..loc.end_offset()]);
-            sig.push(b',');
+            fp.fingerprint_node(arg);
+            fp.buf.push(b',');
         }
     }
 
-    // Include block body — use the entire block node's location range (do..end or {..})
-    // rather than just the StatementsNode body location, because Prism's StatementsNode
-    // location does NOT include heredoc content (heredocs are stored at call-site offsets
-    // outside the StatementsNode range). The block_node location covers everything.
+    fp.buf.push(SECTION_SEP);
+
+    // Include block body AST fingerprint
     if let Some(block) = call.block() {
         if let Some(block_node) = block.as_block_node() {
-            let loc = block_node.location();
-            sig.extend_from_slice(&source.as_bytes()[loc.start_offset()..loc.end_offset()]);
+            // Fingerprint the body (StatementsNode), not the entire block
+            // (which includes do/end or { } delimiters that differ by formatting)
+            if let Some(ref body) = block_node.body() {
+                fp.fingerprint_node(body);
+            }
         }
     }
 
-    if sig.is_empty() {
+    if fp.buf.len() <= 1 {
+        // Only the section separator — no meaningful content
         return None;
     }
 
-    Some(sig)
+    Some(fp.buf)
+}
+
+/// AST fingerprinter that produces a canonical byte representation of an AST subtree.
+///
+/// Walks the AST recursively, emitting:
+/// - Node type tag (u8) for structural comparison
+/// - Literal content for leaf nodes (string values, symbol names, integer literals, etc.)
+/// - Child count markers for composite nodes
+///
+/// This is whitespace-independent: `do\n  expr\nend` and `{ expr }` produce
+/// the same fingerprint because they have the same AST structure.
+struct AstFingerprinter {
+    buf: Vec<u8>,
+}
+
+impl AstFingerprinter {
+    fn new() -> Self {
+        Self {
+            buf: Vec::with_capacity(128),
+        }
+    }
+
+    fn fingerprint_node(&mut self, node: &ruby_prism::Node<'_>) {
+        // Emit node type tag
+        self.buf.push(crate::cop::node_type::node_type_tag(node));
+
+        // For leaf nodes with literal content, emit the content
+        // For composite nodes, the Visit traversal handles children
+        self.visit(node);
+    }
+
+    fn emit_bytes(&mut self, bytes: &[u8]) {
+        // Length-prefixed to avoid ambiguity
+        let len = bytes.len() as u32;
+        self.buf.extend_from_slice(&len.to_le_bytes());
+        self.buf.extend_from_slice(bytes);
+    }
+}
+
+impl<'pr> Visit<'pr> for AstFingerprinter {
+    // For most nodes, the default visit implementation recurses into children,
+    // and we emit the node type tag for each child we visit.
+
+    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
+        // Emit method name for method calls
+        self.emit_bytes(node.name().as_slice());
+        // Emit whether there's a call operator (&. vs .)
+        if node.call_operator_loc().is_some() {
+            self.buf.push(1);
+        } else {
+            self.buf.push(0);
+        }
+        ruby_prism::visit_call_node(self, node);
+    }
+
+    fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+        self.emit_bytes(node.unescaped());
+        ruby_prism::visit_string_node(self, node);
+    }
+
+    fn visit_symbol_node(&mut self, node: &ruby_prism::SymbolNode<'pr>) {
+        self.emit_bytes(node.unescaped());
+        ruby_prism::visit_symbol_node(self, node);
+    }
+
+    fn visit_integer_node(&mut self, node: &ruby_prism::IntegerNode<'pr>) {
+        // Use the source representation for integer values
+        self.emit_bytes(node.location().as_slice());
+        ruby_prism::visit_integer_node(self, node);
+    }
+
+    fn visit_float_node(&mut self, node: &ruby_prism::FloatNode<'pr>) {
+        self.emit_bytes(node.location().as_slice());
+        ruby_prism::visit_float_node(self, node);
+    }
+
+    fn visit_constant_read_node(&mut self, node: &ruby_prism::ConstantReadNode<'pr>) {
+        self.emit_bytes(node.name().as_slice());
+        ruby_prism::visit_constant_read_node(self, node);
+    }
+
+    fn visit_constant_path_node(&mut self, node: &ruby_prism::ConstantPathNode<'pr>) {
+        if let Some(name) = node.name() {
+            self.emit_bytes(name.as_slice());
+        }
+        ruby_prism::visit_constant_path_node(self, node);
+    }
+
+    fn visit_local_variable_read_node(&mut self, node: &ruby_prism::LocalVariableReadNode<'pr>) {
+        self.emit_bytes(node.name().as_slice());
+        ruby_prism::visit_local_variable_read_node(self, node);
+    }
+
+    fn visit_local_variable_write_node(&mut self, node: &ruby_prism::LocalVariableWriteNode<'pr>) {
+        self.emit_bytes(node.name().as_slice());
+        ruby_prism::visit_local_variable_write_node(self, node);
+    }
+
+    fn visit_instance_variable_read_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableReadNode<'pr>,
+    ) {
+        self.emit_bytes(node.name().as_slice());
+        ruby_prism::visit_instance_variable_read_node(self, node);
+    }
+
+    fn visit_instance_variable_write_node(
+        &mut self,
+        node: &ruby_prism::InstanceVariableWriteNode<'pr>,
+    ) {
+        self.emit_bytes(node.name().as_slice());
+        ruby_prism::visit_instance_variable_write_node(self, node);
+    }
+
+    fn visit_class_variable_read_node(&mut self, node: &ruby_prism::ClassVariableReadNode<'pr>) {
+        self.emit_bytes(node.name().as_slice());
+        ruby_prism::visit_class_variable_read_node(self, node);
+    }
+
+    fn visit_global_variable_read_node(&mut self, node: &ruby_prism::GlobalVariableReadNode<'pr>) {
+        self.emit_bytes(node.name().as_slice());
+        ruby_prism::visit_global_variable_read_node(self, node);
+    }
+
+    fn visit_interpolated_string_node(&mut self, node: &ruby_prism::InterpolatedStringNode<'pr>) {
+        ruby_prism::visit_interpolated_string_node(self, node);
+    }
+
+    fn visit_interpolated_symbol_node(&mut self, node: &ruby_prism::InterpolatedSymbolNode<'pr>) {
+        ruby_prism::visit_interpolated_symbol_node(self, node);
+    }
+
+    fn visit_regular_expression_node(&mut self, node: &ruby_prism::RegularExpressionNode<'pr>) {
+        self.emit_bytes(node.unescaped());
+        ruby_prism::visit_regular_expression_node(self, node);
+    }
+
+    fn visit_true_node(&mut self, _node: &ruby_prism::TrueNode<'pr>) {
+        self.buf.push(1);
+    }
+
+    fn visit_false_node(&mut self, _node: &ruby_prism::FalseNode<'pr>) {
+        self.buf.push(0);
+    }
+
+    fn visit_nil_node(&mut self, _node: &ruby_prism::NilNode<'pr>) {
+        self.buf.push(0);
+    }
+
+    fn visit_self_node(&mut self, _node: &ruby_prism::SelfNode<'pr>) {
+        self.buf.push(0);
+    }
+
+    // For block nodes, we only want to fingerprint the body, not the delimiters
+    fn visit_block_node(&mut self, node: &ruby_prism::BlockNode<'pr>) {
+        // Fingerprint parameters if present
+        if let Some(ref params) = node.parameters() {
+            self.buf.push(crate::cop::node_type::node_type_tag(params));
+            self.visit(params);
+        }
+        // Fingerprint body if present
+        if let Some(ref body) = node.body() {
+            self.buf.push(crate::cop::node_type::node_type_tag(body));
+            self.visit(body);
+        }
+    }
+
+    // For nodes we visit by default traversal, we need to emit child type tags
+    fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
+        for child in node.body().iter() {
+            self.buf.push(crate::cop::node_type::node_type_tag(&child));
+            self.visit(&child);
+        }
+    }
+
+    fn visit_arguments_node(&mut self, node: &ruby_prism::ArgumentsNode<'pr>) {
+        for child in node.arguments().iter() {
+            self.buf.push(crate::cop::node_type::node_type_tag(&child));
+            self.visit(&child);
+        }
+    }
+
+    fn visit_array_node(&mut self, node: &ruby_prism::ArrayNode<'pr>) {
+        for child in node.elements().iter() {
+            self.buf.push(crate::cop::node_type::node_type_tag(&child));
+            self.visit(&child);
+        }
+    }
+
+    fn visit_hash_node(&mut self, node: &ruby_prism::HashNode<'pr>) {
+        for child in node.elements().iter() {
+            self.buf.push(crate::cop::node_type::node_type_tag(&child));
+            self.visit(&child);
+        }
+    }
+
+    fn visit_keyword_hash_node(&mut self, node: &ruby_prism::KeywordHashNode<'pr>) {
+        for child in node.elements().iter() {
+            self.buf.push(crate::cop::node_type::node_type_tag(&child));
+            self.visit(&child);
+        }
+    }
+
+    fn visit_assoc_node(&mut self, node: &ruby_prism::AssocNode<'pr>) {
+        self.buf
+            .push(crate::cop::node_type::node_type_tag(&node.key()));
+        self.visit(&node.key());
+        self.buf
+            .push(crate::cop::node_type::node_type_tag(&node.value()));
+        self.visit(&node.value());
+    }
+
+    fn visit_parentheses_node(&mut self, node: &ruby_prism::ParenthesesNode<'pr>) {
+        // Parentheses are transparent — just visit the body
+        if let Some(ref body) = node.body() {
+            self.buf.push(crate::cop::node_type::node_type_tag(body));
+            self.visit(body);
+        }
+    }
+
+    fn visit_def_node(&mut self, node: &ruby_prism::DefNode<'pr>) {
+        self.emit_bytes(node.name().as_slice());
+        ruby_prism::visit_def_node(self, node);
+    }
 }
 
 fn is_example_group(name: &[u8]) -> bool {
