@@ -37,3 +37,31 @@ describe SameMetadata do
   before(:example, :special_case) { bar }
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/ScatteredSetup: Do not define multiple `before` hooks in the same example group (also defined on line 26).
 end
+
+# Hooks inside conditional blocks should be found via recursive search
+describe ConditionalHooks do
+  if some_condition?
+    before { setup_a }
+    ^^^^^^^^^^^^^^^^^^ RSpec/ScatteredSetup: Do not define multiple `before` hooks in the same example group (also defined on line 34).
+    before { setup_b }
+    ^^^^^^^^^^^^^^^^^^ RSpec/ScatteredSetup: Do not define multiple `before` hooks in the same example group (also defined on line 33).
+  end
+end
+
+# Hooks inside non-scope-changing method blocks should be found
+describe NestedBlocks do
+  before { direct_setup }
+  ^^^^^^^^^^^^^^^^^^^^^^^ RSpec/ScatteredSetup: Do not define multiple `before` hooks in the same example group (also defined on line 42).
+  path '/api/users' do
+    before { nested_setup }
+    ^^^^^^^^^^^^^^^^^^^^^^^ RSpec/ScatteredSetup: Do not define multiple `before` hooks in the same example group (also defined on line 40).
+  end
+end
+
+# Symbol metadata equivalent to keyword metadata
+describe MetadataEquivalence do
+  before(:each, :special_case) { foo }
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/ScatteredSetup: Do not define multiple `before` hooks in the same example group (also defined on line 49).
+  before(special_case: true) { qux }
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/ScatteredSetup: Do not define multiple `before` hooks in the same example group (also defined on line 48).
+end
