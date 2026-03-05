@@ -10,3 +10,11 @@ it do
   foo = spy("Widget")
         ^^^^^^^^^^^^^ RSpec/VerifiedDoubles: Prefer using verifying doubles over normal doubles.
 end
+it do
+  foo = double(Widget)
+        ^^^^^^^^^^^^^^ RSpec/VerifiedDoubles: Prefer using verifying doubles over normal doubles.
+end
+it do
+  foo = double(Foo::Bar)
+        ^^^^^^^^^^^^^^^^ RSpec/VerifiedDoubles: Prefer using verifying doubles over normal doubles.
+end

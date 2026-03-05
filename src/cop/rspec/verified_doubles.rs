@@ -4,10 +4,13 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// RSpec/VerifiedDoubles - flags `double(...)` and `spy(...)` calls.
+///
+/// Root cause of 606 FNs: previously only flagged when first arg was a
+/// string or symbol literal. RuboCop flags ALL double/spy calls regardless
+/// of argument type (constants, variables, etc.). Only IgnoreNameless and
+/// IgnoreSymbolicNames config keys filter them.
 pub struct VerifiedDoubles;
-
-/// Flags `double("Name")` and `spy("Name")` — prefer verified doubles
-/// like `instance_double`, `class_double`, etc.
 impl Cop for VerifiedDoubles {
     fn name(&self) -> &'static str {
         "RSpec/VerifiedDoubles"
@@ -54,17 +57,16 @@ impl Cop for VerifiedDoubles {
         }
 
         // Check arguments for name
-        let (has_name_arg, is_symbolic, is_string) = if let Some(args) = call.arguments() {
+        let (has_name_arg, is_symbolic) = if let Some(args) = call.arguments() {
             let arg_list: Vec<_> = args.arguments().iter().collect();
             if arg_list.is_empty() || arg_list[0].as_keyword_hash_node().is_some() {
-                (false, false, false)
+                (false, false)
             } else {
                 let sym = arg_list[0].as_symbol_node().is_some();
-                let str = arg_list[0].as_string_node().is_some();
-                (true, sym, str)
+                (true, sym)
             }
         } else {
-            (false, false, false)
+            (false, false)
         };
 
         // IgnoreNameless: skip doubles without a name argument
@@ -74,11 +76,6 @@ impl Cop for VerifiedDoubles {
 
         // IgnoreSymbolicNames: skip doubles with symbolic names
         if ignore_symbolic && is_symbolic {
-            return;
-        }
-
-        // Name must be a string or symbol to flag
-        if has_name_arg && !is_string && !is_symbolic {
             return;
         }
 
