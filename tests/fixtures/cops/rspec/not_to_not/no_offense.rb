@@ -3,3 +3,7 @@ it { expect(nil).not_to be_nil }
 it { expect(0).not_to eq(1) }
 it { expect(foo).to be_truthy }
 it { expect(bar).to eq(1) }
+it { is_expected.not_to be_nil }
+expect {
+  2 + 2
+}.not_to raise_error

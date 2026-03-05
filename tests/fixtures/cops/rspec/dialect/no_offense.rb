@@ -9,3 +9,13 @@ RSpec.describe 'top level' do
     expect(true).to eq(true)
   end
 end
+
+it 'raises an error' do
+  expect { subject }.to raise_error(StandardError)
+end
+
+expect { run }.to raise_error(ArgumentError, 'bad input')
+
+# Non-RSpec method named context on a receiver is fine
+request.context
+user.raise_exception

@@ -4,7 +4,106 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Enforces custom RSpec dialects via the `PreferredMethods` config.
+///
+/// RuboCop's matcher is `(send #rspec? #ALL.all ...)` which matches any
+/// `send` node (no block required) where the receiver is nil/RSpec/::RSpec
+/// and the method name is in the Language `ALL` module (union of all RSpec
+/// DSL categories).
+///
+/// ## Bug fixes (2026-03-05)
+/// 1. **Removed block requirement**: The original implementation required
+///    `call.block().is_some()`, but RuboCop's `(send ...)` matcher does NOT
+///    require a block. Error matchers like `raise_exception(StandardError)`
+///    have args but no block, and many other RSpec DSL calls (expectations,
+///    runners, includes) also lack blocks.
+/// 2. **Added ALL methods check**: Added the full set of RSpec Language DSL
+///    methods (from `ALL.all`) to match RuboCop's behavior. This includes
+///    error matchers (`raise_error`, `raise_exception`), expectations
+///    (`expect`, `is_expected`), runners (`to`, `to_not`, `not_to`),
+///    includes, hooks, helpers, subjects, and all example group/example
+///    variants.
 pub struct Dialect;
+
+/// All RSpec DSL method names from RuboCop's `RSpec::Language::ALL.all`.
+/// This is the union of ExampleGroups, Examples, Expectations, Helpers,
+/// Hooks, ErrorMatchers, Includes, SharedGroups, Subjects, and Runners.
+const RSPEC_ALL_METHODS: &[&str] = &[
+    // ExampleGroups - Regular
+    "describe",
+    "context",
+    "feature",
+    "example_group",
+    // ExampleGroups - Skipped
+    "xdescribe",
+    "xcontext",
+    "xfeature",
+    // ExampleGroups - Focused
+    "fdescribe",
+    "fcontext",
+    "ffeature",
+    // Examples - Regular
+    "it",
+    "specify",
+    "example",
+    "scenario",
+    "its",
+    // Examples - Focused
+    "fit",
+    "fspecify",
+    "fexample",
+    "fscenario",
+    "focus",
+    // Examples - Skipped
+    "xit",
+    "xspecify",
+    "xexample",
+    "xscenario",
+    "skip",
+    // Examples - Pending
+    "pending",
+    // Expectations
+    "are_expected",
+    "expect",
+    "expect_any_instance_of",
+    "is_expected",
+    "should",
+    "should_not",
+    "should_not_receive",
+    "should_receive",
+    // Helpers
+    "let",
+    "let!",
+    // Hooks
+    "prepend_before",
+    "before",
+    "append_before",
+    "around",
+    "prepend_after",
+    "after",
+    "append_after",
+    // ErrorMatchers
+    "raise_error",
+    "raise_exception",
+    // Includes - Examples
+    "it_behaves_like",
+    "it_should_behave_like",
+    "include_examples",
+    // Includes - Context
+    "include_context",
+    // SharedGroups - Examples
+    "shared_examples",
+    "shared_examples_for",
+    // SharedGroups - Context
+    "shared_context",
+    // Subjects
+    "subject",
+    "subject!",
+    // Runners
+    "to",
+    "to_not",
+    "not_to",
+];
 
 impl Cop for Dialect {
     fn name(&self) -> &'static str {
@@ -41,16 +140,16 @@ impl Cop for Dialect {
             None => return,
         };
 
-        // Must have a block to be an RSpec DSL call
-        if call.block().is_none() {
-            return;
-        }
-
         let method_name = call.name().as_slice();
         let method_str = match std::str::from_utf8(method_name) {
             Ok(s) => s,
             Err(_) => return,
         };
+
+        // Must be a known RSpec DSL method (matches RuboCop's #ALL.all check)
+        if !RSPEC_ALL_METHODS.contains(&method_str) {
+            return;
+        }
 
         // Read PreferredMethods from config. RuboCop default is empty — no aliases
         // are enforced unless explicitly configured.
@@ -122,7 +221,7 @@ mod tests {
         crate::testutil::assert_cop_offenses_full_with_config(
             &Dialect,
             include_bytes!("../../../tests/fixtures/cops/rspec/dialect/offense.rb"),
-            config_with_preferred(&[("context", "describe")]),
+            config_with_preferred(&[("context", "describe"), ("raise_exception", "raise_error")]),
         );
     }
 
@@ -131,7 +230,7 @@ mod tests {
         crate::testutil::assert_cop_no_offenses_full_with_config(
             &Dialect,
             include_bytes!("../../../tests/fixtures/cops/rspec/dialect/no_offense.rb"),
-            config_with_preferred(&[("context", "describe")]),
+            config_with_preferred(&[("context", "describe"), ("raise_exception", "raise_error")]),
         );
     }
 

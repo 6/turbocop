@@ -4,6 +4,12 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// RSpec/NotToNot - Checks for consistent method usage for negating expectations.
+///
+/// RuboCop's matcher is `(send _ % ...)` where `_` matches ANY receiver,
+/// not just `expect()`. This means `not_to`/`to_not` is flagged on any
+/// receiver (e.g., `expect(x).to_not`, `expect { ... }.to_not`, or even
+/// chained calls), as long as a receiver is present.
 pub struct NotToNot;
 
 impl Cop for NotToNot {
@@ -53,20 +59,9 @@ impl Cop for NotToNot {
             }
         }
 
-        // Verify receiver is an expect call
-        let receiver = match call.receiver() {
-            Some(r) => r,
-            None => return,
-        };
-
-        // The receiver should be an expect(...) call or an expect block
-        let is_expect_receiver = if let Some(recv_call) = receiver.as_call_node() {
-            recv_call.name().as_slice() == b"expect" && recv_call.receiver().is_none()
-        } else {
-            false
-        };
-
-        if !is_expect_receiver {
+        // RuboCop's matcher is `(send _ % ...)` — `_` matches any receiver,
+        // not just `expect()`. Only require that a receiver exists.
+        if call.receiver().is_none() {
             return;
         }
 
