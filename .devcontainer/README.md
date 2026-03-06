@@ -64,3 +64,7 @@ Note: `git log --show-signature` will say "No signature" locally because SSH sig
 **`ssh-add -L` returns "Permission denied"** — run `sudo chmod 666 /ssh-agent` (the `postStartCommand` should do this automatically).
 
 **`ssh-add -L` returns "Error connecting to agent"** — the socket mount failed. Ensure Docker Desktop is running.
+
+**Tools missing or container in a broken state** — rebuild from scratch: `devcontainer up --workspace-folder . --remove-existing-container`
+
+**Git worktrees** — Claude Code creates worktrees at `.claude/worktrees/` inside the workspace bind mount, which works. Sibling worktrees (`../foo`) will fail because `/workspaces/` is root-owned. This is not an issue for normal Claude Code usage.

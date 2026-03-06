@@ -47,8 +47,12 @@ mise use -g node@lts
 mise install
 mise reshim
 
+# Persist mise to zsh: PATH in .zshenv (all shells), activation in .zshrc (interactive)
+echo 'export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$PATH"' >> ~/.zshenv
+echo 'eval "$(~/.local/bin/mise activate zsh)"' >> ~/.zshrc
+
 # AI coding assistants
-timeout 30 bash -c 'curl -fsSL https://claude.ai/install.sh | bash' || echo "Warning: claude install failed (network issue?), skipping"
+curl -fsSL https://claude.ai/install.sh | bash
 timeout 30 npm install -g @openai/codex || echo "Warning: codex install failed (network issue?), skipping"
 
 # Claude Code config
