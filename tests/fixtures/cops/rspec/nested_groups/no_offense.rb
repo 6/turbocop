@@ -126,3 +126,16 @@ RSpec.shared_context 'with setup' do
     end
   end
 end
+
+# Conditional wrappers should not be traversed for nesting checks.
+describe FeatureFlaggedFlow do
+  context 'with feature enabled' do
+    if feature_enabled?
+      context 'step one' do
+        context 'step two' do
+          it { expect(result).to be_success }
+        end
+      end
+    end
+  end
+end

@@ -1,5 +1,3 @@
-use ruby_prism::Visit;
-
 use crate::cop::node_type::PROGRAM_NODE;
 use crate::cop::util::{
     self, RSPEC_DEFAULT_INCLUDE, is_rspec_example_group, is_rspec_shared_group,
@@ -21,6 +19,21 @@ use crate::parse::source::SourceFile;
 /// 3. FNs: `RSpec.feature` and other example group methods with `RSpec.` prefix were
 ///    not recognized as example groups. Only `RSpec.describe` was handled. Fix: accept
 ///    any `is_rspec_example_group` method name with `RSpec` receiver.
+///
+/// ## Corpus investigation (2026-03-07)
+///
+/// Corpus oracle reported FP=218, FN=0.
+///
+/// FP=218 root cause: traversal descended into conditional wrappers (`if`, `unless`, etc.),
+/// so example groups nested inside those branches were counted. RuboCop only recurses
+/// through `:block` and `:begin` descendants for this cop, so groups under conditionals
+/// are intentionally ignored.
+///
+/// Fix: replace generic AST visitor traversal with a RuboCop-aligned walker that
+/// recurses only through call nodes with blocks (Prism equivalent of Parser `:block`)
+/// and explicit `BeginNode` wrappers.
+///
+/// FN=0: no missed-detection change expected from this fix.
 pub struct NestedGroups;
 
 impl Cop for NestedGroups {
@@ -44,7 +57,7 @@ impl Cop for NestedGroups {
         &self,
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
-        parse_result: &ruby_prism::ParseResult<'_>,
+        _parse_result: &ruby_prism::ParseResult<'_>,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
@@ -64,26 +77,12 @@ impl Cop for NestedGroups {
         let stmts: Vec<_> = program.statements().body().iter().collect();
         if stmts.len() == 1 {
             // Single top-level statement: unwrap module/class wrappers
-            self.check_top_level_node(
-                source,
-                &stmts[0],
-                parse_result,
-                max,
-                &allowed_groups,
-                diagnostics,
-            );
+            self.check_top_level_node(source, &stmts[0], max, &allowed_groups, diagnostics);
         } else {
             // Multiple top-level statements (e.g., require + module):
             // only check direct children for spec groups, no unwrapping
             for stmt in &stmts {
-                self.check_direct_spec_group(
-                    source,
-                    stmt,
-                    parse_result,
-                    max,
-                    &allowed_groups,
-                    diagnostics,
-                );
+                self.check_direct_spec_group(source, stmt, max, &allowed_groups, diagnostics);
             }
         }
     }
@@ -97,7 +96,6 @@ impl NestedGroups {
         &self,
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
-        parse_result: &ruby_prism::ParseResult<'_>,
         max: usize,
         allowed_groups: &[String],
         diagnostics: &mut Vec<Diagnostic>,
@@ -107,14 +105,7 @@ impl NestedGroups {
             Some(c) => c,
             None => return,
         };
-        self.process_spec_group_call(
-            source,
-            &call,
-            parse_result,
-            max,
-            allowed_groups,
-            diagnostics,
-        );
+        self.process_spec_group_call(source, &call, max, allowed_groups, diagnostics);
     }
 
     /// Check a top-level AST node for spec groups. Recurses into
@@ -124,7 +115,6 @@ impl NestedGroups {
         &self,
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
-        parse_result: &ruby_prism::ParseResult<'_>,
         max: usize,
         allowed_groups: &[String],
         diagnostics: &mut Vec<Diagnostic>,
@@ -134,14 +124,7 @@ impl NestedGroups {
             if let Some(body) = module_node.body() {
                 if let Some(stmts) = body.as_statements_node() {
                     for stmt in stmts.body().iter() {
-                        self.check_top_level_node(
-                            source,
-                            &stmt,
-                            parse_result,
-                            max,
-                            allowed_groups,
-                            diagnostics,
-                        );
+                        self.check_top_level_node(source, &stmt, max, allowed_groups, diagnostics);
                     }
                 }
             }
@@ -151,14 +134,7 @@ impl NestedGroups {
             if let Some(body) = class_node.body() {
                 if let Some(stmts) = body.as_statements_node() {
                     for stmt in stmts.body().iter() {
-                        self.check_top_level_node(
-                            source,
-                            &stmt,
-                            parse_result,
-                            max,
-                            allowed_groups,
-                            diagnostics,
-                        );
+                        self.check_top_level_node(source, &stmt, max, allowed_groups, diagnostics);
                     }
                 }
             }
@@ -170,14 +146,7 @@ impl NestedGroups {
             Some(c) => c,
             None => return,
         };
-        self.process_spec_group_call(
-            source,
-            &call,
-            parse_result,
-            max,
-            allowed_groups,
-            diagnostics,
-        );
+        self.process_spec_group_call(source, &call, max, allowed_groups, diagnostics);
     }
 
     /// Process a call node that may be a spec group (describe, shared_examples, etc.)
@@ -186,7 +155,6 @@ impl NestedGroups {
         &self,
         source: &SourceFile,
         call: &ruby_prism::CallNode<'pr>,
-        parse_result: &ruby_prism::ParseResult<'pr>,
         max: usize,
         allowed_groups: &[String],
         diagnostics: &mut Vec<Diagnostic>,
@@ -239,96 +207,95 @@ impl NestedGroups {
                 depth: initial_depth,
                 diagnostics,
                 cop: self,
-                parse_result,
                 allowed_groups,
             };
-            visitor.visit(&body);
+            visitor.walk_nested_groups(&body);
         }
     }
 }
 
-struct NestingVisitor<'a, 'pr> {
+struct NestingVisitor<'a> {
     source: &'a SourceFile,
     max: usize,
     depth: usize,
     diagnostics: &'a mut Vec<Diagnostic>,
     cop: &'a NestedGroups,
-    #[allow(dead_code)]
-    parse_result: &'a ruby_prism::ParseResult<'pr>,
     allowed_groups: &'a [String],
 }
 
-impl<'pr> Visit<'pr> for NestingVisitor<'_, 'pr> {
-    fn visit_call_node(&mut self, node: &ruby_prism::CallNode<'pr>) {
-        let method_name = node.name().as_slice();
+impl NestingVisitor<'_> {
+    fn walk_nested_groups<'pr>(&mut self, node: &ruby_prism::Node<'pr>) {
+        if let Some(stmts) = node.as_statements_node() {
+            for stmt in stmts.body().iter() {
+                self.walk_block_or_begin(&stmt);
+            }
+            return;
+        }
 
-        // Shared group definitions (shared_examples, shared_context) do NOT
-        // increment nesting depth — they define reusable groups with their own
-        // independent scope.  Recurse into their block body at the SAME depth.
-        let is_shared = if node.receiver().is_none() {
+        self.walk_block_or_begin(node);
+    }
+
+    fn walk_block_or_begin<'pr>(&mut self, node: &ruby_prism::Node<'pr>) {
+        if let Some(begin_node) = node.as_begin_node() {
+            if let Some(stmts) = begin_node.statements() {
+                for stmt in stmts.body().iter() {
+                    self.walk_block_or_begin(&stmt);
+                }
+            }
+            return;
+        }
+
+        let call = match node.as_call_node() {
+            Some(call) => call,
+            None => return,
+        };
+        let block = match call.block().and_then(|b| b.as_block_node()) {
+            Some(block) => block,
+            None => return,
+        };
+
+        let method_name = call.name().as_slice();
+        let is_shared = if call.receiver().is_none() {
             is_rspec_shared_group(method_name)
         } else {
-            util::constant_name(&node.receiver().unwrap()).is_some_and(|n| n == b"RSpec")
+            util::constant_name(&call.receiver().unwrap()).is_some_and(|n| n == b"RSpec")
                 && is_rspec_shared_group(method_name)
         };
-        if is_shared {
-            if let Some(block) = node.block() {
-                if let Some(bn) = block.as_block_node() {
-                    if let Some(body) = bn.body() {
-                        self.visit(&body);
-                    }
+
+        // Non-shared example groups count toward nesting depth unless allowed.
+        // This matches RuboCop's `count_up_nesting?` logic on block nodes.
+        let mut next_depth = self.depth;
+        if !is_shared {
+            let is_allowed = self
+                .allowed_groups
+                .iter()
+                .any(|group| group.as_bytes() == method_name);
+            if call.receiver().is_none() && is_rspec_example_group(method_name) && !is_allowed {
+                next_depth += 1;
+                if next_depth > self.max {
+                    let loc = call.location();
+                    let (line, column) = self.source.offset_to_line_col(loc.start_offset());
+                    self.diagnostics.push(self.cop.diagnostic(
+                        self.source,
+                        line,
+                        column,
+                        format!(
+                            "Maximum example group nesting exceeded [{next_depth}/{}].",
+                            self.max
+                        ),
+                    ));
                 }
             }
-            return;
         }
 
-        // Only count receiverless example group calls WITH a block as nesting.
-        // RuboCop's find_nested_example_groups only recurses into :block and :begin
-        // children, so bare calls like `context` (a variable reference) or
-        // `context(...)` without a block are never matched as example groups.
-        let is_allowed = self
-            .allowed_groups
-            .iter()
-            .any(|g| g.as_bytes() == method_name);
-        let has_block = node.block().is_some_and(|b| b.as_block_node().is_some());
-        if node.receiver().is_none()
-            && is_rspec_example_group(method_name)
-            && !is_allowed
-            && has_block
-        {
-            let new_depth = self.depth + 1;
-
-            if new_depth > self.max {
-                let loc = node.location();
-                let (line, column) = self.source.offset_to_line_col(loc.start_offset());
-                self.diagnostics.push(self.cop.diagnostic(
-                    self.source,
-                    line,
-                    column,
-                    format!(
-                        "Maximum example group nesting exceeded [{new_depth}/{}].",
-                        self.max
-                    ),
-                ));
-            }
-
-            // Recurse into the block body with incremented depth
-            if let Some(block) = node.block() {
-                if let Some(bn) = block.as_block_node() {
-                    if let Some(body) = bn.body() {
-                        let old_depth = self.depth;
-                        self.depth = new_depth;
-                        self.visit(&body);
-                        self.depth = old_depth;
-                    }
-                }
-            }
-            // Don't call default visit since we handled recursion
-            return;
+        // RuboCop recurses only through :block and :begin children.
+        // In Prism, block statements are represented as call nodes with block bodies.
+        if let Some(body) = block.body() {
+            let old_depth = self.depth;
+            self.depth = next_depth;
+            self.walk_nested_groups(&body);
+            self.depth = old_depth;
         }
-
-        // For non-example-group calls, recurse into their blocks
-        ruby_prism::visit_call_node(self, node);
     }
 }
 
