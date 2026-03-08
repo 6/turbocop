@@ -1,8 +1,8 @@
 use ruby_prism::Visit;
 
 use crate::cop::node_type::{
-    BLOCK_NODE, CALL_NODE, CASE_MATCH_NODE, CASE_NODE, DEF_NODE, ELSE_NODE, IF_NODE,
-    LOCAL_VARIABLE_READ_NODE, UNLESS_NODE,
+    BLOCK_NODE, CALL_NODE, CASE_NODE, DEF_NODE, ELSE_NODE, IF_NODE, LOCAL_VARIABLE_READ_NODE,
+    UNLESS_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
@@ -30,6 +30,18 @@ use crate::parse::source::SourceFile;
 /// Remaining gaps:
 /// - Additional FN remain and require follow-up investigation on other
 ///   constructs beyond rescue modifiers.
+///
+/// ## FP fixes (2026-03-08)
+///
+/// Bug 1: KNOWN_ITERATING_METHODS had 6 extra methods not in RuboCop's
+/// canonical list (each_line, each_byte, each_char, each_codepoint, rindex,
+/// sort_by!). These caused false positives by over-counting block complexity.
+/// Removed to match vendor/rubocop/lib/rubocop/cop/metrics/utils/iterating_block.rb.
+///
+/// Bug 2: CaseMatchNode (case/in pattern matching) was double-counted.
+/// RuboCop's COUNTED_NODES includes :in_pattern but NOT :case_match, so each
+/// InNode gets +1 individually without a CaseMatchNode formula on top.
+/// Removed the CaseMatchNode arm from count_node() and interested_node_types.
 pub struct PerceivedComplexity;
 
 /// Known iterating method names that make blocks count toward complexity.
@@ -112,7 +124,6 @@ const KNOWN_ITERATING_METHODS: &[&[u8]] = &[
     b"repeated_combination",
     b"select!",
     b"sort!",
-    b"sort_by!",
     // Hash
     b"each_key",
     b"each_pair",
@@ -126,12 +137,6 @@ const KNOWN_ITERATING_METHODS: &[&[u8]] = &[
     b"transform_keys!",
     b"transform_values",
     b"transform_values!",
-    // Extra common methods not in RuboCop's list but often seen
-    b"each_line",
-    b"each_byte",
-    b"each_char",
-    b"each_codepoint",
-    b"rindex",
 ];
 
 #[derive(Default)]
@@ -199,21 +204,6 @@ impl PerceivedCounter {
                         self.complexity += ((nb_branches as f64 * 0.2) + 0.8).round() as usize;
                     } else {
                         // case; when ... -> each when counts
-                        self.complexity += nb_branches;
-                    }
-                }
-            }
-
-            // case/in (pattern matching) - similar to case/when
-            ruby_prism::Node::CaseMatchNode { .. } => {
-                if let Some(case_match) = node.as_case_match_node() {
-                    let nb_ins = case_match.conditions().iter().count();
-                    let has_else = case_match.else_clause().is_some();
-                    let nb_branches = nb_ins + if has_else { 1 } else { 0 };
-
-                    if case_match.predicate().is_some() {
-                        self.complexity += ((nb_branches as f64 * 0.2) + 0.8).round() as usize;
-                    } else {
                         self.complexity += nb_branches;
                     }
                 }
@@ -341,7 +331,6 @@ impl Cop for PerceivedComplexity {
         &[
             BLOCK_NODE,
             CALL_NODE,
-            CASE_MATCH_NODE,
             CASE_NODE,
             DEF_NODE,
             ELSE_NODE,

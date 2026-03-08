@@ -114,3 +114,64 @@ def method_with_non_iterating_block_pass(items)
     1
   end
 end
+
+# each_line, each_byte, each_char, each_codepoint, rindex are NOT in
+# RuboCop's KNOWN_ITERATING_METHODS — blocks on these should not count.
+# sort_by! (with bang) is also not in the canonical list (sort_by without bang IS).
+# With Max:8 (default), base 1 + 7 ifs = 8 <= 8. If each_line block were
+# counted, it would be 9 > 8 and fire.
+def method_with_non_iterating_each_line(data)
+  if data.nil?
+    return
+  end
+  if data.empty?
+    return
+  end
+  data.each_line { |line| process(line) }
+  data.each_byte { |b| handle(b) }
+  data.each_char { |c| check(c) }
+  data.each_codepoint { |cp| validate(cp) }
+  data.rindex { |x| x > 0 }
+  [3, 1, 2].sort_by! { |x| -x }
+  if data.length > 10
+    1
+  end
+  if data.length > 20
+    2
+  end
+  if data.length > 30
+    3
+  end
+  if data.length > 40
+    4
+  end
+  if data.length > 50
+    5
+  end
+end
+
+# case/in pattern matching should not double-count.
+# RuboCop counts each `in` branch as +1 individually (no CaseMatchNode formula).
+# With Max:8 (default), base 1 + 3 ifs + 3 in-branches = 7 <= 8.
+# If CaseMatchNode formula were also applied (0.8 + 0.2*3 = 1.4 -> 1), it
+# would add an extra +1 making it 8, and with the individual in-branches
+# that would be double-counted.
+def method_with_case_in(value)
+  if value.nil?
+    return
+  end
+  if value.empty?
+    return
+  end
+  if value.frozen?
+    return
+  end
+  case value
+  in Integer => n
+    n
+  in String => s
+    s
+  in Array => a
+    a
+  end
+end
