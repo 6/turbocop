@@ -5,6 +5,21 @@ use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// ## Corpus investigation (2026-03-08)
+///
+/// Corpus oracle reported FP=2, FN=1.
+///
+/// FP=2: repeated requires whose return values are consumed by different
+/// wrappers (`assert require(...)`, `result = require ...`) are not duplicates
+/// in RuboCop because it keys them by the immediate parent node.
+/// FN=1: `Kernel.require` and non-string first arguments are not covered by the
+/// current implementation.
+///
+/// Attempted fix: key duplicates by a surrogate immediate-parent location,
+/// support `Kernel.require`, and track the first argument source. That made the
+/// targeted fixtures pass but regressed the corpus badly (`Expected 48`,
+/// `Actual 60`, `Excess 12` on a 2026-03-08 rerun). A correct fix likely needs
+/// a more faithful parent-identity model than location-only keys.
 pub struct DuplicateRequire;
 
 impl Cop for DuplicateRequire {
