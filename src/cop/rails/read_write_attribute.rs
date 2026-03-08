@@ -4,6 +4,11 @@ use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 use ruby_prism::Visit;
 
+/// ## Corpus investigation (2026-03-07)
+///
+/// FP=1, FN=0 per corpus oracle. Could not reproduce locally — check-cop.py
+/// shows PASS (0 excess). The single FP was likely a config-dependent artifact
+/// (e.g., repo-specific Exclude/Include overrides not replicated locally).
 pub struct ReadWriteAttribute;
 
 impl Cop for ReadWriteAttribute {
