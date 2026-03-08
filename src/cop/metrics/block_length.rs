@@ -45,6 +45,30 @@ use crate::parse::source::SourceFile;
 /// matching RuboCop's `source_from_node_with_heredoc` algorithm.
 ///
 /// Result: FP=0, FN=0 (within file-drop noise).
+///
+/// ## Corpus investigation (2026-03-08)
+///
+/// Corpus oracle reported FP=28, FN=193.
+///
+/// FN root cause identified: `heredoc_descendant_max_line` only tracked end
+/// lines for StringNode and InterpolatedStringNode descendants. When a block
+/// body contained heredocs AND code after the heredoc, the descendant max line
+/// was set to the heredoc terminator line, cutting off subsequent code lines.
+///
+/// An attempt was made to rewrite `heredoc_descendant_max_line` to track ALL
+/// descendant node end lines (commit 15aeae64, reverted). The approach used
+/// visit_branch_node_enter/visit_leaf_node_enter callbacks with depth tracking
+/// to exclude the root body node (matching Parser's each_descendant semantics).
+///
+/// The fix was reverted because corpus validation produced catastrophic 130K
+/// offenses (vs 19K expected). Root cause of the regression was missing bundle
+/// symlinks in the worktree (bench/corpus/vendor/bundle), causing nitrocop to
+/// fall back to hardcoded defaults for ALL cops, not just BlockLength. The fix
+/// itself was never validated in a proper environment.
+///
+/// A correct fix should: (1) rewrite heredoc_descendant_max_line to track all
+/// descendant types, (2) validate in an environment with proper corpus bundle
+/// symlinks, (3) handle the Parser each_descendant root-exclusion semantics.
 pub struct BlockLength;
 
 impl Cop for BlockLength {

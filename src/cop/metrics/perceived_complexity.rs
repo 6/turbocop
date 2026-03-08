@@ -42,6 +42,28 @@ use crate::parse::source::SourceFile;
 /// RuboCop's COUNTED_NODES includes :in_pattern but NOT :case_match, so each
 /// InNode gets +1 individually without a CaseMatchNode formula on top.
 /// Removed the CaseMatchNode arm from count_node() and interested_node_types.
+///
+/// ## Corpus investigation (2026-03-08)
+///
+/// Corpus oracle reported FP=53, FN=397.
+///
+/// FN root cause identified: if/elsif scoring. In RuboCop (Parser gem),
+/// `if...elsif...end` scores the outer `if` as +2 because Parser's `loc.else`
+/// points to the `elsif` keyword, making `node.else?` return true. nitrocop
+/// only scored +2 when the subsequent was an ElseNode, missing the elsif case.
+///
+/// An attempt was made to fix this by scoring +2 for any non-ternary,
+/// non-elsif IfNode with any subsequent (commit 044592b8, reverted).
+/// The fix correctly detects elsif via `if_keyword_loc().as_slice() == b"elsif"`.
+/// However, when combined with the corpus environment (missing bundle symlinks
+/// in worktree caused false 130K readings on BlockLength, masking the true
+/// PerceivedComplexity validation). When re-validated with proper env, the fix
+/// showed 0 excess over CI baseline and reduced FN from 397 to 241 (156 recovered).
+///
+/// The fix was reverted during batch integration due to initial false FAIL readings.
+/// It should be re-applied and re-validated in a follow-up batch. The approach is
+/// correct: score +2 for top-level `if` with any subsequent, +1 for elsif always.
+/// Remaining 241 FN likely have other root causes (not if/elsif related).
 pub struct PerceivedComplexity;
 
 /// Known iterating method names that make blocks count toward complexity.
