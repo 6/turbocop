@@ -3,6 +3,15 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Corpus investigation (2026-03-07):
+/// Root cause of 12 FPs: two bugs in the hand-rolled `has_mixed_captures()` parser.
+/// 1. Conditional backreferences `(?(<name>)...)` / `(?('name')...)` — the inner
+///    `(<name>)` was falsely counted as a numbered capture group (4 FPs: jruby, natalie).
+/// 2. Extended-mode (`/x`) comments containing parentheses — `# comment (example)`
+///    was parsed as containing a numbered capture (8 FPs: dependabot, kamal, dotenv,
+///    huginn, ruby-git, rdoc, roadie).
+/// Fix: skip conditional backreference conditions after `(?(`, and strip `#`-comments
+/// in extended mode before scanning.
 pub struct MixedRegexpCaptureTypes;
 
 impl Cop for MixedRegexpCaptureTypes {
@@ -48,7 +57,11 @@ impl Cop for MixedRegexpCaptureTypes {
             return;
         }
 
-        if has_mixed_captures(content_str) {
+        // Check for /x (extended) flag — comments may contain parens
+        let closing = regexp.closing_loc().as_slice();
+        let extended = closing.contains(&b'x');
+
+        if has_mixed_captures(content_str, extended) {
             let loc = regexp.location();
             let (line, column) = source.offset_to_line_col(loc.start_offset());
             diagnostics.push(self.diagnostic(
@@ -62,7 +75,8 @@ impl Cop for MixedRegexpCaptureTypes {
 }
 
 /// Check if a regexp pattern has both named and numbered (unnamed) capture groups.
-fn has_mixed_captures(pattern: &str) -> bool {
+/// When `extended` is true (the `/x` flag), `#` starts a comment to end of line.
+fn has_mixed_captures(pattern: &str, extended: bool) -> bool {
     let mut has_named = false;
     let mut has_numbered = false;
 
@@ -74,6 +88,14 @@ fn has_mixed_captures(pattern: &str) -> bool {
         if bytes[i] == b'\\' {
             // Skip escaped characters
             i += 2;
+            continue;
+        }
+
+        // In extended mode, `#` starts a comment to end of line
+        if extended && bytes[i] == b'#' {
+            while i < len && bytes[i] != b'\n' {
+                i += 1;
+            }
             continue;
         }
 
@@ -107,6 +129,20 @@ fn has_mixed_captures(pattern: &str) -> bool {
                 // Look at what follows `(?`
                 if i + 2 < len {
                     match bytes[i + 2] {
+                        b'(' => {
+                            // Conditional backreference `(?(name)...)` or `(?(<name>)...)`
+                            // or `(?('name')...)` — skip the condition part entirely.
+                            // The condition ends at the next `)`.
+                            i += 3;
+                            while i < len && bytes[i] != b')' {
+                                i += 1;
+                            }
+                            // Skip the closing `)` of the condition
+                            if i < len {
+                                i += 1;
+                            }
+                            continue;
+                        }
                         b'<' => {
                             // Could be named capture `(?<name>...)` or lookbehind `(?<=...)` / `(?<!...)`
                             if i + 3 < len && bytes[i + 3] != b'=' && bytes[i + 3] != b'!' {
