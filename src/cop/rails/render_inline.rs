@@ -4,6 +4,11 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-07)
+///
+/// FP=42, FN=0. All FPs from `renderer.render(inline: ...)` or `@view.render(inline: ...)`
+/// where the render call has an explicit receiver. RuboCop's pattern uses `(send nil? :render ...)`
+/// which only matches bare render calls (no receiver). Fixed by adding receiver check.
 pub struct RenderInline;
 
 impl Cop for RenderInline {
@@ -33,6 +38,10 @@ impl Cop for RenderInline {
             None => return,
         };
         if call.name().as_slice() != b"render" {
+            return;
+        }
+        // RuboCop only flags bare render calls (no receiver)
+        if call.receiver().is_some() {
             return;
         }
         if keyword_arg_value(&call, b"inline").is_none() {
