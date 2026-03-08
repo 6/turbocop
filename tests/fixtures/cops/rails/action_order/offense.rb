@@ -31,3 +31,16 @@ class OrdersController < ApplicationController
   ^^^ Rails/ActionOrder: Action `edit` should appear before `update` in the controller.
   end
 end
+
+class ConditionalController < BaseController
+  unless Rails.env.development?
+    def edit
+    end
+  end
+
+  if Rails.env.development?
+    def index
+    ^^^ Rails/ActionOrder: Action `index` should appear before `edit` in the controller.
+    end
+  end
+end
