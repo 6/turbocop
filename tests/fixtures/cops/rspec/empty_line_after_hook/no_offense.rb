@@ -23,3 +23,20 @@ RSpec.describe Widget do
 
   let(:widget) { create(:widget) }
 end
+
+RSpec.describe Dataset do
+  before { File.write(path, <<~CSV) }
+    content,expected_output
+    call this number for free money,true
+  CSV
+
+  let(:path) { "dataset.csv" }
+end
+
+class Minitest::Spec
+  after :each do
+    DatabaseCleaner.clean
+  end
+
+  include FactoryHelpers
+end

@@ -45,3 +45,28 @@ describe Service do
     end
   end
 end
+
+RSpec.describe Credentials do
+  before { write_file(".chef/credentials", <<~TEXT) }
+    [default]
+    client_name = "testuser"
+  TEXT
+  ^^^^ RSpec/EmptyLineAfterHook: Add an empty line after `before`.
+  it { does_something }
+end
+
+RSpec.describe Profile do
+  # rubocop:disable RSpec/Foo
+  before { setup_profile }
+  # rubocop:enable RSpec/Foo
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/EmptyLineAfterHook: Add an empty line after `before`.
+  let(:profile) { :default }
+end
+
+class Minitest::Spec
+  after :each do
+    DatabaseCleaner.clean
+  end
+  ^^^ RSpec/EmptyLineAfterHook: Add an empty line after `after`.
+  include FactoryHelpers
+end
