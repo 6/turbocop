@@ -190,6 +190,7 @@ fn is_setter_method(name: &[u8]) -> bool {
 fn is_constructor(node: &ruby_prism::Node<'_>) -> bool {
     // Literals
     if node.as_hash_node().is_some()
+        || node.as_keyword_hash_node().is_some()
         || node.as_array_node().is_some()
         || node.as_string_node().is_some()
         || node.as_integer_node().is_some()
