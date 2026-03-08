@@ -1,10 +1,16 @@
 use crate::cop::node_type::{
-    BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, MODULE_NODE, STATEMENTS_NODE,
+    BEGIN_NODE, BLOCK_NODE, CALL_NODE, CLASS_NODE, DEF_NODE, ELSE_NODE, FOR_NODE, IF_NODE, IN_NODE,
+    MODULE_NODE, STATEMENTS_NODE, UNLESS_NODE, UNTIL_NODE, WHEN_NODE, WHILE_NODE,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Layout/IndentationConsistency checks that the body of each construct
+/// (class, module, def, block, if, unless, case/when, while, until, for, begin)
+/// uses consistent indentation. All statements within a body must start at
+/// the same column. The `indented_internal_methods` style only applies to
+/// class/module/block bodies, not to if/while/etc.
 pub struct IndentationConsistency;
 
 /// Check if a node is a bare access modifier call (private, protected, public with no args).
@@ -60,6 +66,36 @@ impl IndentationConsistency {
         } else {
             self.check_flat(source, &children, kw_line)
         }
+    }
+
+    /// Check consistency of a StatementsNode body (used for if/unless/when/while/etc
+    /// where we get Option<StatementsNode> directly rather than Option<Node>).
+    fn check_statements_consistency(
+        &self,
+        source: &SourceFile,
+        keyword_offset: usize,
+        stmts: Option<ruby_prism::StatementsNode<'_>>,
+    ) -> Vec<Diagnostic> {
+        let stmts = match stmts {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        let children: Vec<_> = stmts.body().iter().collect();
+        if children.len() < 2 {
+            return Vec::new();
+        }
+
+        let (kw_line, _) = source.offset_to_line_col(keyword_offset);
+
+        // Check if first statement is on the same line as keyword
+        let first_loc = children[0].location();
+        let (first_line, _) = source.offset_to_line_col(first_loc.start_offset());
+        if first_line == kw_line {
+            return Vec::new();
+        }
+
+        self.check_flat(source, &children, kw_line)
     }
 
     /// Normal style: all children must have the same indentation.
@@ -164,12 +200,21 @@ impl Cop for IndentationConsistency {
 
     fn interested_node_types(&self) -> &'static [u8] {
         &[
+            BEGIN_NODE,
             BLOCK_NODE,
             CALL_NODE,
             CLASS_NODE,
             DEF_NODE,
+            ELSE_NODE,
+            FOR_NODE,
+            IF_NODE,
+            IN_NODE,
             MODULE_NODE,
             STATEMENTS_NODE,
+            UNLESS_NODE,
+            UNTIL_NODE,
+            WHEN_NODE,
+            WHILE_NODE,
         ]
     }
 
@@ -222,6 +267,100 @@ impl Cop for IndentationConsistency {
                 block_node.body(),
                 indented, // indented_internal_methods applies to block bodies too (class_methods do, etc.)
             ));
+            return;
+        }
+
+        // if/elsif bodies (ternary has no if_keyword_loc, skip those)
+        if let Some(if_node) = node.as_if_node() {
+            if let Some(kw_loc) = if_node.if_keyword_loc() {
+                diagnostics.extend(self.check_statements_consistency(
+                    source,
+                    kw_loc.start_offset(),
+                    if_node.statements(),
+                ));
+            }
+            return;
+        }
+
+        // unless bodies
+        if let Some(unless_node) = node.as_unless_node() {
+            diagnostics.extend(self.check_statements_consistency(
+                source,
+                unless_node.keyword_loc().start_offset(),
+                unless_node.statements(),
+            ));
+            return;
+        }
+
+        // else bodies (from if/elsif/case/etc.)
+        if let Some(else_node) = node.as_else_node() {
+            diagnostics.extend(self.check_statements_consistency(
+                source,
+                else_node.else_keyword_loc().start_offset(),
+                else_node.statements(),
+            ));
+            return;
+        }
+
+        // case/when bodies
+        if let Some(when_node) = node.as_when_node() {
+            diagnostics.extend(self.check_statements_consistency(
+                source,
+                when_node.keyword_loc().start_offset(),
+                when_node.statements(),
+            ));
+            return;
+        }
+
+        // case/in bodies (pattern matching)
+        if let Some(in_node) = node.as_in_node() {
+            diagnostics.extend(self.check_statements_consistency(
+                source,
+                in_node.in_loc().start_offset(),
+                in_node.statements(),
+            ));
+            return;
+        }
+
+        // while bodies
+        if let Some(while_node) = node.as_while_node() {
+            diagnostics.extend(self.check_statements_consistency(
+                source,
+                while_node.keyword_loc().start_offset(),
+                while_node.statements(),
+            ));
+            return;
+        }
+
+        // until bodies
+        if let Some(until_node) = node.as_until_node() {
+            diagnostics.extend(self.check_statements_consistency(
+                source,
+                until_node.keyword_loc().start_offset(),
+                until_node.statements(),
+            ));
+            return;
+        }
+
+        // for bodies
+        if let Some(for_node) = node.as_for_node() {
+            diagnostics.extend(self.check_statements_consistency(
+                source,
+                for_node.for_keyword_loc().start_offset(),
+                for_node.statements(),
+            ));
+            return;
+        }
+
+        // begin bodies (only explicit begin blocks with begin keyword)
+        if let Some(begin_node) = node.as_begin_node() {
+            if let Some(kw_loc) = begin_node.begin_keyword_loc() {
+                diagnostics.extend(self.check_statements_consistency(
+                    source,
+                    kw_loc.start_offset(),
+                    begin_node.statements(),
+                ));
+            }
         }
     }
 }
