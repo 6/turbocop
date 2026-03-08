@@ -10,16 +10,19 @@ use crate::parse::source::SourceFile;
 
 /// ## Corpus investigation (2026-03-08)
 ///
-/// Corpus oracle reported FP=17, FN=1.
+/// **Round 1:** Corpus oracle reported FP=17, FN=1.
+/// FP=17: Root cause was manual node traversal missing many node types. Fixed by
+/// replacing with Prism visitor-based deep search. Reduced FP from 17 to 16.
 ///
-/// FP=17: Root cause was that `node_tree_uses_param` and `body_contains_yield`
-/// manually handled specific node types (StatementsNode, BeginNode, IfNode, etc.)
-/// but missed many others (CaseNode, AndNode, OrNode, WhileNode, ReturnNode, etc.).
-/// RuboCop uses `def_node_search` which recursively searches ALL descendants.
-/// Fixed by replacing manual traversal with Prism visitor-based deep search that
-/// walks all child nodes of all types.
+/// **Round 2:** Corpus oracle reported FP=16, FN=1.
+/// FP=16: Root cause was missing receiver check. RuboCop's `hook_block` pattern
+/// uses `(send nil? :around ...)` which only matches bare `around` calls with no
+/// receiver. Our code was matching `config.around { ... }` and similar calls with
+/// receivers (e.g., in `spec/rails_helper.rb`, `spec/support/retry.rb`). Fixed by
+/// adding `call.receiver().is_some()` early return.
 ///
-/// FN=1: Not addressed in this pass.
+/// FN=1: Single case in cyberark/conjur. Could not inspect source (corpus not local).
+/// May be a numblock edge case or config-dependent behavior. Deferred.
 pub struct AroundBlock;
 
 /// Flags `around` hooks that don't yield or call `run`/`call` on the example.
@@ -69,8 +72,13 @@ impl Cop for AroundBlock {
             None => return,
         };
 
-        // Must be `around` (receiverless or on config)
+        // Must be a bare `around` call with no receiver.
+        // RuboCop's pattern is `(send nil? :around ...)` — only matches receiverless calls.
+        // `config.around` (with a receiver) is NOT an RSpec hook and should not be flagged.
         if call.name().as_slice() != b"around" {
+            return;
+        }
+        if call.receiver().is_some() {
             return;
         }
 

@@ -79,3 +79,13 @@ around do |example|
     retry if retries > 0
   end
 end
+# around with a receiver should not be flagged (not an RSpec hook)
+config.around(:each) do |example|
+  do_something
+end
+c.around do
+  do_something
+end
+obj.around do |test|
+  test.inspect
+end
