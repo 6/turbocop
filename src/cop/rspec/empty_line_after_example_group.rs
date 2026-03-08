@@ -72,12 +72,9 @@ impl Cop for EmptyLineAfterExampleGroup {
             let is_rspec = recv
                 .as_constant_read_node()
                 .is_some_and(|c| c.name().as_slice() == b"RSpec")
-                || recv
-                    .as_constant_path_node()
-                    .is_some_and(|cp| {
-                        cp.parent().is_none()
-                            && cp.name().is_some_and(|n| n.as_slice() == b"RSpec")
-                    });
+                || recv.as_constant_path_node().is_some_and(|cp| {
+                    cp.parent().is_none() && cp.name().is_some_and(|n| n.as_slice() == b"RSpec")
+                });
             if !is_rspec {
                 return;
             }
