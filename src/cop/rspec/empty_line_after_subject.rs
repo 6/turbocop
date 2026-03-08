@@ -1,11 +1,39 @@
-use crate::cop::node_type::{BLOCK_NODE, CALL_NODE, STATEMENTS_NODE};
+use std::collections::HashSet;
+
+use ruby_prism::Visit;
+
+use crate::cop::node_type::PROGRAM_NODE;
 use crate::cop::util::{
-    self, RSPEC_DEFAULT_INCLUDE, is_blank_line, is_rspec_example_group, is_rspec_subject, line_at,
+    self, RSPEC_DEFAULT_INCLUDE, is_blank_line, is_rspec_example_group, is_rspec_shared_group,
+    is_rspec_subject, line_at,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-07)
+///
+/// Corpus oracle reported FP=352, FN=21.
+///
+/// FP=352 root cause: this cop only checked direct children of every example-group
+/// block and ignored RuboCop's `InsideExampleGroup` root scoping. RuboCop skips
+/// this cop for spec groups wrapped in top-level `module`/`class` (root is not a
+/// spec group). We were still reporting offenses there, especially multiline
+/// `subject` blocks in namespaced specs.
+///
+/// FN=21 root cause: this cop did not inspect `subject` declarations nested under
+/// include wrappers such as `it_behaves_like`/`include_examples`, and skipped
+/// `shared_examples` roots entirely.
+///
+/// Additional parity fix: RuboCop's `line_with_comment?` treats inline trailing
+/// comments as comment lines for separator scanning. This means
+/// `subject` followed by `let(...) # comment` and then a blank line is accepted.
+/// We mirror this using Prism comment locations (`parse_result.comments()`).
+///
+/// Fix: scan only top-level spec-group roots (example groups + shared groups),
+/// then recursively inspect statement lists in those subtrees for `subject` nodes.
+/// This preserves RuboCop's root scoping, catches nested include/shared-example
+/// subjects, and keeps sibling/blank-line checks local to each statement list.
 pub struct EmptyLineAfterSubject;
 
 impl Cop for EmptyLineAfterSubject {
@@ -22,97 +50,240 @@ impl Cop for EmptyLineAfterSubject {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[BLOCK_NODE, CALL_NODE, STATEMENTS_NODE]
+        &[PROGRAM_NODE]
     }
 
     fn check_node(
         &self,
         source: &SourceFile,
         node: &ruby_prism::Node<'_>,
-        _parse_result: &ruby_prism::ParseResult<'_>,
+        parse_result: &ruby_prism::ParseResult<'_>,
         _config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
-        let call = match node.as_call_node() {
-            Some(c) => c,
+        let program = match node.as_program_node() {
+            Some(p) => p,
             None => return,
         };
 
-        let method_name = call.name().as_slice();
+        let (comment_lines, enable_directive_lines) = build_comment_line_sets(source, parse_result);
 
-        // Check for example group calls (including ::RSpec.describe)
-        let is_example_group = if let Some(recv) = call.receiver() {
-            util::constant_name(&recv).is_some_and(|n| n == b"RSpec") && method_name == b"describe"
-        } else {
-            is_rspec_example_group(method_name)
-        };
+        // Match RuboCop's InsideExampleGroup root scoping: only process top-level
+        // spec groups. Specs wrapped in module/class roots are intentionally skipped.
+        for stmt in program.statements().body().iter() {
+            if !is_spec_group_call(&stmt) {
+                continue;
+            }
+            let mut visitor = SubjectSeparationVisitor {
+                source,
+                cop: self,
+                diagnostics,
+                comment_lines: &comment_lines,
+                enable_directive_lines: &enable_directive_lines,
+            };
+            visitor.visit(&stmt);
+        }
+    }
+}
 
-        if !is_example_group {
+struct SubjectSeparationVisitor<'a> {
+    source: &'a SourceFile,
+    cop: &'a EmptyLineAfterSubject,
+    diagnostics: &'a mut Vec<Diagnostic>,
+    comment_lines: &'a HashSet<usize>,
+    enable_directive_lines: &'a HashSet<usize>,
+}
+
+impl<'a> SubjectSeparationVisitor<'a> {
+    fn check_subject_in_list<'pr>(
+        &mut self,
+        siblings: &[ruby_prism::Node<'pr>],
+        idx: usize,
+        subject_stmt: &ruby_prism::Node<'pr>,
+        subject_call: &ruby_prism::CallNode<'pr>,
+    ) {
+        if idx + 1 >= siblings.len() {
             return;
         }
 
-        let block = match call.block() {
-            Some(b) => match b.as_block_node() {
-                Some(bn) => bn,
-                None => return,
-            },
+        let report_line = match missing_separating_line(
+            self.source,
+            subject_stmt,
+            self.comment_lines,
+            self.enable_directive_lines,
+        ) {
+            Some(line) => line,
             None => return,
         };
 
-        let body = match block.body() {
-            Some(b) => b,
-            None => return,
-        };
+        let report_col = line_at(self.source, report_line)
+            .map(|line| {
+                line.iter()
+                    .take_while(|&&b| b == b' ' || b == b'\t')
+                    .count()
+            })
+            .unwrap_or(0);
 
-        let stmts = match body.as_statements_node() {
-            Some(s) => s,
-            None => return,
-        };
+        let method_name = std::str::from_utf8(subject_call.name().as_slice()).unwrap_or("subject");
+        self.diagnostics.push(self.cop.diagnostic(
+            self.source,
+            report_line,
+            report_col,
+            format!("Add an empty line after `{method_name}`."),
+        ));
+    }
+}
 
-        let nodes: Vec<_> = stmts.body().iter().collect();
+impl<'a, 'pr> Visit<'pr> for SubjectSeparationVisitor<'a> {
+    fn visit_statements_node(&mut self, node: &ruby_prism::StatementsNode<'pr>) {
+        let siblings: Vec<_> = node.body().iter().collect();
 
-        for (i, stmt) in nodes.iter().enumerate() {
-            let c = match stmt.as_call_node() {
+        for (idx, stmt) in siblings.iter().enumerate() {
+            let call = match stmt.as_call_node() {
                 Some(c) => c,
                 None => continue,
             };
 
-            let name = c.name().as_slice();
-            if c.receiver().is_some() || !is_rspec_subject(name) {
+            if call.receiver().is_some() || !is_rspec_subject(call.name().as_slice()) {
                 continue;
             }
 
-            // Check if there's a next statement
-            if i + 1 >= nodes.len() {
-                continue; // last statement
-            }
-
-            let loc = stmt.location();
-            let end_offset = loc.end_offset().saturating_sub(1).max(loc.start_offset());
-            let (end_line, _) = source.offset_to_line_col(end_offset);
-
-            // Check if next line is blank
-            let next_line = end_line + 1;
-            if let Some(line) = line_at(source, next_line) {
-                if is_blank_line(line) {
-                    continue;
-                }
-            } else {
+            if call.block().is_none() {
                 continue;
             }
 
-            let subject_name = std::str::from_utf8(name).unwrap_or("subject");
-            let (_, start_col) = source.offset_to_line_col(loc.start_offset());
+            self.check_subject_in_list(&siblings, idx, stmt, &call);
+        }
 
-            diagnostics.push(self.diagnostic(
-                source,
-                end_line,
-                start_col,
-                format!("Add an empty line after `{subject_name}`."),
-            ));
+        ruby_prism::visit_statements_node(self, node);
+    }
+}
+
+fn is_spec_group_call(node: &ruby_prism::Node<'_>) -> bool {
+    let call = match node.as_call_node() {
+        Some(c) => c,
+        None => return false,
+    };
+
+    let name = call.name().as_slice();
+    if let Some(recv) = call.receiver() {
+        util::constant_name(&recv).is_some_and(|n| n == b"RSpec")
+            && (is_rspec_example_group(name) || is_rspec_shared_group(name))
+    } else {
+        is_rspec_example_group(name) || is_rspec_shared_group(name)
+    }
+}
+
+fn missing_separating_line(
+    source: &SourceFile,
+    subject_stmt: &ruby_prism::Node<'_>,
+    comment_lines: &HashSet<usize>,
+    enable_directive_lines: &HashSet<usize>,
+) -> Option<usize> {
+    // Match RuboCop's FinalEndLocation mixin: multiline subject bodies containing
+    // heredocs may end after the call node's own location.
+    let loc = subject_stmt.location();
+    let mut max_end_offset = loc.end_offset();
+    let heredoc_max = find_max_heredoc_end_offset(source, subject_stmt);
+    if heredoc_max > max_end_offset {
+        max_end_offset = heredoc_max;
+    }
+    let end_offset = max_end_offset.saturating_sub(1).max(loc.start_offset());
+    let (end_line, _) = source.offset_to_line_col(end_offset);
+
+    // RuboCop's EmptyLineSeparation:
+    // - allow directly-following comment lines,
+    // - if the next non-comment line is blank, it's fine,
+    // - otherwise report (on enable directive line when present).
+    let mut line = end_line;
+    let mut enable_directive_line = None;
+    while comment_lines.contains(&(line + 1)) {
+        line += 1;
+        if enable_directive_lines.contains(&line) {
+            enable_directive_line = Some(line);
         }
     }
+
+    match line_at(source, line + 1) {
+        Some(next_line) if is_blank_line(next_line) => None,
+        Some(_) => Some(enable_directive_line.unwrap_or(end_line)),
+        None => None,
+    }
+}
+
+fn build_comment_line_sets(
+    source: &SourceFile,
+    parse_result: &ruby_prism::ParseResult<'_>,
+) -> (HashSet<usize>, HashSet<usize>) {
+    let mut comment_lines = HashSet::new();
+    let mut enable_directive_lines = HashSet::new();
+
+    for comment in parse_result.comments() {
+        let loc = comment.location();
+        let (start_line, _) = source.offset_to_line_col(loc.start_offset());
+        let end_offset = loc.end_offset().saturating_sub(1).max(loc.start_offset());
+        let (end_line, _) = source.offset_to_line_col(end_offset);
+
+        for line in start_line..=end_line {
+            comment_lines.insert(line);
+        }
+
+        let comment_bytes = &source.as_bytes()[loc.start_offset()..loc.end_offset()];
+        if comment_bytes
+            .windows(b"rubocop:enable".len())
+            .any(|window| window == b"rubocop:enable")
+        {
+            enable_directive_lines.insert(start_line);
+        }
+    }
+
+    (comment_lines, enable_directive_lines)
+}
+
+fn find_max_heredoc_end_offset(source: &SourceFile, node: &ruby_prism::Node<'_>) -> usize {
+    struct MaxHeredocVisitor<'a> {
+        source: &'a SourceFile,
+        max_offset: usize,
+    }
+
+    impl<'pr> Visit<'pr> for MaxHeredocVisitor<'_> {
+        fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
+            if let Some(opening) = node.opening_loc() {
+                let bytes = &self.source.as_bytes()[opening.start_offset()..opening.end_offset()];
+                if bytes.starts_with(b"<<") {
+                    if let Some(closing) = node.closing_loc() {
+                        self.max_offset = self.max_offset.max(closing.end_offset());
+                    }
+                    return;
+                }
+            }
+            ruby_prism::visit_string_node(self, node);
+        }
+
+        fn visit_interpolated_string_node(
+            &mut self,
+            node: &ruby_prism::InterpolatedStringNode<'pr>,
+        ) {
+            if let Some(opening) = node.opening_loc() {
+                let bytes = &self.source.as_bytes()[opening.start_offset()..opening.end_offset()];
+                if bytes.starts_with(b"<<") {
+                    if let Some(closing) = node.closing_loc() {
+                        self.max_offset = self.max_offset.max(closing.end_offset());
+                    }
+                    return;
+                }
+            }
+            ruby_prism::visit_interpolated_string_node(self, node);
+        }
+    }
+
+    let mut visitor = MaxHeredocVisitor {
+        source,
+        max_offset: 0,
+    };
+    visitor.visit(node);
+    visitor.max_offset
 }
 
 #[cfg(test)]
