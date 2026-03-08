@@ -18,8 +18,6 @@ Config = setup_config
 Handler = -> { process }
 MyProc = proc { do_something }
 
-# Array/regex literal assignments are allowed
-Helpcmd = %w(-help --help -h)
-Pattern = /\d+/
-BracketDirectives = /\[\s*(?:ditto|tight)\s*\]/
-Symbols = %i(a b c)
+# .freeze on range literal — ranges are NOT literals in RuboCop,
+# so this is a method call with non-literal receiver (allowed)
+MyRange = (1..5).freeze

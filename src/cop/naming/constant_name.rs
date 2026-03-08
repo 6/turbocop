@@ -1,9 +1,27 @@
-use crate::cop::node_type::{CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE};
+use crate::cop::node_type::{
+    CONSTANT_OR_WRITE_NODE, CONSTANT_PATH_OR_WRITE_NODE, CONSTANT_PATH_WRITE_NODE,
+    CONSTANT_WRITE_NODE, MULTI_WRITE_NODE,
+};
 use crate::cop::util::is_screaming_snake_case;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Naming/ConstantName - checks that constants are in SCREAMING_SNAKE_CASE.
+///
+/// ## Investigation (2026-03-08)
+/// FN=365 root cause: `is_valid_rhs_for_assignment` was too permissive, allowing
+/// array literals and regex literals that RuboCop does NOT allow. Also missing
+/// handling for `ConstantOrWriteNode` (`||=`), `ConstantPathOrWriteNode`,
+/// `ConstantTargetNode` / `ConstantPathTargetNode` (multi-assignment), and
+/// `is_literal()` was missing range and interpolated string/symbol nodes.
+///
+/// Fixes applied:
+/// - Removed array and regex allowances from `is_valid_rhs_for_assignment`
+/// - Added `CONSTANT_OR_WRITE_NODE`, `CONSTANT_PATH_OR_WRITE_NODE` handling
+/// - Added `MULTI_WRITE_NODE` to handle `ConstantTargetNode`/`ConstantPathTargetNode`
+///   in multi-assignment (always flag, no valid_rhs check since value is shared)
+/// - Added range, interpolated string/symbol nodes to `is_literal()`
 pub struct ConstantName;
 
 impl Cop for ConstantName {
@@ -12,7 +30,13 @@ impl Cop for ConstantName {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CONSTANT_PATH_WRITE_NODE, CONSTANT_WRITE_NODE]
+        &[
+            CONSTANT_PATH_WRITE_NODE,
+            CONSTANT_WRITE_NODE,
+            CONSTANT_OR_WRITE_NODE,
+            CONSTANT_PATH_OR_WRITE_NODE,
+            MULTI_WRITE_NODE,
+        ]
     }
 
     fn check_node(
@@ -36,6 +60,56 @@ impl Cop for ConstantName {
             let const_name = target.name().map(|n| n.as_slice()).unwrap_or(b"");
             let value = cpw.value();
             diagnostics.extend(self.check_constant(source, const_name, &name_loc, &value));
+        }
+
+        // Foo ||= value
+        if let Some(cow) = node.as_constant_or_write_node() {
+            let const_name = cow.name().as_slice();
+            let value = cow.value();
+            diagnostics.extend(self.check_constant(source, const_name, &cow.name_loc(), &value));
+        }
+
+        // Mod::Setting ||= value
+        if let Some(cpow) = node.as_constant_path_or_write_node() {
+            let target = cpow.target();
+            let name_loc = target.name_loc();
+            let const_name = target.name().map(|n| n.as_slice()).unwrap_or(b"");
+            let value = cpow.value();
+            diagnostics.extend(self.check_constant(source, const_name, &name_loc, &value));
+        }
+
+        // Multi-assignment: A, B = 1, 2
+        // ConstantTargetNode / ConstantPathTargetNode appear as children of MultiWriteNode.
+        // No valid_rhs check — the value is shared across all targets.
+        if let Some(mw) = node.as_multi_write_node() {
+            for target in mw.lefts().iter() {
+                if let Some(ct) = target.as_constant_target_node() {
+                    let const_name = ct.name().as_slice();
+                    if !is_screaming_snake_case(const_name) {
+                        let (line, column) =
+                            source.offset_to_line_col(ct.location().start_offset());
+                        diagnostics.push(self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Use SCREAMING_SNAKE_CASE for constants.".to_string(),
+                        ));
+                    }
+                }
+                if let Some(cpt) = target.as_constant_path_target_node() {
+                    let name_loc = cpt.name_loc();
+                    let const_name = cpt.name().map(|n| n.as_slice()).unwrap_or(b"");
+                    if !is_screaming_snake_case(const_name) {
+                        let (line, column) = source.offset_to_line_col(name_loc.start_offset());
+                        diagnostics.push(self.diagnostic(
+                            source,
+                            line,
+                            column,
+                            "Use SCREAMING_SNAKE_CASE for constants.".to_string(),
+                        ));
+                    }
+                }
+            }
         }
     }
 }
@@ -99,16 +173,6 @@ fn is_valid_rhs_for_assignment(value: &ruby_prism::Node<'_>) -> bool {
         return true;
     }
 
-    // Array literal: `Helpcmd = %w(...)`, `Symbols = %i(...)`
-    if value.as_array_node().is_some() {
-        return true;
-    }
-
-    // Regex literal: `Pattern = /regex/`
-    if value.as_regular_expression_node().is_some() {
-        return true;
-    }
-
     // Method call: allowed if receiver is nil or receiver is not a literal.
     // This covers patterns like `NewClass = some_factory_method` and
     // `Uchar1max = (1<<7) - 1` (receiver is a call expression, not a literal).
@@ -154,12 +218,18 @@ fn is_literal_receiver(node: &ruby_prism::Node<'_>) -> bool {
     false
 }
 
-/// Check if a node is a literal value (int, float, string, symbol, etc.)
+/// Check if a node is a literal value. Matches RuboCop's `literal?` predicate:
+/// int, float, str, dstr, sym, dsym, complex, rational, regexp, true, false, nil.
+/// Note: ranges (irange/erange) are NOT literals in RuboCop's AST.
+/// Used by `is_literal_receiver` to determine if a method call on a literal
+/// (e.g., `"foo".freeze`) should be disallowed.
 fn is_literal(node: &ruby_prism::Node<'_>) -> bool {
     node.as_integer_node().is_some()
         || node.as_float_node().is_some()
         || node.as_string_node().is_some()
+        || node.as_interpolated_string_node().is_some()
         || node.as_symbol_node().is_some()
+        || node.as_interpolated_symbol_node().is_some()
         || node.as_rational_node().is_some()
         || node.as_imaginary_node().is_some()
         || node.as_regular_expression_node().is_some()
