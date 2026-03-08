@@ -19,6 +19,11 @@ use crate::parse::source::SourceFile;
 /// - FN fix: added regex literal handling. RuboCop's `DETERMINISTIC_REGEX` accepts regex
 ///   args that are simple single-char literals (no metacharacters, no flags, no char classes).
 ///   Escapes like `\t`, `\n`, `\u00A0` are fine (they represent literal chars).
+/// - FP fix (14 FPs): `is_deterministic_single_char_regex` accepted any non-metachar byte,
+///   but RuboCop's `LITERAL_REGEX` only allows `[\w\s\-,"'!#%&<>=;:\`~/]` plus escaped chars.
+///   Characters like `@` and non-ASCII (e.g., unicode curly quote U+2019) are NOT in the
+///   whitelist, so RuboCop does not flag them. Fixed by restricting the regular char branch
+///   to only match the LITERAL_REGEX whitelist and rejecting non-ASCII bytes.
 pub struct StringReplacement;
 
 impl Cop for StringReplacement {
@@ -213,16 +218,37 @@ fn is_deterministic_single_char_regex(regex: ruby_prism::RegularExpressionNode<'
                 }
             }
             _ => {
-                // Regular character — advance by UTF-8 char width
-                if b < 0x80 {
-                    i += 1;
-                } else if b < 0xE0 {
-                    i += 2;
-                } else if b < 0xF0 {
-                    i += 3;
-                } else {
-                    i += 4;
+                // RuboCop's LITERAL_REGEX only allows specific ASCII characters:
+                // [\w\s\-,"'!#%&<>=;:`~/]
+                // Non-ASCII bytes (>= 0x80) are not in the whitelist.
+                if b >= 0x80 {
+                    return false;
                 }
+                if !(b.is_ascii_alphanumeric()
+                    || b == b'_'
+                    || b.is_ascii_whitespace()
+                    || matches!(
+                        b,
+                        b'-' | b','
+                            | b'"'
+                            | b'\''
+                            | b'!'
+                            | b'#'
+                            | b'%'
+                            | b'&'
+                            | b'<'
+                            | b'>'
+                            | b'='
+                            | b';'
+                            | b':'
+                            | b'`'
+                            | b'~'
+                            | b'/'
+                    ))
+                {
+                    return false;
+                }
+                i += 1;
                 char_count += 1;
             }
         }
