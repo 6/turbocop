@@ -142,11 +142,13 @@ directly on main.
 3. **Add test cases (TDD)**:
    - For FP fixes: add the false-positive pattern to `tests/fixtures/cops/<dept>/<cop_name>/no_offense.rb`
    - For FN fixes: add the missed detection to `tests/fixtures/cops/<dept>/<cop_name>/offense.rb`
-   - Run `cargo test --release -p nitrocop --lib -- <cop_name_snake>` to verify the test FAILS
+   - Run `cargo test --lib -- <cop_name_snake>` to verify the test FAILS
+   - Use debug mode (no `--release`) for fast TDD iteration (~8s first run, <1s incremental)
 
 4. **Fix the cop implementation** in `src/cop/<dept>/<cop_name>.rs`
+   - Iterate with `cargo test --lib -- <cop_name_snake>` (debug mode) until tests pass
 
-5. **Verify**:
+5. **Verify (pre-commit, release mode)**:
    - `cargo test --release -p nitrocop --lib -- <cop_name_snake>` — all tests pass
    - `cargo fmt`
    - `cargo clippy --release -- -D warnings`
