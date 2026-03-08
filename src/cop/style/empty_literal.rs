@@ -3,24 +3,26 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Style/EmptyLiteral: prefers literal `[]`, `{}`, `''` over `Array.new`, `Hash.new`, `String.new`.
+///
+/// **String.new special case:** RuboCop only flags `String.new` when `frozen_string_literal: false`
+/// is explicitly set. When the comment is absent or set to `true`, `String.new` is needed to
+/// create a mutable empty string, so it is not flagged. Prior to this fix, we incorrectly
+/// flagged `String.new` when the comment was absent (121 FPs in corpus).
 pub struct EmptyLiteral;
 
-/// Check if the source file has `# frozen_string_literal: true` in the first few lines.
-fn has_frozen_string_literal(source: &SourceFile) -> bool {
+/// Check if the source file has `# frozen_string_literal: false` in the first few lines.
+/// Returns true only when explicitly set to `false`.
+fn has_frozen_string_literal_false(source: &SourceFile) -> bool {
     for line in source.lines().take(3) {
         let lower: Vec<u8> = line.to_ascii_lowercase();
-        if lower.windows(22).any(|w| w == b"frozen_string_literal:") {
-            // Check if it's set to `true`
-            if let Some(pos) = lower
-                .windows(22)
-                .position(|w| w == b"frozen_string_literal:")
-            {
-                let after = &lower[pos + 22..];
-                let trimmed: Vec<u8> = after.iter().copied().skip_while(|&b| b == b' ').collect();
-                if trimmed.starts_with(b"true") {
-                    return true;
-                }
-            }
+        if let Some(pos) = lower
+            .windows(22)
+            .position(|w| w == b"frozen_string_literal:")
+        {
+            let after = &lower[pos + 22..];
+            let trimmed: Vec<u8> = after.iter().copied().skip_while(|&b| b == b' ').collect();
+            return trimmed.starts_with(b"false");
         }
     }
     false
@@ -94,11 +96,12 @@ impl Cop for EmptyLiteral {
             return;
         }
 
-        // When frozen_string_literal: true is enabled, String.new is the only way
-        // to create a mutable empty string. Don't flag it.
+        // String.new is only flagged when frozen_string_literal: false is explicitly set.
+        // When the comment is absent or set to true, String.new may be needed for
+        // a mutable empty string, so we don't flag it.
         if const_name.as_slice() == b"String"
             && method_bytes == b"new"
-            && has_frozen_string_literal(source)
+            && !has_frozen_string_literal_false(source)
         {
             return;
         }
@@ -139,6 +142,27 @@ mod tests {
         assert!(
             diags.is_empty(),
             "String.new should not be flagged when frozen_string_literal is true"
+        );
+    }
+
+    #[test]
+    fn no_offense_string_new_without_frozen_string_literal() {
+        let diags = crate::testutil::run_cop_full(&EmptyLiteral, b"s = String.new\n");
+        assert!(
+            diags.is_empty(),
+            "String.new should not be flagged when frozen_string_literal comment is absent"
+        );
+    }
+
+    #[test]
+    fn offense_string_new_with_frozen_string_literal_false() {
+        let diags = crate::testutil::run_cop_full(
+            &EmptyLiteral,
+            b"# frozen_string_literal: false\n\ns = String.new\n",
+        );
+        assert!(
+            !diags.is_empty(),
+            "String.new should be flagged when frozen_string_literal is false"
         );
     }
 }

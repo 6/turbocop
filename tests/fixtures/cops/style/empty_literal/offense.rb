@@ -1,3 +1,4 @@
+# frozen_string_literal: false
 a = Array.new
     ^^^^^^^^^ Style/EmptyLiteral: Use array literal `[]` instead of `Array.new`.
 
