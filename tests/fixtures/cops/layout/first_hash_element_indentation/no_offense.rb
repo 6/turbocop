@@ -56,3 +56,12 @@ patch "/users/#{user.id}", params: {
                              name: 'test123', email: 'new@test.com'
                            },
                            headers: { api_access_token: token }, as: :json
+
+func(x: {
+       a: 1,
+       b: 2
+     },
+     y: {
+       c: 1,
+       d: 2
+     })

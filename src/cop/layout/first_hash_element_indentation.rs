@@ -5,6 +5,22 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-08)
+///
+/// Corpus oracle reported high FN volume concentrated in closing-brace sites.
+///
+/// Root cause: this cop only checked the first element of multiline hashes and
+/// returned early for empty hashes. RuboCop's `Layout/FirstHashElementIndentation`
+/// also enforces right-brace indentation, with the same indent base rules used
+/// for the first element:
+/// - line start for ordinary hashes
+/// - first position after `(` for `special_inside_parentheses`
+/// - parent hash key when a hash value has a following sibling pair
+/// - left brace column for `align_braces`
+///
+/// Fix: reuse a shared indent-base calculation for both the first element and
+/// the right brace, and keep checking empty multiline hashes so `a << {` / `}`
+/// cases are covered.
 pub struct FirstHashElementIndentation;
 
 impl Cop for FirstHashElementIndentation {
@@ -50,7 +66,151 @@ struct HashIndentVisitor<'a> {
     parent_pair_col: Option<usize>,
 }
 
+#[derive(Clone, Copy)]
+enum IndentBaseKind {
+    StartOfLine,
+    LeftBrace,
+    FirstPositionAfterLeftParenthesis,
+    ParentHashKey,
+}
+
 impl HashIndentVisitor<'_> {
+    fn parent_pair_col_for_child_hash(
+        &self,
+        elements: &[ruby_prism::Node<'_>],
+        index: usize,
+        elem: &ruby_prism::Node<'_>,
+    ) -> Option<usize> {
+        if self.style == "consistent" || self.style == "align_braces" {
+            return None;
+        }
+
+        let assoc = elem.as_assoc_node()?;
+        let value = assoc.value();
+        let hash = value
+            .as_hash_node()
+            .filter(|hash| hash.opening_loc().as_slice() == b"{")?;
+
+        let (key_line, _) = self
+            .source
+            .offset_to_line_col(assoc.key().location().start_offset());
+        let (val_line, _) = self
+            .source
+            .offset_to_line_col(hash.location().start_offset());
+        if key_line != val_line {
+            return None;
+        }
+
+        let next = elements.get(index + 1)?;
+        let (pair_last_line, _) = self
+            .source
+            .offset_to_line_col(elem.location().end_offset().saturating_sub(1));
+        let (sibling_line, _) = self
+            .source
+            .offset_to_line_col(next.location().start_offset());
+        if pair_last_line >= sibling_line {
+            return None;
+        }
+
+        Some(
+            self.source
+                .offset_to_line_col(elem.location().start_offset())
+                .1,
+        )
+    }
+
+    fn find_hashes_in_elements(
+        &mut self,
+        elements: ruby_prism::NodeList<'_>,
+        paren_line: usize,
+        paren_col: usize,
+    ) {
+        let elems: Vec<_> = elements.iter().collect();
+        for (i, elem) in elems.iter().enumerate() {
+            let saved = self.parent_pair_col;
+            self.parent_pair_col = self.parent_pair_col_for_child_hash(elems.as_slice(), i, elem);
+            self.find_hash_args_in_call(elem, paren_line, paren_col);
+            self.parent_pair_col = saved;
+        }
+    }
+
+    fn indent_base(
+        &self,
+        opening_loc: ruby_prism::Location<'_>,
+        left_paren_col: Option<usize>,
+    ) -> (usize, IndentBaseKind) {
+        let (open_line, open_col) = self.source.offset_to_line_col(opening_loc.start_offset());
+        let open_line_bytes = self.source.lines().nth(open_line - 1).unwrap_or(b"");
+        let open_line_indent = indentation_of(open_line_bytes);
+
+        match self.style {
+            "consistent" => (open_line_indent, IndentBaseKind::StartOfLine),
+            "align_braces" => (open_col, IndentBaseKind::LeftBrace),
+            _ => {
+                if let Some(pair_col) = self.parent_pair_col {
+                    (pair_col, IndentBaseKind::ParentHashKey)
+                } else if let Some(paren_col) = left_paren_col {
+                    (
+                        paren_col + 1,
+                        IndentBaseKind::FirstPositionAfterLeftParenthesis,
+                    )
+                } else {
+                    (open_line_indent, IndentBaseKind::StartOfLine)
+                }
+            }
+        }
+    }
+
+    fn right_brace_message(&self, base_kind: IndentBaseKind) -> &'static str {
+        match base_kind {
+            IndentBaseKind::LeftBrace => "Indent the right brace the same as the left brace.",
+            IndentBaseKind::FirstPositionAfterLeftParenthesis => {
+                "Indent the right brace the same as the first position after the preceding left parenthesis."
+            }
+            IndentBaseKind::ParentHashKey => {
+                "Indent the right brace the same as the parent hash key."
+            }
+            IndentBaseKind::StartOfLine => {
+                "Indent the right brace the same as the start of the line where the left brace is."
+            }
+        }
+    }
+
+    fn check_right_brace(
+        &mut self,
+        hash_node: &ruby_prism::HashNode<'_>,
+        left_paren_col: Option<usize>,
+    ) {
+        let closing_loc = hash_node.closing_loc();
+        if closing_loc.as_slice() != b"}" {
+            return;
+        }
+
+        let (brace_line, brace_col) = self.source.offset_to_line_col(closing_loc.start_offset());
+        let line_start = match self.source.line_col_to_offset(brace_line, 0) {
+            Some(offset) => offset,
+            None => return,
+        };
+        let brace_start = closing_loc.start_offset();
+        let prefix = &self.source.as_bytes()[line_start..brace_start];
+
+        // Match RuboCop: accept when the right brace shares a line with the
+        // last value (there is non-whitespace before the brace).
+        if prefix.iter().any(|b| !b.is_ascii_whitespace()) {
+            return;
+        }
+
+        let (expected_col, base_kind) = self.indent_base(hash_node.opening_loc(), left_paren_col);
+        if brace_col != expected_col {
+            self.diagnostics.push(self.cop.diagnostic(
+                self.source,
+                brace_line,
+                brace_col,
+                self.right_brace_message(base_kind).to_string(),
+            ));
+        }
+    }
+
     fn check_hash(&mut self, hash_node: &ruby_prism::HashNode<'_>, left_paren_col: Option<usize>) {
         let opening_loc = hash_node.opening_loc();
         if opening_loc.as_slice() != b"{" {
@@ -58,62 +218,33 @@ impl HashIndentVisitor<'_> {
         }
 
         let elements: Vec<_> = hash_node.elements().iter().collect();
-        if elements.is_empty() {
-            return;
-        }
+        if let Some(first_element) = elements.first() {
+            let (open_line, _) = self.source.offset_to_line_col(opening_loc.start_offset());
+            let first_loc = first_element.location();
+            let (elem_line, elem_col) = self.source.offset_to_line_col(first_loc.start_offset());
 
-        let first_element = &elements[0];
-        let (open_line, _) = self.source.offset_to_line_col(opening_loc.start_offset());
-        let first_loc = first_element.location();
-        let (elem_line, elem_col) = self.source.offset_to_line_col(first_loc.start_offset());
-
-        if elem_line == open_line {
-            return;
-        }
-
-        let open_line_bytes = self.source.lines().nth(open_line - 1).unwrap_or(b"");
-        let open_line_indent = indentation_of(open_line_bytes);
-        let (_, open_col) = self.source.offset_to_line_col(opening_loc.start_offset());
-
-        let expected = match self.style {
-            "consistent" => open_line_indent + self.width,
-            "align_braces" => open_col + self.width,
-            _ => {
-                // RuboCop's indent_base priority for special_inside_parentheses:
-                // 1. If parent is a pair (hash key/value) where key and value start
-                //    on the same line and the pair has a right sibling on a
-                //    subsequent line, use the pair's column.
-                // 2. If inside parenthesized method call, use paren_col + 1.
-                // 3. Fall back to line indentation.
-                if let Some(pair_col) = self.parent_pair_col {
-                    pair_col + self.width
-                } else if let Some(paren_col) = left_paren_col {
-                    paren_col + 1 + self.width
-                } else {
-                    open_line_indent + self.width
-                }
+            if elem_line == open_line {
+                return;
             }
-        };
 
-        if elem_col != expected {
-            let base_indent = if let Some(paren_col) = left_paren_col
-                .filter(|_| self.style != "consistent" && self.style != "align_braces")
-            {
-                paren_col + 1
-            } else {
-                open_line_indent
-            };
-            self.diagnostics.push(self.cop.diagnostic(
-                self.source,
-                elem_line,
-                elem_col,
-                format!(
-                    "Use {} (not {}) spaces for indentation of the first element.",
-                    self.width,
-                    elem_col.saturating_sub(base_indent)
-                ),
-            ));
+            let (base_indent, _) = self.indent_base(opening_loc, left_paren_col);
+            let expected = base_indent + self.width;
+
+            if elem_col != expected {
+                self.diagnostics.push(self.cop.diagnostic(
+                    self.source,
+                    elem_line,
+                    elem_col,
+                    format!(
+                        "Use {} (not {}) spaces for indentation of the first element.",
+                        self.width,
+                        elem_col.saturating_sub(base_indent)
+                    ),
+                ));
+            }
         }
+
+        self.check_right_brace(hash_node, left_paren_col);
     }
 
     fn find_hash_args_in_call(
@@ -131,9 +262,10 @@ impl HashIndentVisitor<'_> {
                     self.check_hash(&hash, Some(paren_col));
                 }
             }
-            for elem in hash.elements().iter() {
-                self.find_hash_args_in_call(&elem, paren_line, paren_col);
-            }
+            let saved = self.parent_pair_col;
+            self.parent_pair_col = None;
+            self.find_hashes_in_elements(hash.elements(), paren_line, paren_col);
+            self.parent_pair_col = saved;
             return;
         }
 
@@ -142,9 +274,10 @@ impl HashIndentVisitor<'_> {
         }
 
         if let Some(kw_hash) = node.as_keyword_hash_node() {
-            for elem in kw_hash.elements().iter() {
-                self.find_hash_args_in_call(&elem, paren_line, paren_col);
-            }
+            let saved = self.parent_pair_col;
+            self.parent_pair_col = None;
+            self.find_hashes_in_elements(kw_hash.elements(), paren_line, paren_col);
+            self.parent_pair_col = saved;
             return;
         }
 
@@ -309,19 +442,40 @@ mod tests {
             )]),
             ..CopConfig::default()
         };
-        let src = b"x = {\n      a: 1\n}\n";
+        let src = b"x = {\n      a: 1\n    }\n";
         let diags = run_cop_full_with_config(&FirstHashElementIndentation, src, config.clone());
         assert!(
             diags.is_empty(),
             "align_braces should accept element at brace column + width"
         );
 
-        let src2 = b"x = {\n  a: 1\n}\n";
+        let src2 = b"x = {\n  a: 1\n    }\n";
         let diags2 = run_cop_full_with_config(&FirstHashElementIndentation, src2, config);
         assert_eq!(
             diags2.len(),
             1,
             "align_braces should flag element not at brace column + width"
+        );
+    }
+
+    #[test]
+    fn align_braces_flags_right_brace() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([(
+                "EnforcedStyle".into(),
+                serde_yml::Value::String("align_braces".into()),
+            )]),
+            ..CopConfig::default()
+        };
+        let src = b"x = {\n      a: 1\n}\n";
+        let diags = run_cop_full_with_config(&FirstHashElementIndentation, src, config);
+        assert_eq!(
+            diags.len(),
+            1,
+            "align_braces should flag misaligned right brace"
         );
     }
 
@@ -337,12 +491,23 @@ mod tests {
 
     #[test]
     fn special_inside_parentheses_flags_consistent_indent() {
-        let source = b"func({\n  a: 1\n})\n";
+        let source = b"func({\n  a: 1\n     })\n";
         let diags = run_cop_full(&FirstHashElementIndentation, source);
         assert_eq!(
             diags.len(),
             1,
             "should flag consistent indentation inside parentheses"
+        );
+    }
+
+    #[test]
+    fn special_inside_parentheses_flags_right_brace() {
+        let source = b"func({\n       a: 1\n})\n";
+        let diags = run_cop_full(&FirstHashElementIndentation, source);
+        assert_eq!(
+            diags.len(),
+            1,
+            "should flag right brace indentation inside parentheses"
         );
     }
 
