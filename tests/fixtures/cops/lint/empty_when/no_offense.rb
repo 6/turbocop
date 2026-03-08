@@ -34,3 +34,29 @@ when 2 then # comment
 when 3
   do_something
 end
+# Multi-line when condition with comment body
+case field_param
+when "description",
+     "status_explanation",
+     /\Aagenda_items_\d+_notes\z/
+  # no additional checks
+when "other"
+  validate(field_param)
+end
+case sym
+when :controller, :requirements, :singular, :path_prefix, :as,
+  :path_names, :shallow, :name_prefix, :member_path, :nested_member_path,
+  :belongs_to, :conditions, :active_scaffold
+  #should be able to skip
+when :other
+  handle(sym)
+end
+case line
+when /\AWEBrick [\d.]+/,
+     /\Aruby ([\d.]+)/,
+     /\ARackup::Handler::WEBrick is mounted/,
+     /\Aclose TCPSocket/,
+  # ignored
+when /\Aother/
+  process(line)
+end

@@ -3,6 +3,11 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Corpus: 4 FPs fixed. All were multi-line `when` conditions (conditions spanning
+/// multiple lines) with comment-only bodies. The AllowComments search started from
+/// the `when` keyword line, so for multi-line conditions the continuation lines
+/// (containing code) broke the blank/comment scan before reaching the actual comment.
+/// Fix: start the scan from the end of the last condition expression instead.
 pub struct EmptyWhen;
 
 impl Cop for EmptyWhen {
@@ -52,11 +57,20 @@ impl Cop for EmptyWhen {
             let when_start = when_node.keyword_loc().start_offset();
             let src = source.as_bytes();
 
-            // Find the end of the when condition line (for inline comments)
-            let line_end = src[when_start..]
+            // For multi-line when conditions, start scanning from after the
+            // last condition expression, not from the `when` keyword line.
+            let conditions = when_node.conditions();
+            let last_cond_end = conditions
+                .iter()
+                .map(|c| c.location().end_offset())
+                .max()
+                .unwrap_or(when_start);
+
+            // Find the end of the line containing the last condition
+            let line_end = src[last_cond_end..]
                 .iter()
                 .position(|&b| b == b'\n')
-                .map_or(src.len(), |p| when_start + p);
+                .map_or(src.len(), |p| last_cond_end + p);
 
             // Extend past subsequent blank/comment-only lines
             let mut search_end = line_end;
