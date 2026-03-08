@@ -36,6 +36,11 @@ use crate::parse::source::SourceFile;
 /// - KNOWN_ITERATING_METHODS list had 10 extra methods not in RuboCop's list
 ///   (each_byte, each_char, each_codepoint, each_line, filter!, filter_map!,
 ///   flat_map!, rindex, sort_by!, uniq!), causing over-counting.
+/// - Numbered parameter blocks (`_1`) and `it` blocks were counted as iterating
+///   blocks, but RuboCop's Parser gem produces :numblock/:itblock (not :block)
+///   for these, and neither is in COUNTED_NODES. In Prism all blocks are
+///   BlockNode, so we check `parameters()` type to distinguish. This was the
+///   dominant FP source (82 FP), especially in repos using modern Ruby idioms.
 ///
 /// Reverted attempt:
 /// - Counting nested rescues separately via manual rescue-chain traversal closed
@@ -228,11 +233,28 @@ impl CyclomaticCounter {
                             self.complexity += 1;
                         }
                     }
-                    // Iterating block or block_pass counts
+                    // Iterating block or block_pass counts.
+                    // Note: RuboCop's Parser gem produces :numblock for numbered
+                    // parameter blocks (_1, _2) and :itblock for `it` blocks,
+                    // neither of which is in COUNTED_NODES. Only regular :block
+                    // and :block_pass count. In Prism all blocks are BlockNode,
+                    // so we check parameters to distinguish.
                     if let Some(block) = call.block() {
-                        if block.as_block_node().is_some()
-                            || block.as_block_argument_node().is_some()
-                        {
+                        let should_count = if let Some(block_node) = block.as_block_node() {
+                            // Skip blocks with numbered parameters (_1) or `it` params
+                            match block_node.parameters() {
+                                Some(params) => {
+                                    params.as_numbered_parameters_node().is_none()
+                                        && params.as_it_parameters_node().is_none()
+                                }
+                                // No parameters — regular block, counts
+                                None => true,
+                            }
+                        } else {
+                            // BlockArgumentNode (&:method) — always counts
+                            block.as_block_argument_node().is_some()
+                        };
+                        if should_count {
                             let method_name = call.name().as_slice();
                             if KNOWN_ITERATING_METHODS.contains(&method_name) {
                                 self.complexity += 1;
@@ -430,5 +452,66 @@ mod tests {
             "Should fire with Max:1 on method with if branch"
         );
         assert!(diags[0].message.contains("[2/1]"));
+    }
+
+    /// Numbered parameter blocks (_1) should NOT count as iterating blocks.
+    /// RuboCop's Parser gem produces :numblock (not :block) for these, and
+    /// :numblock is not in COUNTED_NODES.
+    #[test]
+    fn numblock_not_counted_as_iterating() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([("Max".into(), serde_yml::Value::Number(0.into()))]),
+            ..CopConfig::default()
+        };
+
+        // Regular block: map { |x| x } should count +1
+        let source_regular = b"def foo\n  items.map { |x| x }\nend\n";
+        let diags = run_cop_full_with_config(&CyclomaticComplexity, source_regular, config.clone());
+        assert!(
+            diags[0].message.contains("[2/0]"),
+            "Regular block should count: got {}",
+            diags[0].message
+        );
+
+        // Numbered param block: map { _1 } should NOT count
+        let source_numblock = b"def foo\n  items.map { _1 }\nend\n";
+        let diags =
+            run_cop_full_with_config(&CyclomaticComplexity, source_numblock, config.clone());
+        assert!(
+            diags[0].message.contains("[1/0]"),
+            "Numbered param block should NOT count: got {}",
+            diags[0].message
+        );
+
+        // `it` block: map { it } should NOT count
+        let source_it = b"def foo\n  items.map { it }\nend\n";
+        let diags = run_cop_full_with_config(&CyclomaticComplexity, source_it, config.clone());
+        assert!(
+            diags[0].message.contains("[1/0]"),
+            "`it` block should NOT count: got {}",
+            diags[0].message
+        );
+
+        // No-param block: map { 42 } should still count (it's a regular :block in Parser)
+        let source_noparam = b"def foo\n  items.map { 42 }\nend\n";
+        let diags = run_cop_full_with_config(&CyclomaticComplexity, source_noparam, config.clone());
+        assert!(
+            diags[0].message.contains("[2/0]"),
+            "No-param block should count: got {}",
+            diags[0].message
+        );
+
+        // block_pass: map(&:to_s) should still count regardless
+        let source_blockpass = b"def foo\n  items.map(&:to_s)\nend\n";
+        let diags =
+            run_cop_full_with_config(&CyclomaticComplexity, source_blockpass, config.clone());
+        assert!(
+            diags[0].message.contains("[2/0]"),
+            "Block-pass should count: got {}",
+            diags[0].message
+        );
     }
 }

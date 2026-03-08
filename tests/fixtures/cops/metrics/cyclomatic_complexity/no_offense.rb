@@ -94,3 +94,33 @@ def method_with_enumerator(items)
   items.map.with_index { |item, i| [i, item] }
   items.each.with_object({}) { |item, acc| acc[item] = true }
 end
+
+# Numbered parameter blocks (_1) are not counted as iterating blocks
+# (RuboCop's Parser gem produces :numblock, not :block, for these)
+def method_with_numblock_iterating(response)
+  if response[:error_code].present?
+    error_message = case response.fetch(:error_code)
+                    when :insufficient_times_of_use
+                    when :sold_out
+                    when :invalid_offer
+                    when :inactive
+                    when :unmet_minimum_purchase_quantity
+    end
+    response[:products_data].transform_values { _1[:discount] }
+  end
+end
+
+# `it` blocks are also not counted as iterating blocks
+# (RuboCop's Parser gem produces :itblock, not :block, for these)
+def method_with_it_block_iterating(items)
+  if items.nil?
+    return
+  end
+  if items.empty?
+    return
+  end
+  items.select { it > 0 }
+  items.map { it.to_s }
+  items.reject { it.nil? }
+  result = items.any? || items.none?
+end
