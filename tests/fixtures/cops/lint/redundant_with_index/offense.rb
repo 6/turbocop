@@ -6,5 +6,5 @@ items.each_with_index do |item|
   puts item
 end
 
-items.each_with_index { puts 'hello' }
-      ^^^^^^^^^^^^^^^ Lint/RedundantWithIndex: Redundant `with_index`.
+items.each.with_index { |item| puts item }
+           ^^^^^^^^^^ Lint/RedundantWithIndex: Redundant `with_index`.

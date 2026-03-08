@@ -3,6 +3,18 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-08)
+///
+/// Corpus oracle reported FP=13, FN=1.
+///
+/// FP=13: RuboCop only flags one-parameter blocks plus `_1`/`it` implicit
+/// parameter forms. Zero-parameter blocks, splat-only blocks, and `_1; _2`
+/// numbered-parameter blocks all changed behavior and were falsely flagged by
+/// our old `param_count < 2` heuristic.
+/// FN=1: the remaining miss was the chained `with_index` form
+/// (`receiver.each.with_index { |item| ... }` / `times.with_index { |i| ... }`),
+/// which RuboCop treats the same as `each_with_index` as long as `with_index`
+/// is called on another call node rather than directly on a receiver.
 pub struct RedundantWithIndex;
 
 impl Cop for RedundantWithIndex {
@@ -33,10 +45,20 @@ impl Cop for RedundantWithIndex {
         };
 
         let method_name = call.name().as_slice();
-
-        // Check each_with_index { |x| } (only 1 block param, index unused)
-        if method_name != b"each_with_index" {
+        if method_name != b"each_with_index" && method_name != b"with_index" {
             return;
+        }
+
+        if method_name == b"with_index" {
+            let Some(receiver) = call.receiver() else {
+                return;
+            };
+            let Some(receiver_call) = receiver.as_call_node() else {
+                return;
+            };
+            if receiver_call.receiver().is_none() {
+                return;
+            }
         }
 
         let block = match call.block() {
@@ -49,23 +71,7 @@ impl Cop for RedundantWithIndex {
             None => return,
         };
 
-        let params = block_node.parameters();
-        let param_count = match &params {
-            Some(p) => {
-                if let Some(bp) = p.as_block_parameters_node() {
-                    if let Some(params_node) = bp.parameters() {
-                        params_node.requireds().len() + params_node.optionals().len()
-                    } else {
-                        0
-                    }
-                } else {
-                    0
-                }
-            }
-            None => 0,
-        };
-
-        if param_count < 2 {
+        if redundant_block_signature(&block_node) {
             let msg_loc = call.message_loc().unwrap_or(call.location());
             let (line, column) = source.offset_to_line_col(msg_loc.start_offset());
             diagnostics.push(self.diagnostic(
@@ -76,6 +82,32 @@ impl Cop for RedundantWithIndex {
             ));
         }
     }
+}
+
+fn redundant_block_signature(block: &ruby_prism::BlockNode<'_>) -> bool {
+    let Some(params) = block.parameters() else {
+        return false;
+    };
+
+    if let Some(block_params) = params.as_block_parameters_node() {
+        let Some(params_node) = block_params.parameters() else {
+            return false;
+        };
+
+        return params_node.requireds().len() == 1
+            && params_node.optionals().is_empty()
+            && params_node.rest().is_none()
+            && params_node.posts().is_empty()
+            && params_node.keywords().is_empty()
+            && params_node.keyword_rest().is_none()
+            && params_node.block().is_none();
+    }
+
+    if let Some(numbered) = params.as_numbered_parameters_node() {
+        return numbered.maximum() == 1;
+    }
+
+    params.as_it_parameters_node().is_some()
 }
 
 #[cfg(test)]
