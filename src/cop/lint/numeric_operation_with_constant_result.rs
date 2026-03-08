@@ -1,10 +1,19 @@
-use crate::cop::node_type::{CALL_NODE, INTEGER_NODE, LOCAL_VARIABLE_READ_NODE};
+use crate::cop::node_type::CALL_NODE;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 /// Checks for numeric operations that have a constant result.
 /// For example: `x * 0` always returns 0, `x / x` always returns 1.
+///
+/// ## Corpus investigation (2026-03-08)
+/// FP=39 from jruby/natalie: `array * 0` (Array#*), `complex ** 0`, `rational ** 0`.
+/// Root cause: cop was flagging any `x * 0` regardless of receiver type.
+/// RuboCop restricts to `(call nil? $_lhs)` — only bare method calls (identifiers
+/// not assigned as local variables). Local variable reads like `array = []; array * 0`
+/// are excluded because the type is unknown (could be Array, String, etc.).
+/// Fix: only flag when receiver is a CallNode with no receiver (bare method call),
+/// not LocalVariableReadNode or any other expression type.
 pub struct NumericOperationWithConstantResult;
 
 impl Cop for NumericOperationWithConstantResult {
@@ -17,7 +26,7 @@ impl Cop for NumericOperationWithConstantResult {
     }
 
     fn interested_node_types(&self) -> &'static [u8] {
-        &[CALL_NODE, INTEGER_NODE, LOCAL_VARIABLE_READ_NODE]
+        &[CALL_NODE]
     }
 
     fn check_node(
@@ -46,6 +55,13 @@ impl Cop for NumericOperationWithConstantResult {
             None => return,
         };
 
+        // RuboCop restricts to `(call nil? $_lhs)` — only bare method calls
+        // (identifiers that haven't been assigned as local variables).
+        // This avoids false positives on Array#*, String#*, etc.
+        if !is_bare_method_call(&receiver) {
+            return;
+        }
+
         let arguments = match call.arguments() {
             Some(a) => a,
             None => return,
@@ -61,8 +77,8 @@ impl Cop for NumericOperationWithConstantResult {
         let has_constant_result = if is_zero(rhs, source) {
             // x * 0 => 0, x ** 0 => 1
             method_name == b"*" || method_name == b"**"
-        } else if method_name == b"/" && same_source(&receiver, rhs, source) {
-            // x / x => 1
+        } else if method_name == b"/" && is_same_bare_method(&receiver, rhs, source) {
+            // x / x => 1 (both must be bare method calls with same name)
             true
         } else {
             false
@@ -83,6 +99,17 @@ impl Cop for NumericOperationWithConstantResult {
     }
 }
 
+/// Returns true if the node is a bare method call (no receiver, no arguments).
+/// In RuboCop's Parser AST, this is `(send nil :name)` — an identifier that
+/// hasn't been assigned as a local variable. In Prism, it's a `CallNode` with
+/// no receiver and no arguments.
+fn is_bare_method_call(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(call) = node.as_call_node() {
+        return call.receiver().is_none() && call.arguments().is_none();
+    }
+    false
+}
+
 fn is_zero(node: &ruby_prism::Node<'_>, source: &SourceFile) -> bool {
     if let Some(int_node) = node.as_integer_node() {
         let src = &source.as_bytes()
@@ -92,21 +119,18 @@ fn is_zero(node: &ruby_prism::Node<'_>, source: &SourceFile) -> bool {
     false
 }
 
-fn same_source(a: &ruby_prism::Node<'_>, b: &ruby_prism::Node<'_>, source: &SourceFile) -> bool {
+/// For `x / x`, both sides must be bare method calls with the same name.
+/// RuboCop pattern: `(call (call nil? $_lhs) :/ (call nil? $_rhs))` with lhs == rhs.
+fn is_same_bare_method(
+    a: &ruby_prism::Node<'_>,
+    b: &ruby_prism::Node<'_>,
+    source: &SourceFile,
+) -> bool {
+    if !is_bare_method_call(b) {
+        return false;
+    }
     let a_src = &source.as_bytes()[a.location().start_offset()..a.location().end_offset()];
     let b_src = &source.as_bytes()[b.location().start_offset()..b.location().end_offset()];
-    // Only compare simple variable reads (single identifier, not complex expressions)
-    if a_src.len() > 50 || a_src.is_empty() {
-        return false;
-    }
-    // Must be a simple local variable read or method call without args
-    let a_is_simple = a.as_local_variable_read_node().is_some()
-        || (a.as_call_node().is_some()
-            && a.as_call_node().unwrap().receiver().is_none()
-            && a.as_call_node().unwrap().arguments().is_none());
-    if !a_is_simple {
-        return false;
-    }
     a_src == b_src
 }
 
