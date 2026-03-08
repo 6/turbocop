@@ -12,3 +12,25 @@ class Auth::PasswordsController < Devise::PasswordsController
     super
   end
 end
+
+class DelegateController < ApplicationController
+  before_action :auth, only: :show
+  delegate :show, to: :other_controller
+end
+
+class AliasMethodController < ApplicationController
+  before_action :auth, only: :display
+  def show; end
+  alias_method :display, :show
+end
+
+class AliasController < ApplicationController
+  before_action :auth, only: :display
+  def show; end
+  alias display show
+end
+
+module AdminModule
+  before_action :auth, only: :index
+  def index; end
+end
