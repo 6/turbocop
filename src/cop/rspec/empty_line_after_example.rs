@@ -14,14 +14,24 @@ use crate::parse::source::SourceFile;
 /// FP=1,547→15: Fixed whitespace-only separator lines treated as non-blank.
 /// Also fixed heredoc content extending past the example call location.
 ///
-/// Remaining FP=15: Likely subtle differences between text-based line analysis
-/// (our approach) and AST sibling analysis (RuboCop's `EmptyLineSeparation` mixin
-/// which uses `last_child?` and `right_sibling`). The consecutive FPs in puppetlabs
-/// (6 at lines 99-104) and activegraph (4 at lines 269-270,309-310) suggest
-/// edge cases in consecutive one-liner detection or end-line computation.
-/// Without corpus files locally, root cause is unconfirmed.
+/// ## Corpus investigation (2026-03-08, pass 2)
 ///
-/// FN=2: Not addressed.
+/// Remaining FP=15 across 6 repos, FN=2 across 2 repos (match rate 99.5%).
+///
+/// FP root cause 1 (trailing semicolons, 6 FPs in puppetlabs/puppet): One-liner
+/// `do;...;end;` examples with a trailing semicolon after `end` were not recognized
+/// by `is_single_line_block` because it checked `ends_with(b"end")` but the trailing
+/// `;` prevented the match.  Fix: strip trailing semicolons in the function.
+///
+/// FP root cause 2 (nested last child, 4+ FPs in activegraph, others): Examples
+/// nested as the only/last child inside a parent block on the same line (e.g.,
+/// `wrapper(...) { it { ... } }`) were not recognized as "last child" because our
+/// text-based terminator check only looked at the NEXT line, not the remaining
+/// content on the SAME line after the example node.  RuboCop uses AST `last_child?`
+/// to detect this.  Fix: after the example node ends, check if the rest of the
+/// end_line is only closing syntax (whitespace, `;`, `}`, `end`).
+///
+/// FN=2: Not addressed in this pass.
 pub struct EmptyLineAfterExample;
 
 impl Cop for EmptyLineAfterExample {
@@ -82,6 +92,16 @@ impl Cop for EmptyLineAfterExample {
         let (end_line, _) = source.offset_to_line_col(end_offset);
 
         let is_one_liner = node_on_single_line(source, &loc);
+
+        // Check if the example is the "last child" by inspecting the rest of
+        // the end_line after the node.  RuboCop uses AST `last_child?` for this;
+        // we approximate by checking if the remaining content on the same line
+        // is only closing syntax (whitespace, `;`, `}`, `end`).  This handles
+        // patterns like `wrapper(...) { it { ... } }` where the `it` block ends
+        // mid-line and the rest is just the parent's closing brace.
+        if is_last_child_on_line(source, max_end_offset, end_line) {
+            return;
+        }
 
         // Check if the next non-blank line is another node
         let next_line = end_line + 1;
@@ -209,6 +229,65 @@ fn find_max_heredoc_end_offset(source: &SourceFile, node: &ruby_prism::Node<'_>)
     visitor.max_offset
 }
 
+/// Check if the example is the "last child" by examining what comes after it on
+/// the same line.  If the remaining content (after the node's end offset) on the
+/// end_line consists only of whitespace, semicolons, closing braces `}`, and/or
+/// the `end` keyword, the example is effectively the last child of its parent.
+fn is_last_child_on_line(source: &SourceFile, node_end_offset: usize, end_line: usize) -> bool {
+    let line_bytes = match line_at(source, end_line) {
+        Some(l) => l,
+        None => return false,
+    };
+
+    // Find the start offset of the end_line to calculate the position within the line
+    let line_start = match source.line_col_to_offset(end_line, 0) {
+        Some(offset) => offset,
+        None => return false,
+    };
+    if node_end_offset < line_start {
+        return false;
+    }
+    let pos_in_line = node_end_offset - line_start;
+
+    // If the node ends at or past the end of the line, there's nothing after it
+    if pos_in_line >= line_bytes.len() {
+        return false; // Nothing after — handled by next-line checks
+    }
+
+    let rest = &line_bytes[pos_in_line..];
+
+    // Check if the rest is only closing syntax: whitespace, `;`, `}`, `end`
+    is_only_closing_syntax(rest)
+}
+
+/// Returns true if the byte slice contains only whitespace, semicolons, closing
+/// braces `}`, and/or the `end` keyword (with word boundaries).
+fn is_only_closing_syntax(bytes: &[u8]) -> bool {
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b' ' | b'\t' | b';' | b'}' => {
+                i += 1;
+            }
+            b'e' => {
+                // Check for `end` keyword with proper boundaries
+                if bytes[i..].starts_with(b"end") {
+                    let after = i + 3;
+                    if after == bytes.len()
+                        || matches!(bytes[after], b' ' | b'\t' | b';' | b'}' | b'\n')
+                    {
+                        i = after;
+                        continue;
+                    }
+                }
+                return false;
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
 /// Returns true if the trimmed line starts with `#`.
 fn is_comment_line(line: &[u8]) -> bool {
     let trimmed_pos = line.iter().position(|&b| b != b' ' && b != b'\t');
@@ -253,9 +332,13 @@ fn is_single_line_block(line: &[u8]) -> bool {
         return true;
     }
 
-    // Single-line do..end: `it "foo" do something end`.
+    // Single-line do..end: `it "foo" do something end` or `it "foo" do; stuff; end;`
     // Require `end` as the trailing keyword to avoid matching description text.
-    let trimmed = trim_ascii_whitespace(line);
+    // Strip trailing semicolons and whitespace (some codebases use `; end;` style).
+    let mut trimmed = trim_ascii_whitespace(line);
+    while trimmed.ends_with(b";") {
+        trimmed = trim_ascii_whitespace(&trimmed[..trimmed.len() - 1]);
+    }
     if trimmed.ends_with(b"end") && contains_keyword(trimmed, b"do") {
         return true;
     }

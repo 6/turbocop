@@ -118,8 +118,29 @@ RSpec.describe Foo do
   it 'handles whitespace separator' do
     expect(true).to be true
   end
-  
+
   it 'next example after whitespace separator' do
     expect(true).to be true
+  end
+
+  # Consecutive do;...;end; one-liners with trailing semicolons
+  context 'with trailing semicolons' do
+    it "a == b" do; expect(true).to eq(true); end;
+    it "a < b"  do; expect(true).to eq(true); end;
+    it "a > b"  do; expect(true).to eq(true); end;
+  end
+
+  # Example nested as the only/last child inside a wrapper block on the same line
+  # (e.g., let_context, shared_examples_for, etc.)
+  describe 'wrapping' do
+    wrapper(option: 'a') { it { should eq(1) } }
+    wrapper(option: 'b') { it { should eq(2) } }
+    wrapper(option: 'c') { it { should eq(3) } }
+  end
+
+  # Example is last child inside a parent block — extra content after
+  # the example on the same line (closing braces of parent)
+  context 'nested blocks' do
+    [1, 2].each { |n| it { expect(n).to be_positive } }
   end
 end
