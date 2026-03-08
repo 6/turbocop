@@ -468,8 +468,7 @@ def main():
     md.append(f"| FP (nitrocop extra) | {total_fp:,} |")
     md.append(f"| FN (nitrocop missing) | {total_fn:,} |")
     md.append(f"| Registered cops | {registered_cops:,} |")
-    md.append(f"| Cops seen in corpus | {exercised_cops:,} |")
-    md.append(f"| Cops at 100% conformance | {perfect_cops:,} |")
+    md.append(f"| Cops with exact match | {perfect_cops:,} |")
     md.append(f"| Cops with divergence | {diverging_cops:,} |")
     md.append(f"| Cops with no corpus data | {inactive_cops:,} |")
     md.append(f"| **Match rate** | **{fmt_pct(overall_rate)}** |")
@@ -484,13 +483,13 @@ def main():
     if by_department:
         md.append("## Department Breakdown")
         md.append("")
-        md.append("| Department | Total cops | Seen in corpus | 100% | Diverging | No corpus data | Matches | FP | FN | Match % |")
-        md.append("|------------|-----------:|---------------:|-----:|----------:|---------------:|--------:|---:|---:|--------:|")
+        md.append("| Department | Total cops | Exact match | Diverging | No corpus data | Matches | FP | FN | Match % |")
+        md.append("|------------|-----------:|------------:|----------:|---------------:|--------:|---:|---:|--------:|")
         for d in by_department:
             total = d["matches"] + d["fp"] + d["fn"]
             pct = fmt_pct(d['match_rate']) if total > 0 else "N/A"
             md.append(
-                f"| {d['department']} | {d['cops']:,} | {d['exercised_cops']:,} | "
+                f"| {d['department']} | {d['cops']:,} | "
                 f"{d['perfect_cops']:,} | {d['diverging_cops']:,} | {d['inactive_cops']:,} | "
                 f"{d['matches']:,} | {d['fp']:,} | {d['fn']:,} | {pct} |"
             )
@@ -527,8 +526,8 @@ def main():
         md.append("## Diverging Cops")
         md.append("")
         md.append(
-            f"{len(diverging)} cops have divergence. "
-            f"{len(perfect_cop_list)} cops seen in the corpus match perfectly. "
+            f"{len(diverging)} cops diverge from RuboCop on the corpus. "
+            f"{len(perfect_cop_list)} cops match RuboCop exactly. "
             f"{inactive_cops} cops have no corpus data."
         )
         md.append("")

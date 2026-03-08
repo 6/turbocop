@@ -119,9 +119,9 @@ def test_end_to_end():
         md = out_md.read_text()
         assert "## Summary" in md
         assert "## Per-Repo Results" in md
-        assert "| Cops seen in corpus | 2 |" in md
-        assert "| Department | Total cops | Seen in corpus | 100% | Diverging | No corpus data |" in md
-        assert "1 cops seen in the corpus match perfectly. 1 cops have no corpus data." in md
+        assert "| Cops with exact match | 1 |" in md
+        assert "| Department | Total cops | Exact match | Diverging | No corpus data |" in md
+        assert "1 cops match RuboCop exactly. 1 cops have no corpus data." in md
 
 
 def test_match_rate_never_rounds_up_to_100():

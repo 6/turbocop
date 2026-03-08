@@ -18,8 +18,7 @@ Every offense is compared by file path, line number, and cop name.
 | FP (nitrocop extra) | 56,684 |
 | FN (nitrocop missing) | 478,703 |
 | Registered cops | 915 |
-| Cops seen in corpus | 853 |
-| Cops at 100% conformance | 334 |
+| Cops with exact match | 334 |
 | Cops with divergence | 519 |
 | Cops with no corpus data | 62 |
 | **Match rate** | **95.5%** |
@@ -29,22 +28,22 @@ Every offense is compared by file path, line number, and cop name.
 
 ## Department Breakdown
 
-| Department | Total cops | Seen in corpus | 100% | Diverging | No corpus data | Matches | FP | FN | Match % |
-|------------|-----------:|---------------:|-----:|----------:|---------------:|--------:|---:|---:|--------:|
-| Bundler | 7 | 7 | 7 | 0 | 0 | 39,567 | 0 | 0 | 100.0% |
-| FactoryBot | 11 | 11 | 11 | 0 | 0 | 20,290 | 0 | 0 | 100.0% |
-| Gemspec | 10 | 10 | 10 | 0 | 0 | 12,582 | 0 | 0 | 100.0% |
-| Layout | 100 | 100 | 19 | 81 | 0 | 1,312,441 | 20,659 | 281,225 | 81.2% |
-| Lint | 152 | 143 | 60 | 83 | 9 | 1,980,942 | 3,429 | 23,534 | 98.6% |
-| Metrics | 10 | 10 | 4 | 6 | 0 | 257,436 | 225 | 1,030 | 99.5% |
-| Migration | 1 | 1 | 1 | 0 | 0 | 71 | 0 | 0 | 100.0% |
-| Naming | 19 | 19 | 5 | 14 | 0 | 96,663 | 885 | 2,888 | 96.2% |
-| Performance | 52 | 52 | 52 | 0 | 0 | 43,303 | 0 | 0 | 100.0% |
-| RSpec | 113 | 110 | 50 | 60 | 3 | 1,443,443 | 3,291 | 15,159 | 98.7% |
-| RSpecRails | 8 | 7 | 7 | 0 | 1 | 23,882 | 0 | 0 | 100.0% |
-| Rails | 138 | 95 | 37 | 58 | 43 | 145,249 | 2,413 | 32,538 | 80.6% |
-| Security | 7 | 6 | 6 | 0 | 1 | 2,921 | 0 | 0 | 100.0% |
-| Style | 287 | 282 | 65 | 217 | 5 | 6,086,091 | 25,782 | 122,329 | 97.6% |
+| Department | Total cops | Exact match | Diverging | No corpus data | Matches | FP | FN | Match % |
+|------------|-----------:|------------:|----------:|---------------:|--------:|---:|---:|--------:|
+| Bundler | 7 | 7 | 0 | 0 | 39,567 | 0 | 0 | 100.0% |
+| FactoryBot | 11 | 11 | 0 | 0 | 20,290 | 0 | 0 | 100.0% |
+| Gemspec | 10 | 10 | 0 | 0 | 12,582 | 0 | 0 | 100.0% |
+| Layout | 100 | 19 | 81 | 0 | 1,312,441 | 20,659 | 281,225 | 81.2% |
+| Lint | 152 | 60 | 83 | 9 | 1,980,942 | 3,429 | 23,534 | 98.6% |
+| Metrics | 10 | 4 | 6 | 0 | 257,436 | 225 | 1,030 | 99.5% |
+| Migration | 1 | 1 | 0 | 0 | 71 | 0 | 0 | 100.0% |
+| Naming | 19 | 5 | 14 | 0 | 96,663 | 885 | 2,888 | 96.2% |
+| Performance | 52 | 52 | 0 | 0 | 43,303 | 0 | 0 | 100.0% |
+| RSpec | 113 | 50 | 60 | 3 | 1,443,443 | 3,291 | 15,159 | 98.7% |
+| RSpecRails | 8 | 7 | 0 | 1 | 23,882 | 0 | 0 | 100.0% |
+| Rails | 138 | 37 | 58 | 43 | 145,249 | 2,413 | 32,538 | 80.6% |
+| Security | 7 | 6 | 0 | 1 | 2,921 | 0 | 0 | 100.0% |
+| Style | 287 | 65 | 217 | 5 | 6,086,091 | 25,782 | 122,329 | 97.6% |
 
 ## RuboCop Warnings
 
@@ -57,7 +56,7 @@ Every offense is compared by file path, line number, and cop name.
 
 ## Diverging Cops
 
-519 cops have divergence. 334 cops seen in the corpus match perfectly. 62 cops have no corpus data.
+519 cops diverge from RuboCop on the corpus. 334 cops match RuboCop exactly. 62 cops have no corpus data.
 
 | Cop | Matches | FP | FN | Match % |
 |-----|--------:|---:|---:|--------:|

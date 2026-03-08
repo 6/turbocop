@@ -198,35 +198,37 @@ def build_cops_section(data: dict) -> str:
     lines.append(f"nitrocop supports {total_cops:,} cops from {len(GEMS)} RuboCop gems.")
     lines.append("")
     lines.append(
-        f"Current corpus status: {perfect_cops:,} cops seen in the corpus are at 100% conformance, "
+        f"Current corpus status: {perfect_cops:,} cops match RuboCop exactly on the corpus, "
         f"{diverging_cops:,} diverge, and {no_data_cops:,} have no corpus data."
     )
     lines.append("")
-    lines.append("100% conformance here means the cop was seen in the corpus and had 0 FP and 0 FN.")
+    lines.append("No corpus data means the cop never appeared in the corpus, so it has not been compared yet.")
     lines.append("")
 
     for gem in GEMS:
         rows = [by_department[dept] for dept in gem["departments"]]
         total = sum(r["cops"] for r in rows)
-        seen = sum(r["seen_cops"] for r in rows)
         perfect = sum(r["perfect_cops"] for r in rows)
         diverging = sum(r["diverging_cops"] for r in rows)
         no_data = sum(r["no_data_cops"] for r in rows)
         version = baseline.get(gem["key"], "?")
         lines.append(f"**[{gem['key']}]({gem['url']})** `{version}` ({total:,} cops)")
         lines.append("")
-        lines.append("| Department | Total cops | Seen in corpus | 100% | Diverging | No corpus data |")
-        lines.append("|------------|-----------:|---------------:|-----:|----------:|---------------:|")
+        lines.append("| Department | Total cops | Exact match | Diverging | No corpus data |")
+        lines.append("|------------|-----------:|------------:|----------:|---------------:|")
         for row in rows:
             lines.append(
-                f"| {row['department']} | {row['cops']:,} | {row['seen_cops']:,} | "
+                f"| {row['department']} | {row['cops']:,} | "
                 f"{row['perfect_cops']:,} | {row['diverging_cops']:,} | {row['no_data_cops']:,} |"
             )
-        lines.append(
-            f"| **Total** | **{total:,}** | **{seen:,}** | **{perfect:,}** | "
-            f"**{diverging:,}** | **{no_data:,}** |"
-        )
-        lines.append("")
+        if len(rows) > 1:
+            lines.append(
+                f"| **Total** | **{total:,}** | **{perfect:,}** | "
+                f"**{diverging:,}** | **{no_data:,}** |"
+            )
+            lines.append("")
+        else:
+            lines.append("")
 
     return "\n".join(lines).rstrip()
 
