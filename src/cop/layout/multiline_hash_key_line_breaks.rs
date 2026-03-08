@@ -3,6 +3,20 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// FP investigation (2026-03-08): 10 FPs, 0 FNs.
+///
+/// Root cause: The cop used pairwise comparison (prev.end_line == curr.start_line)
+/// to detect elements sharing a line. RuboCop uses a `last_seen_line` algorithm
+/// where offending elements (those that share a starting line with a predecessor)
+/// do NOT update `last_seen_line`. This matters when an offending element has a
+/// multiline value: its end_line is on a later line, but since it was already
+/// flagged as an offense, `last_seen_line` stays at the earlier non-offending
+/// element's last_line. The next element, starting on the offending element's
+/// end_line, is then compared against the earlier `last_seen_line` and found to
+/// be on a new line — no offense.
+///
+/// Fix: Replaced pairwise prev/curr comparison with RuboCop's `last_seen_line`
+/// tracking from `MultilineElementLineBreaks#check_line_breaks`.
 pub struct MultilineHashKeyLineBreaks;
 
 impl Cop for MultilineHashKeyLineBreaks {
@@ -83,21 +97,27 @@ impl Cop for MultilineHashKeyLineBreaks {
             }
         }
 
-        for i in 1..elements.len() {
-            let prev = &elements[i - 1];
-            let curr = &elements[i];
-
-            let (prev_line, _) =
-                source.offset_to_line_col(prev.location().end_offset().saturating_sub(1));
-            let (curr_line, curr_col) = source.offset_to_line_col(curr.location().start_offset());
-
-            if prev_line == curr_line {
+        // Track last_line of the most recent non-offending element (matches RuboCop's
+        // last_seen_line algorithm). When an element is flagged, last_seen_line is NOT
+        // updated, so subsequent elements are compared against the last "good" element.
+        // This avoids FPs where an element starts on the same line as a preceding
+        // multiline value's closing brace but on a different line from the last
+        // non-offending element.
+        let mut last_seen_line: isize = -1;
+        for elem in &elements {
+            let (start_line, start_col) = source.offset_to_line_col(elem.location().start_offset());
+            if last_seen_line >= start_line as isize {
                 diagnostics.push(self.diagnostic(
                     source,
-                    curr_line,
-                    curr_col,
+                    start_line,
+                    start_col,
                     "Each item in a multi-line hash must start on a separate line.".to_string(),
                 ));
+            } else {
+                let end_line = source
+                    .offset_to_line_col(elem.location().end_offset().saturating_sub(1))
+                    .0;
+                last_seen_line = end_line as isize;
             }
         }
     }

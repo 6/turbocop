@@ -19,3 +19,19 @@ a = {
 b = {
   one: 1, two: 2
 }
+
+# Multiline hash where each element gets its own line
+c = {foo: 1,
+  bar: {
+    x: 1
+  },
+  baz: 2
+}
+
+# Element after multiline value on the closing line — no offense when the
+# multiline element was itself already on a shared line (offending)
+d = {:app => {},
+  :settings => {:logger => ["/tmp/2.log"],
+    :logger_level => 2},
+  :defaults => {}
+}
