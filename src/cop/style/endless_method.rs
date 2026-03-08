@@ -3,6 +3,12 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Corpus investigation (2026-03):
+/// - FP=13 (11 opal/opal, 2 ruby-next/ruby-next) because nitrocop fired on repos
+///   targeting Ruby < 3.0 which don't support endless methods.
+/// - Root cause: RuboCop declares `minimum_target_ruby_version 3.0` so the cop only
+///   fires when the project targets Ruby >= 3.0. nitrocop had no such check.
+/// - Fix: Added TargetRubyVersion >= 3.0 guard at the start of check_node.
 pub struct EndlessMethod;
 
 impl Cop for EndlessMethod {
@@ -23,6 +29,16 @@ impl Cop for EndlessMethod {
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
+        // RuboCop: minimum_target_ruby_version 3.0
+        let ruby_version = config
+            .options
+            .get("TargetRubyVersion")
+            .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
+            .unwrap_or(2.7);
+        if ruby_version < 3.0 {
+            return;
+        }
+
         let def_node = match node.as_def_node() {
             Some(d) => d,
             None => return,
@@ -92,5 +108,32 @@ impl Cop for EndlessMethod {
 #[cfg(test)]
 mod tests {
     use super::*;
-    crate::cop_fixture_tests!(EndlessMethod, "cops/style/endless_method");
+    use crate::cop::CopConfig;
+
+    fn ruby30_config() -> CopConfig {
+        let mut config = CopConfig::default();
+        config.options.insert(
+            "TargetRubyVersion".to_string(),
+            serde_yml::Value::Number(serde_yml::Number::from(3.0)),
+        );
+        config
+    }
+
+    #[test]
+    fn offense_with_ruby30() {
+        crate::testutil::assert_cop_offenses_full_with_config(
+            &EndlessMethod,
+            include_bytes!("../../../tests/fixtures/cops/style/endless_method/offense.rb"),
+            ruby30_config(),
+        );
+    }
+
+    #[test]
+    fn no_offense() {
+        crate::testutil::assert_cop_no_offenses_full_with_config(
+            &EndlessMethod,
+            include_bytes!("../../../tests/fixtures/cops/style/endless_method/no_offense.rb"),
+            ruby30_config(),
+        );
+    }
 }
