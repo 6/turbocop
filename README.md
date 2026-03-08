@@ -15,7 +15,7 @@ Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (
 **Features**
 
 - **915 cops** from 6 RuboCop gems (rubocop, rubocop-rails, rubocop-performance, rubocop-rspec, rubocop-rspec_rails, rubocop-factory_bot)
-- **95.2% conformance** against RuboCop across [**1,000 open-source repos**](#conformance)
+- **95.5% conformance** against RuboCop across [**1,000 open-source repos**](#conformance)
 - **Autocorrect** (`-a`/`-A`) is partial — work in progress
 - Reads your existing `.rubocop.yml` — no migration needed
 - Uses [Prism](https://github.com/ruby/prism) (Ruby's official parser) via `ruby-prism` crate
@@ -70,29 +70,29 @@ We diff nitrocop against RuboCop on [**1,000 open-source repos**](docs/corpus.md
 
 |                        |    Count |  Rate |
 |:-----------------------|--------: |------:|
-| Agreed                 |    11.4M | 95.3% |
-| nitrocop extra (FP)    |    62.7K | 0.5% |
-| nitrocop missed (FN)   |   506.1K | 4.2% |
+| Agreed                 |    11.5M | 95.5% |
+| nitrocop extra (FP)    |    60.7K | 0.5% |
+| nitrocop missed (FN)   |   478.9K | 4.0% |
 
 Per-repo results (top 15 by GitHub stars):
 
 | Repo | .rb files | RuboCop offenses | nitrocop extra (FP) | nitrocop missed (FN) | Agreement |
 |------|----------:|-----------------:|--------------------:|---------------------:|----------:|
-| [rails](https://github.com/rails/rails) | 3,498 | 314,852 | 930 | 17,138 | 94.2% |
-| [jekyll](https://github.com/jekyll/jekyll) | 190 | 13,052 | 74 | 738 | 93.8% |
-| [mastodon](https://github.com/mastodon/mastodon) | 3,123 | 76,406 | 107 | 2,348 | 96.7% |
-| [huginn](https://github.com/huginn/huginn) | 451 | 34,402 | 152 | 959 | 96.7% |
-| [discourse](https://github.com/discourse/discourse) | 9,182 | 621,127 | 2,170 | 13,393 | 97.5% |
-| [fastlane](https://github.com/fastlane/fastlane) | 1,302 | 118,730 | 197 | 2,990 | 97.3% |
-| [devdocs](https://github.com/freeCodeCamp/devdocs) | 833 | 19,903 | 99 | 1,283 | 93.0% |
-| [chatwoot](https://github.com/chatwoot/chatwoot) | 2,262 | 64,941 | 59 | 1,478 | 97.6% |
-| [vagrant](https://github.com/hashicorp/vagrant) | 1,460 | 86,064 | 213 | 2,956 | 96.3% |
-| [devise](https://github.com/heartcombo/devise) | 206 | 5,800 | 19 | 411 | 92.6% |
-| [forem](https://github.com/forem/forem) | 3,390 | 128,530 | 276 | 4,294 | 96.4% |
-| [postal](https://github.com/postalserver/postal) | 294 | 13,948 | 24 | 709 | 94.7% |
-| [CocoaPods](https://github.com/CocoaPods/CocoaPods) | 438 | 28,422 | 359 | 1,946 | 91.9% |
-| [openproject](https://github.com/opf/openproject) | 9,286 | 388,980 | 1,193 | 10,288 | 97.0% |
-| [gollum](https://github.com/gollum/gollum) | 55 | 3,790 | 20 | 295 | 91.7% |
+| [rails](https://github.com/rails/rails) | 3,498 | 314,852 | 944 | 16,621 | 94.4% |
+| [jekyll](https://github.com/jekyll/jekyll) | 190 | 13,052 | 80 | 737 | 93.7% |
+| [mastodon](https://github.com/mastodon/mastodon) | 3,123 | 76,406 | 119 | 2,113 | 97.0% |
+| [huginn](https://github.com/huginn/huginn) | 451 | 34,402 | 132 | 886 | 97.0% |
+| [discourse](https://github.com/discourse/discourse) | 9,182 | 621,127 | 5,402 | 11,146 | 97.3% |
+| [fastlane](https://github.com/fastlane/fastlane) | 1,302 | 118,730 | 181 | 2,967 | 97.3% |
+| [devdocs](https://github.com/freeCodeCamp/devdocs) | 833 | 19,903 | 105 | 1,281 | 93.0% |
+| [chatwoot](https://github.com/chatwoot/chatwoot) | 2,262 | 64,941 | 68 | 1,190 | 98.0% |
+| [vagrant](https://github.com/hashicorp/vagrant) | 1,460 | 86,064 | 207 | 2,945 | 96.3% |
+| [devise](https://github.com/heartcombo/devise) | 206 | 5,800 | 25 | 386 | 92.9% |
+| [forem](https://github.com/forem/forem) | 3,390 | 128,530 | 338 | 3,764 | 96.8% |
+| [postal](https://github.com/postalserver/postal) | 294 | 13,948 | 30 | 699 | 94.7% |
+| [CocoaPods](https://github.com/CocoaPods/CocoaPods) | 438 | 28,422 | 352 | 1,909 | 92.1% |
+| [openproject](https://github.com/opf/openproject) | 9,286 | 388,980 | 1,212 | 9,634 | 97.2% |
+| [gollum](https://github.com/gollum/gollum) | 55 | 3,790 | 19 | 289 | 91.9% |
 
 Remaining gaps are mostly in complex layout cops (indentation, alignment) and a few style cops. See [docs/corpus.md](docs/corpus.md) for the full corpus breakdown.
 
