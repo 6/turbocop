@@ -87,6 +87,113 @@ def test_end_to_end():
         assert "## Per-Repo Results" in md
 
 
+def test_match_rate_never_rounds_up_to_100():
+    """Match rates with FP>0 must never display as 100.0% — regression test for
+    the Performance department bug where FP=2 but Match=100.0%."""
+    # Import the formatting functions directly
+    sys.path.insert(0, str(SCRIPT.parent))
+    from diff_results import fmt_pct, trunc4
+
+    # Performance department case: 43303 matches, 2 FP, 0 FN
+    rate = 43303 / 43305  # 0.99995...
+    assert trunc4(rate) < 1.0, f"trunc4({rate}) should be < 1.0, got {trunc4(rate)}"
+    assert fmt_pct(trunc4(rate)) != "100.0%", \
+        f"fmt_pct(trunc4({rate})) should not be 100.0%, got {fmt_pct(trunc4(rate))}"
+    assert fmt_pct(trunc4(rate)) == "99.9%", \
+        f"Expected 99.9%, got {fmt_pct(trunc4(rate))}"
+
+    # Edge cases: exact 1.0 should still show 100.0%
+    assert fmt_pct(trunc4(1.0)) == "100.0%"
+
+    # Just under: 999/1000 = 0.999 → 99.9%
+    assert fmt_pct(trunc4(999 / 1000)) == "99.9%"
+
+    # Very close: 9999/10000 = 0.9999 → 99.9%
+    assert fmt_pct(trunc4(9999 / 10000)) == "99.9%"
+
+    # 99999/100000 = 0.99999 → trunc4 = 0.9999 → 99.9%
+    assert trunc4(99999 / 100000) == 0.9999
+    assert fmt_pct(trunc4(99999 / 100000)) == "99.9%"
+
+
+def test_end_to_end_near_perfect_not_100():
+    """Verify that a department with FP>0 does NOT show 100.0% in markdown output."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        nc_dir = tmp / "nitrocop"
+        rc_dir = tmp / "rubocop"
+        nc_dir.mkdir()
+        rc_dir.mkdir()
+
+        # Create a repo with many matches and a few FPs for a single cop
+        # to reproduce the Performance scenario (high match rate, small FP)
+        rc_offenses = []
+        nc_offenses = []
+        for i in range(1, 101):
+            rc_offenses.append({
+                "path": f"repos/repo_a/file{i}.rb",
+                "offenses": [{"location": {"line": 1}, "cop_name": "Performance/TestCop"}]
+            })
+            nc_offenses.append({
+                "path": f"repos/repo_a/file{i}.rb", "line": 1,
+                "cop_name": "Performance/TestCop"
+            })
+
+        # Add 1 FP (nitrocop-only offense)
+        nc_offenses.append({
+            "path": "repos/repo_a/extra.rb", "line": 1,
+            "cop_name": "Performance/TestCop"
+        })
+
+        nc_dir.joinpath("repo_a.json").write_text(json.dumps({"offenses": nc_offenses}))
+        rc_dir.joinpath("repo_a.json").write_text(json.dumps({
+            "files": rc_offenses,
+            "summary": {"target_file_count": 101, "inspected_file_count": 101}
+        }))
+
+        manifest = tmp / "manifest.jsonl"
+        manifest.write_text(json.dumps({"id": "repo_a"}) + "\n")
+
+        out_json = tmp / "out.json"
+        out_md = tmp / "out.md"
+
+        result = subprocess.run(
+            [
+                sys.executable, str(SCRIPT),
+                "--nitrocop-dir", str(nc_dir),
+                "--rubocop-dir", str(rc_dir),
+                "--manifest", str(manifest),
+                "--output-json", str(out_json),
+                "--output-md", str(out_md),
+            ],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, f"Script failed:\nstderr: {result.stderr}"
+
+        data = json.loads(out_json.read_text())
+
+        # Per-cop match rate must be < 1.0
+        perf_cop = [c for c in data["by_cop"] if c["cop"] == "Performance/TestCop"][0]
+        assert perf_cop["fp"] == 1
+        assert perf_cop["match_rate"] < 1.0, \
+            f"Per-cop match_rate should be < 1.0 with FP=1, got {perf_cop['match_rate']}"
+
+        # Department match rate must be < 1.0
+        perf_dept = [d for d in data["by_department"] if d["department"] == "Performance"][0]
+        assert perf_dept["fp"] == 1
+        assert perf_dept["match_rate"] < 1.0, \
+            f"Department match_rate should be < 1.0 with FP=1, got {perf_dept['match_rate']}"
+
+        # Markdown must NOT show 100.0% for Performance
+        md = out_md.read_text()
+        for line in md.splitlines():
+            if "Performance" in line and "|" in line:
+                assert "100.0%" not in line, \
+                    f"Performance line should not show 100.0% with FP>0: {line}"
+
+
 if __name__ == "__main__":
     test_end_to_end()
+    test_match_rate_never_rounds_up_to_100()
+    test_end_to_end_near_perfect_not_100()
     print("OK: all tests passed")

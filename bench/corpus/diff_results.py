@@ -25,6 +25,11 @@ def fmt_pct(rate: float) -> str:
     return f"{math.floor(rate * 1000) / 10:.1f}%"
 
 
+def trunc4(rate: float) -> float:
+    """Truncate rate to 4 decimal places (never rounds up to 1.0)."""
+    return math.floor(rate * 10000) / 10000
+
+
 def strip_repo_prefix(filepath: str) -> str:
     """Strip the repos/<id>/ prefix to get a path relative to the repo root."""
     # Paths may look like: repos/mastodon__mastodon__c1f398a/app/models/user.rb
@@ -298,7 +303,7 @@ def main():
         result = {
             "repo": repo_id,
             "status": "ok",
-            "match_rate": round(match_rate, 4),
+            "match_rate": trunc4(match_rate),
             "matches": n_matches,
             "fp": n_fp,
             "fn": n_fn,
@@ -335,7 +340,7 @@ def main():
             "matches": m,
             "fp": fp,
             "fn": fn,
-            "match_rate": round(rate, 4),
+            "match_rate": trunc4(rate),
             "fp_examples": by_cop_fp_examples.get(cop, []),
             "fn_examples": by_cop_fn_examples.get(cop, []),
         })
@@ -359,7 +364,7 @@ def main():
             "matches": s["matches"],
             "fp": s["fp"],
             "fn": s["fn"],
-            "match_rate": round(rate, 4),
+            "match_rate": trunc4(rate),
             "cops": s["cops"],
         })
 
@@ -388,7 +393,7 @@ def main():
             "matches": total_matches,
             "fp": total_fp,
             "fn": total_fn,
-            "overall_match_rate": round(overall_rate, 4),
+            "overall_match_rate": trunc4(overall_rate),
             "total_files_inspected": total_files,
             "rubocop_files_dropped": total_files_dropped,
         },
