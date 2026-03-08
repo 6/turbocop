@@ -3,6 +3,21 @@ use crate::diagnostic::Diagnostic;
 use crate::parse::codemap::CodeMap;
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-08)
+///
+/// Corpus oracle reported FP=4, FN=0.
+///
+/// FP=4 root cause: the byte scanner treated semicolons inside the legacy global
+/// variable `$;` as statement separators. It also diverged from RuboCop's token
+/// handling for consecutive semicolons (`foo;; bar`).
+///
+/// Fix: skip semicolons that are part of `$;`, ignore semicolon sequences, and
+/// accept tabs as whitespace after a statement separator.
+///
+/// Rerun outcome: removed the original tab-after-semicolon false positive from
+/// `ging` plus one baseline FP each in `natalie` and `facets`. Remaining local
+/// noise is dominated by `jruby` file drops and one generated `.rbnext` file in
+/// `ruby-next` that CI did not count.
 pub struct SpaceAfterSemicolon;
 
 impl Cop for SpaceAfterSemicolon {
@@ -26,8 +41,19 @@ impl Cop for SpaceAfterSemicolon {
         let bytes = source.as_bytes();
         for (i, &byte) in bytes.iter().enumerate() {
             if byte == b';' && code_map.is_code(i) {
+                if matches!(bytes.get(i.wrapping_sub(1)), Some(b'$')) {
+                    continue;
+                }
+
                 let next = bytes.get(i + 1).copied();
-                if !matches!(next, Some(b' ') | Some(b'\n') | Some(b'\r') | None) {
+                if matches!(next, Some(b';')) {
+                    continue;
+                }
+
+                if !matches!(
+                    next,
+                    Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') | None
+                ) {
                     let (line, column) = source.offset_to_line_col(i);
                     let mut diag = self.diagnostic(
                         source,
