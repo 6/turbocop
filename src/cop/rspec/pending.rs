@@ -11,6 +11,21 @@ use crate::parse::source::SourceFile;
 /// keyword args) was running on ALL call nodes, causing false positives on matcher arguments
 /// like `eq(:skip)` and factory calls like `create(:record, skip: true)`. Fix: restrict
 /// metadata checks to only RSpec example, example group, shared group, and hook methods.
+///
+/// ## Known false positives / reverted attempt (2026-03-07)
+///
+/// Attempted fix: rewrote the cop to mirror RuboCop `Pending` node-pattern logic
+/// (skipped groups/examples + metadata true/str/dstr + regular examples without body).
+///
+/// Acceptance gate before (CI baseline): expected=2,996, actual=1,692, excess=0, missing=1,304.
+/// Acceptance gate after rewrite (`check-cop --rerun`): expected=2,996, actual=3,223,
+/// excess=227, missing=0 (adjusted excess vs CI baseline: +1,106).
+///
+/// Effect: removed many historical FN but introduced massive new FP clusters
+/// (`skip` in helper/control-flow contexts across multiple repos).
+///
+/// A correct future fix needs parent/context-aware handling for `skip`/`pending`
+/// send nodes rather than a pure method-name match.
 pub struct Pending;
 
 /// x-prefixed methods that indicate pending specs.
