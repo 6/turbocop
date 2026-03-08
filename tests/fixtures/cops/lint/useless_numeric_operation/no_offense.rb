@@ -26,3 +26,9 @@ val -= 0.0
 # Global variable op-assigns are not matched by RuboCop
 $counter += 0
 $total *= 1
+# Method calls with arguments are not bare method calls (RuboCop's NodePattern requires no args)
+Complex(1, 2) ** 1
+Integer(val) + 0
+Float(val) * 1
+some_method(arg) + 0
+some_method(arg) * 1

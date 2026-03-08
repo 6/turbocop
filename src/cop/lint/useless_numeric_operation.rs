@@ -13,6 +13,12 @@ use crate::parse::source::SourceFile;
 ///
 /// Fix: removed float literal checks from `is_zero`/`is_one`, and removed
 /// ivar/cvar/gvar operator write node handling.
+///
+/// Round 2: 3 FP in jruby, natalie, jetpants repos.
+/// Root cause: `is_bare_method_call` didn't check that the receiver call has
+/// no arguments or block. RuboCop's `(call nil? $_)` only matches bare method
+/// calls without arguments (e.g., `x`), not `Complex(1, 2)` or `foo(arg)`.
+/// Fix: added `arguments().is_none() && block().is_none()` to the receiver check.
 pub struct UselessNumericOperation;
 
 const MSG: &str = "Do not apply inconsequential numeric operations to variables.";
@@ -56,7 +62,11 @@ impl Cop for UselessNumericOperation {
             // RuboCop's pattern: (call (call nil? $_) $_ (int $_))
             // The receiver must be a CallNode with no receiver (bare method call).
             let is_bare_method_call = match recv.as_call_node() {
-                Some(recv_call) => recv_call.receiver().is_none(),
+                Some(recv_call) => {
+                    recv_call.receiver().is_none()
+                        && recv_call.arguments().is_none()
+                        && recv_call.block().is_none()
+                }
                 None => false,
             };
             if !is_bare_method_call {
