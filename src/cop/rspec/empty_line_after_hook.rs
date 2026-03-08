@@ -3,27 +3,27 @@ use std::collections::HashSet;
 use ruby_prism::Visit;
 
 use crate::cop::util::{
-    RSPEC_DEFAULT_INCLUDE, is_blank_line, is_rspec_hook, line_at, node_on_single_line,
+    RSPEC_DEFAULT_INCLUDE, is_blank_or_whitespace_line, is_rspec_hook, line_at, node_on_single_line,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
-/// ## Corpus investigation (2026-03-07)
+/// ## Corpus investigation (2026-03-08)
 ///
-/// Corpus oracle reported FP=31, FN=18.
+/// Corpus oracle reported FP=377, FN=0.
 ///
-/// FP root cause: one-line hook forms with heredoc arguments were treated as
-/// ending on the opening line (e.g., `before { call(<<~TXT) }`), so heredoc
-/// content lines appeared to violate separation.
+/// FP=377 root cause: separator lines containing only spaces/tabs were treated
+/// as non-blank by `is_blank_line`, so hooks followed by whitespace-only lines
+/// were incorrectly flagged. RuboCop's `blank?` separator check treats these
+/// lines as blank.
 ///
-/// FN root cause: offenses that should be reported on `# rubocop:enable ...`
-/// directive lines were emitted on hook lines instead (line mismatch), and
-/// heredoc terminator-line offenses were missed due incorrect end-line tracking.
+/// FN=0: no missing detections were reported in corpus data for this run.
 ///
-/// Fix: use heredoc-aware final-end offsets and RuboCop-equivalent comment-line
-/// scanning based on Prism comments, including inline comments and
-/// `rubocop:enable` directive report-line behavior.
+/// Historical parity fixes retained: heredoc-aware end offsets and
+/// `rubocop:enable` comment-line report behavior.
+///
+/// Fix: apply a whitespace-aware blank-line check only for this separation cop.
 pub struct EmptyLineAfterHook;
 
 impl Cop for EmptyLineAfterHook {
@@ -158,7 +158,7 @@ fn missing_separating_line(
     }
 
     match line_at(source, line + 1) {
-        Some(next_line) if is_blank_line(next_line) => None,
+        Some(next_line) if is_blank_or_whitespace_line(next_line) => None,
         Some(_) => Some(enable_directive_line.unwrap_or(end_line)),
         None => None,
     }

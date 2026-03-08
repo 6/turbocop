@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use ruby_prism::Visit;
 
 use crate::cop::util::{
-    self, RSPEC_DEFAULT_INCLUDE, is_blank_line, is_rspec_example_group, is_rspec_let,
+    self, RSPEC_DEFAULT_INCLUDE, is_blank_or_whitespace_line, is_rspec_example_group, is_rspec_let,
     is_rspec_shared_group, line_at,
 };
 use crate::cop::{Cop, CopConfig};
@@ -12,28 +12,24 @@ use crate::parse::source::SourceFile;
 
 /// RSpec/EmptyLineAfterFinalLet
 ///
-/// ## Corpus investigation (2026-03-07)
+/// ## Corpus investigation (2026-03-08)
 ///
-/// Corpus oracle reported FP=11, FN=6.
+/// Corpus oracle reported FP=192, FN=0.
 ///
 /// Previous fix: RuboCop's `example_group_with_body?` only matches ExampleGroups
 /// (describe/context/feature/etc.) and NOT SharedGroups
 /// (`shared_examples`/`shared_examples_for`/`shared_context`). Excluding shared
 /// groups removed a large FP cluster.
 ///
-/// Remaining gaps:
-/// - FP from `let ... end` followed by a line that has an inline trailing
-///   comment (`before { foo } # comment`) and then a blank line.
-/// - FN from explicit receiver example groups (`RSpec.feature`) not being
-///   recognized.
-/// - FP/FN line mismatch around heredoc lets: RuboCop reports on heredoc
-///   terminator lines (and checks separation after terminator), while our cop
-///   used the `let` line end.
+/// FP=192 root cause: separator lines containing only spaces/tabs were treated
+/// as non-blank by `is_blank_line`, so `let` followed by whitespace-only line
+/// and then `before/it` triggered false positives. RuboCop's separation logic
+/// uses `blank?`, which treats whitespace-only lines as blank.
 ///
-/// Fix: traverse call nodes from `check_source`, match all ExampleGroup forms
-/// including explicit `RSpec.<group>`, and reuse RuboCop-equivalent separator
-/// scanning (comment-line skipping + `rubocop:enable` reporting + heredoc final
-/// end location).
+/// FN=0: no missing detections were reported in corpus data for this run.
+///
+/// Fix: keep strict blank semantics globally, but for this separation cop use a
+/// whitespace-aware blank-line check when deciding whether a separator exists.
 pub struct EmptyLineAfterFinalLet;
 
 impl Cop for EmptyLineAfterFinalLet {
@@ -214,7 +210,7 @@ fn missing_separating_line(
     }
 
     match line_at(source, line + 1) {
-        Some(next_line) if is_blank_line(next_line) => None,
+        Some(next_line) if is_blank_or_whitespace_line(next_line) => None,
         Some(_) => Some(enable_directive_line.unwrap_or(end_line)),
         None => None,
     }

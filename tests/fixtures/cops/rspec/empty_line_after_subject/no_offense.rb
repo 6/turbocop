@@ -33,3 +33,10 @@ RSpec.describe LazyModel do
 
   it { expect(subject).to be_truthy }
 end
+
+# Whitespace-only separator lines should count as blank.
+RSpec.describe WhitespaceSeparatorAfterSubject do
+  subject { described_class.new }
+  
+  let(:params) { foo }
+end

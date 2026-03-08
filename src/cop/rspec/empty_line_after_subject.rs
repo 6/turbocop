@@ -4,36 +4,29 @@ use ruby_prism::Visit;
 
 use crate::cop::node_type::PROGRAM_NODE;
 use crate::cop::util::{
-    self, RSPEC_DEFAULT_INCLUDE, is_blank_line, is_rspec_example_group, is_rspec_shared_group,
-    is_rspec_subject, line_at,
+    self, RSPEC_DEFAULT_INCLUDE, is_blank_or_whitespace_line, is_rspec_example_group,
+    is_rspec_shared_group, is_rspec_subject, line_at,
 };
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
-/// ## Corpus investigation (2026-03-07)
+/// ## Corpus investigation (2026-03-08)
 ///
-/// Corpus oracle reported FP=352, FN=21.
+/// Corpus oracle reported FP=37, FN=0.
 ///
-/// FP=352 root cause: this cop only checked direct children of every example-group
-/// block and ignored RuboCop's `InsideExampleGroup` root scoping. RuboCop skips
-/// this cop for spec groups wrapped in top-level `module`/`class` (root is not a
-/// spec group). We were still reporting offenses there, especially multiline
-/// `subject` blocks in namespaced specs.
+/// FP=37 root cause: separator lines containing only spaces/tabs were treated as
+/// non-blank by `is_blank_line`, so `subject` followed by whitespace-only lines
+/// were incorrectly flagged. RuboCop's `blank?` separator check treats those
+/// lines as blank.
 ///
-/// FN=21 root cause: this cop did not inspect `subject` declarations nested under
-/// include wrappers such as `it_behaves_like`/`include_examples`, and skipped
-/// `shared_examples` roots entirely.
+/// FN=0: no missing detections were reported in corpus data for this run.
 ///
-/// Additional parity fix: RuboCop's `line_with_comment?` treats inline trailing
-/// comments as comment lines for separator scanning. This means
-/// `subject` followed by `let(...) # comment` and then a blank line is accepted.
-/// We mirror this using Prism comment locations (`parse_result.comments()`).
+/// Historical parity fixes retained: top-level RSpec root scoping, recursive
+/// traversal for nested include/shared-example trees, heredoc-aware end offsets,
+/// and `rubocop:enable` comment-line report behavior.
 ///
-/// Fix: scan only top-level spec-group roots (example groups + shared groups),
-/// then recursively inspect statement lists in those subtrees for `subject` nodes.
-/// This preserves RuboCop's root scoping, catches nested include/shared-example
-/// subjects, and keeps sibling/blank-line checks local to each statement list.
+/// Fix: use a whitespace-aware blank-line check for separator detection.
 pub struct EmptyLineAfterSubject;
 
 impl Cop for EmptyLineAfterSubject {
@@ -206,7 +199,7 @@ fn missing_separating_line(
     }
 
     match line_at(source, line + 1) {
-        Some(next_line) if is_blank_line(next_line) => None,
+        Some(next_line) if is_blank_or_whitespace_line(next_line) => None,
         Some(_) => Some(enable_directive_line.unwrap_or(end_line)),
         None => None,
     }

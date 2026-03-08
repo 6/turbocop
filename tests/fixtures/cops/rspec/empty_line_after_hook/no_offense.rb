@@ -40,3 +40,10 @@ class Minitest::Spec
 
   include FactoryHelpers
 end
+
+# Whitespace-only separator lines should count as blank.
+RSpec.describe WhitespaceSeparatorAfterHook do
+  before { setup_context }
+  
+  it { expect(true).to be(true) }
+end

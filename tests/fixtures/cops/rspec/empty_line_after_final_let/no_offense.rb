@@ -102,3 +102,10 @@ RSpec.describe ResourceProvider do
 
   it { expect(resource_class.name).to eq("B") }
 end
+
+# Whitespace-only separator lines should count as blank.
+RSpec.describe WhitespaceSeparatorAfterLet do
+  let(:admin) { create(:admin) }
+  
+  before { admin }
+end

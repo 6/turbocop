@@ -570,6 +570,14 @@ pub fn is_blank_line(line: &[u8]) -> bool {
     line.is_empty() || line == b"\r"
 }
 
+/// Check if a line is blank or whitespace-only.
+///
+/// This is used by spacing/separation cops that mirror RuboCop's `blank?`
+/// behavior when deciding whether an empty separator line exists.
+pub fn is_blank_or_whitespace_line(line: &[u8]) -> bool {
+    line.iter().all(|&b| b == b' ' || b == b'\t' || b == b'\r')
+}
+
 /// Check for extra empty lines at the beginning/end of a body.
 /// Used by EmptyLinesAround{Class,Module,Method,Block}Body.
 pub fn check_empty_lines_around_body(
