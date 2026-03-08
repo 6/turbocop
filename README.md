@@ -15,7 +15,7 @@ Benchmark on the [rubygems.org repo](https://github.com/rubygems/rubygems.org) (
 **Features**
 
 - **915 cops** from 6 RuboCop gems (rubocop, rubocop-rails, rubocop-performance, rubocop-rspec, rubocop-rspec_rails, rubocop-factory_bot)
-- **95.1% conformance** against RuboCop across [**1,000 open-source repos**](#conformance)
+- **95.2% conformance** against RuboCop across [**1,000 open-source repos**](#conformance)
 - **Autocorrect** (`-a`/`-A`) is partial — work in progress
 - Reads your existing `.rubocop.yml` — no migration needed
 - Uses [Prism](https://github.com/ruby/prism) (Ruby's official parser) via `ruby-prism` crate
@@ -66,32 +66,32 @@ Every cop reads its RuboCop YAML config options and has fixture-based test cover
 
 ## Conformance
 
-We diff nitrocop against RuboCop on [**1,000 open-source repos**](docs/corpus.md) (231k Ruby files) with all cops enabled. Every offense is compared by file, line, and cop name.
+We diff nitrocop against RuboCop on [**1,000 open-source repos**](docs/corpus.md) (232k Ruby files) with all cops enabled. Every offense is compared by file, line, and cop name.
 
 |                        |    Count |  Rate |
 |:-----------------------|--------: |------:|
-| Agreed                 |    11.4M | 95.2% |
-| nitrocop extra (FP)    |    63.2K | 0.5% |
-| nitrocop missed (FN)   |   514.5K | 4.3% |
+| Agreed                 |    11.4M | 95.3% |
+| nitrocop extra (FP)    |    64.1K | 0.5% |
+| nitrocop missed (FN)   |   506.1K | 4.2% |
 
 Per-repo results (top 15 by GitHub stars):
 
 | Repo | .rb files | RuboCop offenses | nitrocop extra (FP) | nitrocop missed (FN) | Agreement |
 |------|----------:|-----------------:|--------------------:|---------------------:|----------:|
-| [rails](https://github.com/rails/rails) | 3,498 | 314,853 | 967 | 17,139 | 94.2% |
+| [rails](https://github.com/rails/rails) | 3,498 | 314,852 | 938 | 17,139 | 94.2% |
 | [jekyll](https://github.com/jekyll/jekyll) | 190 | 13,052 | 75 | 737 | 93.8% |
-| [mastodon](https://github.com/mastodon/mastodon) | 3,123 | 76,303 | 108 | 2,550 | 96.5% |
-| [huginn](https://github.com/huginn/huginn) | 451 | 34,402 | 154 | 961 | 96.7% |
-| [discourse](https://github.com/discourse/discourse) | 9,172 | 619,551 | 2,186 | 13,691 | 97.4% |
-| [fastlane](https://github.com/fastlane/fastlane) | 1,302 | 118,730 | 200 | 3,012 | 97.3% |
+| [mastodon](https://github.com/mastodon/mastodon) | 3,123 | 76,406 | 108 | 2,349 | 96.7% |
+| [huginn](https://github.com/huginn/huginn) | 451 | 34,402 | 153 | 961 | 96.7% |
+| [discourse](https://github.com/discourse/discourse) | 9,182 | 621,127 | 2,181 | 13,378 | 97.5% |
+| [fastlane](https://github.com/fastlane/fastlane) | 1,302 | 118,730 | 198 | 2,994 | 97.3% |
 | [devdocs](https://github.com/freeCodeCamp/devdocs) | 833 | 19,903 | 118 | 1,283 | 93.0% |
-| [chatwoot](https://github.com/chatwoot/chatwoot) | 2,262 | 64,941 | 59 | 1,496 | 97.6% |
-| [vagrant](https://github.com/hashicorp/vagrant) | 1,460 | 86,064 | 217 | 2,946 | 96.3% |
+| [chatwoot](https://github.com/chatwoot/chatwoot) | 2,262 | 64,941 | 59 | 1,479 | 97.6% |
+| [vagrant](https://github.com/hashicorp/vagrant) | 1,460 | 86,064 | 215 | 2,946 | 96.3% |
 | [devise](https://github.com/heartcombo/devise) | 206 | 5,800 | 20 | 411 | 92.5% |
-| [forem](https://github.com/forem/forem) | 3,390 | 128,530 | 262 | 4,330 | 96.4% |
-| [postal](https://github.com/postalserver/postal) | 294 | 13,948 | 24 | 715 | 94.7% |
-| [CocoaPods](https://github.com/CocoaPods/CocoaPods) | 438 | 28,422 | 270 | 1,944 | 92.2% |
-| [openproject](https://github.com/opf/openproject) | 9,286 | 388,980 | 645 | 10,574 | 97.1% |
+| [forem](https://github.com/forem/forem) | 3,390 | 128,530 | 278 | 4,297 | 96.4% |
+| [postal](https://github.com/postalserver/postal) | 294 | 13,948 | 24 | 709 | 94.7% |
+| [CocoaPods](https://github.com/CocoaPods/CocoaPods) | 438 | 28,422 | 360 | 1,945 | 91.9% |
+| [openproject](https://github.com/opf/openproject) | 9,286 | 388,980 | 1,205 | 10,287 | 97.0% |
 | [gollum](https://github.com/gollum/gollum) | 55 | 3,790 | 21 | 295 | 91.7% |
 
 Remaining gaps are mostly in complex layout cops (indentation, alignment) and a few style cops. See [docs/corpus.md](docs/corpus.md) for the full corpus breakdown.
