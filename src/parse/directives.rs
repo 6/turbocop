@@ -9,6 +9,17 @@ static DIRECTIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"#\s*(?:rubocop|nitrocop)\s*:\s*(disable|enable|todo)\s+(.+)").unwrap()
 });
 
+/// Legacy inline directive aliases derived from obsoletion.yml.
+///
+/// Maps new cop name -> old cop names, but only for same-department renames.
+/// Cross-department renames are intentionally excluded.
+static SAME_DEPARTMENT_LEGACY_ALIASES: LazyLock<HashMap<String, Vec<String>>> =
+    LazyLock::new(|| {
+        parse_same_department_legacy_aliases(include_str!(
+            "../../vendor/rubocop/config/obsoletion.yml"
+        ))
+    });
+
 /// A single disable directive entry (one cop name from a `# rubocop:disable` comment).
 #[derive(Debug, Clone)]
 pub struct DisableDirective {
@@ -170,8 +181,9 @@ impl DisabledRanges {
 
     /// Returns true if `cop_name` is disabled at `line`.
     ///
-    /// Checks the exact cop name, short cop name (without department), legacy
-    /// aliases (renamed cops), its department prefix, and "all".
+    /// Checks the exact cop name, short cop name (without department),
+    /// same-department legacy aliases (renamed cops), its department prefix,
+    /// and "all".
     pub fn is_disabled(&self, cop_name: &str, line: usize) -> bool {
         // Check exact cop name
         if self.check_ranges(cop_name, line) {
@@ -185,12 +197,17 @@ impl DisabledRanges {
             }
         }
 
-        // Note: We intentionally do NOT check legacy/renamed cop names here.
-        // RuboCop does not resolve renamed cops in inline disable directives
-        // (e.g., `# rubocop:disable Style/OpMethod` does NOT suppress
-        // `Naming/BinaryOperatorParameterName`). The obsoletion.yml renames
-        // only apply to config keys, not inline comments. Matching RuboCop's
-        // behavior here avoids false negatives in the corpus.
+        // Check same-department legacy aliases from obsoletion.yml.
+        // We intentionally do NOT resolve cross-department renames (e.g.
+        // Style/OpMethod -> Naming/BinaryOperatorParameterName) to avoid
+        // suppressing unrelated cops.
+        if let Some(aliases) = SAME_DEPARTMENT_LEGACY_ALIASES.get(cop_name) {
+            for alias in aliases {
+                if self.check_ranges(alias, line) {
+                    return true;
+                }
+            }
+        }
 
         // Check department name (e.g., "Layout" for "Layout/LineLength")
         if let Some(dept) = cop_name.split('/').next() {
@@ -223,8 +240,15 @@ impl DisabledRanges {
             }
         }
 
-        // Note: We intentionally do NOT check legacy/renamed cop names here.
-        // See comment in is_disabled() above for rationale.
+        // Check same-department legacy aliases from obsoletion.yml.
+        if let Some(aliases) = SAME_DEPARTMENT_LEGACY_ALIASES.get(cop_name) {
+            for alias in aliases {
+                if self.check_ranges(alias, line) {
+                    self.mark_directives_used(alias, line);
+                    suppressed = true;
+                }
+            }
+        }
 
         // Check department name (e.g., "Layout" for "Layout/LineLength")
         if let Some(dept) = cop_name.split('/').next() {
@@ -297,6 +321,59 @@ impl DisabledRanges {
 
 fn short_cop_name(cop_name: &str) -> Option<&str> {
     cop_name.split_once('/').map(|(_, short)| short)
+}
+
+fn parse_same_department_legacy_aliases(yaml_content: &str) -> HashMap<String, Vec<String>> {
+    let mut aliases = HashMap::new();
+
+    let raw: serde_yml::Value = match serde_yml::from_str(yaml_content) {
+        Ok(v) => v,
+        Err(_) => return aliases,
+    };
+    let Some(renamed) = raw.get("renamed") else {
+        return aliases;
+    };
+    let Some(mapping) = renamed.as_mapping() else {
+        return aliases;
+    };
+
+    for (key, value) in mapping {
+        let Some(old_name) = key.as_str() else {
+            continue;
+        };
+
+        let new_name = if let Some(s) = value.as_str() {
+            s.to_string()
+        } else if let Some(inner_map) = value.as_mapping() {
+            inner_map
+                .get(serde_yml::Value::String("new_name".to_string()))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_default()
+        } else {
+            continue;
+        };
+        if new_name.is_empty() {
+            continue;
+        }
+
+        let Some((old_dept, _)) = old_name.split_once('/') else {
+            continue;
+        };
+        let Some((new_dept, _)) = new_name.split_once('/') else {
+            continue;
+        };
+        if !old_dept.eq_ignore_ascii_case(new_dept) {
+            continue;
+        }
+
+        aliases
+            .entry(new_name)
+            .or_insert_with(Vec::new)
+            .push(old_name.to_string());
+    }
+
+    aliases
 }
 
 #[cfg(test)]
@@ -562,8 +639,8 @@ mod tests {
     }
 
     #[test]
-    fn legacy_cop_name_not_resolved() {
-        // RuboCop does NOT resolve renamed cops in inline disable comments.
+    fn cross_department_legacy_cop_name_not_resolved() {
+        // Cross-department renames are intentionally NOT resolved.
         // Style/AccessorMethodName was renamed to Naming/AccessorMethodName,
         // but `# rubocop:disable Style/AccessorMethodName` should NOT suppress
         // Naming/AccessorMethodName offenses. Only the exact name (or short name
@@ -571,7 +648,7 @@ mod tests {
         let dr = disabled_ranges("x = 1 # rubocop:disable Style/AccessorMethodName\ny = 2\n");
         assert!(
             !dr.is_disabled("Naming/AccessorMethodName", 1),
-            "legacy name should NOT resolve to new cop name (matches RuboCop behavior)"
+            "cross-department legacy name should NOT resolve to new cop name"
         );
         // But the exact legacy name IS disabled
         assert!(
@@ -581,13 +658,23 @@ mod tests {
     }
 
     #[test]
-    fn legacy_cop_name_block_disable_not_resolved() {
-        // Same as above but for block-style disable/enable
+    fn same_department_legacy_cop_name_resolved() {
+        // Same-department rename should resolve for inline disable matching.
+        let dr = disabled_ranges("x = 1 # rubocop:disable Naming/PredicateName\ny = 2\n");
+        assert!(
+            dr.is_disabled("Naming/PredicatePrefix", 1),
+            "same-department legacy name should resolve to new cop name"
+        );
+    }
+
+    #[test]
+    fn cross_department_legacy_cop_name_block_disable_not_resolved() {
+        // Same as cross-department test above but for block-style disable/enable.
         let src = "# rubocop:disable Style/ConstantName\nFoo_bar = 1\n# rubocop:enable Style/ConstantName\nBAZ = 2\n";
         let dr = disabled_ranges(src);
         assert!(
             !dr.is_disabled("Naming/ConstantName", 2),
-            "legacy block disable should NOT cover new name (matches RuboCop behavior)"
+            "cross-department legacy block disable should NOT cover new name"
         );
         // The exact legacy name IS disabled within the range
         assert!(
@@ -597,6 +684,17 @@ mod tests {
         assert!(
             !dr.is_disabled("Style/ConstantName", 4),
             "after enable, legacy name should not be disabled"
+        );
+    }
+
+    #[test]
+    fn same_department_legacy_cop_name_marks_used() {
+        let mut dr = disabled_ranges("x = 1 # rubocop:disable Naming/PredicateName\ny = 2\n");
+        assert!(dr.check_and_mark_used("Naming/PredicatePrefix", 1));
+        let unused: Vec<_> = dr.unused_directives().collect();
+        assert!(
+            unused.is_empty(),
+            "legacy alias directive should be marked used"
         );
     }
 
