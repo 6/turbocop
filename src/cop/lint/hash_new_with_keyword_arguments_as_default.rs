@@ -1,11 +1,18 @@
 use crate::cop::node_type::{ASSOC_NODE, CALL_NODE, KEYWORD_HASH_NODE, SYMBOL_NODE};
-use crate::cop::util::constant_name;
 use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
 /// Checks for the deprecated use of keyword arguments as a default in `Hash.new`.
 /// In Ruby 3.4, keyword arguments will be used to change hash behavior (e.g., `capacity:`).
+///
+/// ## Investigation notes
+/// 6 FPs from corpus: all on namespaced `Hash.new(key: value)` calls where `Hash` is not
+/// the built-in Ruby `Hash` (e.g., `HashWithDotAccess::Hash`, `Hamster::Hash`,
+/// `Configoro::Hash`, `Deprecation::Hash`). Root cause: `constant_name()` returns only
+/// the leaf segment, so `Namespace::Hash` matched as `Hash`. Fixed by checking node type
+/// directly — only bare `Hash` (ConstantReadNode) or root `::Hash` (ConstantPathNode
+/// with no parent) are matched.
 pub struct HashNewWithKeywordArgumentsAsDefault;
 
 impl Cop for HashNewWithKeywordArgumentsAsDefault {
@@ -44,12 +51,14 @@ impl Cop for HashNewWithKeywordArgumentsAsDefault {
             None => return,
         };
 
-        let name = match constant_name(&receiver) {
-            Some(n) => n,
-            None => return,
-        };
-
-        if name != b"Hash" {
+        // Only match bare `Hash` or root-scoped `::Hash`, not namespaced like `Hamster::Hash`
+        let is_bare_hash = receiver
+            .as_constant_read_node()
+            .is_some_and(|cr| cr.name().as_slice() == b"Hash");
+        let is_root_hash = receiver.as_constant_path_node().is_some_and(|cp| {
+            cp.parent().is_none() && cp.name().is_some_and(|n| n.as_slice() == b"Hash")
+        });
+        if !is_bare_hash && !is_root_hash {
             return;
         }
 
