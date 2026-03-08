@@ -139,10 +139,14 @@ def test_end_to_end_near_perfect_not_100():
                 "cop_name": "Performance/TestCop"
             })
 
-        # Add 1 FP (nitrocop-only offense)
+        # Add 1 FP (nitrocop-only offense on a file RuboCop inspected but found clean)
         nc_offenses.append({
             "path": "repos/repo_a/extra.rb", "line": 1,
             "cop_name": "Performance/TestCop"
+        })
+        rc_offenses.append({
+            "path": "repos/repo_a/extra.rb",
+            "offenses": []
         })
 
         nc_dir.joinpath("repo_a.json").write_text(json.dumps({"offenses": nc_offenses}))
