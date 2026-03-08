@@ -7,27 +7,23 @@ use crate::parse::source::SourceFile;
 /// RSpec/Pending - detects pending specs via x-prefixed methods, `pending`/`skip` calls,
 /// examples without blocks, and `:skip`/`:pending` metadata symbols or keyword args.
 ///
-/// **Root cause of original 103 FPs:** Standalone `skip` (no args, no block) was detected
-/// without verifying the call was receiverless in all code paths. Also metadata checks
-/// could fire on non-RSpec calls.
+/// ## Corpus investigation (2026-03-08)
 ///
-/// **Root cause of original 1,407 FNs:**
-/// - XMETHODS (xdescribe, xcontext, etc.) incorrectly required a block — vendor fires
-///   with or without block.
-/// - `pending` standalone (no args, no block) was not detected — only `skip` was.
-/// - `skip`/`pending` with string arg but no block (e.g., `skip 'not ready'`) not detected.
-/// - Metadata (:skip/:pending symbols, skip:/pending: keywords) on example groups
-///   (describe, context, feature, example_group) was not fully detected.
-/// - `its` was missing from the example methods list for "no body" detection.
-/// - `xdescribe`/`xcontext`/`xfeature` with RSpec receiver not detected.
+/// Corpus oracle reported FP=103, FN=5.
 ///
-/// **Detection patterns (matches vendor rubocop-rspec):**
-/// 1. X-prefixed example groups: xdescribe, xcontext, xfeature (nil or RSpec receiver)
-/// 2. X-prefixed examples: xit, xspecify, xexample, xscenario (nil receiver)
-/// 3. `skip`/`pending` as example-level calls (nil receiver, any args, with or without block)
-/// 4. Examples without bodies: it, specify, example, scenario, its (nil receiver, has args, no block)
-/// 5. Symbol metadata :skip/:pending on example groups or examples
-/// 6. Keyword metadata skip:/pending: with true/string value (NOT skip: false) on groups or examples
+/// FP=103 root cause: keyword metadata matching was too broad. We treated
+/// `skip:`/`pending:` as pending for any value except `false`, but RuboCop only
+/// matches literal `true`, `str`, and `dstr` metadata values. Dynamic boolean or
+/// expression values (for example version checks) must not be flagged.
+///
+/// FN=5 root cause: examples with a block-pass arg (`&(proc do ... end)`) were
+/// treated as having a body because Prism exposes block-pass via `call.block()`.
+/// RuboCop's `!node.block_node` still treats these as body-less pending examples.
+///
+/// Fixes applied:
+/// - Restrict keyword metadata values to RuboCop's matcher shape: `true|str|dstr`.
+/// - Treat only `BlockNode` as a real example body; block-pass nodes still count
+///   as body-less for this cop.
 pub struct Pending;
 
 /// X-prefixed example group methods (skipped groups).
@@ -74,7 +70,7 @@ fn has_skip_or_pending_metadata(call: &ruby_prism::CallNode<'_>) -> bool {
                     if let Some(key_sym) = assoc.key().as_symbol_node() {
                         let key = key_sym.unescaped();
                         if (key == b"skip" || key == b"pending")
-                            && assoc.value().as_false_node().is_none()
+                            && is_pending_metadata_value(&assoc.value())
                         {
                             return true;
                         }
@@ -85,6 +81,12 @@ fn has_skip_or_pending_metadata(call: &ruby_prism::CallNode<'_>) -> bool {
     }
 
     false
+}
+
+fn is_pending_metadata_value(value: &ruby_prism::Node<'_>) -> bool {
+    value.as_true_node().is_some()
+        || value.as_string_node().is_some()
+        || value.as_interpolated_string_node().is_some()
 }
 
 impl Cop for Pending {
@@ -181,7 +183,7 @@ impl Cop for Pending {
                 //    Must have at least one argument (to avoid matching `it` as block param).
                 if REGULAR_EXAMPLES.contains(&method_name)
                     && call.receiver().is_none()
-                    && call.block().is_none()
+                    && call.block().and_then(|b| b.as_block_node()).is_none()
                     && call.arguments().is_some()
                 {
                     self.flag(call);

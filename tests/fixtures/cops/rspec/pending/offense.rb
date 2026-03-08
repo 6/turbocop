@@ -83,3 +83,9 @@ specify 'test'
 ^^^^^^^^^^^^^^ RSpec/Pending: Pending spec found.
 example 'test'
 ^^^^^^^^^^^^^^ RSpec/Pending: Pending spec found.
+
+# examples with only block-pass args are still body-less in RuboCop
+it 'uses a proc body', &(proc do
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ RSpec/Pending: Pending spec found.
+  expect(true).to be(true)
+end)

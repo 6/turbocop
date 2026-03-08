@@ -23,6 +23,19 @@ end
 # skip: keyword in non-RSpec method call should not be flagged
 create(:record, skip: true)
 
+# Dynamic skip metadata values are not matched by RuboCop's static pattern
+describe 'runtime metadata', skip: RUBY_VERSION < '3.3' do
+  it 'still runs assertions' do
+    expect(true).to be(true)
+  end
+end
+
+context 'runtime metadata', skip: RUBY_VERSION < '3.3' ? 'needs newer ruby' : false do
+  it 'also remains valid' do
+    expect(1).to eq(1)
+  end
+end
+
 # Method called pending on a receiver - not an RSpec pending call
 subject { Project.pending }
 
