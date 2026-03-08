@@ -89,6 +89,53 @@ define_method("dynamic_#{suffix}") do
   r = 18
 end
 
+# Pattern matching guards (in :x if guard) should NOT double-count.
+# The `in` clause counts as a condition, but the `if` guard inside
+# the InNode pattern should be suppressed (RuboCop uses if_guard type
+# which is not in CONDITION_NODES).
+# A=15, B=0, C=3 (3 in-clauses, no extra for guards) => sqrt(225+0+9) = 15.30
+# If guards were counted: C=6 => sqrt(225+0+36) = 16.16 (still under 17 but
+# validates the suppression logic).
+def method_with_pattern_guard(value)
+  a = 1
+  b = 2
+  c = 3
+  d = 4
+  e = 5
+  f = 6
+  g = 7
+  h = 8
+  i = 9
+  j = 10
+  k = 11
+  l = 12
+  m = 13
+  n = 14
+  o = 15
+  case value
+  in Integer if value > 0
+    :pos
+  in Integer if value < 0
+    :neg
+  in String unless value.empty?
+    :str
+  end
+end
+
+# Call compound assignments (obj.foo ||= v) count as A+B+C.
+# obj.foo += v counts as A+B only (no condition for op_asgn).
+# A=6 (h,a,b,c,d,e), B=6 (foo,bar,baz,qux,quux,corge), C=2 (||=, &&=)
+# => sqrt(36+36+4) = 8.72. Under default Max:17.
+def method_with_call_compound_assign(obj)
+  h = {}
+  obj.foo ||= 1
+  obj.bar &&= 2
+  obj.baz += 3
+  obj.qux -= 4
+  obj.quux *= 5
+  obj.corge /= 6
+end
+
 # Case with else should NOT add extra condition for the else branch.
 # RuboCop only counts each `when` as a condition, not the `case` else.
 # A=15, B=7, C=3 (when nodes) => sqrt(225+49+9) = 16.82. Below 17 = no offense.

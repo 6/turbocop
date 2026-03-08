@@ -60,6 +60,22 @@ use crate::parse::source::SourceFile;
 /// was not counted as a condition. In Parser AST, `:rescue` is in
 /// `CONDITION_NODES` which covers both block and inline rescue. Fix: added
 /// `RescueModifierNode` to the conditions arm of `count_node()`.
+///
+/// ## Corpus investigation (2026-03-08, round 2)
+///
+/// Bug 1 (FN): `CallOrWriteNode` (`obj.foo ||= v`), `CallAndWriteNode`
+/// (`obj.foo &&= v`), and `CallOperatorWriteNode` (`obj.foo += v`) were
+/// not handled in `count_node`, falling through to `_ => {}`.
+/// Fix: added match arms for these node types. `||=`/`&&=` count
+/// A+1, B+1, C+1; `+=` etc. count A+1, B+1 (no condition since
+/// `op_asgn` is not in `CONDITION_NODES`).
+///
+/// Bug 2 (FP): Pattern guards in `case/in` (`in :a if guard`) were
+/// double-counting. Prism wraps the guard as an `IfNode` inside `InNode`'s
+/// pattern, but RuboCop's `if_guard`/`unless_guard` are not in
+/// `CONDITION_NODES`. Fix: added `visit_in_node` override with
+/// `in_pattern_guard` flag to suppress IfNode/UnlessNode counting inside
+/// InNode patterns.
 pub struct AbcSize;
 
 /// Known iterating method names that make blocks count toward conditions.
@@ -172,6 +188,10 @@ struct AbcCounter {
     /// Tracks whether we are inside a rescue chain to avoid counting
     /// subsequent rescue clauses (Prism chains them via `subsequent`).
     in_rescue_chain: bool,
+    /// Set when visiting an InNode's pattern to suppress counting guard
+    /// IfNode/UnlessNode as separate conditions (matching RuboCop where
+    /// if_guard/unless_guard are not in CONDITION_NODES).
+    in_pattern_guard: bool,
 }
 
 impl AbcCounter {
@@ -184,6 +204,7 @@ impl AbcCounter {
             seen_attributes: std::collections::HashSet::new(),
             seen_csend_vars: std::collections::HashSet::new(),
             in_rescue_chain: false,
+            in_pattern_guard: false,
         }
     }
 
@@ -331,6 +352,24 @@ impl AbcCounter {
                 self.branches += 1;
             }
 
+            // Call compound assignments: obj.foo ||= v, obj.foo &&= v
+            // In Parser AST these produce (or_asgn (send obj :foo) v) — the send counts
+            // as a branch, compound_assignment counts as assignment, and or_asgn/and_asgn
+            // is in CONDITION_NODES.
+            ruby_prism::Node::CallOrWriteNode { .. }
+            | ruby_prism::Node::CallAndWriteNode { .. } => {
+                self.assignments += 1;
+                self.branches += 1;
+                self.conditions += 1;
+            }
+            // Call operator assignment: obj.foo += v
+            // In Parser AST: (op_asgn (send obj :foo) :+ v) — send is branch,
+            // compound_assignment counts assignment, but op_asgn is NOT in CONDITION_NODES.
+            ruby_prism::Node::CallOperatorWriteNode { .. } => {
+                self.assignments += 1;
+                self.branches += 1;
+            }
+
             // Method/block parameters count as assignments in RuboCop (argument_type? nodes).
             // Only counted when the name doesn't start with underscore.
             ruby_prism::Node::RequiredParameterNode { .. } => {
@@ -451,26 +490,33 @@ impl AbcCounter {
             // C (Conditions)
             // if/unless/case with explicit 'else' gets +2 (one for the condition, one for else)
             // Ternary (x ? y : z) has no if_keyword_loc and counts as 1 (not 2).
+            // Skip when in_pattern_guard — Prism wraps `in :x if guard` as
+            // InNode(pattern=IfNode), and RuboCop's if_guard/unless_guard are not
+            // in CONDITION_NODES, so the guard should not count separately.
             ruby_prism::Node::IfNode { .. } => {
-                self.conditions += 1;
-                if let Some(if_node) = node.as_if_node() {
-                    // Add +1 for explicit else (not elsif), but NOT for ternary
-                    let is_ternary = if_node.if_keyword_loc().is_none();
-                    if !is_ternary
-                        && if_node
-                            .subsequent()
-                            .is_some_and(|s| s.as_else_node().is_some())
-                    {
-                        self.conditions += 1;
+                if !self.in_pattern_guard {
+                    self.conditions += 1;
+                    if let Some(if_node) = node.as_if_node() {
+                        // Add +1 for explicit else (not elsif), but NOT for ternary
+                        let is_ternary = if_node.if_keyword_loc().is_none();
+                        if !is_ternary
+                            && if_node
+                                .subsequent()
+                                .is_some_and(|s| s.as_else_node().is_some())
+                        {
+                            self.conditions += 1;
+                        }
                     }
                 }
             }
             // unless is a separate node type in Prism (not an IfNode)
             ruby_prism::Node::UnlessNode { .. } => {
-                self.conditions += 1;
-                if let Some(unless_node) = node.as_unless_node() {
-                    if unless_node.else_clause().is_some() {
-                        self.conditions += 1;
+                if !self.in_pattern_guard {
+                    self.conditions += 1;
+                    if let Some(unless_node) = node.as_unless_node() {
+                        if unless_node.else_clause().is_some() {
+                            self.conditions += 1;
+                        }
                     }
                 }
             }
@@ -490,10 +536,10 @@ impl AbcCounter {
             | ruby_prism::Node::WhenNode { .. }
             | ruby_prism::Node::AndNode { .. }
             | ruby_prism::Node::OrNode { .. }
-            | ruby_prism::Node::InNode { .. }
             | ruby_prism::Node::RescueModifierNode { .. } => {
                 self.conditions += 1;
             }
+            // InNode is handled in visit_in_node to manage guard suppression.
             // Note: RescueNode is NOT counted here — it is handled in visit_rescue_node
             // to ensure it counts as a single condition regardless of how many
             // rescue clauses exist (Prism chains them via `subsequent`).
@@ -533,6 +579,23 @@ impl<'pr> Visit<'pr> for AbcCounter {
             self.in_rescue_chain = false;
         } else {
             ruby_prism::visit_rescue_node(self, node);
+        }
+    }
+
+    // InNode: count +1 condition for the `in` clause, then visit children with
+    // guard suppression. In Prism, `in :x if guard` wraps the pattern as IfNode
+    // inside InNode, which would be double-counted without suppression.
+    fn visit_in_node(&mut self, node: &ruby_prism::InNode<'pr>) {
+        self.conditions += 1;
+        // Visit the pattern with guard suppression active so that any
+        // IfNode/UnlessNode guard is not counted as a separate condition.
+        self.in_pattern_guard = true;
+        let pattern = node.pattern();
+        self.visit(&pattern);
+        self.in_pattern_guard = false;
+        // Visit the body normally
+        if let Some(stmts) = node.statements() {
+            self.visit(&stmts.as_node());
         }
     }
 
@@ -987,6 +1050,94 @@ mod tests {
         assert!(
             diags[0].message.contains("[1.73/1]"),
             "Inline rescue should count as a condition. Got: {}",
+            diags[0].message
+        );
+    }
+
+    /// CallOrWriteNode (obj.foo ||= v): CallOrWriteNode adds A+1, B+1, C+1.
+    /// `obj` is also a receiverless CallNode adding B+1.
+    /// Total: A=1, B=2, C=1 => sqrt(1+4+1) = 2.45
+    #[test]
+    fn call_or_write_node_counts() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([("Max".into(), serde_yml::Value::Number(1.into()))]),
+            ..CopConfig::default()
+        };
+        let source = b"def test_method\n  obj.foo ||= 1\nend\n";
+        let diags = run_cop_full_with_config(&AbcSize, source, config);
+        assert!(!diags.is_empty(), "Should fire for obj.foo ||= v");
+        assert!(
+            diags[0].message.contains("[2.45/1]"),
+            "obj.foo ||= v should be A=1,B=2,C=1 => 2.45. Got: {}",
+            diags[0].message
+        );
+    }
+
+    /// CallAndWriteNode (obj.bar &&= v): same as CallOrWriteNode.
+    /// A=1, B=2 (obj call + bar setter), C=1 => sqrt(1+4+1) = 2.45
+    #[test]
+    fn call_and_write_node_counts() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([("Max".into(), serde_yml::Value::Number(1.into()))]),
+            ..CopConfig::default()
+        };
+        let source = b"def test_method\n  obj.bar &&= 1\nend\n";
+        let diags = run_cop_full_with_config(&AbcSize, source, config);
+        assert!(!diags.is_empty(), "Should fire for obj.bar &&= v");
+        assert!(
+            diags[0].message.contains("[2.45/1]"),
+            "obj.bar &&= v should be A=1,B=2,C=1 => 2.45. Got: {}",
+            diags[0].message
+        );
+    }
+
+    /// CallOperatorWriteNode (obj.count += v): A+1, B+1 from node, plus B+1
+    /// from `obj` receiverless call. No condition.
+    /// Total: A=1, B=2, C=0 => sqrt(1+4) = 2.24
+    #[test]
+    fn call_operator_write_node_counts() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([("Max".into(), serde_yml::Value::Number(1.into()))]),
+            ..CopConfig::default()
+        };
+        let source = b"def test_method\n  obj.count += 1\nend\n";
+        let diags = run_cop_full_with_config(&AbcSize, source, config);
+        assert!(!diags.is_empty(), "Should fire for obj.count += v");
+        assert!(
+            diags[0].message.contains("[2.24/1]"),
+            "obj.count += v should be A=1,B=2,C=0 => 2.24. Got: {}",
+            diags[0].message
+        );
+    }
+
+    /// Pattern guard in case/in should not double-count IfNode conditions.
+    /// `case x; in :a if guard` — `in` counts C+1, guard IfNode should NOT.
+    /// `x` is a receiverless call (B+1).
+    /// Total: A=1 (y), B=1 (x), C=1 (in) => sqrt(1+1+1) = 1.73
+    #[test]
+    fn case_in_pattern_guard_no_double_count() {
+        use crate::testutil::run_cop_full_with_config;
+        use std::collections::HashMap;
+
+        let config = CopConfig {
+            options: HashMap::from([("Max".into(), serde_yml::Value::Number(1.into()))]),
+            ..CopConfig::default()
+        };
+        let source = b"def test_method\n  case x\n  in :a if true\n    y = 1\n  end\nend\n";
+        let diags = run_cop_full_with_config(&AbcSize, source, config);
+        assert!(!diags.is_empty(), "Should fire with Max:1");
+        assert!(
+            diags[0].message.contains("[1.73/1]"),
+            "Pattern guard should not add extra condition. Got: {}",
             diags[0].message
         );
     }
