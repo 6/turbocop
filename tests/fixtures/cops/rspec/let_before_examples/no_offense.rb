@@ -41,3 +41,25 @@ shared_examples 'detect/correct empty case, accept non-empty case' do
     expect_no_offenses(source_with_case)
   end
 end
+
+# it_behaves_like with an inline block does not count as the first example.
+RSpec.describe ServiceEndpoint do
+  it_behaves_like 'service error handling' do
+    before do
+      expect(service).to receive(:boot).and_raise(error)
+    end
+  end
+
+  let(:scheme) { 'https' }
+  let(:host) { 'localhost' }
+end
+
+# include_examples with an inline block also does not count as the first example.
+RSpec.describe AdminPresenter do
+  include_examples 'shared admin log' do
+    let(:component) { build(:component) }
+  end
+
+  let(:organization) { build(:organization) }
+  let(:user) { build(:user, organization:) }
+end

@@ -6,6 +6,23 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// ## Corpus investigation (2026-03-07)
+///
+/// Corpus oracle reported FP=32, FN=4.
+///
+/// FP root cause: `it_behaves_like`/`include_examples` calls with inline blocks
+/// were treated as "first examples seen", so following top-level `let` declarations
+/// were flagged. RuboCop only treats include calls without inline blocks as example
+/// inclusions for this cop's ordering rule.
+///
+/// Fix: count example-inclusion calls only when they do not have blocks.
+/// Inline-block forms are setup wrappers and should not trigger ordering offenses.
+///
+/// Acceptance gate after fix (`check-cop --verbose --rerun`):
+/// - Expected: 1,222
+/// - Actual: 1,218
+/// - Excess: 0
+/// - Missing: 4 (remaining FN work deferred)
 pub struct LetBeforeExamples;
 
 impl Cop for LetBeforeExamples {
@@ -85,7 +102,9 @@ impl Cop for LetBeforeExamples {
                     let is_example_or_group_with_block = (is_rspec_example(name)
                         || is_non_shared_example_group(name))
                         && c.block().is_some();
-                    if is_example_or_group_with_block || is_example_include(name) {
+                    if is_example_or_group_with_block
+                        || (is_example_include(name) && c.block().is_none())
+                    {
                         seen_example = true;
                     } else if seen_example && is_rspec_let(name) {
                         let let_name = std::str::from_utf8(name).unwrap_or("let");
