@@ -131,3 +131,19 @@ end
 
 # Comments at top level (no next code line means expected = 0)
 # top level standalone comment
+
+# Comment before elsif with parenthesized condition (no space after elsif)
+if condition
+  do_something
+  # comment about elsif branch
+elsif(other_condition)
+  do_other
+end
+
+# Comment before elsif( at keyword indentation
+if condition
+  do_something
+# comment about elsif branch
+elsif(other_condition)
+  do_other
+end

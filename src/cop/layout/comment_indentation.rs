@@ -20,6 +20,15 @@ use crate::parse::source::SourceFile;
 /// - Comments at end of file with no following line (expected indent = 0)
 /// - The `is_less_indented` and `is_two_alternative_keyword` checks only apply
 ///   when the next non-blank line is actual code (not another comment)
+///
+/// ## Follow-up fix: 26 more FPs (2026-03-08)
+///
+/// Two additional bugs:
+/// 1. `\r` from Windows `\r\n` line endings not treated as whitespace in blank-line
+///    detection. Lines split by `\n` retain trailing `\r`, which was treated as
+///    non-blank content at column 0, corrupting expected indentation. (17 FPs)
+/// 2. `elsif(` (parenthesized condition without space) not recognized as a
+///    two-alternative keyword. Only `elsif ` and `elsif\n` were checked. (9 FPs)
 pub struct CommentIndentation;
 
 /// Check if a line starts with one of the "two alternative" keywords.
@@ -36,6 +45,7 @@ fn is_two_alternative_keyword(line: &[u8]) -> bool {
         || trimmed.starts_with(b"else ")
         || trimmed.starts_with(b"elsif ")
         || trimmed.starts_with(b"elsif\n")
+        || trimmed.starts_with(b"elsif(")
         || trimmed.starts_with(b"when ")
         || trimmed.starts_with(b"when\n")
         || trimmed.starts_with(b"in ")
@@ -93,7 +103,9 @@ impl Cop for CommentIndentation {
         }
 
         for (i, line) in lines.iter().enumerate() {
-            let trimmed = line.iter().position(|&b| b != b' ' && b != b'\t');
+            let trimmed = line
+                .iter()
+                .position(|&b| b != b' ' && b != b'\t' && b != b'\r');
             let trimmed = match trimmed {
                 Some(t) => t,
                 None => continue, // blank line
@@ -119,7 +131,9 @@ impl Cop for CommentIndentation {
             let mut next_col = None;
             let mut next_line_idx = 0;
             for (j, ln) in lines.iter().enumerate().skip(i + 1) {
-                let next_trimmed = ln.iter().position(|&b| b != b' ' && b != b'\t');
+                let next_trimmed = ln
+                    .iter()
+                    .position(|&b| b != b' ' && b != b'\t' && b != b'\r');
                 if let Some(nt) = next_trimmed {
                     next_line = Some(ln);
                     next_col = Some(nt);
@@ -176,7 +190,9 @@ impl Cop for CommentIndentation {
                 // end-of-line comment at the same column
                 for k in (0..i).rev() {
                     let prev = lines[k];
-                    let prev_first = prev.iter().position(|&b| b != b' ' && b != b'\t');
+                    let prev_first = prev
+                        .iter()
+                        .position(|&b| b != b' ' && b != b'\t' && b != b'\r');
                     match prev_first {
                         Some(pos) if prev[pos] == b'#' => {
                             // own-line comment — skip
@@ -217,4 +233,12 @@ mod tests {
     use super::*;
 
     crate::cop_fixture_tests!(CommentIndentation, "cops/layout/comment_indentation");
+
+    #[test]
+    fn crlf_blank_lines_not_treated_as_content() {
+        // \r\n line endings: after splitting on \n, blank lines are just \r
+        // which must be treated as blank (not content at column 0)
+        let source = b"def foo\r\n  # comment\r\n\r\n  x = 1\r\nend\r\n";
+        crate::testutil::assert_cop_no_offenses(&CommentIndentation, source);
+    }
 }
