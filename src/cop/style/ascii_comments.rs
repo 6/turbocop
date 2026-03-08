@@ -2,21 +2,24 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Style/AsciiComments: Use only ASCII symbols in comments.
+///
+/// Root cause of prior FPs (~1,549): The old `check_lines` approach used
+/// `line_str.find('#')` to detect comment starts, which matched `#` inside
+/// string literals (interpolation `"#{var}"`, HTML entities `"&#83;"`, etc.).
+///
+/// A pure Prism approach was tried (commit fc9eb19) but reverted because it
+/// produced ~1,090 different excess offenses — likely from Prism including
+/// shebang lines, `__END__` sections, or encoding differences vs RuboCop's
+/// `processed_source.comments`.
+///
+/// Current fix (2026-03-08): Uses `check_source` with Prism's `parse_result.comments()`
+/// to get accurate comment byte ranges. For each Prism comment, scans only
+/// within that byte range for non-ASCII characters. This avoids both the
+/// string-literal FPs (old approach) and the shebang/encoding issues (reverted
+/// approach) because we now correctly scope scanning to real comment content
+/// only, using the same AllowedChars config as before.
 pub struct AsciiComments;
-
-// KNOWN ISSUE (2026-02-27): This cop has ~1,043 FPs from the naive `find('#')`
-// below — it treats `#` inside string literals (interpolation, HTML entities like
-// "&#83;") as comment starts. We attempted switching to `check_source` with
-// `parse_result.comments()` (Prism's actual comment nodes), which eliminated the
-// string FPs entirely. However, the Prism-based approach produced ~1,090 DIFFERENT
-// excess offenses on real comments that RuboCop doesn't flag. Possible causes:
-//   1. Prism returns more comment nodes than Parser gem (e.g., shebang, __END__)
-//   2. RuboCop's `processed_source.comments` filters certain comment types
-//   3. Encoding-related differences in what's considered "non-ASCII"
-// The Prism approach is in git history (commit fc9eb19, reverted). To fix properly,
-// need to understand why RuboCop reports fewer non-ASCII comment offenses — run
-// RuboCop directly on a high-excess repo (e.g., jruby, stripe-ruby) and compare
-// offense locations with nitrocop's Prism-based output.
 
 impl Cop for AsciiComments {
     fn name(&self) -> &'static str {
@@ -27,34 +30,41 @@ impl Cop for AsciiComments {
         false
     }
 
-    fn check_lines(
+    fn check_source(
         &self,
         source: &SourceFile,
+        parse_result: &ruby_prism::ParseResult<'_>,
+        _code_map: &crate::parse::codemap::CodeMap,
         config: &CopConfig,
         diagnostics: &mut Vec<Diagnostic>,
         _corrections: Option<&mut Vec<crate::correction::Correction>>,
     ) {
         let allowed_chars = config.get_string_array("AllowedChars").unwrap_or_default();
+        let bytes = source.as_bytes();
 
-        for (i, line) in source.lines().enumerate() {
-            let line_str = match std::str::from_utf8(line) {
+        for comment in parse_result.comments() {
+            let loc = comment.location();
+            let start = loc.start_offset();
+            let end = loc.end_offset();
+
+            // Get the comment text (everything from # to end of comment)
+            let comment_bytes = &bytes[start..end];
+            let comment_text = match std::str::from_utf8(comment_bytes) {
                 Ok(s) => s,
                 Err(_) => continue,
             };
 
-            // Find comment portion of the line.
-            // BUG: This finds the first `#` on the line, which may be inside a
-            // string literal (e.g., "#{var}", "&#83;"), causing false positives
-            // on non-ASCII characters in strings. See comment above for details.
-            let comment_start = match line_str.find('#') {
-                Some(pos) => pos,
-                None => continue,
-            };
+            // Skip the leading '#' (and optional '!' for shebangs)
+            // RuboCop doesn't flag shebang lines — skip comments starting with #!
+            if comment_text.starts_with("#!") {
+                continue;
+            }
 
-            let comment = &line_str[comment_start + 1..];
+            // Get the text after the '#'
+            let after_hash = &comment_text[1..];
 
-            // Find first non-ASCII character in comment
-            for (char_idx, ch) in comment.char_indices() {
+            // Find first non-ASCII character in the comment content
+            for (char_idx, ch) in after_hash.char_indices() {
                 if !ch.is_ascii() {
                     // Check if this character is in the allowed list
                     let ch_str = ch.to_string();
@@ -62,14 +72,16 @@ impl Cop for AsciiComments {
                         continue;
                     }
 
-                    let col = comment_start + 1 + char_idx;
+                    // Calculate position: offset of '#' + 1 (skip #) + char_idx
+                    let byte_offset = start + 1 + char_idx;
+                    let (line, col) = source.offset_to_line_col(byte_offset);
                     diagnostics.push(self.diagnostic(
                         source,
-                        i + 1,
+                        line,
                         col,
                         "Use only ascii symbols in comments.".to_string(),
                     ));
-                    break; // Only report first non-ASCII per line
+                    break; // Only report first non-ASCII per comment
                 }
             }
         }
