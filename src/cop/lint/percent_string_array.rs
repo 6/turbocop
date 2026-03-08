@@ -3,6 +3,19 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::{Diagnostic, Severity};
 use crate::parse::source::SourceFile;
 
+/// Lint/PercentStringArray: checks for quotes and commas in %w/%W arrays.
+///
+/// ## Investigation (2026-03-08)
+/// FP in rtomayko/ronn at lib/ronn/roff.rb:149 — `%W["#{node.position + 1}." 4]`.
+/// Root cause: the cop checked raw source bytes of every element, including
+/// InterpolatedStringNode elements in %W arrays. The element `"#{...}."` starts
+/// and ends with `"` in source, but the quotes are intentional string content
+/// wrapping an interpolation. RuboCop avoids this FP because its
+/// `contains_quotes_or_commas?` checks `value.children.first` (the first string
+/// fragment before interpolation), which is just `"` — a pure-punctuation fragment
+/// that gets skipped by the alphanumeric filter.
+/// Fix: skip InterpolatedStringNode elements entirely, matching RuboCop's effective
+/// behavior where interpolated elements are not flagged.
 pub struct PercentStringArray;
 
 impl Cop for PercentStringArray {
@@ -44,6 +57,15 @@ impl Cop for PercentStringArray {
 
         // Check if any element has quotes or commas
         for element in array_node.elements().iter() {
+            // Skip interpolated string elements (e.g., %W["#{expr}." other]).
+            // These contain #{} interpolation; their raw source may incidentally
+            // start/end with quote characters that are intentional string content.
+            // RuboCop effectively skips these because it checks children.first
+            // which is just a punctuation fragment that fails the alphanumeric filter.
+            if element.as_interpolated_string_node().is_some() {
+                continue;
+            }
+
             let elem_loc = element.location();
             let elem_src = &source.as_bytes()[elem_loc.start_offset()..elem_loc.end_offset()];
 
