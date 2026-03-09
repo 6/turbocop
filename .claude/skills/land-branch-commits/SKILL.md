@@ -18,11 +18,20 @@ Use this when the user wants commits from one or more branches landed onto
    ```
    Treat unrelated working tree changes as off-limits.
 
-2. Fetch the exact refs you need:
+2. Resolve branch names against the remote, then fetch:
    ```bash
-   git fetch origin main <branch1> <branch2> ...
+   git ls-remote --heads origin
    ```
-   Prefer explicit branch names over a broad fetch.
+   The user-provided branch name may not exactly match the remote ref — it
+   could be nested under any prefix. Search `ls-remote` output for refs whose
+   name ends with the user-provided string. If the exact name isn't found but a
+   unique suffix match exists, use that. If multiple matches exist, list them
+   and ask the user to disambiguate.
+
+   Then fetch the resolved refs:
+   ```bash
+   git fetch origin main <resolved-branch1> <resolved-branch2> ...
+   ```
 
 3. Identify patch-new commits for each branch:
    ```bash
