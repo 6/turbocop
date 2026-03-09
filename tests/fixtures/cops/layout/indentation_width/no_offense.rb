@@ -227,3 +227,26 @@ def foo
 rescue
   handle_error
 end
+
+# Block body starting with access modifier — skip indentation check
+# (matches RuboCop's starts_with_access_modifier? skip)
+m = Module.new do
+    module_function
+
+  def some_method
+    true
+  end
+end
+
+# Class body starting with access modifier
+class Foo
+    private
+
+  def bar
+    baz
+  end
+end
+
+# Body not at first char on line — skip (RuboCop skip_check?)
+if cond then result = value
+end

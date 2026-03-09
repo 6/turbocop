@@ -8,7 +8,71 @@ use crate::cop::{Cop, CopConfig};
 use crate::diagnostic::Diagnostic;
 use crate::parse::source::SourceFile;
 
+/// Layout/IndentationWidth checks that each body is indented by the configured
+/// number of spaces (default 2) relative to its parent keyword/block.
+///
+/// ## Corpus investigation findings (2026-03-09):
+/// - 164 FP, 47,114 FN (57.8% match rate)
+/// - FPs largely caused by missing `starts_with_access_modifier?` skip (RuboCop
+///   skips indentation check when body begins with `private`/`protected`/`public`/
+///   `module_function`). Biggest source: phlex repo (64 FPs), bin/bundle binstubs.
+/// - FPs also from missing "body not first on line" check (RuboCop's `skip_check?`
+///   skips when body node column != first non-space char on its line).
+/// - FNs are massive (47k) and mainly from the cop being at preview tier, not from
+///   logic bugs. The cop correctly detects offenses when enabled.
 pub struct IndentationWidth;
+
+/// Access modifier method names that RuboCop treats as bare access modifiers.
+/// When a class/module/block body starts with one of these, RuboCop skips the
+/// indentation width check for that body.
+const ACCESS_MODIFIERS: &[&[u8]] = &[b"private", b"protected", b"public", b"module_function"];
+
+/// Check if a node is a bare access modifier call (e.g., `private` with no args,
+/// or `private :method_name`). Matches RuboCop's `access_modifier?` / `bare_access_modifier?`.
+fn is_access_modifier_call(node: &ruby_prism::Node<'_>) -> bool {
+    if let Some(call) = node.as_call_node() {
+        // Must be a method call with no explicit receiver (bare call)
+        if call.receiver().is_some() {
+            return false;
+        }
+        let name = call.name().as_slice();
+        ACCESS_MODIFIERS.contains(&name)
+    } else {
+        false
+    }
+}
+
+/// Check if a StatementsNode's first child is a bare access modifier.
+/// Matches RuboCop's `starts_with_access_modifier?` which checks if the body
+/// (when it's a `begin` type / StatementsNode) starts with an access modifier.
+fn starts_with_access_modifier(stmts: &ruby_prism::StatementsNode<'_>) -> bool {
+    if let Some(first) = stmts.body().iter().next() {
+        is_access_modifier_call(&first)
+    } else {
+        false
+    }
+}
+
+/// Check if the body node is not the first non-whitespace character on its line.
+/// RuboCop's `skip_check?` skips indentation check when the body doesn't start
+/// at the beginning of its line (e.g., `else do_something` on one line).
+fn body_not_first_on_line(source: &SourceFile, body_col: usize, body_offset: usize) -> bool {
+    // Walk backward from body_offset to find the start of the line
+    let bytes = source.as_bytes();
+    let mut line_start = body_offset;
+    while line_start > 0 && bytes[line_start - 1] != b'\n' {
+        line_start -= 1;
+    }
+    // Find the first non-whitespace character on this line
+    let mut first_non_ws = line_start;
+    while first_non_ws < bytes.len()
+        && (bytes[first_non_ws] == b' ' || bytes[first_non_ws] == b'\t')
+    {
+        first_non_ws += 1;
+    }
+    let first_col = first_non_ws - line_start;
+    body_col != first_col
+}
 
 impl IndentationWidth {
     /// Check body indentation.
@@ -32,6 +96,11 @@ impl IndentationWidth {
             None => return Vec::new(),
         };
 
+        // Skip if body starts with access modifier (RuboCop's starts_with_access_modifier?)
+        if starts_with_access_modifier(&stmts) {
+            return Vec::new();
+        }
+
         let children: Vec<_> = stmts.body().iter().collect();
         if children.is_empty() {
             return Vec::new();
@@ -48,6 +117,12 @@ impl IndentationWidth {
 
         // Skip if body is on same line as keyword (single-line construct)
         if child_line == kw_line {
+            return Vec::new();
+        }
+
+        // Skip if body is not the first non-whitespace char on its line
+        // (e.g., `else do_something` on one line)
+        if body_not_first_on_line(source, child_col, loc.start_offset()) {
             return Vec::new();
         }
 
@@ -98,6 +173,11 @@ impl IndentationWidth {
         // Skip if body is on same line as keyword (single-line construct)
         // or before the keyword (modifier if/while/until)
         if child_line <= kw_line {
+            return Vec::new();
+        }
+
+        // Skip if body is not the first non-whitespace char on its line
+        if body_not_first_on_line(source, child_col, loc.start_offset()) {
             return Vec::new();
         }
 
