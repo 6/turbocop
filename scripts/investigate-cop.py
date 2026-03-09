@@ -39,11 +39,24 @@ def download_corpus_results() -> Path:
     return path
 
 
-def parse_example(ex: str) -> tuple[str, str, int] | None:
-    """Parse 'repo_id: filepath:line' into (repo_id, filepath, line)."""
-    if ": " not in ex:
+def normalize_example(ex) -> tuple[str, str, list[str] | None]:
+    """Normalize an example to (loc_string, message, embedded_context).
+
+    Handles both old format (plain string) and new enriched format (dict with
+    'loc', 'msg', and 'src' keys)."""
+    if isinstance(ex, dict):
+        return ex.get("loc", ""), ex.get("msg", ""), ex.get("src")
+    return ex, "", None
+
+
+def parse_example(ex) -> tuple[str, str, int, str, list[str] | None] | None:
+    """Parse example into (repo_id, filepath, line, message, embedded_context).
+
+    Handles both old string format and new dict format."""
+    loc, msg, src = normalize_example(ex)
+    if ": " not in loc:
         return None
-    repo_id, rest = ex.split(": ", 1)
+    repo_id, rest = loc.split(": ", 1)
     # filepath:line — find last colon for line number
     last_colon = rest.rfind(":")
     if last_colon < 0:
@@ -53,7 +66,7 @@ def parse_example(ex: str) -> tuple[str, str, int] | None:
         line = int(rest[last_colon + 1:])
     except ValueError:
         return None
-    return repo_id, filepath, line
+    return repo_id, filepath, line, msg, src
 
 
 def show_context(repo_id: str, filepath: str, line: int, context_lines: int = 3):
@@ -84,7 +97,7 @@ def main():
     parser.add_argument("--input", type=Path,
                         help="Path to corpus-results.json (default: download from CI)")
     parser.add_argument("--context", action="store_true",
-                        help="Show source lines around each FP/FN from vendor/corpus/")
+                        help="Show source lines around each FP/FN (uses embedded snippets or vendor/corpus/)")
     parser.add_argument("--repos-only", action="store_true",
                         help="Show only the per-repo breakdown table")
     parser.add_argument("--fp-only", action="store_true",
@@ -172,64 +185,46 @@ def main():
     fp_examples = cop_entry.get("fp_examples", [])
     fn_examples = cop_entry.get("fn_examples", [])
 
-    if not args.fn_only and fp_examples:
-        # Group by repo
+    def _show_examples(examples, label):
+        """Display FP or FN examples grouped by repo."""
         by_repo = defaultdict(list)
-        for ex in fp_examples:
+        for ex in examples:
             parsed = parse_example(ex)
             if parsed:
-                repo_id, filepath, line = parsed
-                by_repo[repo_id].append((filepath, line))
+                repo_id, filepath, line, msg, src = parsed
+                by_repo[repo_id].append((filepath, line, msg, src))
             else:
-                by_repo["(unknown)"].append((ex, 0))
+                loc, _, _ = normalize_example(ex)
+                by_repo["(unknown)"].append((loc, 0, "", None))
 
-        print(f"False positives ({len(fp_examples):,} total):")
+        print(f"{label} ({len(examples):,} total):")
         shown = 0
         for repo_id in sorted(by_repo, key=lambda r: -len(by_repo[r])):
             locations = by_repo[repo_id]
             print(f"\n  {repo_id} ({len(locations)}):")
-            for filepath, line in sorted(locations):
+            for filepath, line, msg, src in sorted(locations, key=lambda x: (x[0], x[1])):
                 if args.limit and shown >= args.limit:
-                    remaining = len(fp_examples) - shown
+                    remaining = len(examples) - shown
                     print(f"\n  ... {remaining:,} more (use --limit 0 to see all)")
-                    break
-                print(f"    {filepath}:{line}")
+                    return
+                msg_suffix = f"  [{msg}]" if msg else ""
+                print(f"    {filepath}:{line}{msg_suffix}")
                 if args.context and line > 0:
-                    show_context(repo_id, filepath, line)
+                    if src:
+                        # Use embedded source context from corpus-results.json
+                        for ctx_line in src:
+                            print(f"      {ctx_line}")
+                    else:
+                        # Fall back to reading from vendor/corpus/
+                        show_context(repo_id, filepath, line)
                 shown += 1
-            else:
-                continue
-            break
         print()
+
+    if not args.fn_only and fp_examples:
+        _show_examples(fp_examples, "False positives")
 
     if not args.fp_only and fn_examples:
-        by_repo = defaultdict(list)
-        for ex in fn_examples:
-            parsed = parse_example(ex)
-            if parsed:
-                repo_id, filepath, line = parsed
-                by_repo[repo_id].append((filepath, line))
-            else:
-                by_repo["(unknown)"].append((ex, 0))
-
-        print(f"False negatives ({len(fn_examples):,} total):")
-        shown = 0
-        for repo_id in sorted(by_repo, key=lambda r: -len(by_repo[r])):
-            locations = by_repo[repo_id]
-            print(f"\n  {repo_id} ({len(locations)}):")
-            for filepath, line in sorted(locations):
-                if args.limit and shown >= args.limit:
-                    remaining = len(fn_examples) - shown
-                    print(f"\n  ... {remaining:,} more (use --limit 0 to see all)")
-                    break
-                print(f"    {filepath}:{line}")
-                if args.context and line > 0:
-                    show_context(repo_id, filepath, line)
-                shown += 1
-            else:
-                continue
-            break
-        print()
+        _show_examples(fn_examples, "False negatives")
 
     # Show note about data freshness
     if not fp_examples and not fn_examples:

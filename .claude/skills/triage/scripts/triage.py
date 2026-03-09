@@ -84,13 +84,16 @@ def fmt_count(n: int) -> str:
     return f"{n:,}"
 
 
-def extract_repos_from_examples(examples: list[str]) -> list[str]:
-    """Extract unique repo short names from example location strings."""
+def extract_repos_from_examples(examples: list) -> list[str]:
+    """Extract unique repo short names from example location strings.
+
+    Handles both old string format and new dict format (with 'loc' key)."""
     repos = []
     seen = set()
     for ex in examples:
-        if ": " in ex:
-            repo_id = ex.split(": ", 1)[0]
+        loc = ex.get("loc", "") if isinstance(ex, dict) else ex
+        if ": " in loc:
+            repo_id = loc.split(": ", 1)[0]
             # Shorten: owner__repo__sha -> repo
             parts = repo_id.split("__")
             short = parts[1] if len(parts) >= 2 else repo_id

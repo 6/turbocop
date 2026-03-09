@@ -53,12 +53,15 @@ def find_corpus_results() -> dict | None:
     return None
 
 
-def parse_example(ex: str) -> tuple[str, str]:
-    """Parse 'repo_id: filepath:line' into (repo_id, location)."""
-    parts = ex.split(": ", 1)
+def parse_example(ex) -> tuple[str, str]:
+    """Parse example into (repo_id, location).
+
+    Handles both old string format and new dict format."""
+    loc = ex.get("loc", "") if isinstance(ex, dict) else ex
+    parts = loc.split(": ", 1)
     if len(parts) == 2:
         return parts[0], parts[1]
-    return ex, ""
+    return loc, ""
 
 
 def build_cop_repo_map(data: dict) -> dict:

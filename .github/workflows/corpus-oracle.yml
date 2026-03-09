@@ -214,6 +214,17 @@ jobs:
               "results/rubocop/${REPO_ID}.json" \
               2>/dev/null || true
 
+            # Extract source context around offenses before deleting the repo.
+            # This embeds ~7 lines of source code around each offense location
+            # into the corpus results, enabling investigation without cloning repos.
+            python3 bench/corpus/extract_context.py \
+              --nitrocop-json "results/nitrocop/${REPO_ID}.json" \
+              --rubocop-json "results/rubocop/${REPO_ID}.json" \
+              --repo-dir "$DEST" \
+              --output "results/context/${REPO_ID}.json" \
+              --context-lines 7 \
+              2>/dev/null || true
+
             # Free disk space between repos
             rm -rf "$DEST"
 
@@ -228,6 +239,7 @@ jobs:
             results/
             nitrocop-cops.txt
           retention-days: 7
+          include-hidden-files: false
 
   # ── Run synthetic benchmark (parallel with corpus batches) ────
   run-synthetic:
@@ -305,13 +317,19 @@ jobs:
         run: |
           # Cop list is uploaded alongside results from any repo job
           COP_LIST=$(find all-results -name nitrocop-cops.txt -print -quit)
+          # Context dir may not exist if all repos failed context extraction
+          CONTEXT_DIR=""
+          if [ -d "all-results/results/context" ]; then
+            CONTEXT_DIR="--context-dir all-results/results/context"
+          fi
           python3 bench/corpus/diff_results.py \
             --nitrocop-dir all-results/results/nitrocop \
             --rubocop-dir all-results/results/rubocop \
             --manifest bench/corpus/manifest.jsonl \
             --output-json corpus-results.json \
             --output-md corpus-results.md \
-            ${COP_LIST:+--cop-list "$COP_LIST"}
+            ${COP_LIST:+--cop-list "$COP_LIST"} \
+            $CONTEXT_DIR
 
       - name: Generate tiers.json
         run: |

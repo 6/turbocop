@@ -84,9 +84,10 @@ def read_err_snippet(json_path: Path, tool: str) -> str:
     return ""
 
 
-def parse_nitrocop_json(path: Path) -> set | None:
+def parse_nitrocop_json(path: Path) -> tuple[set, dict] | None:
     """Parse nitrocop JSON output. Format: {"offenses": [...]}
-    Returns None if the file is missing, empty, or unparseable (crash)."""
+    Returns (offenses_set, messages_dict) or None if the file is missing/empty/unparseable.
+    messages_dict maps (filepath, line, cop) -> message."""
     try:
         text = path.read_text()
     except FileNotFoundError:
@@ -99,19 +100,25 @@ def parse_nitrocop_json(path: Path) -> set | None:
         return None
 
     offenses = set()
+    messages = {}
     for o in data.get("offenses", []):
         filepath = strip_repo_prefix(o.get("path", ""))
         line = o.get("line", 0)
         cop = o.get("cop_name", "")
         if filepath and cop:
-            offenses.add((filepath, line, cop))
-    return offenses
+            key = (filepath, line, cop)
+            offenses.add(key)
+            msg = o.get("message", "")
+            if msg:
+                messages[key] = msg
+    return offenses, messages
 
 
-def parse_rubocop_json(path: Path) -> tuple[set, set, int, int] | None:
+def parse_rubocop_json(path: Path) -> tuple[set, dict, set, int, int] | None:
     """Parse RuboCop JSON output. Format: {"files": [{"path": ..., "offenses": [...]}]}
-    Returns (offenses, inspected_files, target_file_count, inspected_file_count)
+    Returns (offenses, messages, inspected_files, target_file_count, inspected_file_count)
     or None if the file is missing/empty/unparseable.
+    messages maps (filepath, line, cop) -> message.
     inspected_files is the set of relative file paths that RuboCop actually reported on.
     This is needed because RuboCop silently drops files when its parser crashes mid-batch."""
     try:
@@ -126,6 +133,7 @@ def parse_rubocop_json(path: Path) -> tuple[set, set, int, int] | None:
         return None
 
     offenses = set()
+    messages = {}
     inspected_files = set()
     zero_offense_files = set()
     for f in data.get("files", []):
@@ -138,7 +146,11 @@ def parse_rubocop_json(path: Path) -> tuple[set, set, int, int] | None:
             line = o.get("location", {}).get("line", 0)
             cop = o.get("cop_name", "")
             if filepath and cop:
-                offenses.add((filepath, line, cop))
+                key = (filepath, line, cop)
+                offenses.add(key)
+                msg = o.get("message", "")
+                if msg:
+                    messages[key] = msg
 
     # Detect parser crashes: when inspected_file_count < target_file_count,
     # RuboCop's parser crashed mid-batch and dropped files. Files that appear
@@ -152,7 +164,7 @@ def parse_rubocop_json(path: Path) -> tuple[set, set, int, int] | None:
     if target > 0 and inspected < target and zero_offense_files:
         inspected_files -= zero_offense_files
 
-    return offenses, inspected_files, target, inspected
+    return offenses, messages, inspected_files, target, inspected
 
 
 def load_manifest(path: Path) -> list:
@@ -166,6 +178,18 @@ def load_manifest(path: Path) -> list:
     return repos
 
 
+def load_context(context_dir: Path | None, repo_id: str) -> dict:
+    """Load context snippets for a repo. Returns {filepath:line -> {context: [...]}}.
+    Returns empty dict if no context available."""
+    if not context_dir:
+        return {}
+    path = context_dir / f"{repo_id}.json"
+    try:
+        return json.loads(path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
 def main():
     parser = argparse.ArgumentParser(description="Diff corpus oracle results")
     parser.add_argument("--nitrocop-dir", required=True, type=Path)
@@ -174,6 +198,7 @@ def main():
     parser.add_argument("--output-json", required=True, type=Path)
     parser.add_argument("--output-md", required=True, type=Path)
     parser.add_argument("--cop-list", type=Path, help="File with one cop name per line (filter RuboCop to these)")
+    parser.add_argument("--context-dir", type=Path, help="Directory with per-repo context JSON files from extract_context.py")
     args = parser.parse_args()
 
     manifest = load_manifest(args.manifest)
@@ -227,13 +252,13 @@ def main():
             repos_error += 1
             continue
 
-        tc_offenses = parse_nitrocop_json(tc_path)
+        tc_result = parse_nitrocop_json(tc_path)
         rc_result = parse_rubocop_json(rc_path)
 
         # Detect crashed/empty output — don't compare against phantom zero offenses
-        if tc_offenses is None or rc_result is None:
-            side = "nitrocop" if tc_offenses is None else "rubocop"
-            err_path = tc_path if tc_offenses is None else rc_path
+        if tc_result is None or rc_result is None:
+            side = "nitrocop" if tc_result is None else "rubocop"
+            err_path = tc_path if tc_result is None else rc_path
             err_msg = read_err_snippet(err_path, side)
             repo_results.append({
                 "repo": repo_id,
@@ -247,7 +272,8 @@ def main():
             repos_error += 1
             continue
 
-        rc_offenses, rc_inspected_files, rc_target, rc_inspected = rc_result
+        tc_offenses, tc_messages = tc_result
+        rc_offenses, rc_messages, rc_inspected_files, rc_target, rc_inspected = rc_result
         total_files += len(rc_inspected_files)
 
         # Filter to covered cops only (drop offenses from cops nitrocop doesn't implement)
@@ -294,6 +320,21 @@ def main():
         if n_fp == 0 and n_fn == 0:
             repos_perfect += 1
 
+        # Load source context for this repo (if available)
+        repo_context = load_context(args.context_dir, repo_id) if args.context_dir else {}
+
+        def _make_example(loc: str, msg: str, filepath: str, line: int) -> dict | str:
+            """Build an example entry with optional message and source context."""
+            ctx = repo_context.get(f"{filepath}:{line}", {}).get("context")
+            if msg or ctx:
+                entry = {"loc": loc}
+                if msg:
+                    entry["msg"] = msg
+                if ctx:
+                    entry["src"] = ctx
+                return entry
+            return loc
+
         # Per-cop aggregation
         for _, _, cop in matches:
             by_cop_matches[cop] += 1
@@ -301,14 +342,20 @@ def main():
                 by_repo_cop[repo_id][cop]["matches"] += 1
         for filepath, line, cop in fp:
             by_cop_fp[cop] += 1
+            key = (filepath, line, cop)
             loc = f"{repo_id}: {filepath}:{line}" if multi_repo else f"{filepath}:{line}"
-            by_cop_fp_examples[cop].append(loc)
+            # FP = nitrocop fires but RuboCop doesn't → message comes from nitrocop
+            msg = tc_messages.get(key, "")
+            by_cop_fp_examples[cop].append(_make_example(loc, msg, filepath, line))
             if multi_repo:
                 by_repo_cop[repo_id][cop]["fp"] += 1
         for filepath, line, cop in fn:
             by_cop_fn[cop] += 1
+            key = (filepath, line, cop)
             loc = f"{repo_id}: {filepath}:{line}" if multi_repo else f"{filepath}:{line}"
-            by_cop_fn_examples[cop].append(loc)
+            # FN = RuboCop fires but nitrocop doesn't → message comes from RuboCop
+            msg = rc_messages.get(key, "")
+            by_cop_fn_examples[cop].append(_make_example(loc, msg, filepath, line))
             if multi_repo:
                 by_repo_cop[repo_id][cop]["fn"] += 1
 
@@ -456,6 +503,14 @@ def main():
     }
     args.output_json.write_text(json.dumps(json_output, indent=2) + "\n")
 
+    def _format_example_md(ex) -> str:
+        """Format an example for markdown (handles both string and dict format)."""
+        if isinstance(ex, dict):
+            loc = ex.get("loc", "")
+            msg = ex.get("msg", "")
+            return f"{loc}  [{msg}]" if msg else loc
+        return ex
+
     # ── Write Markdown ──
     md = []
     md.append(f"# Corpus Oracle Results")
@@ -566,7 +621,8 @@ def main():
                 md.append("**False positives** (nitrocop reports, RuboCop does not):")
                 md.append("")
                 for ex in fp_list[:MD_EXAMPLE_LIMIT]:
-                    md.append(f"- `{ex}`")
+                    ex_str = _format_example_md(ex)
+                    md.append(f"- `{ex_str}`")
                 if len(fp_list) > MD_EXAMPLE_LIMIT:
                     md.append(f"- ... and {len(fp_list) - MD_EXAMPLE_LIMIT:,} more (see corpus-results.json for full list)")
                 md.append("")
@@ -574,7 +630,8 @@ def main():
                 md.append("**False negatives** (RuboCop reports, nitrocop does not):")
                 md.append("")
                 for ex in fn_list[:MD_EXAMPLE_LIMIT]:
-                    md.append(f"- `{ex}`")
+                    ex_str = _format_example_md(ex)
+                    md.append(f"- `{ex_str}`")
                 if len(fn_list) > MD_EXAMPLE_LIMIT:
                     md.append(f"- ... and {len(fn_list) - MD_EXAMPLE_LIMIT:,} more (see corpus-results.json for full list)")
                 md.append("")
