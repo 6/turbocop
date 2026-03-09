@@ -52,26 +52,26 @@ Config auto-discovery walks up from the target directory to find `.rubocop.yml`.
 ## Cops
 
 <!-- corpus-cops:start -->
-nitrocop supports 915 cops from 6 RuboCop gems.
+nitrocop supports 910 cops from 6 RuboCop gems.
 
-Current corpus status: 339 cops match RuboCop exactly on the corpus, 514 diverge, and 62 have no corpus data.
+Current corpus status: 338 cops match RuboCop exactly on the corpus, 516 diverge, and 56 have no corpus data.
 
 No corpus data means the cop never appeared in the corpus, so it has not been compared yet.
 
-**[rubocop](https://github.com/rubocop/rubocop)** `1.84.2` (593 cops)
+**[rubocop](https://github.com/rubocop/rubocop)** `1.84.2` (588 cops)
 
 | Department | Total cops | Exact match | Diverging | No corpus data | Exact match % |
 |------------|-----------:|------------:|----------:|---------------:|--------------:|
 | Layout | 100 | 19 | 81 | 0 | 19.0% |
-| Lint | 152 | 61 | 82 | 9 | 40.1% |
-| Style | 287 | 66 | 216 | 5 | 22.9% |
+| Lint | 148 | 60 | 83 | 5 | 40.5% |
+| Style | 287 | 66 | 217 | 4 | 22.9% |
 | Metrics | 10 | 4 | 6 | 0 | 40.0% |
 | Naming | 19 | 8 | 11 | 0 | 42.1% |
-| Security | 7 | 6 | 0 | 1 | 85.7% |
+| Security | 6 | 6 | 0 | 0 | ✓ 100.0% |
 | Bundler | 7 | 7 | 0 | 0 | ✓ 100.0% |
 | Gemspec | 10 | 10 | 0 | 0 | ✓ 100.0% |
 | Migration | 1 | 1 | 0 | 0 | ✓ 100.0% |
-| **Total** | **593** | **182** | **396** | **15** | **30.6%** |
+| **Total** | **588** | **181** | **398** | **9** | **30.7%** |
 
 **[rubocop-rails](https://github.com/rubocop/rubocop-rails)** `2.34.3` (138 cops)
 
@@ -114,27 +114,27 @@ We diff nitrocop against RuboCop on [**1,000 open-source repos**](docs/corpus.md
 |:-----------------------|--------: |------:|
 | Agreed                 |    11.5M | 95.9% |
 | nitrocop extra (FP)    |    60.0K | 0.5% |
-| nitrocop missed (FN)   |   426.7K | 3.6% |
+| nitrocop missed (FN)   |   427.6K | 3.6% |
 
 Per-repo results (top 15 by GitHub stars):
 
 | Repo | .rb files | RuboCop offenses | nitrocop extra (FP) | nitrocop missed (FN) | Agreement |
 |------|----------:|-----------------:|--------------------:|---------------------:|----------:|
-| [rails](https://github.com/rails/rails) | 3,498 | 314,852 | 976 | 13,712 | 95.3% |
-| [jekyll](https://github.com/jekyll/jekyll) | 190 | 13,052 | 72 | 666 | 94.3% |
+| [rails](https://github.com/rails/rails) | 3,498 | 314,886 | 976 | 13,737 | 95.3% |
+| [jekyll](https://github.com/jekyll/jekyll) | 190 | 13,053 | 72 | 665 | 94.3% |
 | [mastodon](https://github.com/mastodon/mastodon) | 3,123 | 76,406 | 121 | 1,810 | 97.4% |
-| [huginn](https://github.com/huginn/huginn) | 451 | 34,402 | 110 | 676 | 97.7% |
-| [discourse](https://github.com/discourse/discourse) | 9,182 | 621,130 | 5,273 | 10,950 | 97.4% |
-| [fastlane](https://github.com/fastlane/fastlane) | 1,302 | 118,730 | 196 | 2,279 | 97.9% |
-| [devdocs](https://github.com/freeCodeCamp/devdocs) | 833 | 19,903 | 110 | 1,241 | 93.2% |
-| [chatwoot](https://github.com/chatwoot/chatwoot) | 2,262 | 64,941 | 135 | 1,107 | 98.0% |
-| [vagrant](https://github.com/hashicorp/vagrant) | 1,460 | 86,064 | 208 | 2,369 | 97.0% |
+| [huginn](https://github.com/huginn/huginn) | 451 | 34,403 | 110 | 677 | 97.7% |
+| [discourse](https://github.com/discourse/discourse) | 9,182 | 621,167 | 5,275 | 10,938 | 97.4% |
+| [fastlane](https://github.com/fastlane/fastlane) | 1,302 | 118,741 | 196 | 2,290 | 97.9% |
+| [devdocs](https://github.com/freeCodeCamp/devdocs) | 833 | 19,908 | 110 | 1,246 | 93.2% |
+| [chatwoot](https://github.com/chatwoot/chatwoot) | 2,262 | 64,944 | 135 | 1,109 | 98.0% |
+| [vagrant](https://github.com/hashicorp/vagrant) | 1,460 | 86,131 | 208 | 2,425 | 96.9% |
 | [devise](https://github.com/heartcombo/devise) | 206 | 5,800 | 28 | 347 | 93.5% |
-| [forem](https://github.com/forem/forem) | 3,390 | 128,530 | 348 | 3,128 | 97.3% |
-| [postal](https://github.com/postalserver/postal) | 294 | 13,948 | 37 | 623 | 95.2% |
-| [CocoaPods](https://github.com/CocoaPods/CocoaPods) | 438 | 28,422 | 362 | 1,567 | 93.2% |
-| [openproject](https://github.com/opf/openproject) | 9,286 | 388,980 | 1,520 | 7,891 | 97.5% |
-| [gollum](https://github.com/gollum/gollum) | 55 | 3,790 | 19 | 279 | 92.1% |
+| [forem](https://github.com/forem/forem) | 3,390 | 128,541 | 348 | 3,136 | 97.2% |
+| [postal](https://github.com/postalserver/postal) | 294 | 13,952 | 37 | 626 | 95.2% |
+| [CocoaPods](https://github.com/CocoaPods/CocoaPods) | 438 | 28,428 | 362 | 1,570 | 93.2% |
+| [openproject](https://github.com/opf/openproject) | 9,286 | 389,032 | 1,522 | 7,937 | 97.5% |
+| [gollum](https://github.com/gollum/gollum) | 55 | 3,793 | 19 | 282 | 92.1% |
 
 Remaining gaps are mostly in complex layout cops (indentation, alignment) and a few style cops. See [docs/corpus.md](docs/corpus.md) for the full corpus breakdown.
 
