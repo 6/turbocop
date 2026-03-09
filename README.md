@@ -95,7 +95,7 @@ Compared with RuboCop on [**1,000 open-source repos**](docs/corpus.md) (232k Rub
 
 | Department | Cops | Matched exactly | Differed | Matched exactly % |
 |------------|-----:|----------------:|---------:|------------------:|
-| RSpecRails | 8 | 8 | 0 | ✓ 100.0% |
+| RSpecRails | 8 | 7 | 1 | 87.5% |
 
 **[rubocop-factory_bot](https://github.com/rubocop/rubocop-factory_bot)** `2.28.0` (11 cops)
 
